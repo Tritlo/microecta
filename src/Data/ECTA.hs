@@ -49,7 +49,9 @@ module Data.ECTA (
     -- * Enumeration
     EnumerateM,
     runEnumerateM,
+    TermFragment (..),
     enumerateFully,
+    fragRepresents,
     getAllTerms,
     getAllTermsPrune,
     getAllTruncatedTerms,
