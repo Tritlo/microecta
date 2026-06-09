@@ -392,19 +392,18 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
             GT -> anyMatchingChild left rest2
             EQ -> go pt1 pt2 || anyMatchingChild rest1 rest2
 
-{- | Extends the subsumption ordering to a total ordering by using the default lexicographic
-  comparison for incomparable elements.
-| TODO: Optimization opportunity: Redundant work in the hasSubsumingMember calls
+{- | Total ordering used when choosing constraint-propagation order.
+
+Strict subsumption comes first: if one equality class contains a path that is a
+strict prefix of a path in another class, the shorter one must be processed
+before the longer one. Incomparable classes use the reversed trie ordering.
+That tie-break keeps term-search-shaped workloads in the old left-to-right
+propagation order, which avoids extra reduction work in practice.
 -}
 completedSubsumptionOrdering :: PathEClass -> PathEClass -> Ordering
 completedSubsumptionOrdering pec1 pec2
     | hasSubsumingMember pec1 pec2 = LT
     | hasSubsumingMember pec2 pec1 = GT
-    --   This next line is some hacky magic. Basically, it means that for the
-    --   Hoogle+/TermSearch workload, where there is no subsumption,
-    --   constraints will be evaluated in left-to-right order (instead of the default
-    --   right-to-left), which for that particular workload produces better
-    --   constraint-propagation
     | otherwise = compare pec2 pec1
 
 --------------------------------
@@ -459,10 +458,12 @@ hasSubsumingMemberListBased ps1 ps2 =
             , p2 <- ps2
             ]
 
-{- | The real contradiction condition is a cycle in the subsumption ordering.
-  But, after congruence closure, this will reduce into a self-cycle in the subsumption ordering.
+{- | Check whether a normalized path class forces a path equal to its subpath.
 
-  TODO; Prove this.
+After congruence closure, every subsumption cycle appears as an equality class
+containing both a path and one of its strict prefixes. Such a class is
+unsatisfiable for finite trees: it would require a subterm to be equal to a
+proper descendant of itself.
 -}
 isContradicting :: [[Path]] -> Bool
 isContradicting cs = any (\pec -> hasSubsumingMemberListBased pec pec) cs
@@ -546,10 +547,13 @@ eqConstraintsDescend ecs i = case mapMaybe (`pathEClassDescendNontrivial` i) (ge
                 then Just (mkPathEClassFromPathTrie pt')
                 else Nothing
 
--- A faster implementation would be: Merge the eclasses of both, run mkEqConstraints (or at least do eclass completion),
--- check result equal to ecs2
+{- | Conservative implication check between two constraint sets.
 
--- | Conservative implication check between two constraint sets.
+This is intentionally cheaper than rebuilding the combined closure: every
+class required by the second set must occur as a subsequence of some class in
+the first set. That is sufficient for redundant-edge pruning, but it is not a
+complete theorem prover for arbitrary constraint implication.
+-}
 constraintsImply :: EqConstraints -> EqConstraints -> Bool
 constraintsImply EqContradiction _ = True
 constraintsImply _ EqContradiction = False
