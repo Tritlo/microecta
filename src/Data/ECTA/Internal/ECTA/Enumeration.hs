@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Data.ECTA.Internal.ECTA.Enumeration (
     TermFragment (..),
@@ -40,26 +39,19 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     getAllTerms,
     getAllTermsPrune,
     enumPrune,
-    naiveDenotation,
-    naiveDenotationBounded,
 ) where
 
-import Control.Monad (filterM, forM_, guard)
-import Control.Monad.Identity (Identity)
-import Control.Monad.State.Strict (StateT (..))
+import Control.Monad (filterM, forM_, guard, mzero, void, zipWithM)
+import Control.Monad.State.Strict (StateT (..), gets, modify')
+import Control.Monad.Trans.Class (lift)
 import qualified Data.IntMap as IntMap
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (Any (..))
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
 
-import Control.Lens (Lens', ix, lens, use, (%=), (.=))
-import Control.Lens.TH (makeLensesFor)
-import Pipes
-import qualified Pipes.Prelude as Pipes
-
-import Data.List.Index (imapM)
+import Lens.Micro (Lens', lens)
 
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
@@ -153,12 +145,14 @@ data EnumerationState = EnumerationState
     }
     deriving (Eq, Ord, Show)
 
-makeLensesFor
-    [ ("_uvarCounter", "uvarCounter")
-    , ("_uvarRepresentative", "uvarRepresentative")
-    , ("_uvarValues", "uvarValues")
-    ]
-    ''EnumerationState
+uvarCounter :: Lens' EnumerationState UVarGen
+uvarCounter = lens _uvarCounter (\s c -> s{_uvarCounter = c})
+
+uvarRepresentative :: Lens' EnumerationState UnionFind
+uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = uf})
+
+uvarValues :: Lens' EnumerationState (Seq UVarValue)
+uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 {- | Lens for the oracle's pending prune checks.
 
@@ -200,7 +194,7 @@ to decide whether it is currently resuming a suspended check or starting a
 fresh one from the root fragment.
 -}
 getPruneDeps :: EnumerateM (IntMap.IntMap [Term])
-getPruneDeps = use pruneDeps
+getPruneDeps = gets _pruneDeps
 
 {- | Return pending prune checks for a particular UVar id.
 
@@ -210,7 +204,7 @@ should be checked against the new fragment.
 -}
 getPruneDepsOf :: Int -> EnumerateM (Maybe [Term])
 getPruneDepsOf uv = do
-    pd <- use pruneDeps
+    pd <- gets _pruneDeps
     return (pd IntMap.!? uv)
 
 {- | Remember one term to check when the given UVar is expanded.
@@ -223,7 +217,8 @@ addPruneDep :: Int -> Term -> EnumerateM ()
 addPruneDep uv rw = addPruneDeps uv [rw]
 
 addPruneDeps :: Int -> [Term] -> EnumerateM ()
-addPruneDeps uv rws = pruneDeps %= IntMap.insertWith (++) uv rws
+addPruneDeps uv rws =
+    modify' $ \s -> s{_pruneDeps = IntMap.insertWith (++) uv rws (_pruneDeps s)}
 
 {- | Clear pending prune checks for a UVar.
 
@@ -232,7 +227,8 @@ that consume entries from 'getPruneDeps' should delete them for the same
 reason: each dependency is a one-shot request to recheck after expansion.
 -}
 deletePruneDep :: Int -> EnumerateM ()
-deletePruneDep uv = pruneDeps %= (IntMap.delete uv)
+deletePruneDep uv =
+    modify' $ \s -> s{_pruneDeps = IntMap.delete uv (_pruneDeps s)}
 
 ---------------------
 -------- UVar accessors
@@ -240,22 +236,22 @@ deletePruneDep uv = pruneDeps %= (IntMap.delete uv)
 
 nextUVar :: EnumerateM UVar
 nextUVar = do
-    c <- use uvarCounter
+    c <- gets _uvarCounter
     let (c', uv) = UnionFind.nextUVar c
-    uvarCounter .= c'
+    modify' $ \s -> s{_uvarCounter = c'}
     return uv
 
 addUVarValue :: Maybe Node -> EnumerateM UVar
 addUVarValue x = do
     uv <- nextUVar
-    uvarValues %= (:|> (UVarUnenumerated x Sequence.Empty))
+    modify' $ \s -> s{_uvarValues = _uvarValues s :|> UVarUnenumerated x Sequence.Empty}
     return uv
 
 getUVarValue :: UVar -> EnumerateM UVarValue
 getUVarValue uv = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
-    values <- use uvarValues
+    values <- gets _uvarValues
     return $ Sequence.index values idx
 
 getTermFragForUVar :: UVar -> EnumerateM TermFragment
@@ -263,10 +259,19 @@ getTermFragForUVar uv = termFragment <$> getUVarValue uv
 
 getUVarRepresentative :: UVar -> EnumerateM UVar
 getUVarRepresentative uv = do
-    uf <- use uvarRepresentative
+    uf <- gets _uvarRepresentative
     let (uv', uf') = UnionFind.find uv uf
-    uvarRepresentative .= uf'
+    modify' $ \s -> s{_uvarRepresentative = uf'}
     return uv'
+
+setUVarValue :: Int -> UVarValue -> EnumerateM ()
+setUVarValue idx val =
+    modify' $ \s -> s{_uvarValues = Sequence.update idx val (_uvarValues s)}
+
+modifyUVarValue :: Int -> (UVarValue -> UVarValue) -> EnumerateM ()
+modifyUVarValue idx f = do
+    values <- gets _uvarValues
+    setUVarValue idx (f (Sequence.index values idx))
 
 ---------------------
 -------- Creating UVar's
@@ -285,7 +290,7 @@ assimilateUvarVal :: UVar -> UVar -> EnumerateM ()
 assimilateUvarVal uvTarg uvSrc
     | uvTarg == uvSrc = return ()
     | otherwise = do
-        values <- use uvarValues
+        values <- gets _uvarValues
         let srcVal = Sequence.index values (uvarToInt uvSrc)
         let targVal = Sequence.index values (uvarToInt uvTarg)
         case srcVal of
@@ -293,15 +298,15 @@ assimilateUvarVal uvTarg uvSrc
             _ -> do
                 let v = intersectUVarValue srcVal targVal
                 guard (contents v /= Just EmptyNode)
-                uvarValues . (ix $ uvarToInt uvTarg) .= v
-                uvarValues . (ix $ uvarToInt uvSrc) .= UVarEliminated
+                setUVarValue (uvarToInt uvTarg) v
+                setUVarValue (uvarToInt uvSrc) UVarEliminated
 
 mergeNodeIntoUVarVal :: UVar -> Node -> Seq SuspendedConstraint -> EnumerateM ()
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
-    uvarValues . (ix idx) %= intersectUVarValue (UVarUnenumerated (Just n) scs)
-    newValues <- use uvarValues
+    modifyUVarValue idx (intersectUVarValue (UVarUnenumerated (Just n) scs))
+    newValues <- gets _uvarValues
     guard (contents (Sequence.index newValues idx) /= Just EmptyNode)
 
 ---------------------
@@ -316,7 +321,7 @@ mergeNodeIntoUVarVal uv n scs = do
 -- There is no Sequence.foldMapWithIndexM.
 refreshReferencedUVars :: EnumerateM ()
 refreshReferencedUVars = do
-    values <- use uvarValues
+    values <- gets _uvarValues
 
     updated <-
         traverse
@@ -333,7 +338,7 @@ refreshReferencedUVars = do
             )
             values
 
-    uvarValues .= updated
+    modify' $ \s -> s{_uvarValues = updated}
 
 ---------------------
 -------- Core enumeration algorithm
@@ -351,7 +356,9 @@ enumerateNode scs n =
                 _ -> error $ "enumerateNode: unexpected node " <> show n
             (x :<| xs) -> do
                 reps <- mapM (getUVarRepresentative . scGetUVar) hereConstraints
-                forM_ xs $ \sc -> uvarRepresentative %= UnionFind.union (scGetUVar x) (scGetUVar sc)
+                forM_ xs $ \sc ->
+                    modify' $ \s ->
+                        s{_uvarRepresentative = UnionFind.union (scGetUVar x) (scGetUVar sc) (_uvarRepresentative s)}
                 uv <- getUVarRepresentative (scGetUVar x)
                 mapM_ (assimilateUvarVal uv) reps
 
@@ -365,7 +372,7 @@ enumerateEdge scs e = do
 
     newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
     let scs' = scs <> newScs
-    TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode (descendScs i scs') n) (edgeChildren e)
+    TermFragmentNode (edgeSymbol e) <$> zipWithM (\i n -> enumerateNode (descendScs i scs') n) [0 ..] (edgeChildren e)
 
 ---------------------
 -------- Enumeration-loop control
@@ -377,7 +384,7 @@ data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar
 
 findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Any))
 findExpandableUVars = do
-    values <- use uvarValues
+    values <- gets _uvarValues
     -- check representative uvars because only representatives are updated
     candidateMaps <-
         mapM
@@ -489,7 +496,7 @@ enumerateOutUVar uv =
             Mu _ -> enumerateNode scs (unfoldOuterRec n)
             _ -> enumerateNode scs n
 
-        uvarValues . (ix $ uvarToInt uv') .= UVarEnumerated t
+        setUVarValue (uvarToInt uv') (UVarEnumerated t)
         pd <- getPruneDepsOf (uvarToInt uv)
         case pd of
             Just rws -> do
@@ -658,81 +665,3 @@ enumPrune a oracle = do
 
 getAllTerms :: Node -> [Term]
 getAllTerms = getAllTermsPrune () (\_ _ _ -> return (False, ()))
-
-{- | Inefficient enumeration
-
-For ECTAs with 'Mu' nodes may produce an infinite list or may loop indefinitely, depending on the ECTAs. For example, for
-
-> createMu $ \r -> Node [Edge "f" [r], Edge "a" []]
-
-it will produce
-
-> [ Term "a" []
-> , Term "f" [Term "a" []]
-> , Term "f" [Term "f" [Term "a" []]]
-> , ...
-> ]
-
-This happens to work currently because non-recursive edges are interned before recursive edges.
-
-TODO: It would be much nicer if this did fair enumeration. It would avoid the beforementioned dependency on interning
-order, and it would give better enumeration for examples such as
-
-> Node [Edge "h" [
->     createMu $ \r -> Node [Edge "f" [r], Edge "a" []]
->   , createMu $ \r -> Node [Edge "g" [r], Edge "b" []]
->   ]]
-
-This will currently produce
-
-> [ Term "h" [Term "a" [], Term "b" []]
-> , Term "h" [Term "a" [], Term "g" [Term "b" []]]
-> , Term "h" [Term "a" [], Term "g" [Term "g" [Term "b" []]]]
-> , ..
-> ]
-
-where it always unfolds the /second/ argument to @h@, never the first.
--}
-naiveDenotation :: Node -> [Term]
-naiveDenotation = naiveDenotationBounded Nothing
-
-{- | Naive denotation with an optional bound on recursive unfolding.
-
-If the bound is @Just n@, at most @n@ levels of 'Mu' unfolding are explored. If
-the bound is @Nothing@, recursive nodes are unfolded without a bound, matching
-'naiveDenotation'. This is useful for tests and sanity checks where fully naive
-enumeration would otherwise produce an infinite list.
--}
-naiveDenotationBounded :: Maybe Int -> Node -> [Term]
-naiveDenotationBounded maxDepth node = Pipes.toList $ every (go maxDepth node)
-  where
-    -- \| Note that this code uses the decision that f(a,a) does not satisfy the constraint 0.0=1.0 because those paths are empty.
-    --   It would be equally valid to say that it does.
-    ecsSatisfied :: Term -> EqConstraints -> Bool
-    ecsSatisfied t ecs =
-        all
-            (eclassSatisfied t)
-            (map unPathEClass $ unsafeGetEclasses ecs)
-
-    eclassSatisfied :: Term -> [Path] -> Bool
-    eclassSatisfied _ [] = True
-    eclassSatisfied t (p : ps) = isJust pathValue && all (\p' -> pathValue == getPath p' t) ps
-      where
-        pathValue = getPath p t
-
-    go :: Maybe Int -> Node -> ListT Identity Term
-    go _ EmptyNode = mzero
-    go mbDepth n@(Mu _) = case mbDepth of
-        Nothing -> go Nothing (unfoldOuterRec n)
-        Just d
-            | d <= 0 -> mzero
-            | otherwise -> go (Just $ d - 1) (unfoldOuterRec n)
-    go _ (Rec _) = error "naiveDenotation: unexpected Rec"
-    go mbDepth (Node es) = do
-        e <- Select $ each es
-
-        children <- mapM (go mbDepth) (edgeChildren e)
-
-        let res = Term (edgeSymbol e) children
-        guard $ ecsSatisfied res (edgeEcs e)
-        return res

@@ -98,19 +98,19 @@ spec = do
 
     describe "ECTA-nodes" $ do
         it "equality constraints constrain" $
-            naiveDenotation ex1 `shouldSatisfy` ((== 2) . length)
+            getAllTerms ex1 `shouldSatisfy` ((== 2) . length)
 
         it "reduces paths constrained by equality constraints" $
             reducePartially ex2 `shouldBe` reducePartially ex1
 
     describe "intersection" $ do
-        it "intersection commutes with naiveDenotation" $
+        it "intersection commutes with getAllTerms" $
             property $
                 mapSize (min 3) $ \n1 n2 ->
-                    HashSet.fromList (naiveDenotation $ intersect n1 n2)
+                    HashSet.fromList (getAllTerms $ intersect n1 n2)
                         `shouldBe` HashSet.intersection
-                            (HashSet.fromList $ naiveDenotation n1)
-                            (HashSet.fromList $ naiveDenotation n2)
+                            (HashSet.fromList $ getAllTerms n1)
+                            (HashSet.fromList $ getAllTerms n2)
 
         it "intersect is associative" $
             property $
@@ -142,7 +142,7 @@ spec = do
         -- This test is a bit indirect: the intersection results in a term with what I /think/ is an inaccessible branch.
         -- Not sure if there is a clean-up pass we can do.
         it "add constraints" $
-            naiveDenotation (intersect intTest5 intTest6) `shouldBe` [Term "g" [Term "a" [], Term "b" []]]
+            getAllTerms (intersect intTest5 intTest6) `shouldBe` [Term "g" [Term "a" [], Term "b" []]]
 
         -- Intersection examples with Mu nodes
 
@@ -168,10 +168,10 @@ spec = do
             intersect intTest11 intTest12 `shouldBe` Node [Edge "f" [createMu $ \r -> Node [Edge "f" [r]]]]
 
     describe "reduction" $ do
-        it "reduction preserves naiveDenotation" $
+        it "reduction preserves getAllTerms" $
             property $
                 mapSize (min 3) $
-                    \n -> HashSet.fromList (naiveDenotation n) `shouldBe` HashSet.fromList (naiveDenotation $ reducePartially n)
+                    \n -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
         it "reducing a single constraint is idempotent 1" $
             property $ \e ->
@@ -244,10 +244,10 @@ spec = do
             nodeCount infiniteFNode `shouldBe` 1
 
     describe "enumeration" $ do
-        it "naive and sophisticated enumeration are equivalent on nodes without mu" $
+        it "reduction preserves enumeration on nodes without mu" $
             property $
                 mapSize (min 3) $
-                    \n -> HashSet.fromList (naiveDenotation n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
+                    \n -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
     describe "counted nested Mu" $ do
         it "no Mu" $

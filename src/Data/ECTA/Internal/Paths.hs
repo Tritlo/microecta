@@ -43,14 +43,13 @@ module Data.ECTA.Internal.Paths (
 import Prelude hiding (round)
 
 import Data.Function (on)
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable (..))
 import Data.List (isSubsequenceOf, nub, sort, sortBy)
 import Data.Monoid (Any (..))
 import Data.Semigroup (Max (..))
 import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
-import Data.Vector.Instances ()
 import GHC.Exts (inline)
 import GHC.Generics (Generic)
 
@@ -190,7 +189,13 @@ data PathTrie
     | PathTrie !(Vector PathTrie) -- Invariant: Must have at least two nonempty nodes
     deriving (Eq, Show, Generic)
 
-instance Hashable PathTrie
+instance Hashable PathTrie where
+    hashWithSalt salt EmptyPathTrie = salt `hashWithSalt` (0 :: Int)
+    hashWithSalt salt TerminalPathTrie = salt `hashWithSalt` (1 :: Int)
+    hashWithSalt salt (PathTrieSingleChild i pt) =
+        salt `hashWithSalt` (2 :: Int) `hashWithSalt` i `hashWithSalt` pt
+    hashWithSalt salt (PathTrie vec) =
+        Vector.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int) `hashWithSalt` (Vector.length vec)) vec
 
 isEmptyPathTrie :: PathTrie -> Bool
 isEmptyPathTrie EmptyPathTrie = True

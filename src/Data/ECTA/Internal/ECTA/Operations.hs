@@ -1,126 +1,136 @@
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
-
 -- For the 'Pathable' instance for 'Node'
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Data.ECTA.Internal.ECTA.Operations (
-  -- * Traversal
-    nodeMapChildren
-  , pathsMatching
-  , mapNodes
-  , crush
-  , onNormalNodes
+    -- * Traversal
+    nodeMapChildren,
+    pathsMatching,
+    mapNodes,
+    crush,
+    onNormalNodes,
 
-  -- * Unfolding
-  , unfoldOuterRec
-  , refold
-  , nodeEdges
-  , unfoldBounded
+    -- * Unfolding
+    unfoldOuterRec,
+    refold,
+    nodeEdges,
+    unfoldBounded,
 
-  -- * Size operations
-  , nodeCount
-  , edgeCount
-  , maxIndegree
+    -- * Size operations
+    nodeCount,
+    edgeCount,
+    maxIndegree,
 
-  -- * Union
-  , union
+    -- * Union
+    union,
 
-  -- * Membership
-  , nodeRepresents
-  , edgeRepresents
+    -- * Membership
+    nodeRepresents,
+    edgeRepresents,
 
-  -- * Membership of templates
-  , nodeRepresentsTemplate
-  , edgeRepresentsTemplate
+    -- * Membership of templates
+    nodeRepresentsTemplate,
+    edgeRepresentsTemplate,
 
-  -- * Intersection
-  , intersect
-  , dropRedundantEdges
-  , intersectEdge
+    -- * Intersection
+    intersect,
+    dropRedundantEdges,
+    intersectEdge,
 
-  -- * Path operations
-  , requirePath
-  , requirePathList
+    -- * Path operations
+    requirePath,
+    requirePathList,
 
-  -- * Reduction
-  , withoutRedundantEdges
-  , reducePartially
-  , reduceEdgeIntersection
-  , reduceEqConstraints
+    -- * Reduction
+    withoutRedundantEdges,
+    reducePartially,
+    reduceEdgeIntersection,
+    reduceEqConstraints,
 
-  -- * Debugging
-  , getSubnodeById
-  ) where
+    -- * Debugging
+    getSubnodeById,
+) where
 
-
-import Control.Monad.State.Strict ( evalState, State, MonadState(..), modify' )
-import Data.Hashable ( hash, Hashable(..) )
+import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
 import qualified Data.HashMap.Strict as HashMap
-import Data.List ( inits, tails )
-import Data.Maybe ( catMaybes )
-import Data.Monoid ( Sum(..), First(..) )
-import Data.Semigroup ( Max(..) )
-import           Data.Map.Strict ( Map )
+import Data.Hashable (Hashable (..), hash)
+import Data.List (inits, tails)
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Set ( Set )
+import Data.Maybe (catMaybes)
+import Data.Monoid (First (..), Sum (..))
+import Data.Semigroup (Max (..))
+import Data.Set (Set)
 import qualified Data.Set as Set
-
-import Control.Lens ( (&), ix, (^?), (%~) )
-import Data.List.Index ( imap )
 
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Internal.Term
 
---   Switch the comments on these lines to switch to ekmett's original `intern` library
---   instead of our single-threaded hashtable-based reimplementation.
-import Data.Interned.Extended.HashTableBased ( Id )
--- import Data.Interned ( Interned(..), unintern, Id, Cache, mkCache )
--- import Data.Interned.Extended.SingleThreaded ( intern )
+import Data.Interned.Extended.HashTableBased (Id)
 
-import Data.Memoization ( MemoCacheTag(..), memo, memo2 )
+import Data.Memoization (MemoCacheTag (..), memo, memo2)
 import Utility.Fixpoint
 import Utility.HashJoin
 
 ------------------------------------------------------------------------------------
 
+mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
+mapWithIndex f = zipWith f [0 ..]
+
+atMay :: Int -> [a] -> Maybe a
+atMay i xs
+    | i < 0 = Nothing
+    | otherwise = case drop i xs of
+        x : _ -> Just x
+        [] -> Nothing
+
+adjustAt :: Int -> (a -> a) -> [a] -> [a]
+adjustAt i f xs
+    | i < 0 = xs
+    | otherwise = case splitAt i xs of
+        (prefix, x : suffix) -> prefix ++ f x : suffix
+        _ -> xs
 
 -----------------------
 ------ Traversal
 -----------------------
 
--- | Apply an edge transformation to the outgoing alternatives of a node.
---
--- This is a shallow operation: for a normal 'Node' it maps over that node's
--- edges, and for a 'Mu' it first unfolds the outer recursion and then maps those
--- edges. It does not recursively traverse child nodes. Spectacular uses this
--- shape to push environment/equality-constraint edits across every immediate
--- alternative of an ECTA node without changing the node's children directly.
+{- | Apply an edge transformation to the outgoing alternatives of a node.
+
+This is a shallow operation: for a normal 'Node' it maps over that node's
+edges, and for a 'Mu' it first unfolds the outer recursion and then maps those
+edges. It does not recursively traverse child nodes. Spectacular uses this
+shape to push environment/equality-constraint edits across every immediate
+alternative of an ECTA node without changing the node's children directly.
+-}
 nodeMapChildren :: (Edge -> Edge) -> Node -> Node
 nodeMapChildren _ EmptyNode = EmptyNode
-nodeMapChildren f n@(Mu _)  = nodeMapChildren f (unfoldOuterRec n)
+nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
 nodeMapChildren f (Node es) = Node (map f es)
-nodeMapChildren _ (Rec _)   = error "nodeMapChildren: unexpected Rec"
+nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
--- | Warning: Linear in number of paths, exponential in size of graph.
---   Only use for very small graphs.
+{- | Warning: Linear in number of paths, exponential in size of graph.
+  Only use for very small graphs.
+-}
 pathsMatching :: (Node -> Bool) -> Node -> [Path]
-pathsMatching _   EmptyNode = []
-pathsMatching _   (Mu _)    = [] -- Unsound!
-pathsMatching f n@(Node es) = (concat $ map pathsMatchingEdge es)
-                              ++ if f n then [EmptyPath] else []
+pathsMatching _ EmptyNode = []
+pathsMatching _ (Mu _) = [] -- Unsound!
+pathsMatching f n@(Node es) =
+    (concat $ map pathsMatchingEdge es)
+        ++ if f n then [EmptyPath] else []
   where
     pathsMatchingEdge :: Edge -> [Path]
-    pathsMatchingEdge (Edge _ ns) = concat $ imap (\i x -> map (ConsPath i) $ pathsMatching f x) ns
-pathsMatching _   (Rec _)   = error $ "pathsMatching: unexpected Rec"
+    pathsMatchingEdge (Edge _ ns) = concat $ mapWithIndex (\i x -> map (ConsPath i) $ pathsMatching f x) ns
+pathsMatching _ (Rec _) = error $ "pathsMatching: unexpected Rec"
 
--- | Precondition: For all i, f (Rec i) is either a Rec node meant to represent
---                 the enclosing Mu, or contains no Rec node not beneath another Mu.
+{- | Precondition: For all i, f (Rec i) is either a Rec node meant to represent
+                the enclosing Mu, or contains no Rec node not beneath another Mu.
+-}
 mapNodes :: (Node -> Node) -> Node -> Node
 mapNodes f = go
   where
-    -- | Memoized separately for each mapNodes invocation
+    -- \| Memoized separately for each mapNodes invocation
     go :: Node -> Node
     go = memo (NameTag "mapNodes") go'
     {-# NOINLINE go #-}
@@ -128,8 +138,8 @@ mapNodes f = go
     go' :: Node -> Node
     go' EmptyNode = EmptyNode
     go' (Node es) = f $ (Node $ map (\e -> setChildren e $ (map go (edgeChildren e))) es)
-    go' (Mu n)    = f $ Mu (go . n)
-    go' (Rec i)   = f $ Rec i
+    go' (Mu n) = f $ Mu (go . n)
+    go' (Rec i) = f $ Rec i
 
 -- This name originates from the "crush" operator in the Stratego language. C.f.: the "crushtdT"
 -- combinators in the KURE and compstrat libraries.
@@ -139,21 +149,22 @@ crush :: forall m. (Monoid m) => (Node -> m) -> Node -> m
 crush f = \n -> evalState (go n) Set.empty
   where
     go :: (Monoid m) => Node -> State (Set Id) m
-    go EmptyNode             = return mempty
-    go (Rec _)               = return mempty
-    go n@(InternedMu mu)     = mappend (f n) <$> go (internedMuBody mu)
+    go EmptyNode = return mempty
+    go (Rec _) = return mempty
+    go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
     go n@(InternedNode node) = do
-      seen <- get
-      let nId = nodeIdentity n
-      if Set.member nId seen then
-        return mempty
-       else do
-        modify' (Set.insert nId)
-        mappend (f n) <$> (mconcat <$> mapM (\(Edge _ ns) -> mconcat <$> mapM go ns) (internedNodeEdges node))
+        seen <- get
+        let nId = nodeIdentity n
+        if Set.member nId seen
+            then
+                return mempty
+            else do
+                modify' (Set.insert nId)
+                mappend (f n) <$> (mconcat <$> mapM (\(Edge _ ns) -> mconcat <$> mapM go ns) (internedNodeEdges node))
 
 onNormalNodes :: (Monoid m) => (Node -> m) -> (Node -> m)
 onNormalNodes f n@(Node _) = f n
-onNormalNodes _ _          = mempty
+onNormalNodes _ _ = mempty
 
 -----------------------
 ------ Folding
@@ -161,35 +172,48 @@ onNormalNodes _ _          = mempty
 
 unfoldOuterRec :: Node -> Node
 unfoldOuterRec n@(Mu x) = x n
-unfoldOuterRec _        = error "unfoldOuterRec: Must be called on a Mu node"
+unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
 
 nodeEdges :: Node -> [Edge]
 nodeEdges (Node es) = es
-nodeEdges n@(Mu _)  = nodeEdges (unfoldOuterRec n)
-nodeEdges _         = []
+nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
+nodeEdges _ = []
 
 refold :: Node -> Node
 refold = memo (NameTag "refold") go
   where
     go :: Node -> Node
-    go n = if HashMap.null muNodeMap
-             then n
-             else fixUnbounded (mapNodes tryUnfold) n
+    go n =
+        if HashMap.null muNodeMap
+            then n
+            else fixUnbounded (mapNodes tryUnfold) n
       where
-        muNodeMap = crush (\case x@(Mu _) -> HashMap.singleton (unfoldOuterRec x) x
-                                 _        -> HashMap.empty)
-                          n
+        muNodeMap =
+            crush
+                ( \case
+                    x@(Mu _) -> HashMap.singleton (unfoldOuterRec x) x
+                    _ -> HashMap.empty
+                )
+                n
 
         tryUnfold x = case HashMap.lookup x muNodeMap of
-                        Just y  -> y
-                        Nothing -> x
+            Just y -> y
+            Nothing -> x
 
 unfoldBounded :: Int -> Node -> Node
-unfoldBounded 0 = mapNodes (\case Mu _ -> EmptyNode
-                                  n    -> n)
-unfoldBounded k = unfoldBounded (k-1) . mapNodes (\case n@(Mu _) -> unfoldOuterRec n
-                                                        n        -> n)
-
+unfoldBounded 0 =
+    mapNodes
+        ( \case
+            Mu _ -> EmptyNode
+            n -> n
+        )
+unfoldBounded k =
+    unfoldBounded (k - 1)
+        . mapNodes
+            ( \case
+                n@(Mu _) -> unfoldOuterRec n
+                n -> n
+            )
 
 ------------
 ------ Size operations
@@ -209,15 +233,16 @@ maxIndegree = getMax . crush (onNormalNodes $ \(Node es) -> Max (length es))
 ------------
 
 nodeRepresents :: Node -> Term -> Bool
-nodeRepresents EmptyNode _                      = False
-nodeRepresents (Node es) t                      = any (\e -> edgeRepresents e t) es
-nodeRepresents n@(Mu _)  t                      = nodeRepresents (unfoldOuterRec n) t
-nodeRepresents _         _                      = False
+nodeRepresents EmptyNode _ = False
+nodeRepresents (Node es) t = any (\e -> edgeRepresents e t) es
+nodeRepresents n@(Mu _) t = nodeRepresents (unfoldOuterRec n) t
+nodeRepresents _ _ = False
 
 edgeRepresents :: Edge -> Term -> Bool
-edgeRepresents e = \t@(Term s ts) -> s == edgeSymbol e
-                                  && and (zipWith nodeRepresents (edgeChildren e) ts)
-                                  && all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
+edgeRepresents e = \t@(Term s ts) ->
+    s == edgeSymbol e
+        && and (zipWith nodeRepresents (edgeChildren e) ts)
+        && all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
   where
     eclassSatisfied :: Term -> PathEClass -> Bool
     eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
@@ -225,38 +250,40 @@ edgeRepresents e = \t@(Term s ts) -> s == edgeSymbol e
     allTheSame :: (Eq a) => [a] -> Bool
     allTheSame =
         \case
-          []   -> True
-          x:xs -> go x xs
+            [] -> True
+            x : xs -> go x xs
       where
-        go !_ []      = True
-        go !x (!y:ys) = (x == y) && (go x ys)
+        go !_ [] = True
+        go !x (!y : ys) = (x == y) && (go x ys)
     {-# INLINE allTheSame #-}
 
--- | Test whether a node can represent a template term.
---
--- This is the pruning-oriented variant of 'nodeRepresents'. It delegates to
--- 'edgeRepresentsTemplate', whose template language treats the exact symbol
--- @"<v>"@ as a wildcard for the edge symbol. Pruning oracles use this before
--- expanding a UVar: if the current node already represents a forbidden
--- rewrite/template, the whole branch can be dropped without enumerating a full
--- term.
+{- | Test whether a node can represent a template term.
+
+This is the pruning-oriented variant of 'nodeRepresents'. It delegates to
+'edgeRepresentsTemplate', whose template language treats the exact symbol
+@"<v>"@ as a wildcard for the edge symbol. Pruning oracles use this before
+expanding a UVar: if the current node already represents a forbidden
+rewrite/template, the whole branch can be dropped without enumerating a full
+term.
+-}
 nodeRepresentsTemplate :: Node -> Term -> Bool
 nodeRepresentsTemplate EmptyNode _ = False
 nodeRepresentsTemplate (Node es) t = any (`edgeRepresentsTemplate` t) es
-nodeRepresentsTemplate n@(Mu _) t  = nodeRepresentsTemplate (unfoldOuterRec n) t
-nodeRepresentsTemplate _ _         = False
+nodeRepresentsTemplate n@(Mu _) t = nodeRepresentsTemplate (unfoldOuterRec n) t
+nodeRepresentsTemplate _ _ = False
 
--- | Test whether one edge can represent a template term.
---
--- The term matches normally when its symbol is the edge symbol. It also matches
--- when the term symbol is exactly @"<v>"@, in which case the symbol is treated
--- as a wildcard but child nodes and equality constraints still have to match.
+{- | Test whether one edge can represent a template term.
+
+The term matches normally when its symbol is the edge symbol. It also matches
+when the term symbol is exactly @"<v>"@, in which case the symbol is treated
+as a wildcard but child nodes and equality constraints still have to match.
+-}
 edgeRepresentsTemplate :: Edge -> Term -> Bool
 edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
-  let childrenSatisfied = and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
-      consSatisfied = all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
-  in (s == edgeSymbol e && childrenSatisfied && consSatisfied)
-     || (txt == "<v>" && childrenSatisfied && consSatisfied)
+    let childrenSatisfied = and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
+        consSatisfied = all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
+     in (s == edgeSymbol e && childrenSatisfied && consSatisfied)
+            || (txt == "<v>" && childrenSatisfied && consSatisfied)
   where
     eclassSatisfied :: Term -> PathEClass -> Bool
     eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
@@ -264,11 +291,11 @@ edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
     allTheSame :: (Eq a) => [a] -> Bool
     allTheSame =
         \case
-          []   -> True
-          x:xs -> go x xs
+            [] -> True
+            x : xs -> go x xs
       where
-        go !_ []      = True
-        go !x (!y:ys) = (x == y) && (go x ys)
+        go !_ [] = True
+        go !x (!y : ys) = (x == y) && (go x ys)
     {-# INLINE allTheSame #-}
 
 ------------
@@ -282,7 +309,6 @@ _oldIntersect = memo2 (NameTag "intersect") go
     go n1 n2 = refold (nodeDropRedundantEdges (doIntersect n1 n2))
 {-# NOINLINE intersect #-}
 
-
 -- 7/4/21: The unrolling strategy for intersection totally does not generalize beyond
 -- recursive nodes which have a self cycle.
 --
@@ -290,25 +316,25 @@ _oldIntersect = memo2 (NameTag "intersect") go
 --  > t = createGloballyUniqueMu (\n -> Node  [Edge "a" [Node [Edge "a" [n]]]])
 --  > intersect t (Node [Edge "a" [t]])
 doIntersect :: Node -> Node -> Node
-doIntersect EmptyNode _         = EmptyNode
-doIntersect _         EmptyNode = EmptyNode
-doIntersect n@(Mu _)  (Mu _)    = n -- TODO: Update for multiple Mu's
-doIntersect n1@(Mu _) n2        = doIntersect (unfoldOuterRec n1) n2
-doIntersect n1        n2@(Mu _) = doIntersect n1                  (unfoldOuterRec n2)
+doIntersect EmptyNode _ = EmptyNode
+doIntersect _ EmptyNode = EmptyNode
+doIntersect n@(Mu _) (Mu _) = n -- TODO: Update for multiple Mu's
+doIntersect n1@(Mu _) n2 = doIntersect (unfoldOuterRec n1) n2
+doIntersect n1 n2@(Mu _) = doIntersect n1 (unfoldOuterRec n2)
 doIntersect n1@(Node es1) n2@(Node es2)
-  | n1 == n2                            = n1
-  | n2 <  n1                            = intersect n2 n1
-                                          -- `hash` gives a unique ID of the symbol because they're interned
-  | otherwise                           = let joined = hashJoin (hash . edgeSymbol) intersectEdgeSameSymbol es1 es2
-                                          in Node joined
-                                             --Node $ dropRedundantEdges joined
-                                             --mkNodeAlreadyNubbed $ dropRedundantEdges joined
+    | n1 == n2 = n1
+    | n2 < n1 = intersect n2 n1
+    -- `hash` gives a unique ID of the symbol because they're interned
+    | otherwise =
+        let joined = hashJoin (hash . edgeSymbol) intersectEdgeSameSymbol es1 es2
+         in Node joined
+-- Node $ dropRedundantEdges joined
+-- mkNodeAlreadyNubbed $ dropRedundantEdges joined
 doIntersect n1 n2 = error $ "doIntersect: Unexpected " <> show n1 <> " " <> show n2
-
 
 nodeDropRedundantEdges :: Node -> Node
 nodeDropRedundantEdges (Node es) = Node $ dropRedundantEdges es
-nodeDropRedundantEdges n         = n
+nodeDropRedundantEdges n = n
 
 data RuleOutRes = Keep | RuledOutBy Edge
 
@@ -318,45 +344,46 @@ dropRedundantEdges origEs = concatMap reduceCluster $ {- traceShow (map (\es -> 
     clusters = map (nubByIdSinglePass edgeId) $ clusterByHash (hash . edgeSymbol) origEs
 
     reduceCluster :: [Edge] -> [Edge]
-    reduceCluster []     = []
-    reduceCluster (e:es) = case ruleOut e es of
-                             -- Optimization: If e' > e, likely to be greater than other things;
-                             -- move it to front and rule out more stuff next iteration.
-                             --
-                             -- No noticeable difference in overall wall clock time (7/2/21),
-                             -- but a few % reduction in calls to intersectEdgeSameSymbol
-                             (RuledOutBy e', es') -> reduceCluster (e':es')
-                             (Keep, es') -> e : reduceCluster es'
+    reduceCluster [] = []
+    reduceCluster (e : es) = case ruleOut e es of
+        -- Optimization: If e' > e, likely to be greater than other things;
+        -- move it to front and rule out more stuff next iteration.
+        --
+        -- No noticeable difference in overall wall clock time (7/2/21),
+        -- but a few % reduction in calls to intersectEdgeSameSymbol
+        (RuledOutBy e', es') -> reduceCluster (e' : es')
+        (Keep, es') -> e : reduceCluster es'
 
     ruleOut :: Edge -> [Edge] -> (RuleOutRes, [Edge])
-    ruleOut _ []     = (Keep, [])
-    ruleOut e (x:xs) = let e' = intersectEdgeSameSymbol e x in
-                       if e' == x then
-                         ruleOut e xs
-                       else if e' == e then
-                         (RuledOutBy x, xs)
-                       else
-                         let (res, notRuledOut) = ruleOut e xs
-                         in (res, x : notRuledOut)
+    ruleOut _ [] = (Keep, [])
+    ruleOut e (x : xs) =
+        let e' = intersectEdgeSameSymbol e x
+         in if e' == x
+                then
+                    ruleOut e xs
+                else
+                    if e' == e
+                        then
+                            (RuledOutBy x, xs)
+                        else
+                            let (res, notRuledOut) = ruleOut e xs
+                             in (res, x : notRuledOut)
 
 intersectEdge :: Edge -> Edge -> Maybe Edge
 intersectEdge e1 e2
-  | edgeSymbol e1 /= edgeSymbol e2 = Nothing
-  | otherwise                      = Just $ intersectEdgeSameSymbol e1 e2
+    | edgeSymbol e1 /= edgeSymbol e2 = Nothing
+    | otherwise = Just $ intersectEdgeSameSymbol e1 e2
 
 intersectEdgeSameSymbol :: Edge -> Edge -> Edge
 intersectEdgeSameSymbol = memo2 (NameTag "intersectEdgeSameSymbol") go
   where
-    go e1          e2
-      | e2 < e1                                         = intersectEdgeSameSymbol e2 e1
-#ifdef DEFENSIVE_CHECKS
-    go (Edge s children1) (Edge _ children2)
-      | length children1 /= length children2            = error $ "Different lengths encountered for children of symbol " <> show s
-#endif
-    go e1                 e2                 =
-        mkEdge (edgeSymbol e1)
-               (zipWith intersect (edgeChildren e1) (edgeChildren e2))
-               (edgeEcs e1 `combineEqConstraints` edgeEcs e2)
+    go e1 e2
+        | e2 < e1 = intersectEdgeSameSymbol e2 e1
+    go e1 e2 =
+        mkEdge
+            (edgeSymbol e1)
+            (zipWith intersect (edgeChildren e1) (edgeChildren e2))
+            (edgeEcs e1 `combineEqConstraints` edgeEcs e2)
 {-# NOINLINE intersectEdgeSameSymbol #-}
 
 ------------
@@ -368,24 +395,24 @@ intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 
 ------ Intersection internals
 
--- | Intersection domain
---
--- Information required to compute the intersection of open terms.
-data IntersectionDom = ID {
-      -- | Value of all free variables inside the term (so that we can unfold when necessary)
-      idFree :: Map Id Node
+{- | Intersection domain
 
-      -- | Intersection problems we encountered previously (to avoid infinite unrolling)
+Information required to compute the intersection of open terms.
+-}
+data IntersectionDom = ID
+    { idFree :: Map Id Node
+    -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
+    -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
     }
-  deriving (Show, Eq)
+    deriving (Show, Eq)
 
 instance Hashable IntersectionDom where
-  -- Implementation notes:
-  --
-  -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
-  -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-  hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
+    -- Implementation notes:
+    --
+    -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
+    -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
+    hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
 
 emptyIntersectionDom :: IntersectionDom
 emptyIntersectionDom = ID Map.empty Set.empty
@@ -397,42 +424,37 @@ intersectOpen = memo (NameTag "intersectOpen") (\(dom, l, r) -> onNode dom l r)
     onNode :: IntersectionDom -> Node -> Node -> Node
     onNode !dom l r =
         case (l, r) of
-          -- Rule out empty cases first
-          -- This justifies the use of nodeIdentity (@i@, @j@) for the other cases
-          (EmptyNode, _) -> EmptyNode
-          (_, EmptyNode) -> EmptyNode
-
-          -- For closed terms, improve memoization performance by using the empty environment
-          _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> intersect l r
-
-          -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
-          _ | l == r, Set.null (freeVars l) -> l
-
-          -- Always intersect nodes in the same order. This is important for two reasons:
-          --
-          -- 1. It will increase the probability of a cache hit (i.e., improve memoization)
-          -- 2. It will increase the probability of being able to use 'ieRecInt'
-          _ | l > r -> intersectOpen (dom, r, l)
-
-          -- If we have seen this exact problem before, refer to enclosing Mu.
-          _ | Set.member (IntersectId i j) (idRecInt dom) -> Rec (RecIntersect (IntersectId i j))
-
-          -- When encountering a 'Mu', extend the domain appropriately.
-          (InternedMu l' , InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(i, l), (j, r)] , internedMuBody l' , internedMuBody r')
-          (InternedMu l' , _            ) -> maybeMu $ intersectOpen (extendEnv [(i, l)        ] , internedMuBody l' ,                r )
-          (_             , InternedMu r') -> maybeMu $ intersectOpen (extendEnv [        (j, r)] ,                l  , internedMuBody r')
-
-           -- When encountering a free variable, look up the corresponding value in the environment.
-           -- (Recall that the case for already-seen intersection problems is are handled above.)
-          (Rec l' , _     ) -> intersectOpen (dom , findFreeVar l' ,             r )
-          (_      , Rec r') -> intersectOpen (dom ,             l  , findFreeVar r')
-
-          -- Finally, the real intersection work happens here
-          (InternedNode l', InternedNode r') ->
-            Node $ hashJoin (hash . edgeSymbol)
-                            (\e e' -> intersectOpenEdge (dom, e, e'))
-                            (internedNodeEdges l')
-                            (internedNodeEdges r')
+            -- Rule out empty cases first
+            -- This justifies the use of nodeIdentity (@i@, @j@) for the other cases
+            (EmptyNode, _) -> EmptyNode
+            (_, EmptyNode) -> EmptyNode
+            -- For closed terms, improve memoization performance by using the empty environment
+            _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> intersect l r
+            -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
+            _ | l == r, Set.null (freeVars l) -> l
+            -- Always intersect nodes in the same order. This is important for two reasons:
+            --
+            -- 1. It will increase the probability of a cache hit (i.e., improve memoization)
+            -- 2. It will increase the probability of being able to use 'ieRecInt'
+            _ | l > r -> intersectOpen (dom, r, l)
+            -- If we have seen this exact problem before, refer to enclosing Mu.
+            _ | Set.member (IntersectId i j) (idRecInt dom) -> Rec (RecIntersect (IntersectId i j))
+            -- When encountering a 'Mu', extend the domain appropriately.
+            (InternedMu l', InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(i, l), (j, r)], internedMuBody l', internedMuBody r')
+            (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
+            (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
+            -- When encountering a free variable, look up the corresponding value in the environment.
+            -- (Recall that the case for already-seen intersection problems is are handled above.)
+            (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
+            (_, Rec r') -> intersectOpen (dom, l, findFreeVar r')
+            -- Finally, the real intersection work happens here
+            (InternedNode l', InternedNode r') ->
+                Node $
+                    hashJoin
+                        (hash . edgeSymbol)
+                        (\e e' -> intersectOpenEdge (dom, e, e'))
+                        (internedNodeEdges l')
+                        (internedNodeEdges r')
       where
         -- Node identities (should only be used (forced) if previously established the nodes are not empty)
         i, j :: Id
@@ -442,10 +464,11 @@ intersectOpen = memo (NameTag "intersectOpen") (\(dom, l, r) -> onNode dom l r)
         -- Extend domain when we encounter a 'Mu'
         -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
         extendEnv :: [(Id, Node)] -> IntersectionDom
-        extendEnv bindings = ID {
-              idFree   = Map.union (Map.fromList bindings) (idFree dom)
-            , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
-            }
+        extendEnv bindings =
+            ID
+                { idFree = Map.union (Map.fromList bindings) (idFree dom)
+                , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
+                }
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
@@ -456,11 +479,10 @@ intersectOpen = memo (NameTag "intersectOpen") (\(dom, l, r) -> onNode dom l r)
         -- We only insert a 'Mu' node when necessary.
         maybeMu :: Node -> Node
         maybeMu n
-          | RecIntersect (IntersectId i j) `Set.member` freeVars n
-          = Mu $ \recNode -> substFree (RecIntersect (IntersectId i j)) recNode n
-
-          | otherwise
-          = n
+            | RecIntersect (IntersectId i j) `Set.member` freeVars n =
+                Mu $ \recNode -> substFree (RecIntersect (IntersectId i j)) recNode n
+            | otherwise =
+                n
 
 -- | Auxiliary to 'intersectOpen'.
 intersectOpenEdge :: (IntersectionDom, Edge, Edge) -> Edge
@@ -469,9 +491,10 @@ intersectOpenEdge = memo (NameTag "intersectOpenEdge") (\(dom, l, r) -> onEdge d
   where
     onEdge :: IntersectionDom -> Edge -> Edge -> Edge
     onEdge !dom l r =
-         mkEdge (edgeSymbol l)
-                (zipWith (\a b -> intersectOpen (dom, a, b)) (edgeChildren l) (edgeChildren r))
-                (edgeEcs l `combineEqConstraints` edgeEcs r)
+        mkEdge
+            (edgeSymbol l)
+            (zipWith (\a b -> intersectOpen (dom, a, b)) (edgeChildren l) (edgeChildren r))
+            (edgeEcs l `combineEqConstraints` edgeEcs r)
 
 ------------
 ------ Union
@@ -479,73 +502,74 @@ intersectOpenEdge = memo (NameTag "intersectOpenEdge") (\(dom, l, r) -> onEdge d
 
 union :: [Node] -> Node
 union ns = case filter (/= EmptyNode) ns of
-             []  -> EmptyNode
-             ns' -> Node (concat $ map nodeEdges ns')
+    [] -> EmptyNode
+    ns' -> Node (concat $ map nodeEdges ns')
 
 ----------------------
 ------ Path operations
 ----------------------
 
 requirePath :: Path -> Node -> Node
-requirePath EmptyPath       n         = n
-requirePath _               EmptyNode = EmptyNode
-requirePath p               n@(Mu _)  = requirePath p (unfoldOuterRec n)
-requirePath (ConsPath p ps) (Node es) = Node $ map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e)))
-                                             $ filter (\e -> length (edgeChildren e) > p)
-                                                      es
-requirePath _               (Rec _)   = error "requirePath: unexpected Rec"
+requirePath EmptyPath n = n
+requirePath _ EmptyNode = EmptyNode
+requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
+requirePath (ConsPath p ps) (Node es) =
+    Node $
+        map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))) $
+            filter
+                (\e -> length (edgeChildren e) > p)
+                es
+requirePath _ (Rec _) = error "requirePath: unexpected Rec"
 
 requirePathList :: Path -> [Node] -> [Node]
-requirePathList EmptyPath       ns = ns
-requirePathList (ConsPath p ps) ns = ns & ix p %~ requirePath ps
+requirePathList EmptyPath ns = ns
+requirePathList (ConsPath p ps) ns = adjustAt p (requirePath ps) ns
 
 instance Pathable Node Node where
-  type Emptyable Node = Node
+    type Emptyable Node = Node
 
-  getPath _                EmptyNode = EmptyNode
-  getPath EmptyPath        n         = n
-  getPath p                n@(Mu _)  = getPath p (unfoldOuterRec n)
-  getPath (ConsPath p ps) (Node es)  = union $ map (getPath ps) (catMaybes (map goEdge es))
-    where
-      goEdge :: Edge -> Maybe Node
-      goEdge (Edge _ ns) = ns ^? ix p
-  getPath p                n         = error $ "getPath: unexpected path " <> show p <> " for node " <> show n
+    getPath _ EmptyNode = EmptyNode
+    getPath EmptyPath n = n
+    getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
+    getPath (ConsPath p ps) (Node es) = union $ map (getPath ps) (catMaybes (map goEdge es))
+      where
+        goEdge :: Edge -> Maybe Node
+        goEdge (Edge _ ns) = atMay p ns
+    getPath p n = error $ "getPath: unexpected path " <> show p <> " for node " <> show n
 
-  getAllAtPath _               EmptyNode = []
-  getAllAtPath EmptyPath       n         = [n]
-  getAllAtPath p               n@(Mu _)  = getAllAtPath p (unfoldOuterRec n)
-  getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (catMaybes (map goEdge es))
-    where
-      goEdge :: Edge -> Maybe Node
-      goEdge (Edge _ ns) = ns ^? ix p
-  getAllAtPath p               n         = error $ "getAllAtPath: unexpected path " <> show p <> " for node " <> show n
+    getAllAtPath _ EmptyNode = []
+    getAllAtPath EmptyPath n = [n]
+    getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
+    getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (catMaybes (map goEdge es))
+      where
+        goEdge :: Edge -> Maybe Node
+        goEdge (Edge _ ns) = atMay p ns
+    getAllAtPath p n = error $ "getAllAtPath: unexpected path " <> show p <> " for node " <> show n
 
-  modifyAtPath f EmptyPath       n         = f n
-  modifyAtPath _ _               EmptyNode = EmptyNode
-  modifyAtPath f p               n@(Mu _)  = modifyAtPath f p (unfoldOuterRec n)
-  modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
-    where
-      goEdge :: Edge -> Edge
-      goEdge e = setChildren e (edgeChildren e & ix p %~ modifyAtPath f ps)
-  modifyAtPath _ p               n         = error $ "modifyAtPath: unexpected path " <> show p <> " for node " <> show n
+    modifyAtPath f EmptyPath n = f n
+    modifyAtPath _ _ EmptyNode = EmptyNode
+    modifyAtPath f p n@(Mu _) = modifyAtPath f p (unfoldOuterRec n)
+    modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
+      where
+        goEdge :: Edge -> Edge
+        goEdge e = setChildren e (adjustAt p (modifyAtPath f ps) (edgeChildren e))
+    modifyAtPath _ p n = error $ "modifyAtPath: unexpected path " <> show p <> " for node " <> show n
 
 instance Pathable [Node] Node where
-  type Emptyable Node = Node
+    type Emptyable Node = Node
 
-  getPath EmptyPath       ns = union ns
-  getPath (ConsPath p ps) ns = case ns ^? ix p of
-                                 Nothing -> EmptyNode
-                                 Just n  -> getPath ps n
+    getPath EmptyPath ns = union ns
+    getPath (ConsPath p ps) ns = case atMay p ns of
+        Nothing -> EmptyNode
+        Just n -> getPath ps n
 
-  getAllAtPath EmptyPath       _  = []
-  getAllAtPath (ConsPath p ps) ns = case ns ^? ix p of
-                                      Nothing -> []
-                                      Just n  -> getAllAtPath ps n
+    getAllAtPath EmptyPath _ = []
+    getAllAtPath (ConsPath p ps) ns = case atMay p ns of
+        Nothing -> []
+        Just n -> getAllAtPath ps n
 
-  modifyAtPath _ EmptyPath       ns = ns
-  modifyAtPath f (ConsPath p ps) ns = ns & ix p %~ modifyAtPath f ps
-
-
+    modifyAtPath _ EmptyPath ns = ns
+    modifyAtPath f (ConsPath p ps) ns = adjustAt p (modifyAtPath f ps) ns
 
 ------------------------------------
 ------ Reduction
@@ -555,7 +579,7 @@ withoutRedundantEdges :: Node -> Node
 withoutRedundantEdges n = mapNodes dropReds n
   where
     dropReds (Node es) = Node (dropRedundantEdges es)
-    dropReds x         = x
+    dropReds x = x
 
 ---------------
 --- Reducing Equality Constraints
@@ -568,16 +592,17 @@ reducePartially' :: EqConstraints -> Node -> Node
 reducePartially' = memo2 (NameTag "reducePartially'") go
   where
     go :: EqConstraints -> Node -> Node
-    go _            EmptyNode  = EmptyNode
-    go _            (Mu n)     = Mu n
-    go inheritedEcs n@(Node _) = modifyNode n $ \es -> map (reduceChildren inheritedEcs)
-                                                       $ map (reduceEdgeIntersection inheritedEcs) es
-    go _            (Rec _)    = error "reducePartially: unexpected Rec"
+    go _ EmptyNode = EmptyNode
+    go _ (Mu n) = Mu n
+    go inheritedEcs n@(Node _) = modifyNode n $ \es ->
+        map (reduceChildren inheritedEcs) $
+            map (reduceEdgeIntersection inheritedEcs) es
+    go _ (Rec _) = error "reducePartially: unexpected Rec"
 
     reduceChildren :: EqConstraints -> Edge -> Edge
     reduceChildren inheritedEcs e = setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeEcs e) (edgeChildren e)
 
-    -- | Reduce children with inherited constraints
+    -- \| Reduce children with inherited constraints
     --
     -- This function is used to avoid infinite unfolding of recursive nodes,
     -- and we do this by passing constraints from the current edge and ancestors to descendants.
@@ -601,17 +626,18 @@ reducePartially' = memo2 (NameTag "reducePartially'") go
     -- TODO: this approach does not solve all cases of cycles. See the test case `loop2` in `src/Application/TermSearch/Utils.hs`.
     reduceWithInheritedEcs :: EqConstraints -> [Node] -> [Node]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
-    reduceWithInheritedEcs inheritedEcs    children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0..] children
-
+    reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
 
 reduceEdgeIntersection :: EqConstraints -> Edge -> Edge
 reduceEdgeIntersection = memo2 (NameTag "reduceEdgeIntersection") go
   where
-   go :: EqConstraints -> Edge -> Edge
-   go ecs e = mkEdge (edgeSymbol e)
-                     (reduceEqConstraints (edgeEcs e) ecs (edgeChildren e))
-                     (edgeEcs e)
+    go :: EqConstraints -> Edge -> Edge
+    go ecs e =
+        mkEdge
+            (edgeSymbol e)
+            (reduceEqConstraints (edgeEcs e) ecs (edgeChildren e))
+            (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
 reduceEqConstraints :: EqConstraints -> EqConstraints -> [Node] -> [Node]
@@ -622,12 +648,12 @@ reduceEqConstraints = go
 
     go :: EqConstraints -> EqConstraints -> [Node] -> [Node]
     go ecs inheritedEcs origNs
-      | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
-      | otherwise                                                             = propagateEmptyNodes $ foldr reduceEClass withNeededChildren eclasses
+        | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
+        | otherwise = propagateEmptyNodes $ foldr reduceEClass withNeededChildren eclasses
       where
         eclasses = unsafeSubsumptionOrderedEclasses ecs
 
-        -- | TODO: Replace with a "requirePathTrie"
+        -- \| TODO: Replace with a "requirePathTrie"
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
 
         intersectList :: [Node] -> Node
@@ -637,19 +663,21 @@ reduceEqConstraints = go
         _atPaths ns ps = map (\p -> getPath p ns) ps
 
         reduceEClass :: PathEClass -> [Node] -> [Node]
-        reduceEClass pec ns = foldr (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
-                                    ns
-                                    (zip ps (toIntersect ns ps))
+        reduceEClass pec ns =
+            foldr
+                (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
+                ns
+                (zip ps (toIntersect ns ps))
           where
             ps = unPathEClass pec
 
         toIntersect :: [Node] -> [Path] -> [Node]
-        --toIntersect ns ps = replicate (length ps) $ intersectList $ map (nodeDropRedundantEdges . flip getPath ns) ps
-        --toIntersect ns ps = map intersectList $ dropOnes $ map (nodeDropRedundantEdges . flip getPath ns) ps
-        --toIntersect ns ps = replicate (length ps) $ intersectList $ map (flip getPath ns) ps
+        -- toIntersect ns ps = replicate (length ps) $ intersectList $ map (nodeDropRedundantEdges . flip getPath ns) ps
+        -- toIntersect ns ps = map intersectList $ dropOnes $ map (nodeDropRedundantEdges . flip getPath ns) ps
+        -- toIntersect ns ps = replicate (length ps) $ intersectList $ map (flip getPath ns) ps
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
-        -- | dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
+        -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
         dropOnes :: [a] -> [[a]]
         dropOnes xs = zipWith (++) (inits xs) (tail $ tails xs)
 

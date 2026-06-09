@@ -38,16 +38,7 @@ import GHC.Generics (Generic)
 
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.List.Extra (nubSort)
-
---   Switch the comments on these lines to switch to ekmett's original `intern` library
---   instead of our single-threaded hashtable-based reimplementation.
 import Data.Interned.Extended.HashTableBased
-
--- NOTE 2/7/2022: This version is likely to break because there are nested calls to intern
---                for Mu nodes. See related comment in HashTableBased.hs
--- import Data.Interned ( Interned(..), unintern, Id, Cache, mkCache )
--- import Data.Interned.Extended.SingleThreaded ( intern )
 
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Internal.Term
@@ -478,7 +469,7 @@ pattern Node es <- (InternedNode (internedNodeEdges -> es))
 mkNode :: [Edge] -> Node
 mkNode es = case removeEmptyEdges es of
     [] -> EmptyNode
-    es' -> intern $ UninternedNode $ nubSort es'
+    es' -> intern $ UninternedNode $ Set.toList $ Set.fromList es'
 
 _mkNodeAlreadyNubbed :: [Edge] -> Node
 _mkNodeAlreadyNubbed es = case removeEmptyEdges es of
