@@ -88,15 +88,15 @@ library
 
   build-depends:
     base >=4.13 && <5,
-    containers,
+    containers >=0.7 && <0.8,
     equivalence >=0.4.1 && <0.5,
-    hashable,
-    hashtables,
-    intern,
-    mtl,
-    text,
-    transformers,
-    unordered-containers,
+    hashable >=1.5.1.0 && <1.6,
+    hashtables >=1.4.2 && <1.5,
+    intern >=0.9.6 && <0.10,
+    mtl >=2.3.1 && <2.4,
+    text >=2.1.2 && <2.2,
+    transformers >=0.6.1.2 && <0.7,
+    unordered-containers >=0.2.21 && <0.3,
 
 test-suite unit-tests
   import: warnings, extensions
