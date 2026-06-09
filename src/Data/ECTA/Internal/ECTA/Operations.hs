@@ -63,7 +63,7 @@ import Data.Hashable (Hashable (..), hash)
 import Data.List (inits, tails)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -503,9 +503,12 @@ intersectOpenEdge = memo (NameTag "intersectOpenEdge") (\(dom, l, r) -> onEdge d
 
 -- | Union a list of ECTAs by concatenating their alternatives.
 union :: [Node] -> Node
-union ns = case filter (/= EmptyNode) ns of
-    [] -> EmptyNode
-    ns' -> Node (concat $ map nodeEdges ns')
+union ns = case foldr collect (False, []) ns of
+    (False, _) -> EmptyNode
+    (_, es) -> Node es
+  where
+    collect EmptyNode acc = acc
+    collect n (_, es) = (True, nodeEdges n ++ es)
 
 ----------------------
 ------ Path operations
@@ -535,7 +538,7 @@ instance Pathable Node Node where
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
     getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
-    getPath (ConsPath p ps) (Node es) = union $ map (getPath ps) (catMaybes (map goEdge es))
+    getPath (ConsPath p ps) (Node es) = union $ map (getPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge -> Maybe Node
         goEdge (Edge _ ns) = atMay p ns
@@ -544,7 +547,7 @@ instance Pathable Node Node where
     getAllAtPath _ EmptyNode = []
     getAllAtPath EmptyPath n = [n]
     getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
-    getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (catMaybes (map goEdge es))
+    getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge -> Maybe Node
         goEdge (Edge _ ns) = atMay p ns
