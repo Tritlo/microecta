@@ -76,13 +76,15 @@ library
     Data.ECTA.Internal.Term
     Data.ECTA.Paths
     Data.ECTA.Term
-    Data.HashTable.Extended
     Data.Interned.Extended.HashTableBased
     Data.Memoization
     Data.Persistent.UnionFind
     Data.Text.Extended.Pretty
     Utility.Fixpoint
     Utility.HashJoin
+
+  other-modules:
+    Data.HashTable.Extended
 
   build-depends:
     base >=4.13 && <5,

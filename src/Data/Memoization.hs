@@ -9,8 +9,6 @@ call to 'memo' allocates one process-global hash table through
 -}
 module Data.Memoization (
     MemoCacheTag (..),
-    resetAllCaches,
-    memoIO,
     memo,
     memo2,
 ) where
@@ -37,15 +35,6 @@ mkInnerTag (NameTag t) = NameTag (t <> "-inner")
 instance Pretty MemoCacheTag where
     pretty (NameTag t) = t
 
-{- | Reset all global memo tables.
-
-Currently a no-op: the surviving microecta memo tables are owned by each
-memoized closure rather than a central registry.
--}
-resetAllCaches :: IO ()
-resetAllCaches = return ()
-
--- | Allocate an explicit IO memoizing wrapper around a pure function.
 memoIO :: forall a b. (Eq a, Hashable a) => MemoCacheTag -> (a -> b) -> IO (a -> IO b)
 memoIO _ f = do
     ht :: HT.CuckooHashTable a b <- HT.new
