@@ -16,7 +16,8 @@ module Data.ECTA.Internal.ECTA.Type (
     InternedNode (..),
     InternedMu (..),
     UninternedNode (..),
-    IntersectId, -- opaque
+    -- | Opaque identifier for recursive nodes created during intersection.
+    IntersectId,
     pattern IntersectId,
     nodeIdentity,
     numNestedMu,
@@ -52,6 +53,7 @@ import Data.Memoization
 -------------------------- Mu node table ------------------------
 -----------------------------------------------------------------
 
+-- | Internal identifier for references to recursive ECTA nodes.
 data RecNodeId
     = -- | Reference to the 'Id' of an interned 'Mu' node
       RecInt !Id
@@ -99,11 +101,14 @@ or 'Mu' in the right), we don't need that distinction here: we just need to know
 that if we see a call to intersect again /with those same two operands/ (no matter what kind of nodes they are), we
 can refer to the newly constructed 'Mu' node.
 -}
+
+-- | Pair of node identities naming the recursive node introduced by intersection.
 data IntersectId
     = -- Invariant: the two 'Id's should be ordered (guaranteed by the pattern synonym constructor)
       UnsafeIntersectId !Id !Id
     deriving (Eq, Ord, Show, Generic)
 
+-- | Smart pattern that stores the two ids in canonical order.
 pattern IntersectId :: Id -> Id -> IntersectId
 pattern IntersectId i j <- (UnsafeIntersectId i j)
     where
@@ -287,6 +292,7 @@ _dropEcs e = Edge (edgeSymbol e) (edgeChildren e)
 ------------------------- Interning Nodes -----------------------
 -----------------------------------------------------------------
 
+-- | Non-canonical node description used before hash-consing.
 data UninternedNode
     = UninternedNode ![Edge]
     | UninternedEmptyNode

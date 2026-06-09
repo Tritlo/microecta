@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- | Tiny hash-consing abstraction backed by mutable cuckoo hash tables.
 module Data.Interned.Extended.HashTableBased (
     Id,
     Cache (..),
@@ -18,6 +19,7 @@ import GHC.IO (unsafeDupablePerformIO)
 
 import Data.HashTable.Extended
 
+-- | Dense identity assigned to each interned value.
 type Id = Int
 
 {- | Tried using the BasicHashtable size function to remove need for this IORef
@@ -25,35 +27,51 @@ type Id = Int
 -}
 data Cache t = Cache
     { fresh :: !(IORef Id)
+    -- ^ Next id to allocate.
     , content :: !(HT.CuckooHashTable (Description t) t)
+    -- ^ Map from structural descriptions to canonical interned values.
     }
 
+-- | Allocate an empty interning cache.
 freshCache :: IO (Cache t)
 freshCache =
     Cache
         <$> newIORef 0
         <*> HT.new
 
+-- | Number of identities allocated by a cache.
 cacheSize :: Cache t -> IO Int
 cacheSize Cache{fresh = refI} = readIORef refI
 
+-- | Clear a cache and reset its id supply.
 resetCache :: (Interned t) => Cache t -> IO ()
 resetCache Cache{fresh = refI, content = ht} = do
     writeIORef refI 0
     resetHashTable (AnyHashTable ht)
 
+-- | Values that can be hash-consed through a global cache.
 class
     ( Eq (Description t)
     , Hashable (Description t)
     ) =>
     Interned t
     where
+    -- | Hashable structural representation used as the cache key.
     data Description t
+
+    -- | Non-canonical input used to build an interned value.
     type Uninterned t
+
+    -- | Compute the cache key for an uninterned value.
     describe :: Uninterned t -> Description t
+
+    -- | Attach a freshly allocated identity to an uninterned value.
     identify :: Id -> Uninterned t -> t
+
+    -- | Process-global cache for this interned type.
     cache :: Cache t
 
+-- | Return the canonical interned representative for an uninterned value.
 intern :: (Interned t) => Uninterned t -> t
 intern !bt = unsafeDupablePerformIO $ do
     let c = cache

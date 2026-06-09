@@ -1,6 +1,8 @@
-{- | These were used in an earlier version of the enumeration algorithm, but no longer.
+{- | Zipper utilities for navigating and unioning 'PathTrie' values.
 
-  They are being kept around just in case.
+These helpers are not on the main reduction hot path, but they are useful for
+tests and for experiments around path-trie navigation. The zipper is read-only:
+it remembers enough context to move up and down, not to edit a focused trie.
 -}
 module Data.ECTA.Internal.Paths.Zipper (
     unionPathTrie,
@@ -23,6 +25,7 @@ import Data.ECTA.Internal.Paths
 ------- (7/9/21: only used as utility for unionPathTrieZipper)
 ---------------------
 
+-- | Union two tries, failing when one trie terminates below the other.
 unionPathTrie :: PathTrie -> PathTrie -> Maybe PathTrie
 unionPathTrie EmptyPathTrie pt = Just pt
 unionPathTrie pt EmptyPathTrie = Just pt
@@ -82,20 +85,27 @@ unionChildren left@((i1, pt1) : rest1) right@((i2, pt2) : rest2) =
 ------- Zippers
 ---------------------
 
+-- | Breadcrumb stack for a focused 'PathTrie'.
 data InvertedPathTrie
-    = PathZipperRoot
-    | PathTrieAt {-# UNPACK #-} !Int !PathTrie !InvertedPathTrie
+    = -- | Focus is at the root.
+      PathZipperRoot
+    | -- | Focus is under child index @i@; keep the parent trie and rest of the stack.
+      PathTrieAt {-# UNPACK #-} !Int !PathTrie !InvertedPathTrie
     deriving (Eq, Ord, Show)
 
+-- | Read-only focus into a 'PathTrie'.
 data PathTrieZipper = PathTrieZipper !PathTrie !InvertedPathTrie
     deriving (Eq, Ord, Show)
 
+-- | Zipper focused on an empty trie at the root.
 emptyPathTrieZipper :: PathTrieZipper
 emptyPathTrieZipper = PathTrieZipper EmptyPathTrie PathZipperRoot
 
+-- | Focus a trie at its root.
 pathTrieToZipper :: PathTrie -> PathTrieZipper
 pathTrieToZipper pt = PathTrieZipper pt PathZipperRoot
 
+-- | Current trie under the zipper focus.
 zipperCurPathTrie :: PathTrieZipper -> PathTrie
 zipperCurPathTrie (PathTrieZipper pt _) = pt
 
@@ -109,10 +119,12 @@ unionInvertedPathTrie (PathTrieAt i1 pt1 ipt1) (PathTrieAt i2 pt2 ipt2) =
         else
             PathTrieAt i1 <$> unionPathTrie pt1 pt2 <*> unionInvertedPathTrie ipt1 ipt2
 
+-- | Union two zippers if both their focus and breadcrumb stacks are compatible.
 unionPathTrieZipper :: PathTrieZipper -> PathTrieZipper -> Maybe PathTrieZipper
 unionPathTrieZipper (PathTrieZipper pt1 ipt1) (PathTrieZipper pt2 ipt2) =
     PathTrieZipper <$> unionPathTrie pt1 pt2 <*> unionInvertedPathTrie ipt1 ipt2
 
+-- | Move the focus down through child index @i@.
 pathTrieZipperDescend :: PathTrieZipper -> Int -> PathTrieZipper
 pathTrieZipperDescend (PathTrieZipper pt z) i = PathTrieZipper (pathTrieDescend pt i) (PathTrieAt i pt z)
 
