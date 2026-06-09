@@ -655,6 +655,7 @@ reduceEqConstraints = go
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns
 
     go :: EqConstraints -> EqConstraints -> [Node] -> [Node]
+    go EmptyConstraints EmptyConstraints origNs = origNs
     go ecs inheritedEcs origNs
         | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
         | otherwise = propagateEmptyNodes $ foldr reduceEClass withNeededChildren eclasses

@@ -488,12 +488,17 @@ mkEqConstraints initialConstraints = case completedConstraints of
 
 -- | Combine two constraint sets and normalize the result.
 combineEqConstraints :: EqConstraints -> EqConstraints -> EqConstraints
-combineEqConstraints = memo2 (NameTag "combineEqConstraints") go
-  where
-    go EqContradiction _ = EqContradiction
-    go _ EqContradiction = EqContradiction
-    go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
+combineEqConstraints EqContradiction _ = EqContradiction
+combineEqConstraints _ EqContradiction = EqContradiction
+combineEqConstraints EmptyConstraints EmptyConstraints = EmptyConstraints
+combineEqConstraints ec1 ec2 = combineEqConstraintsMemo ec1 ec2
 {-# NOINLINE combineEqConstraints #-}
+
+combineEqConstraintsMemo :: EqConstraints -> EqConstraints -> EqConstraints
+combineEqConstraintsMemo = memo2 (NameTag "combineEqConstraints") go
+  where
+    go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
+{-# NOINLINE combineEqConstraintsMemo #-}
 
 -- | Descend every path in a constraint set through one child index.
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
