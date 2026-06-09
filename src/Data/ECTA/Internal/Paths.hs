@@ -210,6 +210,32 @@ isTerminalPathTrie :: PathTrie -> Bool
 isTerminalPathTrie TerminalPathTrie = True
 isTerminalPathTrie _ = False
 
+-- | Whether a trie contains at least two distinct paths.
+pathTrieHasAtLeastTwoPaths :: PathTrie -> Bool
+pathTrieHasAtLeastTwoPaths = go False
+  where
+    go :: Bool -> PathTrie -> Bool
+    go _ EmptyPathTrie = False
+    go seenOne TerminalPathTrie = seenOne
+    go seenOne (PathTrieSingleChild _ pt) = go seenOne pt
+    go seenOne (PathTrie children) = goChildren seenOne children
+
+    goChildren :: Bool -> [(Int, PathTrie)] -> Bool
+    goChildren _ [] = False
+    goChildren seenOne ((_, pt) : rest)
+        | go seenOne pt = True
+        | pathTrieHasAnyPath pt =
+            if seenOne
+                then True
+                else goChildren True rest
+        | otherwise = goChildren seenOne rest
+
+    pathTrieHasAnyPath :: PathTrie -> Bool
+    pathTrieHasAnyPath EmptyPathTrie = False
+    pathTrieHasAnyPath TerminalPathTrie = True
+    pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
+    pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
+
 -- | Compare sparse child lists as if they were dense vectors with empty cells.
 comparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
 comparePathTrieChildren [] [] = EQ
@@ -328,9 +354,6 @@ instance Hashable PathEClass
 
 mkPathEClassFromPathTrie :: PathTrie -> PathEClass
 mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt)
-
-pathEClassDescend :: PathEClass -> Int -> PathEClass
-pathEClassDescend (PathEClass' pt _) i = mkPathEClassFromPathTrie $ pathTrieDescend pt i
 
 -- | Whether one path in the first class strictly subsumes one path in the second.
 hasSubsumingMember :: PathEClass -> PathEClass -> Bool
@@ -504,13 +527,15 @@ combineEqConstraintsMemo = memo2 (NameTag "combineEqConstraints") go
 -- | Descend every path in a constraint set through one child index.
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
-eqConstraintsDescend ecs i = case mapMaybe (nontrivialEclass . (`pathEClassDescend` i)) (getEclasses ecs) of
+eqConstraintsDescend ecs i = case mapMaybe (`pathEClassDescendNontrivial` i) (getEclasses ecs) of
     [] -> EmptyConstraints
     eclasses -> EqConstraints $ sort eclasses
   where
-    nontrivialEclass pec = case unPathEClass pec of
-        _ : _ : _ -> Just pec
-        _ -> Nothing
+    pathEClassDescendNontrivial (PathEClass' pt _) childIndex =
+        let pt' = pathTrieDescend pt childIndex
+         in if pathTrieHasAtLeastTwoPaths pt'
+                then Just (mkPathEClassFromPathTrie pt')
+                else Nothing
 
 -- A faster implementation would be: Merge the eclasses of both, run mkEqConstraints (or at least do eclass completion),
 -- check result equal to ecs2
