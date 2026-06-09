@@ -321,11 +321,15 @@ pathTrieDescend (PathTrieSingleChild j pt') i
 ---------- Path E-classes
 ---------------------------
 
--- | Equality class of paths, stored both as a trie and as a path list.
+{- | Equality class of paths.
+
+The trie drives subsumption and descent; the path list keeps the older public
+API and reduction code cheap to read. Values built by @PathEClass@ and
+@mkPathEClassFromPathTrie@ keep the two views consistent.
+-}
 data PathEClass = PathEClass'
     { getPathTrie :: !PathTrie
-    , getOrigPaths :: [Path] -- Intentionally lazy because
-    -- not available when calling `mkPathEClassFromPathTrie`
+    , getOrigPaths :: [Path]
     }
     deriving (Show, Generic)
 
@@ -335,9 +339,7 @@ instance Eq PathEClass where
 instance Ord PathEClass where
     compare = compare `on` getPathTrie
 
-{- | TODO: This pattern (and the caching of the original path list) is a temporary affair
-        until we convert all clients of PathEclass to fully be based on tries
--}
+-- | Build or match an equality class from its sorted path list view.
 pattern PathEClass :: [Path] -> PathEClass
 pattern PathEClass ps <- PathEClass' _ ps
     where
@@ -352,6 +354,7 @@ instance Pretty PathEClass where
 
 instance Hashable PathEClass
 
+-- | Build an equality class from a trie, deriving the path list lazily.
 mkPathEClassFromPathTrie :: PathTrie -> PathEClass
 mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt)
 
@@ -482,7 +485,7 @@ mkEqConstraints initialConstraints = case completedConstraints of
 
     -- Reason for the extra "complete" in this line:
     -- The first simplification done to the constraints is eclass-completion,
-    -- to remove redundancy and shrink things before the very inefficienc
+    -- to remove redundancy and shrink things before the very inefficient
     -- addCongruences step (important in tests; less so in realistic input).
     -- The last simplification must also be completion, to give a valid value.
     completedConstraints = fixMaybe round $ complete $ removeTrivial initialConstraints
@@ -524,7 +527,11 @@ combineEqConstraintsMemo = memo2 (NameTag "combineEqConstraints") go
     go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
 {-# NOINLINE combineEqConstraintsMemo #-}
 
--- | Descend every path in a constraint set through one child index.
+{- | Descend every path in a constraint set through one child index.
+
+Equality classes with fewer than two remaining paths are dropped immediately:
+they no longer constrain anything after the descent.
+-}
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
 eqConstraintsDescend ecs i = case mapMaybe (`pathEClassDescendNontrivial` i) (getEclasses ecs) of
