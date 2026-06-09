@@ -63,6 +63,8 @@ benchmarks =
         forceNode $ getPath (path [2, 0, if i >= 0 then 2 else 1]) typeSearchNode
     , Bench "mkEqConstraints/congruence" 600 $ \i ->
         forceEqConstraints $ mkEqConstraints (congruencePathSets i)
+    , Bench "eqConstraintsDescend/wide-sparse" 4000 $ \i ->
+        forceEqConstraints $ eqConstraintsDescend wideSparseConstraints (i `rem` 16)
     , Bench "intersect/finite-constrained" 800 $ \i ->
         forceNode $ finiteChoiceNode i `intersect` constrainedChoiceNode i
     , Bench "intersect/recursive-types" 300 $ \i ->
@@ -175,6 +177,13 @@ congruencePathSets salt =
            ]
   where
     base = salt `rem` 3
+
+wideSparseConstraints :: EqConstraints
+wideSparseConstraints =
+    mkEqConstraints
+        [ [path [i, 0], path [i, 1]]
+        | i <- [0 .. 15]
+        ]
 
 finiteChoiceNode :: Int -> Node
 finiteChoiceNode salt =
