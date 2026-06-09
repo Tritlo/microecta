@@ -4,9 +4,7 @@
 from `ecta`.
 
 It keeps the core ECTA engine and the tiny term-search compatibility layer used
-by downstream projects, while dropping the original executables, Hoogle data,
-SAT/equality-saturation code, visualization, Criterion benchmarks, and other
-application-specific modules.
+by downstream projects.
 
 The intent is similar to the relationship between `microlens` and `lens`: keep
 the useful core small, direct, and quick to build.
@@ -66,9 +64,6 @@ the pieces that downstream projects still use:
 - `filterType`
 - one-line type constructors such as `arrowType`, `mkDatatype`, `typeConst`,
   `genVar`, and `constFunc`
-
-The large Hoogle dataset and search implementation from `ecta` are not part of
-`microecta`.
 
 ## Dependency Surface
 
