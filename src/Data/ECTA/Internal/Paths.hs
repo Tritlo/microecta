@@ -45,7 +45,6 @@ import Data.Hashable (Hashable (..))
 import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
-import Data.Monoid (Any (..))
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
@@ -451,12 +450,7 @@ constraintsAreContradictory = (== EqContradiction)
 -- | List-based reference implementation for 'hasSubsumingMember'.
 hasSubsumingMemberListBased :: [Path] -> [Path] -> Bool
 hasSubsumingMemberListBased ps1 ps2 =
-    getAny $
-        mconcat
-            [ Any (isStrictSubpath p1 p2)
-            | p1 <- ps1
-            , p2 <- ps2
-            ]
+    any (\p1 -> any (isStrictSubpath p1) ps2) ps1
 
 {- | Check whether a normalized path class forces a path equal to its subpath.
 
