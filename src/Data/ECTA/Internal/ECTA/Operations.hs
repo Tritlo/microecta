@@ -332,39 +332,7 @@ edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
 ------ Intersect
 ------------
 
-_oldIntersect :: Node -> Node -> Node
-_oldIntersect = memo2 (NameTag "intersect") go
-  where
-    go :: Node -> Node -> Node
-    go n1 n2 = refold (nodeDropRedundantEdges (doIntersect n1 n2))
 {-# NOINLINE intersect #-}
-
--- 7/4/21: The unrolling strategy for intersection totally does not generalize beyond
--- recursive nodes which have a self cycle.
---
--- The following will enter an infinite recursion:
---  > t = createGloballyUniqueMu (\n -> Node  [Edge "a" [Node [Edge "a" [n]]]])
---  > intersect t (Node [Edge "a" [t]])
-doIntersect :: Node -> Node -> Node
-doIntersect EmptyNode _ = EmptyNode
-doIntersect _ EmptyNode = EmptyNode
-doIntersect n@(Mu _) (Mu _) = n -- TODO: Update for multiple Mu's
-doIntersect n1@(Mu _) n2 = doIntersect (unfoldOuterRec n1) n2
-doIntersect n1 n2@(Mu _) = doIntersect n1 (unfoldOuterRec n2)
-doIntersect n1@(Node es1) n2@(Node es2)
-    | n1 == n2 = n1
-    | n2 < n1 = intersect n2 n1
-    -- `hash` gives a unique ID of the symbol because they're interned
-    | otherwise =
-        let joined = hashJoin (hash . edgeSymbol) intersectEdgeSameSymbol es1 es2
-         in Node joined
--- Node $ dropRedundantEdges joined
--- mkNodeAlreadyNubbed $ dropRedundantEdges joined
-doIntersect n1 n2 = error $ "doIntersect: Unexpected " <> show n1 <> " " <> show n2
-
-nodeDropRedundantEdges :: Node -> Node
-nodeDropRedundantEdges (Node es) = Node $ dropRedundantEdges es
-nodeDropRedundantEdges n = n
 
 data RuleOutRes = Keep | RuledOutBy Edge
 
@@ -700,9 +668,6 @@ reduceEqConstraints = go
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
-        _atPaths :: [Node] -> [Path] -> [Node]
-        _atPaths ns ps = map (\p -> getPath p ns) ps
-
         reduceEClass :: PathEClass -> [Node] -> [Node]
         reduceEClass pec ns =
             foldr
@@ -713,9 +678,6 @@ reduceEqConstraints = go
             ps = unPathEClass pec
 
         toIntersect :: [Node] -> [Path] -> [Node]
-        -- toIntersect ns ps = replicate (length ps) $ intersectList $ map (nodeDropRedundantEdges . flip getPath ns) ps
-        -- toIntersect ns ps = map intersectList $ dropOnes $ map (nodeDropRedundantEdges . flip getPath ns) ps
-        -- toIntersect ns ps = replicate (length ps) $ intersectList $ map (flip getPath ns) ps
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
         -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
