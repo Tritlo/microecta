@@ -77,13 +77,13 @@ flipOrdering EQ = EQ
 data Path = Path ![Int]
     deriving (Eq, Ord, Show, Generic)
 
--- | Extract the raw child-index list from a 'Path'.
+-- | Extract the raw child-index list from a @Path@.
 unPath :: Path -> [Int]
 unPath (Path p) = p
 
 instance Hashable Path
 
--- | Build a 'Path' from child indexes.
+-- | Build a @Path@ from child indexes.
 path :: [Int] -> Path
 path = Path
 

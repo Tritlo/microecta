@@ -74,14 +74,14 @@ data RecNodeId
     | {- | Refer to Mu-node-to-be-constructed during intersection
 
       TODO: It is obviously not very elegant to have a constructor here specifically for one algorithm. Ideally, we
-      would parameterize 'Node' with the type of the identifiers in it. This might be useful also to rule out many
+      would parameterize @Node@ with the type of the identifiers in it. This might be useful also to rule out many
       other cases (specifically, most of the time we are dealing with fully interned nodes, and so the only
       constructor we expect is 'RecInt').
       -}
       RecIntersect IntersectId
     deriving (Eq, Ord, Show, Generic)
 
-{- | Context-free references to a 'Mu' node introduced by 'intersect'
+{- | Context-free references to a 'Mu' node introduced by @intersect@
 
 Background: This is a generalization of the idea to be able to refer to the "immediately enclosing binder", and then
 only deal with graphs with the property that we never need to refer past that enclosing binder. This too would allow
@@ -90,7 +90,7 @@ us to refer to a 'Mu' node without knowing its 'Id', at the cost of requiring a 
 concretely, without 'Id', but we can: intersection introduces 'Mu' whenever it encounters a 'Mu' on the left or the
 right, /and will then not introduce another 'Mu' for that same intersection problem (at least, not in the same
 scope). This means that the 'Id' of the left and right operand will indeed uniquely identify the 'Mu' node to be
-constructed by 'intersect'.
+constructed by @intersect@.
 
 Furthermore, since we cache the free variables in a term, we have a cheap check to see if we need the 'Mu' node at
 all. This means that /if/ the input graphs satisfy the property that there are references past 'Mu' nodes, the output
@@ -613,22 +613,22 @@ substFree' env node = case template node of
 
 This datatype should satisfy two properties for 'template' to work correctly:
 
-1. Forcing the 'Template' to WHNF should not result in any recursive calls
+1. Forcing the @Template@ to WHNF should not result in any recursive calls
    (so that the recursion isn't totally unrolled before memoization can happen).
-2. But forcing the /function inside/ the 'Template' to WHNF /should/ result in all recursive calls to happen,
+2. But forcing the /function inside/ the @Template@ to WHNF /should/ result in all recursive calls to happen,
    (/before/ the function is executed: executing the function should /not/ cause further calls to 'template').
 
-The idea here is that a function returning a 'Template', the application of that 'Template' should not result in
+The idea here is that a function returning a @Template@, the application of that @Template@ should not result in
 further recursive calls to that function, so that any expensive computation done by that function is not repeated,
-but is done independently of the environment (the 'Map') that we provide to the 'Template'. Put another way: the
+but is done independently of the environment (the 'Map') that we provide to the @Template@. Put another way: the
 function can be memoized independently of that environment. For substitution this may not matter very much, but for
-other functions it could. Note however that the resulting 'Template' does build the graph on each invocation; this
-may still be prohibitively expensive. See 'intersect' for an example of how we can avoid an environment altogether.
+other functions it could. Note however that the resulting @Template@ does build the graph on each invocation; this
+may still be prohibitively expensive. See @intersect@ for an example of how we can avoid an environment altogether.
 (This is not an option for substitution of course, where the environment is part of the API of the function.)
 -}
 data Template a = Template (Map RecNodeId Node -> a)
 
-{- | Commute @[]@ and 'Template'
+{- | Commute @[]@ and @Template@
 
 Forces all elements in the list
 -}
@@ -642,7 +642,7 @@ sequenceTemplate = Template . go []
 {- | Extract the shape from a term
 
 Somewhat serendipitously (or does this point to some deeper truth?) this also serves as a definition of substitution:
-any free variables in the original node will become " holes " in the 'Template'.
+any free variables in the original node will become " holes " in the @Template@.
 
 We do not use the pattern synonyms here, because 'template' is used (through 'substFree') to /define/ those
 pattern synonyms.

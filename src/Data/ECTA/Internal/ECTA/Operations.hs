@@ -104,7 +104,7 @@ adjustAt i f xs
 
 {- | Apply an edge transformation to the outgoing alternatives of a node.
 
-This is a shallow operation: for a normal 'Node' it maps over that node's
+This is a shallow operation: for a normal @Node@ it maps over that node's
 edges, and for a 'Mu' it first unfolds the outer recursion and then maps those
 edges. It does not recursively traverse child nodes. Spectacular uses this
 shape to push environment/equality-constraint edits across every immediate

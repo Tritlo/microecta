@@ -1,4 +1,4 @@
-{- | Zipper utilities for navigating and unioning 'PathTrie' values.
+{- | Zipper utilities for navigating and unioning @PathTrie@ values.
 
 These helpers are not on the main reduction hot path, but they are useful for
 tests and for experiments around path-trie navigation. The zipper is read-only:
@@ -57,7 +57,7 @@ trieChildren _ = []
 
 {- | Rebuild the compact trie constructor for a sparse child list.
 
-This is the boundary that restores the `PathTrie` invariant after union.  Zipper
+This is the boundary that restores the @PathTrie@ invariant after union. Zipper
 operations can temporarily carry empty children, mirroring the old dense-vector
 representation, but canonical tries should keep only non-empty children and
 collapse back to the empty or single-child constructors when possible.
@@ -85,7 +85,7 @@ unionChildren left@((i1, pt1) : rest1) right@((i2, pt2) : rest2) =
 ------- Zippers
 ---------------------
 
--- | Breadcrumb stack for a focused 'PathTrie'.
+-- | Breadcrumb stack for a focused @PathTrie@.
 data InvertedPathTrie
     = -- | Focus is at the root.
       PathZipperRoot
@@ -93,7 +93,7 @@ data InvertedPathTrie
       PathTrieAt {-# UNPACK #-} !Int !PathTrie !InvertedPathTrie
     deriving (Eq, Ord, Show)
 
--- | Read-only focus into a 'PathTrie'.
+-- | Read-only focus into a @PathTrie@.
 data PathTrieZipper = PathTrieZipper !PathTrie !InvertedPathTrie
     deriving (Eq, Ord, Show)
 

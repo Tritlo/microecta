@@ -2,7 +2,7 @@
 
 {- | Small constructors for the term-search ECTA encoding.
 
-These helpers deliberately stay as one-line wrappers around 'Node' and 'Edge'.
+These helpers deliberately stay as one-line wrappers around @Node@ and @Edge@.
 They are here to preserve the useful surface area of @ecta@ without bringing
 back the larger search application.
 -}
