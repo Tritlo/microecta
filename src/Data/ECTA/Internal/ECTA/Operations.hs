@@ -510,6 +510,16 @@ union ns = case foldr collect (False, []) ns of
     collect EmptyNode acc = acc
     collect n (_, es) = (True, nodeEdges n ++ es)
 
+unionMapMaybe :: (a -> Maybe Node) -> [a] -> Node
+unionMapMaybe f xs = case foldr collect (False, []) xs of
+    (False, _) -> EmptyNode
+    (_, es) -> Node es
+  where
+    collect x acc = case f x of
+        Nothing -> acc
+        Just EmptyNode -> acc
+        Just n -> (True, nodeEdges n ++ snd acc)
+
 ----------------------
 ------ Path operations
 ----------------------
@@ -538,10 +548,10 @@ instance Pathable Node Node where
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
     getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
-    getPath (ConsPath p ps) (Node es) = union $ map (getPath ps) (mapMaybe goEdge es)
+    getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
       where
         goEdge :: Edge -> Maybe Node
-        goEdge (Edge _ ns) = atMay p ns
+        goEdge (Edge _ ns) = getPath ps <$> atMay p ns
     getPath p n = error $ "getPath: unexpected path " <> show p <> " for node " <> show n
 
     getAllAtPath _ EmptyNode = []
