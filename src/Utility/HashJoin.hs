@@ -64,7 +64,7 @@ hashJoin h j l1 l2 = runST $ do
             maybeCluster <- HT.lookup ht2 (h x)
             case maybeCluster of
                 Nothing -> return res
-                Just vs2 -> return $ [j x v2 | v2 <- vs2] ++ res
+                Just vs2 -> return $ foldr (\v2 acc -> j x v2 : acc) res vs2
         )
         []
         l1

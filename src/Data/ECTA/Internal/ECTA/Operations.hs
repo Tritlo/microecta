@@ -678,6 +678,7 @@ reduceEqConstraints = go
             ps = unPathEClass pec
 
         toIntersect :: [Node] -> [Path] -> [Node]
+        toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
         -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
