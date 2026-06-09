@@ -180,8 +180,10 @@ initEnumerationState n =
 -------- Monad
 ---------------------
 
+-- | Nondeterministic enumeration state monad.
 type EnumerateM = StateT EnumerationState []
 
+-- | Run a lower-level enumeration action from an explicit state.
 runEnumerateM :: EnumerateM a -> EnumerationState -> [(a, EnumerationState)]
 runEnumerateM = runStateT
 
@@ -515,6 +517,7 @@ enumerateOutFirstExpandableUVar = do
         ExpansionDone -> mzero
         ExpansionStuck -> mzero
 
+-- | Expand the root UVar until it represents a complete term.
 enumerateFully :: EnumerateM ()
 enumerateFully = const () <$> enumerateFully' () False (\x _ _ -> return (False, x))
 
@@ -602,6 +605,7 @@ expandPartialTermFrag (TermFragmentUVar uv) =
             UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
             _ -> return $ Term (Symbol $ "<v" <> pretty (uvarToInt uv) <> ">") []
 
+-- | Expand a complete term fragment into a concrete term.
 expandTermFrag :: TermFragment -> EnumerateM Term
 expandTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandTermFrag ts
 expandTermFrag (TermFragmentUVar uv) =
@@ -613,6 +617,7 @@ expandTermFrag (TermFragmentUVar uv) =
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
+-- | Expand an already-enumerated UVar into a concrete term.
 expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do
     UVarEnumerated t <- getUVarValue uv
@@ -622,6 +627,7 @@ expandUVar uv = do
 -------- Full enumeration
 ---------------------
 
+-- | Enumerate terms, replacing recursive holes with a truncation marker.
 getAllTruncatedTerms :: Node -> [Term]
 getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
     flip runEnumerateM (initEnumerationState n) $ do
@@ -663,5 +669,6 @@ enumPrune a oracle = do
     finished <- enumerateFully' a True oracle
     if finished then expandUVar (intToUVar 0) else mzero
 
+-- | Enumerate all complete terms represented by an ECTA.
 getAllTerms :: Node -> [Term]
 getAllTerms = getAllTermsPrune () (\_ _ _ -> return (False, ()))

@@ -2,6 +2,12 @@
 -- For the 'Pathable' instance for 'Node'
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+{- | Core ECTA operations.
+
+This module contains traversal, intersection, union, reduction, and
+constraint-propagation logic. Most users should import "Data.ECTA" instead; the
+module is exposed so downstream code can reach lower-level helpers when needed.
+-}
 module Data.ECTA.Internal.ECTA.Operations (
     -- * Traversal
     nodeMapChildren,
@@ -141,10 +147,12 @@ mapNodes f = go
     go' (Mu n) = f $ Mu (go . n)
     go' (Rec i) = f $ Rec i
 
--- This name originates from the "crush" operator in the Stratego language. C.f.: the "crushtdT"
--- combinators in the KURE and compstrat libraries.
---
--- Although m is only constrained to be a monoid, crush makes no guarantees about ordering.
+{- | Fold over all reachable nodes with sharing awareness.
+
+This name originates from the @crush@ operator in the Stratego language.
+Although @m@ is only constrained to be a monoid, this function makes no
+guarantees about traversal order.
+-}
 crush :: forall m. (Monoid m) => (Node -> m) -> Node -> m
 crush f = \n -> evalState (go n) Set.empty
   where
@@ -162,6 +170,7 @@ crush f = \n -> evalState (go n) Set.empty
                 modify' (Set.insert nId)
                 mappend (f n) <$> (mconcat <$> mapM (\(Edge _ ns) -> mconcat <$> mapM go ns) (internedNodeEdges node))
 
+-- | Run a fold function only on normal non-recursive nodes.
 onNormalNodes :: (Monoid m) => (Node -> m) -> (Node -> m)
 onNormalNodes f n@(Node _) = f n
 onNormalNodes _ _ = mempty
@@ -170,15 +179,18 @@ onNormalNodes _ _ = mempty
 ------ Folding
 -----------------------
 
+-- | Unfold one outer 'Mu' layer.
 unfoldOuterRec :: Node -> Node
 unfoldOuterRec n@(Mu x) = x n
 unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
 
+-- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
 nodeEdges :: Node -> [Edge]
 nodeEdges (Node es) = es
 nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
 nodeEdges _ = []
 
+-- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
 refold :: Node -> Node
 refold = memo (NameTag "refold") go
   where
@@ -200,6 +212,7 @@ refold = memo (NameTag "refold") go
             Just y -> y
             Nothing -> x
 
+-- | Unfold recursive nodes at most the given number of rounds.
 unfoldBounded :: Int -> Node -> Node
 unfoldBounded 0 =
     mapNodes
@@ -219,14 +232,23 @@ unfoldBounded k =
 ------ Size operations
 ------------
 
+-- | Count reachable non-recursive nodes, sharing-aware.
 nodeCount :: Node -> Int
 nodeCount = getSum . crush (onNormalNodes $ const $ Sum 1)
 
+-- | Count reachable outgoing edges, sharing-aware.
 edgeCount :: Node -> Int
-edgeCount = getSum . crush (onNormalNodes $ \(Node es) -> Sum (length es))
+edgeCount = getSum . crush (onNormalNodes go)
+  where
+    go (Node es) = Sum (length es)
+    go _ = mempty
 
+-- | Maximum number of outgoing alternatives on any reachable normal node.
 maxIndegree :: Node -> Int
-maxIndegree = getMax . crush (onNormalNodes $ \(Node es) -> Max (length es))
+maxIndegree = getMax . crush (onNormalNodes go)
+  where
+    go (Node es) = Max (length es)
+    go _ = mempty
 
 ------------
 ------ Membership
@@ -390,6 +412,7 @@ intersectEdgeSameSymbol = memo2 (NameTag "intersectEdgeSameSymbol") go
 ------ New intersection
 ------------
 
+-- | Intersection of two ECTAs.
 intersect :: Node -> Node -> Node
 intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 
@@ -500,6 +523,7 @@ intersectOpenEdge = memo (NameTag "intersectOpenEdge") (\(dom, l, r) -> onEdge d
 ------ Union
 ------------
 
+-- | Union a list of ECTAs by concatenating their alternatives.
 union :: [Node] -> Node
 union ns = case filter (/= EmptyNode) ns of
     [] -> EmptyNode
@@ -509,6 +533,7 @@ union ns = case filter (/= EmptyNode) ns of
 ------ Path operations
 ----------------------
 
+-- | Restrict an ECTA to terms that contain the given path.
 requirePath :: Path -> Node -> Node
 requirePath EmptyPath n = n
 requirePath _ EmptyNode = EmptyNode
@@ -521,6 +546,7 @@ requirePath (ConsPath p ps) (Node es) =
                 es
 requirePath _ (Rec _) = error "requirePath: unexpected Rec"
 
+-- | Variant of 'requirePath' for a child list.
 requirePathList :: Path -> [Node] -> [Node]
 requirePathList EmptyPath ns = ns
 requirePathList (ConsPath p ps) ns = adjustAt p (requirePath ps) ns
@@ -575,6 +601,7 @@ instance Pathable [Node] Node where
 ------ Reduction
 ------------------------------------
 
+-- | Remove alternatives represented by another alternative in the same node.
 withoutRedundantEdges :: Node -> Node
 withoutRedundantEdges n = mapNodes dropReds n
   where
@@ -585,6 +612,7 @@ withoutRedundantEdges n = mapNodes dropReds n
 --- Reducing Equality Constraints
 ---------------
 
+-- | Propagate equality constraints through one reduction pass.
 reducePartially :: Node -> Node
 reducePartially = reducePartially' EmptyConstraints
 
@@ -629,6 +657,7 @@ reducePartially' = memo2 (NameTag "reducePartially'") go
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
 
+-- | Reduce an edge's children using inherited constraints from ancestors.
 reduceEdgeIntersection :: EqConstraints -> Edge -> Edge
 reduceEdgeIntersection = memo2 (NameTag "reduceEdgeIntersection") go
   where
@@ -640,6 +669,7 @@ reduceEdgeIntersection = memo2 (NameTag "reduceEdgeIntersection") go
             (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
+-- | Apply local and inherited equality constraints to a child list.
 reduceEqConstraints :: EqConstraints -> EqConstraints -> [Node] -> [Node]
 reduceEqConstraints = go
   where
@@ -657,7 +687,8 @@ reduceEqConstraints = go
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
 
         intersectList :: [Node] -> Node
-        intersectList ns = foldr intersect (head ns) (tail ns)
+        intersectList [] = EmptyNode
+        intersectList (n : ns) = foldr intersect n ns
 
         _atPaths :: [Node] -> [Path] -> [Node]
         _atPaths ns ps = map (\p -> getPath p ns) ps
@@ -679,7 +710,7 @@ reduceEqConstraints = go
 
         -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
         dropOnes :: [a] -> [[a]]
-        dropOnes xs = zipWith (++) (inits xs) (tail $ tails xs)
+        dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
 
 ---------------
 --- Debugging

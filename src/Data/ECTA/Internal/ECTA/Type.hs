@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Interned node and edge representation for the ECTA core.
 module Data.ECTA.Internal.ECTA.Type (
     RecNodeId (..),
     Edge (.., Edge),
@@ -117,6 +118,7 @@ instance Hashable IntersectId
 ----------------------------- Edges -----------------------------
 -----------------------------------------------------------------
 
+-- | One outgoing alternative of an ECTA node.
 data Edge = InternedEdge
     { edgeId :: !Id
     , uninternedEdge :: !UninternedEdge
@@ -130,12 +132,15 @@ instance Show Edge where
 -- instance Show Edge where
 --  show e = "InternedEdge " ++ show (edgeId e) ++ " " ++ show (edgeSymbol e) ++ " " ++ show (edgeChildren e) ++ " " ++ show (edgeEcs e)
 
+-- | Symbol at the root of terms accepted through this edge.
 edgeSymbol :: Edge -> Symbol
 edgeSymbol = uEdgeSymbol . uninternedEdge
 
+-- | Child automata for this edge.
 edgeChildren :: Edge -> [Node]
 edgeChildren = uEdgeChildren . uninternedEdge
 
+-- | Equality constraints over paths into 'edgeChildren'.
 edgeEcs :: Edge -> EqConstraints
 edgeEcs = uEdgeEcs . uninternedEdge
 
@@ -152,6 +157,7 @@ instance Hashable Edge where
 ------------------------------ Nodes ----------------------------
 -----------------------------------------------------------------
 
+-- | Interned recursive node payload.
 data InternedMu = MkInternedMu
     { internedMuId :: {-# UNPACK #-} !Id
     -- ^ 'Id' of the node itself
@@ -173,6 +179,7 @@ data InternedMu = MkInternedMu
     }
     deriving (Show)
 
+-- | Interned non-recursive node payload.
 data InternedNode = MkInternedNode
     { internedNodeId :: {-# UNPACK #-} !Id
     -- ^ The 'Id' of the node itself
@@ -185,11 +192,16 @@ data InternedNode = MkInternedNode
     }
     deriving (Show)
 
+-- | ECTA node.
 data Node
-    = InternedNode {-# UNPACK #-} !InternedNode
-    | EmptyNode
-    | InternedMu {-# UNPACK #-} !InternedMu
-    | Rec !RecNodeId
+    = -- | Interned node with one or more outgoing alternatives.
+      InternedNode {-# UNPACK #-} !InternedNode
+    | -- | Empty language.
+      EmptyNode
+    | -- | Interned recursive node.
+      InternedMu {-# UNPACK #-} !InternedMu
+    | -- | Recursive reference used inside a 'Mu'.
+      Rec !RecNodeId
 
 instance Eq Node where
     InternedNode l == InternedNode r = internedNodeId l == internedNodeId r
@@ -257,12 +269,14 @@ freeVars (Rec i) = Set.singleton i
 ------ Getters and setters
 ----------------------
 
+-- | Stable interned identity for non-empty, interned nodes.
 nodeIdentity :: Node -> Id
 nodeIdentity (InternedMu mu) = internedMuId mu
 nodeIdentity (InternedNode node) = internedNodeId node
 nodeIdentity (Rec (RecInt i)) = i
 nodeIdentity n = error $ "nodeIdentity: unexpected node " <> show n
 
+-- | Replace an edge's children while preserving its symbol and constraints.
 setChildren :: Edge -> [Node] -> Edge
 setChildren e ns = mkEdge (edgeSymbol e) ns (edgeEcs e)
 
@@ -399,6 +413,7 @@ shape f = f (RecUnint (numNestedMu (f RecDepth)))
 ------------------------ Interning Edges ------------------------
 -----------------------------------------------------------------
 
+-- | Edge payload before interning.
 data UninternedEdge = UninternedEdge
     { uEdgeSymbol :: !Symbol
     , uEdgeChildren :: ![Node]
@@ -433,6 +448,7 @@ edgeCache = unsafePerformIO freshCache
 ------ Edge constructors
 -------------------
 
+-- | Build or match an unconstrained edge.
 pattern Edge :: Symbol -> [Node] -> Edge
 pattern Edge s ns <- (InternedEdge _ (UninternedEdge s ns _))
     where
@@ -440,6 +456,7 @@ pattern Edge s ns <- (InternedEdge _ (UninternedEdge s ns _))
 
 {-# COMPLETE Edge #-}
 
+-- | Edge that is guaranteed to be removed when a node is built.
 emptyEdge :: Edge
 emptyEdge = Edge "" [EmptyNode]
 
@@ -449,6 +466,7 @@ isEmptyEdge (Edge _ ns) = any (== EmptyNode) ns
 removeEmptyEdges :: [Edge] -> [Edge]
 removeEmptyEdges = filter (not . isEmptyEdge)
 
+-- | Build an edge with equality constraints.
 mkEdge :: Symbol -> [Node] -> EqConstraints -> Edge
 mkEdge _ _ ecs
     | constraintsAreContradictory ecs = emptyEdge
@@ -461,6 +479,7 @@ mkEdge s ns ecs
 
 {-# COMPLETE Node, EmptyNode, Mu, Rec #-}
 
+-- | Build or match a non-empty node from outgoing alternatives.
 pattern Node :: [Edge] -> Node
 pattern Node es <- (InternedNode (internedNodeEdges -> es))
     where

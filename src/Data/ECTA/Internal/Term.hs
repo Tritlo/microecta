@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{- | Symbols and concrete terms accepted by ECTAs.
+
+Terms are ordinary first-order trees. They are the concrete values produced by
+the enumeration API in "Data.ECTA".
+-}
 module Data.ECTA.Internal.Term (
     Symbol (.., Symbol),
     Term (..),
@@ -23,9 +28,11 @@ import Data.Text.Extended.Pretty
 -------------------------- Symbols ----------------------------
 ---------------------------------------------------------------
 
+-- | Interned term or edge symbol.
 data Symbol = Symbol' {-# UNPACK #-} !InternedText
     deriving (Eq, Ord)
 
+-- | Build or match a symbol from text.
 pattern Symbol :: Text -> Symbol
 pattern Symbol t <- Symbol' (OrigInterned.unintern -> t)
     where
@@ -52,6 +59,7 @@ instance Read Symbol where
 ---------------------------- Terms ----------------------------
 ---------------------------------------------------------------
 
+-- | Concrete first-order term.
 data Term = Term !Symbol ![Term]
     deriving (Eq, Ord, Read, Show, Generic)
 

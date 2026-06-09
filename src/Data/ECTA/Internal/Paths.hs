@@ -73,14 +73,17 @@ flipOrdering EQ = EQ
 -------------------------------- Paths --------------------------------
 -----------------------------------------------------------------------
 
+-- | Path into an edge's children, represented as child indexes.
 data Path = Path ![Int]
     deriving (Eq, Ord, Show, Generic)
 
+-- | Extract the raw child-index list from a 'Path'.
 unPath :: Path -> [Int]
 unPath (Path p) = p
 
 instance Hashable Path
 
+-- | Build a 'Path' from child indexes.
 path :: [Int] -> Path
 path = Path
 
@@ -94,21 +97,27 @@ pattern ConsPath p ps <- Path (p : (Path -> ps))
     where
         ConsPath p (Path ps) = Path (p : ps)
 
+-- | First path component. Unsafe on 'EmptyPath'.
 pathHeadUnsafe :: Path -> Int
-pathHeadUnsafe (Path ps) = head ps
+pathHeadUnsafe EmptyPath = error "pathHeadUnsafe: empty path"
+pathHeadUnsafe (ConsPath p _) = p
 
+-- | Path without its first component. Unsafe on 'EmptyPath'.
 pathTailUnsafe :: Path -> Path
-pathTailUnsafe (Path ps) = Path (tail ps)
+pathTailUnsafe EmptyPath = error "pathTailUnsafe: empty path"
+pathTailUnsafe (ConsPath _ ps) = ps
 
 instance Pretty Path where
     pretty (Path ps) = Text.intercalate "." (map (Text.pack . show) ps)
 
+-- | Whether the first path is a prefix of the second path.
 isSubpath :: Path -> Path -> Bool
 isSubpath EmptyPath _ = True
 isSubpath (ConsPath p1 ps1) (ConsPath p2 ps2)
     | p1 == p2 = isSubpath ps1 ps2
 isSubpath _ _ = False
 
+-- | Whether the first path is a strict prefix of the second path.
 isStrictSubpath :: Path -> Path -> Bool
 isStrictSubpath EmptyPath EmptyPath = False
 isStrictSubpath EmptyPath _ = True
@@ -118,8 +127,9 @@ isStrictSubpath _ _ = False
 
 {- | Read `substSubpath p1 p2 p3` as `[p1/p2]p3`
 
-`substSubpath replacement toReplace target` takes `toReplace`, a prefix of target,
- and returns a new path in which `toReplace` has been replaced by `replacement`.
+@substSubpath replacement toReplace target@ takes @toReplace@, a prefix of
+@target@, and returns a new path in which @toReplace@ has been replaced by
+@replacement@.
 
  Undefined if toReplace is not a prefix of target
 -}
@@ -130,15 +140,18 @@ substSubpath replacement toReplace target = Path $ (unPath replacement) ++ drop 
 ---------------------------- Using paths ---------------------------------
 --------------------------------------------------------------------------
 
-{- | TODO: Should this be redone as a lens-library traversal?
-| TODO: I am unhappy about this Emptyable design; makes one question whether
-        this should be a typeclass at all. (Terms/ECTAs differ in that
-        there is always an ECTA Node that represents the value at a path)
--}
+-- | Things that can be inspected or edited by child-index paths.
 class Pathable t t' | t -> t' where
+    -- | Result type used when a path is absent.
     type Emptyable t'
+
+    -- | Read the value at a path, returning the empty value when absent.
     getPath :: Path -> t -> Emptyable t'
+
+    -- | Read all values reachable at a path.
     getAllAtPath :: Path -> t -> [t']
+
+    -- | Apply a local edit at a path.
     modifyAtPath :: (t' -> t') -> Path -> t -> t
 
 -----------------------------------------------------------------------
@@ -171,6 +184,7 @@ largestNonempty v =
         minBound
         v
 
+-- | Largest child index present in a trie node, if any.
 getMaxNonemptyIndex :: PathTrie -> Maybe Int
 getMaxNonemptyIndex EmptyPathTrie = Nothing
 getMaxNonemptyIndex TerminalPathTrie = Nothing
@@ -191,8 +205,8 @@ The sparse representation keeps only non-empty children in sorted order.  That
 keeps union, ordering, and subsumption as linear merges over present children,
 while avoiding the `-O2` compile-time memory blow-up from the dense vector code.
 
-Invariant for `PathTrie`: children are sorted by component, contain no
-`EmptyPathTrie` entries, and contain at least two children.  Constructors are
+Invariant for @PathTrie@: children are sorted by component, contain no
+@EmptyPathTrie@ entries, and contain at least two children.  Constructors are
 exported for tests and compatibility, so functions that rebuild multi-child
 tries should restore that invariant before returning.
 -}
@@ -203,7 +217,7 @@ data PathTrie
       TerminalPathTrie
     | -- | A compact node with exactly one child at the given path component.
       PathTrieSingleChild {-# UNPACK #-} !Int !PathTrie
-    | -- | Sparse multi-child node. See the invariant on `PathTrie`.
+    | -- | Sparse multi-child node. See the invariant on @PathTrie@.
       PathTrie ![(Int, PathTrie)]
     deriving (Eq, Show, Generic)
 
@@ -215,10 +229,12 @@ instance Hashable PathTrie where
     hashWithSalt salt (PathTrie children) =
         List.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int)) children
 
+-- | Check for the trie containing no paths.
 isEmptyPathTrie :: PathTrie -> Bool
 isEmptyPathTrie EmptyPathTrie = True
 isEmptyPathTrie _ = False
 
+-- | Check for the trie containing exactly the empty path.
 isTerminalPathTrie :: PathTrie -> Bool
 isTerminalPathTrie TerminalPathTrie = True
 isTerminalPathTrie _ = False
@@ -280,6 +296,7 @@ toPathTrie ps@(firstPath : _) =
         | group@(groupHead : _) <- groups
         ]
 
+-- | Convert a trie back to its sorted path list.
 fromPathTrie :: PathTrie -> [Path]
 fromPathTrie EmptyPathTrie = []
 fromPathTrie TerminalPathTrie = [EmptyPath]
@@ -287,6 +304,7 @@ fromPathTrie (PathTrieSingleChild i pt) = map (ConsPath i) $ fromPathTrie pt
 fromPathTrie (PathTrie children) =
     concatMap (\(i, pt) -> map (ConsPath i) $ fromPathTrie pt) children
 
+-- | Descend through one child index, returning 'EmptyPathTrie' if absent.
 pathTrieDescend :: PathTrie -> Int -> PathTrie
 pathTrieDescend EmptyPathTrie _ = EmptyPathTrie
 pathTrieDescend TerminalPathTrie _ = EmptyPathTrie
@@ -306,6 +324,7 @@ pathTrieDescend (PathTrieSingleChild j pt') i
 ---------- Path E-classes
 ---------------------------
 
+-- | Equality class of paths, stored both as a trie and as a path list.
 data PathEClass = PathEClass'
     { getPathTrie :: !PathTrie
     , getOrigPaths :: [Path] -- Intentionally lazy because
@@ -327,6 +346,7 @@ pattern PathEClass ps <- PathEClass' _ ps
     where
         PathEClass ps = PathEClass' (toPathTrie $ nub ps) (sort $ nub ps)
 
+-- | Extract the paths in an equality class.
 unPathEClass :: PathEClass -> [Path]
 unPathEClass (PathEClass' _ paths) = paths
 
@@ -341,6 +361,7 @@ mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt)
 pathEClassDescend :: PathEClass -> Int -> PathEClass
 pathEClassDescend (PathEClass' pt _) i = mkPathEClassFromPathTrie $ pathTrieDescend pt i
 
+-- | Whether one path in the first class strictly subsumes one path in the second.
 hasSubsumingMember :: PathEClass -> PathEClass -> Bool
 hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
   where
@@ -393,6 +414,7 @@ completedSubsumptionOrdering pec1 pec2
 ---------- Equality constraints
 --------------------------------
 
+-- | Equality constraints attached to an ECTA edge.
 data EqConstraints
     = EqConstraints
         { getEclasses :: [PathEClass]
@@ -415,18 +437,22 @@ ecsGetPaths = map unPathEClass . getEclasses
 pattern EmptyConstraints :: EqConstraints
 pattern EmptyConstraints = EqConstraints []
 
+-- | Extract equality classes, failing on 'EqContradiction'.
 unsafeGetEclasses :: EqConstraints -> [PathEClass]
 unsafeGetEclasses EqContradiction = error "unsafeGetEclasses: Illegal argument 'EqContradiction'"
 unsafeGetEclasses ecs = getEclasses ecs
 
+-- | Construct constraints without congruence closure or contradiction checks.
 rawMkEqConstraints :: [[Path]] -> EqConstraints
 rawMkEqConstraints = EqConstraints . map PathEClass
 
+-- | Check whether a constraint set is already contradictory.
 constraintsAreContradictory :: EqConstraints -> Bool
 constraintsAreContradictory = (== EqContradiction)
 
 --------- Construction
 
+-- | List-based reference implementation for 'hasSubsumingMember'.
 hasSubsumingMemberListBased :: [Path] -> [Path] -> Bool
 hasSubsumingMemberListBased ps1 ps2 =
     getAny $
@@ -444,7 +470,14 @@ hasSubsumingMemberListBased ps1 ps2 =
 isContradicting :: [[Path]] -> Bool
 isContradicting cs = any (\pec -> hasSubsumingMemberListBased pec pec) cs
 
--- Contains an inefficient implementation of the congruence closure algorithm
+{- | Build normalized equality constraints.
+
+This performs equality-class completion, adds path congruences, and detects
+contradictions caused by a path being forced equal to one of its strict
+subpaths. The implementation is intentionally direct rather than clever because
+constraint construction is not the main @microecta@ API boundary, and the
+@equivalence@ package keeps this path fast enough for current workloads.
+-}
 mkEqConstraints :: [[Path]] -> EqConstraints
 mkEqConstraints initialConstraints = case completedConstraints of
     Nothing -> EqContradiction
@@ -483,6 +516,7 @@ mkEqConstraints initialConstraints = case completedConstraints of
 
 ---------- Operations
 
+-- | Combine two constraint sets and normalize the result.
 combineEqConstraints :: EqConstraints -> EqConstraints -> EqConstraints
 combineEqConstraints = memo2 (NameTag "combineEqConstraints") go
   where
@@ -491,22 +525,27 @@ combineEqConstraints = memo2 (NameTag "combineEqConstraints") go
     go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
 {-# NOINLINE combineEqConstraints #-}
 
+-- | Descend every path in a constraint set through one child index.
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
 eqConstraintsDescend ecs i = EqConstraints $ sort $ map (`pathEClassDescend` i) (getEclasses ecs)
 
 -- A faster implementation would be: Merge the eclasses of both, run mkEqConstraints (or at least do eclass completion),
 -- check result equal to ecs2
+
+-- | Conservative implication check between two constraint sets.
 constraintsImply :: EqConstraints -> EqConstraints -> Bool
 constraintsImply EqContradiction _ = True
 constraintsImply _ EqContradiction = False
 constraintsImply ecs1 ecs2 = all (\cs -> any (isSubsequenceOf cs) (ecsGetPaths ecs1)) (ecsGetPaths ecs2)
 
+-- | Equality classes sorted for constraint propagation, if not contradictory.
 subsumptionOrderedEclasses :: EqConstraints -> Maybe [PathEClass]
 subsumptionOrderedEclasses ecs = case ecs of
     EqContradiction -> Nothing
     EqConstraints pecs -> Just $ sortBy completedSubsumptionOrdering pecs
 
+-- | Variant of 'subsumptionOrderedEclasses' that fails on contradiction.
 unsafeSubsumptionOrderedEclasses :: EqConstraints -> [PathEClass]
 unsafeSubsumptionOrderedEclasses (EqConstraints pecs) = sortBy completedSubsumptionOrdering pecs
 unsafeSubsumptionOrderedEclasses EqContradiction = error $ "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"

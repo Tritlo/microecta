@@ -1,16 +1,18 @@
 cabal-version: 2.4
 name: microecta
 version: 0.1.0.0
+synopsis: Small equality-constrained tree automata core
 description: A small equality-constrained tree automata core extracted from ecta.
 homepage: https://github.com/Tritlo/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
 author: Jimmy Koppel, Matthias Pall Gissurarson
 maintainer: mpg@mpg.is
 copyright: 2021 Jimmy Koppel, 2026 Matthias Pall Gissurarson
 license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
-extra-source-files:
+extra-doc-files:
   ChangeLog.md
   README.md
 
