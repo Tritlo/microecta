@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-bench:
+    name: Build, test, and benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Haskell
+        uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: "9.12.2"
+          cabal-version: "3.16.1.0"
+          cabal-update: true
+
+      - name: Configure build plan
+        run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
+
+      - name: Restore cached dependencies
+        uses: actions/cache/restore@v4
+        id: deps-cache
+        env:
+          key: cabal-store-microecta-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ env.key }}-plan-${{ hashFiles('dist-newstyle/cache/plan.json') }}
+          restore-keys: ${{ env.key }}-
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: cabal v2-build all --only-dependencies --enable-tests --enable-benchmarks
+
+      - name: Save cached dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+
+      - name: Build
+        run: cabal v2-build all
+
+      - name: Test
+        run: cabal v2-test all
+
+      - name: Benchmark
+        run: cabal v2-bench all

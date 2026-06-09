@@ -1,5 +1,7 @@
 # microecta
 
+[![Hackage](https://img.shields.io/hackage/v/microecta.svg)](https://hackage.haskell.org/package/microecta-0.1.0.0)
+
 `microecta` is a small equality-constrained tree automata library extracted
 from the [`ecta`](https://hackage.haskell.org/package/ecta) package.
 
