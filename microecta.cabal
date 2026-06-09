@@ -83,7 +83,6 @@ library
     Utility.HashJoin
 
   other-modules:
-    Data.HashTable.Extended
     Data.Text.Extended.Pretty
 
   build-depends:

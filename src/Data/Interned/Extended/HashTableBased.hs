@@ -6,8 +6,6 @@ module Data.Interned.Extended.HashTableBased (
     Id,
     Cache (..),
     freshCache,
-    cacheSize,
-    resetCache,
     Interned (..),
     intern,
 ) where
@@ -16,8 +14,6 @@ import qualified Data.HashTable.IO as HT
 import Data.Hashable
 import Data.IORef
 import GHC.IO (unsafeDupablePerformIO)
-
-import Data.HashTable.Extended
 
 -- | Dense identity assigned to each interned value.
 type Id = Int
@@ -38,16 +34,6 @@ freshCache =
     Cache
         <$> newIORef 0
         <*> HT.new
-
--- | Number of identities allocated by a cache.
-cacheSize :: Cache t -> IO Int
-cacheSize Cache{fresh = refI} = readIORef refI
-
--- | Clear a cache and reset its id supply.
-resetCache :: (Interned t) => Cache t -> IO ()
-resetCache Cache{fresh = refI, content = ht} = do
-    writeIORef refI 0
-    resetHashTable (AnyHashTable ht)
 
 -- | Values that can be hash-consed through a global cache.
 class
