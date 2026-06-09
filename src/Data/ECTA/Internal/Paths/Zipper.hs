@@ -14,11 +14,6 @@ module Data.ECTA.Internal.Paths.Zipper (
     unionPathTrieZipper,
 ) where
 
-import qualified Data.Vector as Vector
-import qualified Data.Vector.Mutable as Vector (unsafeWrite)
-
-import GHC.Exts (inline)
-
 import Data.ECTA.Internal.Paths
 
 -----------------------------------------------------------------------
@@ -38,43 +33,50 @@ unionPathTrie (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2) =
     if i1 == i2
         then
             PathTrieSingleChild i1 <$> unionPathTrie pt1 pt2
-        else Just $ PathTrie $ Vector.generate (1 + max i1 i2) $ \j ->
-            if j == i1
-                then
-                    pt1
-                else
-                    if j == i2
-                        then
-                            pt2
-                        else
-                            EmptyPathTrie
-unionPathTrie (PathTrieSingleChild i pt) (PathTrie vec) =
-    if Vector.length vec > i
-        then do
-            updated <- unionPathTrie pt (vec `Vector.unsafeIndex` i)
-            Just $ PathTrie $ Vector.modify (\v -> Vector.unsafeWrite v i updated) vec
-        else Just $ PathTrie $ Vector.generate (i + 1) $ \j ->
-            if j < Vector.length vec
-                then
-                    vec `Vector.unsafeIndex` j
-                else
-                    if j == i
-                        then
-                            pt
-                        else
-                            EmptyPathTrie
-unionPathTrie pt1@(PathTrie _) pt2@(PathTrieSingleChild _ _) = inline unionPathTrie pt2 pt1 -- TODO: Check whether this inlining is effective
-unionPathTrie (PathTrie vec1) (PathTrie vec2) =
-    let newLength = max (Vector.length vec1) (Vector.length vec2)
-        smallerLength = min (Vector.length vec1) (Vector.length vec2)
-        bigVec = if Vector.length vec1 > Vector.length vec2 then vec1 else vec2
-        smallVec = if Vector.length vec1 > Vector.length vec2 then vec2 else vec1
-     in fmap PathTrie $ Vector.generateM newLength $ \i ->
-            if i >= smallerLength
-                then
-                    return (bigVec `Vector.unsafeIndex` i)
-                else
-                    unionPathTrie (bigVec `Vector.unsafeIndex` i) (smallVec `Vector.unsafeIndex` i)
+        else
+            Just $
+                childrenToPathTrie $
+                    if i1 < i2
+                        then [(i1, pt1), (i2, pt2)]
+                        else [(i2, pt2), (i1, pt1)]
+unionPathTrie pt1@(PathTrieSingleChild _ _) pt2@(PathTrie _) =
+    childrenToPathTrie <$> unionChildren (trieChildren pt1) (trieChildren pt2)
+unionPathTrie pt1@(PathTrie _) pt2@(PathTrieSingleChild _ _) =
+    childrenToPathTrie <$> unionChildren (trieChildren pt1) (trieChildren pt2)
+unionPathTrie (PathTrie children1) (PathTrie children2) =
+    childrenToPathTrie <$> unionChildren children1 children2
+
+-- | View a non-terminal trie node as sorted sparse children.
+trieChildren :: PathTrie -> [(Int, PathTrie)]
+trieChildren (PathTrieSingleChild i pt) = [(i, pt)]
+trieChildren (PathTrie children) = children
+trieChildren _ = []
+
+{- | Rebuild the compact trie constructor for a sparse child list.
+
+This is the boundary that restores the `PathTrie` invariant after union.  Zipper
+operations can temporarily carry empty children, mirroring the old dense-vector
+representation, but canonical tries should keep only non-empty children and
+collapse back to the empty or single-child constructors when possible.
+-}
+childrenToPathTrie :: [(Int, PathTrie)] -> PathTrie
+childrenToPathTrie children =
+    case filter (not . isEmptyPathTrie . snd) children of
+        [] -> EmptyPathTrie
+        [(i, pt)] -> PathTrieSingleChild i pt
+        nonemptyChildren -> PathTrie nonemptyChildren
+
+-- | Union two sorted sparse child lists, failing if any children contradict.
+unionChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Maybe [(Int, PathTrie)]
+unionChildren [] children = Just children
+unionChildren children [] = Just children
+unionChildren left@((i1, pt1) : rest1) right@((i2, pt2) : rest2) =
+    case compare i1 i2 of
+        LT -> ((i1, pt1) :) <$> unionChildren rest1 right
+        GT -> ((i2, pt2) :) <$> unionChildren left rest2
+        EQ -> do
+            pt <- unionPathTrie pt1 pt2
+            ((i1, pt) :) <$> unionChildren rest1 rest2
 
 ---------------------
 ------- Zippers

@@ -36,9 +36,7 @@ invertPathTrieCommand (PathTrieZipperDescend i) = PathTrieZipperAscend i
   Makes the "descend/ascend are inverses" property easy to write
 -}
 extendedPathTrieZipperDescend :: PathTrieZipper -> Int -> PathTrieZipper
-extendedPathTrieZipperDescend (PathTrieZipper (PathTrie v) z') i
-    | i >= Vector.length v = PathTrieZipper EmptyPathTrie (PathTrieAt i (PathTrie v) z')
-extendedPathTrieZipperDescend z i = pathTrieZipperDescend z i
+extendedPathTrieZipperDescend = pathTrieZipperDescend
 
 applyPathTrieCommand :: PathTrieCommand -> PathTrieZipper -> PathTrieZipper
 applyPathTrieCommand (PathTrieZipperAscend i) z = pathTrieZipperAscend z i
@@ -60,9 +58,12 @@ instance Arbitrary PathTrie where
     shrink EmptyPathTrie = []
     shrink TerminalPathTrie = []
     shrink (PathTrieSingleChild _ pt) = [pt]
-    shrink (PathTrie vec) =
-        let l = Vector.toList vec
-         in l ++ (map (PathTrie . Vector.fromList) (subsequences l \\ [l]))
+    shrink (PathTrie children) =
+        map snd children
+            ++ [ PathTrie children'
+               | children' <- subsequences children \\ [children]
+               , length children' >= 2
+               ]
 
 -----------------------------------
 ------ Constructing test inputs

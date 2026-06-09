@@ -44,13 +44,12 @@ import Prelude hiding (round)
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
-import Data.List (isSubsequenceOf, nub, sort, sortBy)
+import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
+import qualified Data.List as List
 import Data.Monoid (Any (..))
-import Data.Semigroup (Max (..))
 import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
-import GHC.Exts (inline)
 import GHC.Generics (Generic)
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
@@ -176,17 +175,36 @@ getMaxNonemptyIndex :: PathTrie -> Maybe Int
 getMaxNonemptyIndex EmptyPathTrie = Nothing
 getMaxNonemptyIndex TerminalPathTrie = Nothing
 getMaxNonemptyIndex (PathTrieSingleChild i _) = Just i
-getMaxNonemptyIndex (PathTrie vec) = Just $ largestNonempty vec
+getMaxNonemptyIndex (PathTrie children) = Just $ fst (last children)
 
 ---------------------
 ------- Path tries
 ---------------------
 
+{- | Trie of paths used to index equality constraints.
+
+Most constraint tries in the original workloads are either empty, terminal, or
+one path component wide for many levels.  `PathTrieSingleChild` keeps that hot
+case compact.  The multi-child case used to be a dense `Vector PathTrie`, which
+made lookup cheap but forced GHC to optimise large vector-heavy recursive code.
+The sparse representation keeps only non-empty children in sorted order.  That
+keeps union, ordering, and subsumption as linear merges over present children,
+while avoiding the `-O2` compile-time memory blow-up from the dense vector code.
+
+Invariant for `PathTrie`: children are sorted by component, contain no
+`EmptyPathTrie` entries, and contain at least two children.  Constructors are
+exported for tests and compatibility, so functions that rebuild multi-child
+tries should restore that invariant before returning.
+-}
 data PathTrie
-    = EmptyPathTrie
-    | TerminalPathTrie
-    | PathTrieSingleChild {-# UNPACK #-} !Int !PathTrie
-    | PathTrie !(Vector PathTrie) -- Invariant: Must have at least two nonempty nodes
+    = -- | No paths.
+      EmptyPathTrie
+    | -- | Exactly the empty path.
+      TerminalPathTrie
+    | -- | A compact node with exactly one child at the given path component.
+      PathTrieSingleChild {-# UNPACK #-} !Int !PathTrie
+    | -- | Sparse multi-child node. See the invariant on `PathTrie`.
+      PathTrie ![(Int, PathTrie)]
     deriving (Eq, Show, Generic)
 
 instance Hashable PathTrie where
@@ -194,8 +212,8 @@ instance Hashable PathTrie where
     hashWithSalt salt TerminalPathTrie = salt `hashWithSalt` (1 :: Int)
     hashWithSalt salt (PathTrieSingleChild i pt) =
         salt `hashWithSalt` (2 :: Int) `hashWithSalt` i `hashWithSalt` pt
-    hashWithSalt salt (PathTrie vec) =
-        Vector.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int) `hashWithSalt` (Vector.length vec)) vec
+    hashWithSalt salt (PathTrie children) =
+        List.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int)) children
 
 isEmptyPathTrie :: PathTrie -> Bool
 isEmptyPathTrie EmptyPathTrie = True
@@ -205,24 +223,18 @@ isTerminalPathTrie :: PathTrie -> Bool
 isTerminalPathTrie TerminalPathTrie = True
 isTerminalPathTrie _ = False
 
-comparePathTrieVectors :: Vector PathTrie -> Vector PathTrie -> Ordering
-comparePathTrieVectors v1 v2 =
-    foldr
-        ( \i res ->
-            let (t1, t2) = (v1 `Vector.unsafeIndex` i, v2 `Vector.unsafeIndex` i)
-             in case (isEmptyPathTrie t1, isEmptyPathTrie t2) of
-                    (False, True) -> LT
-                    (True, False) -> GT
-                    (True, True) -> res
-                    (False, False) -> case compare t1 t2 of
-                        LT -> LT
-                        GT -> GT
-                        EQ -> res
-        )
-        valueIfComponentsMatch
-        [0 .. (min (Vector.length v1) (Vector.length v2) - 1)]
-  where
-    valueIfComponentsMatch = compare (Vector.length v1) (Vector.length v2)
+-- | Compare sparse child lists as if they were dense vectors with empty cells.
+comparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
+comparePathTrieChildren [] [] = EQ
+comparePathTrieChildren [] _ = LT
+comparePathTrieChildren _ [] = GT
+comparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
+    case compare i1 i2 of
+        LT -> LT
+        GT -> GT
+        EQ -> case compare pt1 pt2 of
+            EQ -> comparePathTrieChildren rest1 rest2
+            res -> res
 
 instance Ord PathTrie where
     compare EmptyPathTrie EmptyPathTrie = EQ
@@ -235,58 +247,53 @@ instance Ord PathTrie where
         | i1 < i2 = LT
         | i1 > i2 = GT
         | otherwise = compare pt1 pt2
-    compare (PathTrieSingleChild i1 pt1) (PathTrie v2) =
-        let i2 = smallestNonempty v2
-         in case compare i1 i2 of
+    compare (PathTrieSingleChild i1 pt1) (PathTrie ((i2, pt2) : _)) =
+        case compare i1 i2 of
+            LT -> LT
+            GT -> GT
+            EQ -> case compare pt1 pt2 of
                 LT -> LT
                 GT -> GT
-                EQ -> case compare pt1 (v2 `Vector.unsafeIndex` i2) of
-                    LT -> LT
-                    GT -> GT
-                    EQ -> LT -- v2 must have a second nonempty
-    compare a@(PathTrie _) b@(PathTrieSingleChild _ _) = flipOrdering $ inline compare b a -- TODO: Check whether this inlining is effective
-    compare (PathTrie v1) (PathTrie v2) = comparePathTrieVectors v1 v2
+                EQ -> LT -- children2 must have a second nonempty
+    compare (PathTrieSingleChild _ _) (PathTrie []) =
+        error "compare: invalid empty PathTrie children"
+    compare a@(PathTrie _) b@(PathTrieSingleChild _ _) = flipOrdering $ compare b a
+    compare (PathTrie children1) (PathTrie children2) = comparePathTrieChildren children1 children2
 
 -- | Precondition: No path in the input is a subpath of another
 toPathTrie :: [Path] -> PathTrie
 toPathTrie [] = EmptyPathTrie
 toPathTrie [EmptyPath] = TerminalPathTrie
-toPathTrie ps =
-    if all (\p -> pathHeadUnsafe p == pathHeadUnsafe (head ps)) ps
+toPathTrie ps@(firstPath : _) =
+    if all (\p -> pathHeadUnsafe p == pathHeadUnsafe firstPath) ps
         then
-            PathTrieSingleChild (pathHeadUnsafe $ head ps) (toPathTrie $ map pathTailUnsafe ps)
+            PathTrieSingleChild (pathHeadUnsafe firstPath) (toPathTrie $ map pathTailUnsafe ps)
         else
-            PathTrie vec
+            PathTrie children
   where
-    maxIndex = getMax $ foldMap (Max . pathHeadUnsafe) ps
+    groups =
+        groupBy ((==) `on` pathHeadUnsafe) $
+            sortBy (compare `on` pathHeadUnsafe) ps
 
-    -- TODO: Inefficient to use this; many passes. over the list.
-    -- This may not be used in a place where perf matters, though
-    pathsStartingWith :: Int -> [Path] -> [Path]
-    pathsStartingWith i =
-        concatMap
-            ( \case
-                EmptyPath -> []
-                ConsPath j p -> if i == j then [p] else []
-            )
-
-    vec = Vector.generate (maxIndex + 1) (\i -> toPathTrie $ pathsStartingWith i ps)
+    children =
+        [ (pathHeadUnsafe groupHead, toPathTrie $ map pathTailUnsafe group)
+        | group@(groupHead : _) <- groups
+        ]
 
 fromPathTrie :: PathTrie -> [Path]
 fromPathTrie EmptyPathTrie = []
 fromPathTrie TerminalPathTrie = [EmptyPath]
 fromPathTrie (PathTrieSingleChild i pt) = map (ConsPath i) $ fromPathTrie pt
-fromPathTrie (PathTrie v) = Vector.ifoldr (\i pt acc -> map (ConsPath i) (fromPathTrie pt) ++ acc) [] v
+fromPathTrie (PathTrie children) =
+    concatMap (\(i, pt) -> map (ConsPath i) $ fromPathTrie pt) children
 
 pathTrieDescend :: PathTrie -> Int -> PathTrie
 pathTrieDescend EmptyPathTrie _ = EmptyPathTrie
 pathTrieDescend TerminalPathTrie _ = EmptyPathTrie
-pathTrieDescend (PathTrie v) i =
-    if Vector.length v > i
-        then
-            v `Vector.unsafeIndex` i
-        else
-            EmptyPathTrie
+pathTrieDescend (PathTrie children) i =
+    case lookup i children of
+        Nothing -> EmptyPathTrie
+        Just pt -> pt
 pathTrieDescend (PathTrieSingleChild j pt') i
     | i == j = pt'
     | otherwise = EmptyPathTrie
@@ -349,16 +356,23 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
                 go pt1 pt2
             else
                 False
-    go (PathTrieSingleChild i1 pt1) (PathTrie v2) = case v2 Vector.!? i1 of
+    go (PathTrieSingleChild i1 pt1) (PathTrie children2) = case lookup i1 children2 of
         Nothing -> False
         Just pt2 -> go pt1 pt2
-    go (PathTrie v1) (PathTrieSingleChild i2 pt2) = case v1 Vector.!? i2 of
+    go (PathTrie children1) (PathTrieSingleChild i2 pt2) = case lookup i2 children1 of
         Nothing -> False
         Just pt1 -> go pt1 pt2
-    go (PathTrie v1) (PathTrie v2) =
-        any
-            (\i -> go (v1 `Vector.unsafeIndex` i) (v2 `Vector.unsafeIndex` i))
-            [0 .. (min (Vector.length v1) (Vector.length v2) - 1)]
+    go (PathTrie children1) (PathTrie children2) = anyMatchingChild children1 children2
+
+    -- Both child lists are sorted, so this keeps the dense-vector behaviour
+    -- without scanning absent indexes or doing repeated linear lookups.
+    anyMatchingChild [] _ = False
+    anyMatchingChild _ [] = False
+    anyMatchingChild left@((i1, pt1) : rest1) right@((i2, pt2) : rest2) =
+        case compare i1 i2 of
+            LT -> anyMatchingChild rest1 right
+            GT -> anyMatchingChild left rest2
+            EQ -> go pt1 pt2 || anyMatchingChild rest1 rest2
 
 {- | Extends the subsumption ordering to a total ordering by using the default lexicographic
   comparison for incomparable elements.
@@ -459,7 +473,8 @@ mkEqConstraints initialConstraints = case completedConstraints of
     addCongruences :: [[Path]] -> [[Path]]
     addCongruences cs = cs ++ [map (\z -> substSubpath z x y) left | left <- cs, right <- cs, x <- left, y <- right, isStrictSubpath x y]
 
-    assertEquivs xs = mapM (\y -> equate (head xs) y) (tail xs)
+    assertEquivs [] = return []
+    assertEquivs (x : xs) = mapM (equate x) xs
 
     complete :: (Ord a) => [[a]] -> [[a]]
     complete initialClasses = runEquivM (: []) (++) $ do
