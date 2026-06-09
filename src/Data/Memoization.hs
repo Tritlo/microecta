@@ -19,8 +19,6 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Text.Extended.Pretty
-
 -- | Human-readable name for a memo table.
 data MemoCacheTag
     = -- | Name a table for debugging and nested-table derivation.
@@ -31,9 +29,6 @@ instance Hashable MemoCacheTag
 
 mkInnerTag :: MemoCacheTag -> MemoCacheTag
 mkInnerTag (NameTag t) = NameTag (t <> "-inner")
-
-instance Pretty MemoCacheTag where
-    pretty (NameTag t) = t
 
 memoIO :: forall a b. (Eq a, Hashable a) => MemoCacheTag -> (a -> b) -> IO (a -> IO b)
 memoIO _ f = do
