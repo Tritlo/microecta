@@ -111,7 +111,7 @@ The suite covers the current high-risk core paths:
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
 `+RTS -s -M512M -RTS`, is about 5.50 GB allocated, 4.29 MB maximum residency,
-and roughly 1.17s elapsed on the maintainer machine. Treat that as a
+and roughly 1.18s elapsed on the maintainer machine. Treat that as a
 regression guard, not a portable absolute number.
 
 Use a larger first argument for longer runs:

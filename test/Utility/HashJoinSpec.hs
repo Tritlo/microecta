@@ -12,6 +12,6 @@ import Utility.HashJoin
 spec :: Spec
 spec = do
     describe "hash utilities" $ do
-        it "nubById is same as nub" $
+        it "nubByIdSinglePass is same as nub" $
             property $
-                \(xs :: [Int]) -> sort (nub xs) == sort (nubById id xs)
+                \(xs :: [Int]) -> sort (nub xs) == sort (nubByIdSinglePass id xs)

@@ -1,13 +1,10 @@
 -- | Hash-table based grouping and joining helpers for interned structures.
 module Utility.HashJoin (
-    nubById,
     nubByIdSinglePass,
-    hashClusterIdNub,
     clusterByHash,
     hashJoin,
 ) where
 
-import Control.Monad (forM_, void)
 import Control.Monad.ST (ST, runST)
 import Data.Foldable (foldrM)
 
@@ -15,24 +12,14 @@ import qualified Data.HashTable.ST.Cuckoo as HT
 
 -------------------------------------
 --- Hash join / clustering / nub
--------------------------------------
+--------------------------------
 
 {- | Remove duplicates by a stable identity hash.
 
 Precondition: if @h x == h y@, then @x == y@. This is intended for interned
-values where the integer id is already a complete identity.
--}
-nubById :: (a -> Int) -> [a] -> [a]
-nubById _ [x] = [x]
-nubById h ls = runST $ do
-    ht <- HT.newSized 101
-    mapM_ (\x -> HT.insert ht (h x) x) ls
-    HT.foldM (\res (_, v) -> return $ v : res) [] ht
-
-{- | Single-pass variant of 'nubById' that preserves first-seen representatives.
-
-The output order is reversed relative to first occurrence because callers only
-need set-like behavior.
+values where the integer id is already a complete identity. The output order is
+reversed relative to first occurrence because callers only need set-like
+behavior.
 -}
 nubByIdSinglePass :: forall a. (a -> Int) -> [a] -> [a]
 nubByIdSinglePass _ [x] = [x]
@@ -59,34 +46,6 @@ maybeAddToHt :: v -> Maybe [v] -> (Maybe [v], ())
 maybeAddToHt v = \case
     Nothing -> (Just [v], ())
     Just vs -> (Just (v : vs), ())
-
-{- | Deduplicate by one hash, then cluster the remaining values by another.
-
-This has benchmarked slower than running 'clusterByHash' and
-'nubByIdSinglePass' separately, but it is kept available for experiments.
--}
-hashClusterIdNub :: (a -> Int) -> (a -> Int) -> [a] -> [[a]]
-hashClusterIdNub _ _ [x] = [[x]]
-hashClusterIdNub hCluster hNub ls = runST $ do
-    clusters <- HT.new
-    seen <- HT.new
-
-    forM_ ls $ \x -> do
-        alreadyPresent <-
-            HT.mutate
-                seen
-                (hNub x)
-                ( \case
-                    Nothing -> (Just True, False)
-                    Just _ -> (Just True, True)
-                )
-        if alreadyPresent
-            then
-                return ()
-            else do
-                void $ HT.mutate clusters (hCluster x) (maybeAddToHt x)
-
-    HT.foldM (\res (_, vs) -> return $ vs : res) [] clusters
 
 -- | Group values by hash.
 clusterByHash :: (a -> Int) -> [a] -> [[a]]
