@@ -16,7 +16,6 @@ import Data.Maybe (maybeToList)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
-import GHC.Generics (Generic)
 import Text.Read (Read (..))
 
 import Data.Interned.Text (InternedText, internedTextId)
@@ -61,9 +60,11 @@ instance Read Symbol where
 
 -- | Concrete first-order term.
 data Term = Term !Symbol ![Term]
-    deriving (Eq, Ord, Read, Show, Generic)
+    deriving (Eq, Ord, Read, Show)
 
-instance Hashable Term
+instance Hashable Term where
+    hashWithSalt salt (Term symbol children) =
+        salt `hashWithSalt` symbol `hashWithSalt` children
 
 instance Pretty Term where
     pretty (Term s []) = pretty s

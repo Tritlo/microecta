@@ -14,18 +14,18 @@ module Data.Memoization (
 ) where
 
 import qualified Data.HashTable.IO as HT
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable (..))
 import Data.Text (Text)
-import GHC.Generics (Generic)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Human-readable name for a memo table.
 data MemoCacheTag
     = -- | Name a table for debugging and nested-table derivation.
       NameTag Text
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
-instance Hashable MemoCacheTag
+instance Hashable MemoCacheTag where
+    hashWithSalt salt (NameTag name) = salt `hashWithSalt` name
 
 mkInnerTag :: MemoCacheTag -> MemoCacheTag
 mkInnerTag (NameTag t) = NameTag (t <> "-inner")

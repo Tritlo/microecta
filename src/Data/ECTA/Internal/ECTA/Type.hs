@@ -5,6 +5,8 @@
 module Data.ECTA.Internal.ECTA.Type (
     RecNodeId (..),
     Edge (.., Edge),
+    -- | Cache key for an uninterned edge.
+    pattern DEdge,
     UninternedEdge (..),
     mkEdge,
     emptyEdge,
@@ -13,6 +15,8 @@ module Data.ECTA.Internal.ECTA.Type (
     edgeSymbol,
     setChildren,
     Node (.., Node, Mu),
+    -- | Cache key for an uninterned node.
+    pattern DNode,
     InternedNode (..),
     InternedMu (..),
     UninternedNode (..),
@@ -25,6 +29,8 @@ module Data.ECTA.Internal.ECTA.Type (
     freeVars,
     modifyNode,
     createMu,
+    shape,
+    matchMu,
 ) where
 
 import Data.Function (on)
@@ -35,8 +41,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-
-import GHC.Generics (Generic)
 
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -79,7 +83,7 @@ data RecNodeId
       constructor we expect is 'RecInt').
       -}
       RecIntersect IntersectId
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
 {- | Context-free references to a 'Mu' node introduced by @intersect@
 
@@ -106,7 +110,7 @@ can refer to the newly constructed 'Mu' node.
 data IntersectId
     = -- Invariant: the two 'Id's should be ordered (guaranteed by the pattern synonym constructor)
       UnsafeIntersectId !Id !Id
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
 -- | Smart pattern that stores the two ids in canonical order.
 pattern IntersectId :: Id -> Id -> IntersectId
@@ -116,8 +120,19 @@ pattern IntersectId i j <- (UnsafeIntersectId i j)
             | i <= j = UnsafeIntersectId i j
             | otherwise = UnsafeIntersectId j i
 
-instance Hashable RecNodeId
-instance Hashable IntersectId
+instance Hashable RecNodeId where
+    hashWithSalt salt (RecInt nodeId) =
+        salt `hashWithSalt` (0 :: Int) `hashWithSalt` nodeId
+    hashWithSalt salt (RecUnint nodeId) =
+        salt `hashWithSalt` (1 :: Int) `hashWithSalt` nodeId
+    hashWithSalt salt RecDepth =
+        salt `hashWithSalt` (2 :: Int)
+    hashWithSalt salt (RecIntersect intersectionId) =
+        salt `hashWithSalt` (3 :: Int) `hashWithSalt` intersectionId
+
+instance Hashable IntersectId where
+    hashWithSalt salt (UnsafeIntersectId left right) =
+        salt `hashWithSalt` left `hashWithSalt` right
 
 -----------------------------------------------------------------
 ----------------------------- Edges -----------------------------
@@ -323,7 +338,7 @@ instance Hashable UninternedNode where
 instance Interned Node where
     type Uninterned Node = UninternedNode
     data Description Node = DNode !UninternedNode
-        deriving (Eq, Generic)
+        deriving (Eq)
 
     describe = DNode
 
@@ -366,7 +381,8 @@ instance Interned Node where
 
     cache = nodeCache
 
-instance Hashable (Description Node)
+instance Hashable (Description Node) where
+    hashWithSalt salt (DNode node) = salt `hashWithSalt` node
 
 nodeCache :: Cache Node
 nodeCache = unsafePerformIO freshCache
@@ -425,14 +441,16 @@ data UninternedEdge = UninternedEdge
     , uEdgeChildren :: ![Node]
     , uEdgeEcs :: !EqConstraints
     }
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Show)
 
-instance Hashable UninternedEdge
+instance Hashable UninternedEdge where
+    hashWithSalt salt (UninternedEdge symbol children ecs) =
+        salt `hashWithSalt` symbol `hashWithSalt` children `hashWithSalt` ecs
 
 instance Interned Edge where
     type Uninterned Edge = UninternedEdge
     data Description Edge = DEdge {-# UNPACK #-} !UninternedEdge
-        deriving (Eq, Generic)
+        deriving (Eq)
 
     describe = DEdge
 
@@ -440,7 +458,8 @@ instance Interned Edge where
 
     cache = edgeCache
 
-instance Hashable (Description Edge)
+instance Hashable (Description Edge) where
+    hashWithSalt salt (DEdge edge) = salt `hashWithSalt` edge
 
 edgeCache :: Cache Edge
 edgeCache = unsafePerformIO freshCache

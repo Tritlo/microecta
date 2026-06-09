@@ -40,6 +40,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     fragRepresents,
     enumerateNode,
     enumerateEdge,
+    ExpandableUVarResult (..),
     firstExpandableUVar,
     enumerateOutUVar,
     enumerateOutFirstExpandableUVar,
@@ -420,7 +421,15 @@ enumerateEdge scs e = do
 -------- Enumeration-loop control
 ---------------------
 
-data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar deriving (Show)
+-- | Result of looking for the next UVar that can be expanded.
+data ExpandableUVarResult
+    = -- | Candidates exist, but all are blocked by suspended dependencies.
+      ExpansionStuck
+    | -- | Enumeration has no more UVar work to do.
+      ExpansionDone
+    | -- | The next unconstrained UVar to expand.
+      ExpansionNext !UVar
+    deriving (Show)
 
 -- Can speed this up with bitvectors
 

@@ -46,7 +46,6 @@ import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
 import qualified Data.Text as Text
-import GHC.Generics (Generic)
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
@@ -71,13 +70,14 @@ flipOrdering EQ = EQ
 
 -- | Path into an edge's children, represented as child indexes.
 data Path = Path ![Int]
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
 -- | Extract the raw child-index list from a @Path@.
 unPath :: Path -> [Int]
 unPath (Path p) = p
 
-instance Hashable Path
+instance Hashable Path where
+    hashWithSalt salt (Path components) = salt `hashWithSalt` components
 
 -- | Build a @Path@ from child indexes.
 path :: [Int] -> Path
@@ -189,7 +189,7 @@ data PathTrie
       PathTrieSingleChild {-# UNPACK #-} !Int !PathTrie
     | -- | Sparse multi-child node. See the invariant on @PathTrie@.
       PathTrie ![(Int, PathTrie)]
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Show)
 
 instance Hashable PathTrie where
     hashWithSalt salt EmptyPathTrie = salt `hashWithSalt` (0 :: Int)
@@ -330,7 +330,7 @@ data PathEClass = PathEClass'
     { getPathTrie :: !PathTrie
     , getOrigPaths :: [Path]
     }
-    deriving (Show, Generic)
+    deriving (Show)
 
 instance Eq PathEClass where
     (==) = (==) `on` getPathTrie
@@ -351,7 +351,8 @@ unPathEClass (PathEClass' _ paths) = paths
 instance Pretty PathEClass where
     pretty pec = "{" <> (Text.intercalate "=" $ map pretty $ unPathEClass pec) <> "}"
 
-instance Hashable PathEClass
+instance Hashable PathEClass where
+    hashWithSalt salt = hashWithSalt salt . getPathTrie
 
 -- | Build an equality class from a trie, deriving the path list lazily.
 mkPathEClassFromPathTrie :: PathTrie -> PathEClass
@@ -416,9 +417,13 @@ data EqConstraints
         -- ^ Must be sorted
         }
     | EqContradiction
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
-instance Hashable EqConstraints
+instance Hashable EqConstraints where
+    hashWithSalt salt (EqConstraints eclasses) =
+        salt `hashWithSalt` (0 :: Int) `hashWithSalt` eclasses
+    hashWithSalt salt EqContradiction =
+        salt `hashWithSalt` (1 :: Int)
 
 instance Pretty EqConstraints where
     pretty ecs = "{" <> (Text.intercalate "," $ map pretty (getEclasses ecs)) <> "}"
