@@ -534,8 +534,10 @@ they no longer constrain anything after the descent.
 -}
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
+eqConstraintsDescend EmptyConstraints _ = EmptyConstraints
 eqConstraintsDescend ecs i = case mapMaybe (`pathEClassDescendNontrivial` i) (getEclasses ecs) of
     [] -> EmptyConstraints
+    [eclass] -> EqConstraints [eclass]
     eclasses -> EqConstraints $ sort eclasses
   where
     pathEClassDescendNontrivial (PathEClass' pt _) childIndex =
