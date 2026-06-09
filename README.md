@@ -16,6 +16,7 @@ The main entry point is `Data.ECTA`.
 ```haskell
 import Data.ECTA
 import Data.ECTA.Paths
+import Data.ECTA.Term
 ```
 
 An ECTA is a `Node`, which is a set of outgoing `Edge`s. An `Edge` has a symbol,
@@ -44,6 +45,11 @@ Useful operations:
   alternatives.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms.
+
+`getAllTermsPrune` exposes partially enumerated `TermFragment`s to pruning
+oracles. `Data.ECTA` also exports `fragRepresents`, the helper used by the
+original pruning path to compare those fragments against known concrete
+`Term`s.
 
 For repeated reduction, downstream code usually wants:
 
