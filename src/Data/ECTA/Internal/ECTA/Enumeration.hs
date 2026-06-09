@@ -58,7 +58,6 @@ import Control.Monad.State.Strict (StateT (..), gets, modify')
 import Control.Monad.Trans.Class (lift)
 import qualified Data.IntMap as IntMap
 import Data.Maybe (fromMaybe)
-import Data.Monoid (Any (..))
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
@@ -425,7 +424,7 @@ data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar
 
 -- Can speed this up with bitvectors
 
-findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Any))
+findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Bool))
 findExpandableUVars = do
     values <- gets _uvarValues
     -- check representative uvars because only representatives are updated
@@ -436,8 +435,8 @@ findExpandableUVars = do
                 v <- getUVarValue rep
                 case v of
                     (UVarUnenumerated (Just (Mu _)) Sequence.Empty) -> return IntMap.empty
-                    (UVarUnenumerated (Just (Mu _)) _) -> return $ IntMap.singleton (uvarToInt rep) (Any False)
-                    (UVarUnenumerated (Just _) _) -> return $ IntMap.singleton (uvarToInt rep) (Any False)
+                    (UVarUnenumerated (Just (Mu _)) _) -> return $ IntMap.singleton (uvarToInt rep) False
+                    (UVarUnenumerated (Just _) _) -> return $ IntMap.singleton (uvarToInt rep) False
                     _ -> return IntMap.empty
             )
             [0 .. (Sequence.length values - 1)]
@@ -452,13 +451,13 @@ findExpandableUVars = do
                         ( \case
                             (UVarUnenumerated _ scs) ->
                                 foldMap
-                                    (\sc -> IntMap.singleton (uvarToInt $ scGetUVar sc) (Any True))
+                                    (\sc -> IntMap.singleton (uvarToInt $ scGetUVar sc) True)
                                     scs
                             _ -> IntMap.empty
                         )
                         values
 
-            let unconstrainedCandidateMap = IntMap.filter (not . getAny) (ruledOut <> candidates)
+            let unconstrainedCandidateMap = IntMap.filter not (ruledOut <> candidates)
             return (Just unconstrainedCandidateMap)
 
 -- | Find the next UVar that can be expanded without violating dependencies.
