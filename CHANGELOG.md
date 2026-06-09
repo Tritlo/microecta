@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* Relax package lower bounds to less precise minor-version floors while keeping
+  the existing upper bounds.
+
 ## 0.1.0.0 - 2026-06-09
 
 * Initial release of microecta
