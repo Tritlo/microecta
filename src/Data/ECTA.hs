@@ -14,7 +14,9 @@ The usual workflow is:
 2. Combine nodes with 'union' and 'intersect'.
 3. Propagate equality constraints with 'reducePartially'.
 4. Remove implied alternatives with 'withoutRedundantEdges'.
-5. Enumerate accepted terms with 'getAllTerms' or 'getAllTermsPrune'.
+5. Check concrete or template membership with 'nodeRepresents' or
+   'nodeRepresentsTemplate'.
+6. Enumerate accepted terms with 'getAllTerms' or 'getAllTermsPrune'.
 
 Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
@@ -45,6 +47,12 @@ module Data.ECTA (
     intersect,
     withoutRedundantEdges,
     reducePartially,
+
+    -- * Membership
+    nodeRepresents,
+    edgeRepresents,
+    nodeRepresentsTemplate,
+    edgeRepresentsTemplate,
 
     -- * Enumeration
     EnumerateM,

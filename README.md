@@ -44,12 +44,38 @@ Useful operations:
 - `reducePartially` propagates equality constraints and removes impossible
   alternatives.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
+- `nodeRepresents` checks concrete term membership.
+- `nodeRepresentsTemplate` checks pruning-template membership; a template
+  symbol named `<v>` acts as a wildcard.
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms.
+
+## Pruning API
 
 `getAllTermsPrune` exposes partially enumerated `TermFragment`s to pruning
 oracles. `Data.ECTA` also exports `fragRepresents`, the helper used by the
 original pruning path to compare those fragments against known concrete
 `Term`s.
+
+A pruning oracle receives the caller's state, the UVar being expanded, and
+either:
+
+- `Right node`, before that ECTA node is expanded
+- `Left fragment`, after a `TermFragment` has been produced
+
+Return `True` to discard the current nondeterministic branch, or `False` to
+keep enumerating with the updated state.
+
+```haskell
+prunedTerms :: [Term] -> Node -> [Term]
+prunedTerms forbidden =
+  getAllTermsPrune () $ \() _ event ->
+    case event of
+      Right node ->
+        pure (any (nodeRepresentsTemplate node) forbidden, ())
+      Left fragment -> do
+        represented <- fragRepresents True fragment forbidden
+        pure (represented, ())
+```
 
 For repeated reduction, downstream code usually wants:
 
@@ -131,7 +157,7 @@ The suite covers the current high-risk core paths:
 - filtered term-search reduction and enumeration
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
-`+RTS -s -M512M -RTS`, is about 5.44 GB allocated, 4.27 MB maximum residency,
+`+RTS -s -M512M -RTS`, is about 5.436 GB allocated, 4.29 MB maximum residency,
 and roughly 1.1-1.2s elapsed on the maintainer machine. Treat that as a
 regression guard, not a portable absolute number.
 
