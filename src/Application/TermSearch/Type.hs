@@ -7,16 +7,12 @@ projects use before translating types to ECTA nodes with
 -}
 module Application.TermSearch.Type (
     TypeSkeleton (..),
-    Argument,
 ) where
 
 import Data.Data (Data)
 import Data.Hashable (Hashable)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-
-import Data.ECTA
-import Data.ECTA.Term
 
 -- | Minimal first-order type syntax.
 data TypeSkeleton
@@ -29,6 +25,3 @@ data TypeSkeleton
     deriving (Eq, Ord, Show, Read, Data, Generic)
 
 instance Hashable TypeSkeleton
-
--- | A named argument paired with its ECTA type.
-type Argument = (Symbol, Node)

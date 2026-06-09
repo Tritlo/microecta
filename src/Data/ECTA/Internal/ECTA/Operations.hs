@@ -661,7 +661,7 @@ reducePartially' = memo2 (NameTag "reducePartially'") go
     -- At this node, we will have to combine the inherited constraints `0=1` and the local constraints `0.0=0.1=1`.
     -- Now, we can see that these two constraints contain a contradiction that requires `0=0.0=0.1`, so we can drop the edge.
     --
-    -- TODO: this approach does not solve all cases of cycles. See the test case `loop2` in `src/Application/TermSearch/Utils.hs`.
+    -- TODO: this approach does not solve every recursive cycle.
     reduceWithInheritedEcs :: EqConstraints -> [Node] -> [Node]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children

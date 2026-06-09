@@ -62,7 +62,7 @@ the pieces that downstream projects still use:
 - `TypeSkeleton`
 - `typeToFta`
 - `filterType`
-- one-line type constructors such as `arrowType`, `mkDatatype`, `typeConst`,
+- small type constructors and helpers: `arrowType`, `mkDatatype`, `typeConst`,
   `genVar`, and `constFunc`
 
 ## Dependency Surface
@@ -102,9 +102,9 @@ benchmark,cpu_seconds,repeats,checksum
 ```
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
-`+RTS -s -M512M -RTS`, is about 1.11s elapsed, 5.49 GB allocated, and 4.27 MB
-maximum residency. Treat that as a regression guard, not a portable absolute
-number.
+`+RTS -s -M512M -RTS`, is about 5.49 GB allocated, 4.27 MB maximum residency,
+and roughly 1.1-1.2s elapsed on the maintainer machine. Treat that as a
+regression guard, not a portable absolute number.
 
 Use a larger first argument for longer runs:
 
