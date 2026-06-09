@@ -71,6 +71,21 @@ the pieces that downstream projects still use:
 - small type constructors and helpers: `arrowType`, `mkDatatype`, `typeConst`,
   `genVar`, and `constFunc`
 
+## Module Map
+
+- `Data.ECTA` is the main ECTA API: node and edge construction, intersection,
+  reduction, traversal, and enumeration.
+- `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
+  constraint, symbol, and concrete term types used by `Data.ECTA`.
+- `Application.TermSearch.*` is the small compatibility layer for downstream
+  term-search-shaped type encodings.
+- `Data.ECTA.Internal.*` contains the equality-constrained tree automata
+  engine. These modules are exposed for downstream code that already relies on
+  lower-level operations, but new code should start with `Data.ECTA`.
+- `Data.Interned.Extended.HashTableBased`, `Data.Memoization`,
+  `Data.Persistent.UnionFind`, and `Utility.*` are support modules used by the
+  engine. Import them directly only when extending or debugging the internals.
+
 ## Dependency Surface
 
 The library dependency set is intentionally small:
