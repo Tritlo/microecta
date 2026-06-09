@@ -69,7 +69,7 @@ the pieces that downstream projects still use:
 
 The library dependency set is intentionally small:
 
-- `containers`, `unordered-containers`, `vector`
+- `containers`, `unordered-containers`
 - `hashable`, `hashtables`, `intern`
 - `mtl`, `transformers`
 - `text`
@@ -83,7 +83,7 @@ The core still uses the original hash-consing, memoization, union-find,
 recursive-node, and path/equality-constraint machinery. Those are the hard parts
 of ECTA and are intentionally kept.
 
-The old dense-vector `PathTrie` representation compiled poorly at `-O2` under a
+The old dense `PathTrie` representation compiled poorly at `-O2` under a
 512M compiler memory cap. `microecta` uses a sparse `PathTrie` with a compact
 single-child fast path. In the current benchmark suite this preserves the
 important runtime shape while allowing the library and benchmark to build at

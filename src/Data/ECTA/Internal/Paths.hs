@@ -13,8 +13,6 @@ module Data.ECTA.Internal.Paths (
     isSubpath,
     isStrictSubpath,
     substSubpath,
-    smallestNonempty,
-    largestNonempty,
     getMaxNonemptyIndex,
     PathTrie (..),
     isEmptyPathTrie,
@@ -48,8 +46,6 @@ import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
 import Data.Monoid (Any (..))
 import qualified Data.Text as Text
-import Data.Vector (Vector)
-import qualified Data.Vector as Vector
 import GHC.Generics (Generic)
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
@@ -158,32 +154,6 @@ class Pathable t t' | t -> t' where
 ---------------------------- Path tries -------------------------------
 -----------------------------------------------------------------------
 
----------------------
-------- Generic-ish utility functions
----------------------
-
--- | Precondition: A nonempty cell exists
-smallestNonempty :: Vector PathTrie -> Int
-smallestNonempty v =
-    Vector.ifoldr
-        ( \i pt oldMin -> case pt of
-            EmptyPathTrie -> oldMin
-            _ -> i
-        )
-        maxBound
-        v
-
--- | Precondition: A nonempty cell exists
-largestNonempty :: Vector PathTrie -> Int
-largestNonempty v =
-    Vector.ifoldl
-        ( \oldMin i pt -> case pt of
-            EmptyPathTrie -> oldMin
-            _ -> i
-        )
-        minBound
-        v
-
 -- | Largest child index present in a trie node, if any.
 getMaxNonemptyIndex :: PathTrie -> Maybe Int
 getMaxNonemptyIndex EmptyPathTrie = Nothing
@@ -199,11 +169,11 @@ getMaxNonemptyIndex (PathTrie children) = Just $ fst (last children)
 
 Most constraint tries in the original workloads are either empty, terminal, or
 one path component wide for many levels.  `PathTrieSingleChild` keeps that hot
-case compact.  The multi-child case used to be a dense `Vector PathTrie`, which
-made lookup cheap but forced GHC to optimise large vector-heavy recursive code.
-The sparse representation keeps only non-empty children in sorted order.  That
+case compact. The multi-child case used to be a dense child table, which made
+lookup cheap but forced GHC to optimise large recursive structure code. The
+sparse representation keeps only non-empty children in sorted order. That
 keeps union, ordering, and subsumption as linear merges over present children,
-while avoiding the `-O2` compile-time memory blow-up from the dense vector code.
+while avoiding the `-O2` compile-time memory blow-up from the dense code.
 
 Invariant for @PathTrie@: children are sorted by component, contain no
 @EmptyPathTrie@ entries, and contain at least two children.  Constructors are
@@ -385,7 +355,7 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
         Just pt1 -> go pt1 pt2
     go (PathTrie children1) (PathTrie children2) = anyMatchingChild children1 children2
 
-    -- Both child lists are sorted, so this keeps the dense-vector behaviour
+    -- Both child lists are sorted, so this keeps the old dense-table behaviour
     -- without scanning absent indexes or doing repeated linear lookups.
     anyMatchingChild [] _ = False
     anyMatchingChild _ [] = False

@@ -73,7 +73,6 @@ library
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
     Data.ECTA.Internal.Paths
-    Data.ECTA.Internal.Paths.Zipper
     Data.ECTA.Internal.Term
     Data.ECTA.Paths
     Data.ECTA.Term
@@ -96,7 +95,6 @@ library
     text,
     transformers,
     unordered-containers,
-    vector,
 
 test-suite unit-tests
   import: warnings, extensions
@@ -127,7 +125,6 @@ test-suite unit-tests
     mtl,
     text,
     unordered-containers,
-    vector,
 
 benchmark micro-bench
   import: warnings, extensions
