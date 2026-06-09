@@ -116,7 +116,7 @@ The suite covers the current high-risk core paths:
 - filtered term-search reduction and enumeration
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
-`+RTS -s -M512M -RTS`, is about 5.50 GB allocated, 4.29 MB maximum residency,
+`+RTS -s -M512M -RTS`, is about 5.44 GB allocated, 4.27 MB maximum residency,
 and roughly 1.1-1.2s elapsed on the maintainer machine. Treat that as a
 regression guard, not a portable absolute number.
 
