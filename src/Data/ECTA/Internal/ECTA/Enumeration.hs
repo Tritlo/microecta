@@ -1,5 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{- | Nondeterministic enumeration for ECTAs.
+
+Enumeration builds 'TermFragment's before expanding them to concrete @Term@s.
+Equality constraints are represented by suspended path-trie obligations that
+point at UVars. When enumeration descends through an edge, those obligations
+descend with it; when an obligation reaches the current node, the corresponding
+UVars are merged so future choices stay consistent.
+
+Most callers should use 'getAllTerms' or 'getAllTermsPrune'. The lower-level
+state operations are exposed for pruning oracles and downstream tools that need
+to inspect or steer enumeration.
+-}
 module Data.ECTA.Internal.ECTA.Enumeration (
     TermFragment (..),
     termFragToTruncatedTerm,
@@ -66,11 +78,15 @@ import Data.Text.Extended.Pretty
 ------------------------------- Term fragments ----------------------------
 ---------------------------------------------------------------------------
 
+-- | Partially enumerated term with holes for nodes that still need expansion.
 data TermFragment
-    = TermFragmentNode !Symbol ![TermFragment]
-    | TermFragmentUVar UVar
+    = -- | Concrete symbol with already-created child fragments.
+      TermFragmentNode !Symbol ![TermFragment]
+    | -- | Hole whose value is tracked in the enumeration state.
+      TermFragmentUVar UVar
     deriving (Eq, Ord, Show)
 
+-- | Convert a fragment to a term, rendering holes as variable-like leaves.
 termFragToTruncatedTerm :: TermFragment -> Term
 termFragToTruncatedTerm (TermFragmentNode s ts) = Term s (map termFragToTruncatedTerm ts)
 termFragToTruncatedTerm (TermFragmentUVar uv) = Term (Symbol $ "v" <> pretty (uvarToInt uv)) []
@@ -86,15 +102,19 @@ lens getter setter f s = setter s <$> f (getter s)
 ------- Suspended constraints
 -----------------------
 
+-- | Equality obligation that has not yet reached the node it constrains.
 data SuspendedConstraint = SuspendedConstraint !PathTrie !UVar
     deriving (Eq, Ord, Show)
 
+-- | Remaining paths for a suspended equality obligation.
 scGetPathTrie :: SuspendedConstraint -> PathTrie
 scGetPathTrie (SuspendedConstraint pt _) = pt
 
+-- | UVar that must be merged when the suspended obligation is reached.
 scGetUVar :: SuspendedConstraint -> UVar
 scGetUVar (SuspendedConstraint _ uv) = uv
 
+-- | Push suspended obligations through child index @i@ and drop empty paths.
 descendScs :: Int -> Seq SuspendedConstraint -> Seq SuspendedConstraint
 descendScs i scs =
     Sequence.filter (not . isEmptyPathTrie . scGetPathTrie) $
@@ -106,13 +126,18 @@ descendScs i scs =
 ------- UVarValue
 -----------------------
 
+-- | Enumeration status for one UVar.
 data UVarValue
     = UVarUnenumerated
         { contents :: !(Maybe Node)
+        -- ^ ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
         , constraints :: !(Seq SuspendedConstraint)
+        -- ^ Constraints that should be carried while enumerating this value.
         }
-    | UVarEnumerated {termFragment :: !TermFragment}
-    | UVarEliminated
+    | -- | UVar has been expanded to a fragment.
+      UVarEnumerated {termFragment :: !TermFragment}
+    | -- | UVar was merged into another representative and should no longer be used.
+      UVarEliminated
     deriving (Eq, Ord, Show)
 
 intersectUVarValue :: UVarValue -> UVarValue -> UVarValue
@@ -131,10 +156,14 @@ intersectUVarValue _ _ = error "intersectUVarValue: Intersecting with enumerated
 ------- Top-level state
 -----------------------
 
+-- | Mutable state threaded through nondeterministic enumeration branches.
 data EnumerationState = EnumerationState
     { _uvarCounter :: UVarGen
+    -- ^ Fresh UVar supply.
     , _uvarRepresentative :: UnionFind
+    -- ^ Persistent union-find for equality-constrained UVars.
     , _uvarValues :: Seq UVarValue
+    -- ^ Per-UVar contents indexed by 'uvarToInt'.
     , _pruneDeps :: !(IntMap.IntMap [Term])
     {- ^ Pending prune checks keyed by suspended UVar id.
 
@@ -167,6 +196,7 @@ access to the dependency map while composing their own enumeration actions.
 pruneDeps :: (Functor f) => (IntMap.IntMap [Term] -> f (IntMap.IntMap [Term])) -> EnumerationState -> f EnumerationState
 pruneDeps = lens _pruneDeps (\s pds -> s{_pruneDeps = pds})
 
+-- | Initial state whose root UVar contains the node being enumerated.
 initEnumerationState :: Node -> EnumerationState
 initEnumerationState n =
     let (uvg, uv) = UnionFind.nextUVar UnionFind.initUVarGen
@@ -253,6 +283,15 @@ addUVarValue x = do
     modify' $ \s -> s{_uvarValues = _uvarValues s :|> UVarUnenumerated x Sequence.Empty}
     return uv
 
+-- | Return the current representative for a UVar, updating union-find state.
+getUVarRepresentative :: UVar -> EnumerateM UVar
+getUVarRepresentative uv = do
+    uf <- gets _uvarRepresentative
+    let (uv', uf') = UnionFind.find uv uf
+    modify' $ \s -> s{_uvarRepresentative = uf'}
+    return uv'
+
+-- | Look up the value for a UVar after path-compressing its representative.
 getUVarValue :: UVar -> EnumerateM UVarValue
 getUVarValue uv = do
     uv' <- getUVarRepresentative uv
@@ -260,15 +299,9 @@ getUVarValue uv = do
     values <- gets _uvarValues
     return $ Sequence.index values idx
 
+-- | Look up the fragment for an already-enumerated UVar.
 getTermFragForUVar :: UVar -> EnumerateM TermFragment
 getTermFragForUVar uv = termFragment <$> getUVarValue uv
-
-getUVarRepresentative :: UVar -> EnumerateM UVar
-getUVarRepresentative uv = do
-    uf <- gets _uvarRepresentative
-    let (uv', uf') = UnionFind.find uv uf
-    modify' $ \s -> s{_uvarRepresentative = uf'}
-    return uv'
 
 setUVarValue :: Int -> UVarValue -> EnumerateM ()
 setUVarValue idx val =
@@ -292,6 +325,7 @@ pecToSuspendedConstraint pec = do
 -------- Merging UVar's / nodes
 ---------------------
 
+-- | Merge the source UVar into the target UVar, intersecting their constraints.
 assimilateUvarVal :: UVar -> UVar -> EnumerateM ()
 assimilateUvarVal uvTarg uvSrc
     | uvTarg == uvSrc = return ()
@@ -307,6 +341,7 @@ assimilateUvarVal uvTarg uvSrc
                 setUVarValue (uvarToInt uvTarg) v
                 setUVarValue (uvarToInt uvSrc) UVarEliminated
 
+-- | Intersect a node and inherited constraints into the value for a UVar.
 mergeNodeIntoUVarVal :: UVar -> Node -> Seq SuspendedConstraint -> EnumerateM ()
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
@@ -351,6 +386,7 @@ refreshReferencedUVars = do
 ---------------------
 --
 
+-- | Enumerate one node under the suspended constraints currently in scope.
 enumerateNode :: Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
 enumerateNode _ EmptyNode = mzero
 enumerateNode scs n =
@@ -371,6 +407,7 @@ enumerateNode scs n =
                 mergeNodeIntoUVarVal uv n descendantConstraints
                 return $ TermFragmentUVar uv
 
+-- | Enumerate one edge, introducing UVars for its equality classes.
 enumerateEdge :: Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
 enumerateEdge scs e = do
     let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
@@ -424,6 +461,7 @@ findExpandableUVars = do
             let unconstrainedCandidateMap = IntMap.filter (not . getAny) (ruledOut <> candidates)
             return (Just unconstrainedCandidateMap)
 
+-- | Find the next UVar that can be expanded without violating dependencies.
 firstExpandableUVar :: EnumerateM ExpandableUVarResult
 firstExpandableUVar = do
     mb_unconstrainedCandidateMap <- findExpandableUVars
@@ -492,6 +530,7 @@ fragRepresents pruneSuspended tf@(TermFragmentUVar uv) rwrs =
                     _ -> return False
 fragRepresents _ tf _ = error $ "unrecognized frag! " ++ show tf
 
+-- | Expand one UVar, then update prune dependencies and referenced UVars.
 enumerateOutUVar :: UVar -> EnumerateM TermFragment
 enumerateOutUVar uv =
     do
@@ -513,6 +552,7 @@ enumerateOutUVar uv =
                     else return t
             _ -> refreshReferencedUVars >> return t
 
+-- | Expand the next available UVar, failing when enumeration is done or stuck.
 enumerateOutFirstExpandableUVar :: EnumerateM ()
 enumerateOutFirstExpandableUVar = do
     muv <- firstExpandableUVar
