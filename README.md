@@ -70,6 +70,18 @@ the pieces that downstream projects still use:
 The large Hoogle dataset and search implementation from `ecta` are not part of
 `microecta`.
 
+## Dependency Surface
+
+The library dependency set is intentionally small:
+
+- `containers`, `unordered-containers`, `vector`
+- `hashable`, `hashtables`, `intern`
+- `mtl`, `transformers`
+- `text`
+- `equivalence`
+
+`equivalence` is retained for equality-constraint closure in the path logic.
+
 ## Performance Notes
 
 The core still uses the original hash-consing, memoization, union-find,
@@ -93,6 +105,11 @@ The benchmark harness is deliberately dependency-light and prints CSV:
 ```text
 benchmark,cpu_seconds,repeats,checksum
 ```
+
+The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
+`+RTS -s -M512M -RTS`, is about 1.11s elapsed, 5.49 GB allocated, and 4.27 MB
+maximum residency. Treat that as a regression guard, not a portable absolute
+number.
 
 Use a larger first argument for longer runs:
 
