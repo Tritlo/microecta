@@ -254,12 +254,14 @@ maxIndegree = getMax . crush (onNormalNodes go)
 ------ Membership
 ------------
 
+-- | Test whether a node accepts a concrete term.
 nodeRepresents :: Node -> Term -> Bool
 nodeRepresents EmptyNode _ = False
 nodeRepresents (Node es) t = any (\e -> edgeRepresents e t) es
 nodeRepresents n@(Mu _) t = nodeRepresents (unfoldOuterRec n) t
 nodeRepresents _ _ = False
 
+-- | Test whether an edge accepts a concrete term.
 edgeRepresents :: Edge -> Term -> Bool
 edgeRepresents e = \t@(Term s ts) ->
     s == edgeSymbol e
@@ -360,6 +362,7 @@ nodeDropRedundantEdges n = n
 
 data RuleOutRes = Keep | RuledOutBy Edge
 
+-- | Remove edges that are subsumed by another edge with the same symbol.
 dropRedundantEdges :: [Edge] -> [Edge]
 dropRedundantEdges origEs = concatMap reduceCluster $ {- traceShow (map (\es -> (length es, edgeSymbol $ head es)) clusters, length $ concatMap reduceCluster clusters)-} clusters
   where
@@ -391,6 +394,7 @@ dropRedundantEdges origEs = concatMap reduceCluster $ {- traceShow (map (\es -> 
                             let (res, notRuledOut) = ruleOut e xs
                              in (res, x : notRuledOut)
 
+-- | Intersect two edges when they have the same symbol.
 intersectEdge :: Edge -> Edge -> Maybe Edge
 intersectEdge e1 e2
     | edgeSymbol e1 /= edgeSymbol e2 = Nothing
@@ -716,5 +720,6 @@ reduceEqConstraints = go
 --- Debugging
 ---------------
 
+-- | Find a reachable node by interned node id.
 getSubnodeById :: Node -> Id -> Maybe Node
 getSubnodeById n i = getFirst $ crush (onNormalNodes $ \x -> if nodeIdentity x == i then First (Just x) else First Nothing) n
