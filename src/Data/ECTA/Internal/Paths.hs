@@ -44,6 +44,7 @@ import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
+import Data.Maybe (mapMaybe)
 import Data.Monoid (Any (..))
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
@@ -503,7 +504,13 @@ combineEqConstraintsMemo = memo2 (NameTag "combineEqConstraints") go
 -- | Descend every path in a constraint set through one child index.
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
-eqConstraintsDescend ecs i = EqConstraints $ sort $ map (`pathEClassDescend` i) (getEclasses ecs)
+eqConstraintsDescend ecs i = case mapMaybe (nontrivialEclass . (`pathEClassDescend` i)) (getEclasses ecs) of
+    [] -> EmptyConstraints
+    eclasses -> EqConstraints $ sort eclasses
+  where
+    nontrivialEclass pec = case unPathEClass pec of
+        _ : _ : _ -> Just pec
+        _ -> Nothing
 
 -- A faster implementation would be: Merge the eclasses of both, run mkEqConstraints (or at least do eclass completion),
 -- check result equal to ecs2
