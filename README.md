@@ -1,7 +1,7 @@
 # microecta
 
 `microecta` is a small equality-constrained tree automata library extracted
-from `ecta`.
+from the [`ecta`](https://hackage.haskell.org/package/ecta) package.
 
 It keeps the core ECTA engine and the tiny term-search compatibility layer used
 by downstream projects.
