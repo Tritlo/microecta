@@ -92,7 +92,6 @@ library
     hashable,
     hashtables,
     intern,
-    microlens,
     mtl,
     text,
     transformers,

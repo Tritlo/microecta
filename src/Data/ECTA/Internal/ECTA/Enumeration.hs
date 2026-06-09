@@ -51,8 +51,6 @@ import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
 
-import Lens.Micro (Lens', lens)
-
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Paths
@@ -80,6 +78,9 @@ termFragToTruncatedTerm (TermFragmentUVar uv) = Term (Symbol $ "v" <> pretty (uv
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
 ---------------------------------------------------------------------------
+
+lens :: (Functor f) => (s -> a) -> (s -> a -> s) -> (a -> f a) -> s -> f s
+lens getter setter f s = setter s <$> f (getter s)
 
 -----------------------
 ------- Suspended constraints
@@ -145,13 +146,16 @@ data EnumerationState = EnumerationState
     }
     deriving (Eq, Ord, Show)
 
-uvarCounter :: Lens' EnumerationState UVarGen
+-- | Lens-compatible accessor for the fresh UVar supply.
+uvarCounter :: (Functor f) => (UVarGen -> f UVarGen) -> EnumerationState -> f EnumerationState
 uvarCounter = lens _uvarCounter (\s c -> s{_uvarCounter = c})
 
-uvarRepresentative :: Lens' EnumerationState UnionFind
+-- | Lens-compatible accessor for representative UVar tracking.
+uvarRepresentative :: (Functor f) => (UnionFind -> f UnionFind) -> EnumerationState -> f EnumerationState
 uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = uf})
 
-uvarValues :: Lens' EnumerationState (Seq UVarValue)
+-- | Lens-compatible accessor for per-UVar enumeration values.
+uvarValues :: (Functor f) => (Seq UVarValue -> f (Seq UVarValue)) -> EnumerationState -> f EnumerationState
 uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 {- | Lens for the oracle's pending prune checks.
@@ -160,7 +164,7 @@ Pruning code uses this through helpers like 'getPruneDeps', 'addPruneDep', and
 'deletePruneDep'. It is exported for lower-level oracles that need direct
 access to the dependency map while composing their own enumeration actions.
 -}
-pruneDeps :: Lens' EnumerationState (IntMap.IntMap [Term])
+pruneDeps :: (Functor f) => (IntMap.IntMap [Term] -> f (IntMap.IntMap [Term])) -> EnumerationState -> f EnumerationState
 pruneDeps = lens _pruneDeps (\s pds -> s{_pruneDeps = pds})
 
 initEnumerationState :: Node -> EnumerationState
