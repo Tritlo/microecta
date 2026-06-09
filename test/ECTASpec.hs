@@ -103,6 +103,17 @@ spec = do
         it "reduces paths constrained by equality constraints" $
             reducePartially ex2 `shouldBe` reducePartially ex1
 
+        it "nodeRepresents requires exact term arity" $ do
+            let n = Node [Edge "f" [constTerms ["a"], constTerms ["b"]]]
+            nodeRepresents n (Term "f" [Term "a" [], Term "b" []]) `shouldBe` True
+            nodeRepresents n (Term "f" [Term "a" []]) `shouldBe` False
+            nodeRepresents n (Term "f" [Term "a" [], Term "b" [], Term "c" []]) `shouldBe` False
+
+        it "nodeRepresentsTemplate allows wildcard prefix templates" $ do
+            let n = Node [Edge "f" [constTerms ["a"], constTerms ["b"]]]
+            nodeRepresentsTemplate n (Term "<v>" [Term "<v>" [], Term "<v>" []]) `shouldBe` True
+            nodeRepresentsTemplate n (Term "<v>" []) `shouldBe` True
+
     describe "intersection" $ do
         it "intersection commutes with getAllTerms" $
             property $

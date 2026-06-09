@@ -265,9 +265,13 @@ nodeRepresents _ _ = False
 edgeRepresents :: Edge -> Term -> Bool
 edgeRepresents e = \t@(Term s ts) ->
     s == edgeSymbol e
-        && and (zipWith nodeRepresents (edgeChildren e) ts)
+        && childrenRepresent (edgeChildren e) ts
         && all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
   where
+    childrenRepresent [] [] = True
+    childrenRepresent (n : ns) (t : ts) = nodeRepresents n t && childrenRepresent ns ts
+    childrenRepresent _ _ = False
+
     eclassSatisfied :: Term -> PathEClass -> Bool
     eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
 
@@ -283,10 +287,11 @@ edgeRepresents e = \t@(Term s ts) ->
 
 {- | Test whether a node can represent a template term.
 
-This is the pruning-oriented variant of 'nodeRepresents'. It delegates to
-'edgeRepresentsTemplate', whose template language treats the exact symbol
-@"<v>"@ as a wildcard for the edge symbol. Pruning oracles use this before
-expanding a UVar: if the current node already represents a forbidden
+This is the pruning-oriented variant of 'nodeRepresents', not a concrete
+membership predicate. It delegates to 'edgeRepresentsTemplate', whose template
+language treats the exact symbol @"<v>"@ as a wildcard for the edge symbol and
+checks only the template children that are present. Pruning oracles use this
+before expanding a UVar: if the current node already represents a forbidden
 rewrite/template, the whole branch can be dropped without enumerating a full
 term.
 -}
@@ -300,7 +305,8 @@ nodeRepresentsTemplate _ _ = False
 
 The term matches normally when its symbol is the edge symbol. It also matches
 when the term symbol is exactly @"<v>"@, in which case the symbol is treated
-as a wildcard but child nodes and equality constraints still have to match.
+as a wildcard. This is a prefix-style matcher: supplied template children must
+match, but omitted template children are unresolved holes.
 -}
 edgeRepresentsTemplate :: Edge -> Term -> Bool
 edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
