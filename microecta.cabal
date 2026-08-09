@@ -70,7 +70,9 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
+    Data.ECTA.DSL
     Data.ECTA.Internal.ECTA.Enumeration
+    Data.ECTA.Internal.ECTA.Generation
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
     Data.ECTA.Internal.Paths
@@ -134,7 +136,6 @@ benchmark micro-bench
   main-is: Benchmarks.hs
   hs-source-dirs: benchmarks
   ghc-options:
-    -O2
     -rtsopts
     -with-rtsopts=-M512M
 
