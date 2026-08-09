@@ -4,6 +4,14 @@
 
 * Relax package lower bounds to less precise minor-version floors while keeping
   the existing upper bounds.
+* Drop the benchmark `-O2` flag.
+* Add resumable and bounded complete-term sampling.
+* Add a compiled generator for finite ECTAs with nested and overlapping
+  equality constraints.
+* Add a typed, generator-shaped ECTA construction DSL with automatic sharing,
+  concrete decoders, and a qualified-name frontend.
+* Add compiled DSL generation that reduces heterogeneous equality domains and
+  returns decoded values directly.
 
 ## 0.1.0.0 - 2026-06-09
 
