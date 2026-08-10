@@ -70,7 +70,6 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
-    Data.ECTA.DSL
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Generation
     Data.ECTA.Internal.ECTA.Operations

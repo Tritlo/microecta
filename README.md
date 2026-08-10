@@ -83,68 +83,6 @@ If an earlier random choice cannot extend through overlapping slots, sampling
 returns `GenerationPlanInconsistentSlots`. The search API remains the complete
 backtracking path.
 
-## Construction DSL
-
-`Data.ECTA.DSL` presents ECTA construction as a symbolic generator. `choose`
-draws one future value from a typed `Pool`. Reusing the returned `Value` means
-that every use must receive the same term. The elaborator turns that sharing
-into ECTA equality constraints.
-
-```haskell
-{-# LANGUAGE OverloadedStrings #-}
-
-import Data.ECTA.DSL qualified as DSL
-
-data Pair = Pair String String
-
-data NoRefs s = NoRefs
-
-values :: DSL.Pool String
-values = DSL.elements [("A", "A"), ("B", "B")]
-
-pairGenerator :: DSL.Generator Pair NoRefs
-pairGenerator = DSL.generator $ do
-  value <- DSL.choose values
-  pair <- DSL.construct "Pair" $
-    Pair
-      <$> DSL.field "left" value
-      <*> DSL.field "right" value
-  pure (pair, NoRefs)
-
-pairEcta :: Either [DSL.DslError] Node
-pairEcta = DSL.elaborateGenerator pairGenerator []
-
-decodePair :: Term -> Either String Pair
-decodePair = DSL.decodeGenerated pairGenerator
-```
-
-For repeated finite sampling, `compileGenerator` retains the decoder and runs
-static reduction before it compiles the generation plan. The reduction
-intersects different languages contributed for one equal value. This is useful
-when independent generators expose overlapping domains.
-
-```haskell
-compiledPair :: Either DSL.GeneratorCompileError (DSL.CompiledGenerator Pair)
-compiledPair = DSL.compileGenerator pairGenerator []
-
-samplePair randomState compiled =
-  DSL.sampleGenerator drawIndex randomState compiled
-```
-
-The selector passed to `sampleGenerator` has the same type as the selector for
-`sampleGenerationPlan`: `Int -> g -> (Int, g)`.
-
-`Fields s` is applicative, so ordinary Haskell constructors decode the generated
-term. `Pool a` carries a raw ECTA domain and its decoder. `Value s a` keeps the
-symbolic identity and decoder together. `Gen s` allocates identities but does
-not sample anything.
-
-Use `reference` when an independently authored typed source must relate two
-separate values. Named sources use qualified `field` names and remain useful
-for policy or schema compilers that do not share Haskell values. The low-level
-`schema`, `alternative`, `child`, `choice`, `recursive`, and `embedRaw`
-functions remain available for direct raw ECTA construction.
-
 ## Pruning API
 
 `getAllTermsPrune` exposes partially enumerated `TermFragment`s to pruning
@@ -197,8 +135,6 @@ the pieces that downstream projects still use:
 
 - `Data.ECTA` is the main ECTA API: node and edge construction, intersection,
   reduction, traversal, and enumeration.
-- `Data.ECTA.DSL` builds decoded symbolic generators. Reused values and
-  independently authored typed or named sources elaborate to raw ECTAs.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
