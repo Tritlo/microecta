@@ -4,7 +4,6 @@
 
 * Relax package lower bounds to less precise minor-version floors while keeping
   the existing upper bounds.
-* Drop the benchmark `-O2` flag.
 * Add resumable and bounded complete-term sampling.
 * Add a compiled generator for finite ECTAs with nested and overlapping
   equality constraints.

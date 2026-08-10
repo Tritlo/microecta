@@ -135,6 +135,7 @@ benchmark micro-bench
   main-is: Benchmarks.hs
   hs-source-dirs: benchmarks
   ghc-options:
+    -O2
     -rtsopts
     -with-rtsopts=-M512M
 
