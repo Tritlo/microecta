@@ -4,7 +4,7 @@ A 'Plan' preserves the choice, product, and map structure of a generator's
 rank space; 'compilePlan' normalizes it and compiles one flat decoder, on
 machine 'Int' arithmetic whenever the language fits.
 -}
-module Data.ECTA.Gen.Decoder (
+module Data.ECTA.Gen.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     planCardinality,

@@ -88,7 +88,8 @@ library
     Utility.HashJoin
 
   other-modules:
-    Data.ECTA.Gen.Decoder
+    Data.ECTA.Gen.Internal
+    Data.ECTA.Gen.Internal.Decoder
     Data.Text.Extended.Pretty
 
   build-depends:
