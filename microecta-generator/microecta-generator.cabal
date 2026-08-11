@@ -73,6 +73,7 @@ library
     Data.ECTA.Gen.Internal
     Data.ECTA.Gen.Internal.Decoder
     Data.ECTA.Gen.Internal.Shrink
+    Data.ECTA.Gen.Internal.Size
 
   build-depends:
     QuickCheck >=2.14 && <2.19,

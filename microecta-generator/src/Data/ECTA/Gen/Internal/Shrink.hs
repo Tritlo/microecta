@@ -9,13 +9,15 @@ factoring:
   earlier alternative at its minimal rank, or shrink the operation and each
   argument component independently.
 
-* 'smallerPlanMembers' enumerates every member structurally smaller than a
+* 'smallerPlanMembers' streams every member structurally smaller than a
   rank's member, in size order, where size ('planMemberSize') is the number
-  of source choices in a member. Searching this stream first makes a
-  greedy shrink loop terminate at the globally smallest failing member.
+  of source choices in a member. Size classes are counted and indexed
+  directly ("Data.ECTA.Gen.Internal.Size"), not enumerated. Searching this
+  stream first makes a greedy shrink loop terminate at the globally
+  smallest failing member.
 
-Every candidate either re-encodes a modified decision tree or is
-enumerated from the plan itself, so shrinking can never leave the
+Every candidate either re-encodes a modified decision tree or is selected
+from a size class of the plan itself, so shrinking can never leave the
 generated language. The walkers read the raw plan, whose structure is the
 source of truth for rank order; only the compiled decoder needs the
 normalized form.
@@ -26,7 +28,12 @@ module Data.ECTA.Gen.Internal.Shrink (
     smallerPlanMembers,
 ) where
 
-import Data.ECTA.Gen.Internal.Decoder (Plan (..), planCardinality)
+import Data.ECTA.Gen.Internal.Decoder (Plan (..))
+import Data.ECTA.Gen.Internal.Size (
+    SizeIndex (sizeClassSelect),
+    countAtSize,
+    sizeIndex,
+ )
 
 {- | Shrink candidates for one rank, guided by the plan structure.
 
@@ -95,43 +102,20 @@ planMemberSize (PlanAp radix planF planX) rank =
         (functionRank, argumentRank) ->
             planMemberSize planF functionRank + planMemberSize planX argumentRank
 
-{- | Members of exactly the given size, as replayable rank and value.
-
-Order is fixed: branch order through choices, and ascending operation size
-through products. Leaves stream lazily, so large sources are safe to cap.
--}
-sizedMembers :: Plan a -> Int -> [(Integer, a)]
-sizedMembers (PlanSelect cardinality' decode) size
-    | size == 1 = [(index, decode index) | index <- [0 .. cardinality' - 1]]
-    | otherwise = []
-sizedMembers (PlanMap transform plan) size =
-    [(rank, transform value) | (rank, value) <- sizedMembers plan size]
-sizedMembers (PlanChoice branches) size =
-    [ (offset + rank, value)
-    | (offset, _, branch) <- withOffsets branches
-    , (rank, value) <- sizedMembers branch size
-    ]
-sizedMembers (PlanAp radix planF planX) size =
-    [ (functionRank * radix + argumentRank, function argument)
-    | functionSize <- [1 .. size - 1]
-    , (functionRank, function) <- sizedMembers planF functionSize
-    , (argumentRank, argument) <- sizedMembers planX (size - functionSize)
-    ]
-
 {- | Every member structurally smaller than the given rank's member, in size
 order, as replayable rank and value.
 
+Members come from 'sizeIndex', so reaching position @i@ of a size class
+costs one walk down the plan rather than enumerating everything before it.
 The stream is lazy in both directions: consumers may cap it, and a size
 class larger than the consumer's demand is never forced completely.
 -}
 smallerPlanMembers :: Plan a -> Integer -> [(Integer, a)]
-smallerPlanMembers plan rank = go 1 0
+smallerPlanMembers plan rank =
+    concatMap classMembers [1 .. planMemberSize plan rank - 1]
   where
-    bound = planMemberSize plan rank
-    total = planCardinality plan
-    go currentSize seen
-        | currentSize >= bound || seen >= total = []
-        | otherwise =
-            members <> go (currentSize + 1) (seen + toInteger (length members))
-      where
-        members = sizedMembers plan currentSize
+    index = sizeIndex plan
+    classMembers size =
+        [ sizeClassSelect index size position
+        | position <- [0 .. countAtSize index size - 1]
+        ]
