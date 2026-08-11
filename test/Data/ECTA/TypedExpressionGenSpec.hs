@@ -104,7 +104,7 @@ functionSignature instance_ =
 
 {- | Function instances grouped by their complete ground signature.
 
-An 'Grouped' does not generate the signature as part of its result. The
+A 'Grouped' does not generate the signature as part of its result. The
 projected signature classifies functions into groups; matching key values tell
 joins which groups should receive equal internal labels on constrained ECTA
 paths. Conceptually, this is a compact map from each signature to the sublanguage
