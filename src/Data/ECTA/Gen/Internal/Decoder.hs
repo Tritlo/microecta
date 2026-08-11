@@ -151,9 +151,9 @@ compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                      in \index ->
                             case index `quotRem` outer of
                                 (leftIndex, rightIndex) ->
-                                    onlyFunction
-                                        (unsafeAt leftTable leftIndex)
-                                        (unsafeAt rightTable rightIndex)
+                                    let !leftArgument = unsafeAt leftTable leftIndex
+                                        !rightArgument = unsafeAt rightTable rightIndex
+                                     in onlyFunction leftArgument rightArgument
                 else
                     let decodeF = compileInt planF
                      in \index ->
@@ -161,10 +161,9 @@ compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                                 (functionAndLeft, rightIndex) ->
                                     case functionAndLeft `quotRem` inner of
                                         (functionIndex, leftIndex) ->
-                                            decodeF
-                                                functionIndex
-                                                (unsafeAt leftTable leftIndex)
-                                                (unsafeAt rightTable rightIndex)
+                                            let !leftArgument = unsafeAt leftTable leftIndex
+                                                !rightArgument = unsafeAt rightTable rightIndex
+                                             in decodeF functionIndex leftArgument rightArgument
 compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
     | outerRadix > 1
     , innerRadix > 1 =
@@ -178,9 +177,9 @@ compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                      in \index ->
                             case index `quotRem` outer of
                                 (leftIndex, rightIndex) ->
-                                    onlyFunction
-                                        (decodeX1 leftIndex)
-                                        (decodeX2 rightIndex)
+                                    let !leftArgument = decodeX1 leftIndex
+                                        !rightArgument = decodeX2 rightIndex
+                                     in onlyFunction leftArgument rightArgument
                 else
                     let decodeF = compileInt planF
                      in \index ->
@@ -188,19 +187,20 @@ compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                                 (functionAndLeft, rightIndex) ->
                                     case functionAndLeft `quotRem` inner of
                                         (functionIndex, leftIndex) ->
-                                            decodeF
-                                                functionIndex
-                                                (decodeX1 leftIndex)
-                                                (decodeX2 rightIndex)
+                                            let !leftArgument = decodeX1 leftIndex
+                                                !rightArgument = decodeX2 rightIndex
+                                             in decodeF functionIndex leftArgument rightArgument
 compileInt (PlanAp rightCardinality planF planX)
     | rightCardinality == 1 =
         let decodeF = compileInt planF
             firstArgument = compileInt planX 0
-         in \index -> decodeF index firstArgument
+         in \index -> decodeF index $! firstArgument
     | planCardinality planF == 1 =
         let onlyFunction = compileInt planF 0
             decodeX = compileInt planX
-         in onlyFunction . decodeX
+         in \index ->
+                let !argument = decodeX index
+                 in onlyFunction argument
     | otherwise =
         let decodeF = compileInt planF
             decodeX = compileInt planX
@@ -208,7 +208,8 @@ compileInt (PlanAp rightCardinality planF planX)
          in \index ->
                 case index `quotRem` radix of
                     (functionIndex, argumentIndex) ->
-                        decodeF functionIndex (decodeX argumentIndex)
+                        let !argument = decodeX argumentIndex
+                         in decodeF functionIndex argument
 
 -- | The tabulated array of a small leaf, for saturated in-branch reads.
 leafTableInt :: Plan a -> Maybe (Array Int a)
@@ -276,9 +277,9 @@ compileInteger (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                      in \index ->
                             case index `quotRem` outerRadix of
                                 (leftIndex, rightIndex) ->
-                                    onlyFunction
-                                        (decodeX1 leftIndex)
-                                        (decodeX2 rightIndex)
+                                    let !leftArgument = decodeX1 leftIndex
+                                        !rightArgument = decodeX2 rightIndex
+                                     in onlyFunction leftArgument rightArgument
                 else
                     let decodeF = compileInteger planF
                      in \index ->
@@ -286,23 +287,25 @@ compileInteger (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
                                 (functionAndLeft, rightIndex) ->
                                     case functionAndLeft `quotRem` innerRadix of
                                         (functionIndex, leftIndex) ->
-                                            decodeF
-                                                functionIndex
-                                                (decodeX1 leftIndex)
-                                                (decodeX2 rightIndex)
+                                            let !leftArgument = decodeX1 leftIndex
+                                                !rightArgument = decodeX2 rightIndex
+                                             in decodeF functionIndex leftArgument rightArgument
 compileInteger (PlanAp rightCardinality planF planX)
     | rightCardinality == 1 =
         let decodeF = compileInteger planF
             firstArgument = compileInteger planX 0
-         in \index -> decodeF index firstArgument
+         in \index -> decodeF index $! firstArgument
     | planCardinality planF == 1 =
         let onlyFunction = compileInteger planF 0
             decodeX = compileInteger planX
-         in onlyFunction . decodeX
+         in \index ->
+                let !argument = decodeX index
+                 in onlyFunction argument
     | otherwise =
         let decodeF = compileInteger planF
             decodeX = compileInteger planX
          in \index ->
                 case index `quotRem` rightCardinality of
                     (functionIndex, argumentIndex) ->
-                        decodeF functionIndex (decodeX argumentIndex)
+                        let !argument = decodeX argumentIndex
+                         in decodeF functionIndex argument

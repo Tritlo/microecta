@@ -31,9 +31,12 @@
   symbolic decode plan (choices, mixed-radix products, maps) that lowering
   normalizes — maps pushed into leaves, nested choices spliced flat, small
   leaves tabulated — and compiles to one flat decoder, on machine `Int`
-  arithmetic whenever the cardinality fits and `Integer` otherwise. Rank
-  order, masses, supports, and inspection are unchanged; non-uniform and
-  opaque generators keep the previous sampling path.
+  arithmetic whenever the cardinality fits and `Integer` otherwise, with
+  strict argument binding at every compiled application. Rank order, masses,
+  supports, and inspection are unchanged; non-uniform and opaque generators
+  keep the previous sampling path. The typed-expression benchmark moves from
+  0.56x-1.39x of a handwritten QuickCheck generator to 1.31x-2.12x at depths
+  one through four.
 * Add `mapWithKey` for grouped generators, and `forAll` and `sized` to the
   QuickCheck adapter: `forAll` shrinks by walking ranks toward zero, so every
   shrink stays inside the generated language and the failing rank replays the
