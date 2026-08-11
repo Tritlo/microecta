@@ -491,13 +491,16 @@ frequencyStatic alternatives =
             uniformMass
             select
             selectValue
-            (frequencySampler alternatives)
+            sampler
         )
   where
     totalWeight = sum $ map fst alternatives
     numbered = zip [0 :: Int ..] alternatives
     totalOutcomes = sum [outcomeCardinality $ staticOutcomes static | (_, static) <- alternatives]
     uniformMass = commonValue $ map branchUniformMass alternatives
+    sampler = case uniformMass of
+        Just _ -> uniformSampler totalOutcomes selectValue
+        Nothing -> frequencySampler alternatives
 
     branchUniformMass (weight, static) =
         (fromInteger weight / fromInteger totalWeight *)
