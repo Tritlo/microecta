@@ -166,6 +166,7 @@ data ArgStatics operation result where
         ArgStatics operation result ->
         ArgStatics (arg -> operation) result
 
+-- | Find the argument group for every signature key, with the product of their masses.
 lookupArgs ::
     Sig argKeys resultKey ->
     ArgMaps argKeys operation result ->
@@ -184,12 +185,14 @@ lookupArgs (key :* rest) (MapsCons buckets restMaps) = do
         , StaticsCons (keyedBucketStatic bucket) statics
         )
 
+-- | Map the values of a static language.
 mapStatic :: (a -> b) -> Static a -> Static b
 mapStatic transform static =
     Static
         (staticSupport static)
         (mapOutcomeIndex transform $ staticOutcomes static)
 
+-- | The one-outcome language of a single value.
 pureStatic :: a -> Static a
 pureStatic value =
     Static
@@ -206,6 +209,7 @@ pureStatic value =
             (PlanSelect 1 $ const value)
         )
 
+-- | The language of one finite indexed source.
 indexedStatic :: Indexed a -> Static a
 indexedStatic indexed =
     Static
@@ -228,6 +232,7 @@ indexedStatic indexed =
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
 
+-- | The applicative product of a function language and an argument language.
 applyStatic :: Static (a -> b) -> Static a -> Static b
 applyStatic functions values =
     Static
@@ -280,6 +285,7 @@ applyStatic functions values =
 
     splitIndex index = index `quotRem` valueCardinality
 
+-- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic :: [(Integer, Static a)] -> Static a
 frequencyStatic alternatives =
     Static
@@ -347,6 +353,7 @@ frequencyStatic alternatives =
         | index < upperBound = (branchIndex, weight, static, index - offset)
         | otherwise = selectBranch index remaining
 
+-- | Join two languages on equal projected keys with one ECTA equality constraint.
 joinStatic ::
     (Ord key) =>
     (left -> key) ->
@@ -405,6 +412,7 @@ joinStatic leftKey rightKey left right = do
                     then Left EmptyGenerator
                     else Static joined <$> joinOutcomeIndex left right groups
 
+-- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
     (value -> key) ->
     Static value ->
@@ -413,9 +421,11 @@ keyedOutcomes key static =
     map (\outcome -> (key $ outcomeValue outcome, outcome))
         <$> enumerateOutcomeIndex (staticOutcomes static)
 
+-- | Group enumerated outcomes by key.
 groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
 groupOutcomes = Map.fromListWith (<>) . map (fmap pure)
 
+-- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::
     Static left ->
     Static right ->
@@ -478,16 +488,19 @@ joinOutcomeIndex left right groups = do
             rightOutcome = Sequence.index (joinGroupRight group) $ fromInteger rightIndex
          in (group, leftOutcome, rightOutcome)
 
+-- | Number of pairs in one matched group.
 joinGroupCardinality :: JoinGroup left right -> Integer
 joinGroupCardinality group =
     toInteger (Sequence.length $ joinGroupLeft group)
         * toInteger (Sequence.length $ joinGroupRight group)
 
+-- | Probability mass of one matched group.
 joinGroupMass :: JoinGroup left right -> Rational
 joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
 
+-- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Integer ->
     [JoinGroup left right] ->
@@ -499,6 +512,7 @@ selectJoinGroup index (group : remaining)
   where
     groupSize = joinGroupCardinality group
 
+-- | Sample a weighted two-way join, group by group.
 joinSampler ::
     [JoinGroup left right] ->
     Either ECTAGenError (Sampler (left, right))
@@ -542,6 +556,7 @@ joinSampler groups = do
         let rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
         pure (weight, offset, rightCardinality, leftSampler, rightSampler)
 
+-- | Pair every join group with its cumulative rank offset.
 offsetJoinGroups :: [JoinGroup left right] -> [(Integer, JoinGroup left right)]
 offsetJoinGroups = go 0
   where
@@ -549,6 +564,7 @@ offsetJoinGroups = go 0
     go offset (group : remaining) =
         (offset, group) : go (offset + joinGroupCardinality group) remaining
 
+-- | Merge all groups of a grouped generator into one weighted language.
 mergeKeyedBuckets :: Map.Map key (KeyedBucket a) -> Either ECTAGenError (Static a)
 mergeKeyedBuckets buckets = do
     weightedBuckets <-
@@ -558,6 +574,7 @@ mergeKeyedBuckets buckets = do
             ]
     pure $ frequencyStatic weightedBuckets
 
+-- | Merge weighted static languages into one group.
 mergeBucketGroup :: [(Rational, Static a)] -> Either ECTAGenError (KeyedBucket a)
 mergeBucketGroup alternatives = do
     weightedAlternatives <- integerOutcomes alternatives
@@ -595,6 +612,7 @@ mergeComponentsByKey components = do
                 keyedBucketMass bucket / totalAcceptedMass
             }
 
+-- | Join one operation group with its argument groups in one ECTA edge, with one equality constraint per argument.
 joinNBucketStatic ::
     Int ->
     Static operation ->
@@ -671,19 +689,23 @@ joinNBucketStatic componentIndex operation arguments =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
 
+-- | Number of arguments in the chain.
 chainLength :: ArgStatics operation result -> Int
 chainLength StaticsNil = 0
 chainLength (StaticsCons _ rest) = 1 + chainLength rest
 
+-- | ECTA support of every argument group, in order.
 chainSupports :: ArgStatics operation result -> [Node]
 chainSupports StaticsNil = []
 chainSupports (StaticsCons static rest) = staticSupport static : chainSupports rest
 
+-- | Product of the argument group cardinalities.
 chainCardinality :: ArgStatics operation result -> Integer
 chainCardinality StaticsNil = 1
 chainCardinality (StaticsCons static rest) =
     outcomeCardinality (staticOutcomes static) * chainCardinality rest
 
+-- | Product of the argument uniform masses, when all are uniform.
 chainUniformMass :: ArgStatics operation result -> Maybe Rational
 chainUniformMass StaticsNil = Just 1
 chainUniformMass (StaticsCons static rest) =
@@ -741,6 +763,7 @@ chainDecoder (StaticsCons static rest) =
             let (here, there) = index `quotRem` suffixCardinality
              in decodeRest (partial $ valueAt here) there
 
+-- | Select one outcome per argument, threading terms, mass, and the applied value.
 selectChain ::
     operation ->
     ArgStatics operation result ->
@@ -759,6 +782,7 @@ selectChain partial (StaticsCons static rest) (keyTerm : keyTerms) index = do
         )
 selectChain _ (StaticsCons _ _) [] _ = error "selectChain: missing key terms"
 
+-- | Sample one outcome sequence by its masses.
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
 sequenceSampler outcomes
     | Just _ <- commonValue $ Just . outcomeMass <$> toList outcomes =
@@ -777,18 +801,22 @@ sequenceSampler outcomes
     totalOutcomes = toInteger $ Sequence.length outcomes
     selectValue = outcomeValue . Sequence.index outcomes . fromInteger
 
+-- | Singleton key node labelling one matched group.
 keyNode :: Int -> Node
 keyNode index = Node [Edge (keySymbol index) []]
 
+-- | The ECTA node accepting exactly one term.
 singletonNode :: Term -> Node
 singletonNode (Term symbol children) =
     Node [Edge symbol $ map singletonNode children]
 
+-- | Enumerate a language as normalized mass and value pairs.
 compileOutcomes :: Static a -> Either ECTAGenError [(Rational, a)]
 compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]
 
+-- | Sample one value; uniform languages go through the compiled decoder.
 sampleStatic ::
     (GenBackend gen) =>
     Static a ->
@@ -803,6 +831,7 @@ sampleStatic static
   where
     outcomes = staticOutcomes static
 
+-- | Sample one value together with its replay rank.
 sampleStaticWithRank ::
     (GenBackend gen) =>
     Static a ->
@@ -824,6 +853,7 @@ compiledDecoder :: OutcomeIndex a -> RankDecoder a
 compiledDecoder outcomes =
     compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
 
+-- | Sample uniformly with one integer selection.
 uniformSampler :: Integer -> (Integer -> a) -> Sampler a
 uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
 uniformSampler totalOutcomes valueAt =
@@ -831,6 +861,7 @@ uniformSampler totalOutcomes valueAt =
         (valueAt <$> selectInteger totalOutcomes)
         ((\index -> (index, valueAt index)) <$> selectInteger totalOutcomes)
 
+-- | Sample a product, composing ranks in mixed radix.
 productSampler :: Integer -> Sampler (a -> b) -> Sampler a -> Sampler b
 productSampler rightCardinality leftSampler rightSampler =
     Sampler
@@ -843,6 +874,7 @@ productSampler rightCardinality leftSampler rightSampler =
             (runRankSampler rightSampler)
         )
 
+-- | Sample weighted alternatives with rank offsets.
 frequencySampler :: [(Integer, Static a)] -> Sampler a
 frequencySampler alternatives =
     Sampler
@@ -860,6 +892,7 @@ frequencySampler alternatives =
             ]
         )
 
+-- | Pair every alternative with its cumulative rank offset.
 offsetAlternatives :: [(Integer, Static a)] -> [(Integer, (Integer, Static a))]
 offsetAlternatives = go 0
   where
@@ -870,6 +903,7 @@ offsetAlternatives = go 0
                 (offset + outcomeCardinality (staticOutcomes static))
                 remaining
 
+-- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
 mapOutcomeIndex transform outcomes =
     OutcomeIndex
@@ -885,6 +919,7 @@ mapOutcomeIndex transform outcomes =
         )
         (PlanMap transform $ outcomePlan outcomes)
 
+-- | Map the value of one outcome.
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b
 mapOutcome transform outcome =
     Outcome
@@ -892,24 +927,28 @@ mapOutcome transform outcome =
         (outcomeMass outcome)
         (transform $ outcomeValue outcome)
 
+-- | Select every outcome in rank order.
 enumerateOutcomeIndex :: OutcomeIndex a -> Either ECTAGenError [Outcome a]
 enumerateOutcomeIndex outcomes =
     traverse
         (outcomeSelect outcomes)
         [0 .. outcomeCardinality outcomes - 1]
 
+-- | The value shared by every entry, if any.
 commonValue :: (Eq a) => [Maybe a] -> Maybe a
 commonValue [] = Nothing
 commonValue (Just value : remaining)
     | all (== Just value) remaining = Just value
 commonValue _ = Nothing
 
+-- | Reject a rank outside the language.
 checkIndex :: Integer -> Integer -> Either ECTAGenError ()
 checkIndex totalOutcomes index
     | index < 0 || index >= totalOutcomes =
         Left $ SelectionOutOfRange index totalOutcomes
     | otherwise = Right ()
 
+-- | Scale masses so they sum to one.
 normalize :: [(Rational, a)] -> Either ECTAGenError [(Rational, a)]
 normalize [] = Left EmptyGenerator
 normalize outcomes =
@@ -918,6 +957,7 @@ normalize outcomes =
             then Left EmptyGenerator
             else Right [(mass / total, value) | (mass, value) <- outcomes]
 
+-- | Convert rational masses to the smallest equivalent integer weights.
 integerOutcomes ::
     [(Rational, a)] ->
     Either ECTAGenError [(Integer, a)]
@@ -938,6 +978,7 @@ integerOutcomes outcomes =
                         (map (`div` commonFactor) unscaled)
                         (map snd outcomes)
 
+-- | Index into a list, failing loudly outside it.
 atIndex :: String -> Integer -> [a] -> a
 atIndex label index values
     | index < 0 = error $ label <> ": negative index"
@@ -945,6 +986,9 @@ atIndex label index values
         value : _ -> value
         [] -> error $ label <> ": index out of range"
 
+{- | Symbols labelling the ECTA structure this module builds. They are
+namespaced so generated supports cannot collide with user symbols.
+-}
 pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol :: Symbol
 pureSymbol = "$ecta-gen/pure"
 applySymbol = "$ecta-gen/apply"
@@ -955,15 +999,19 @@ rightKeyedSymbol = "$ecta-gen/right-keyed"
 joinNSymbol = "$ecta-gen/join-n"
 argKeyedSymbol = "$ecta-gen/arg-keyed"
 
+-- | Leaf symbol carrying one stable source index.
 indexedSymbol :: Integer -> Symbol
 indexedSymbol index = Symbol $ Text.pack $ "$ecta-gen/index/" <> show index
 
+-- | Branch symbol carrying one alternative index.
 frequencySymbol :: Int -> Symbol
 frequencySymbol index = Symbol $ Text.pack $ "$ecta-gen/frequency/" <> show index
 
+-- | Key symbol shared by one matched group.
 keySymbol :: Int -> Symbol
 keySymbol index = Symbol $ Text.pack $ "$ecta-gen/key/" <> show index
 
+-- | Key symbol for one argument position of one joined component.
 argKeySymbol :: Int -> Int -> Symbol
 argKeySymbol componentIndex position =
     Symbol $
