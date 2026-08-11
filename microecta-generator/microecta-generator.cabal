@@ -86,7 +86,10 @@ test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  hs-source-dirs: test
+  hs-source-dirs:
+    common
+    test
+
   ghc-options:
     -threaded
     -rtsopts
@@ -95,6 +98,7 @@ test-suite unit-tests
   other-modules:
     Data.ECTA.GenSpec
     Data.ECTA.TypedExpressionGenSpec
+    Data.ECTA.TypedExpressionLanguage
 
   build-depends:
     QuickCheck >=2.14 && <2.19,
@@ -103,3 +107,22 @@ test-suite unit-tests
     hspec >=2.11 && <2.12,
     microecta >=0.1.0.0 && <0.2,
     microecta-generator,
+
+benchmark typed-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -O2
+    -rtsopts
+
+  other-modules: Data.ECTA.TypedExpressionLanguage
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.13 && <5,
+    microecta-generator,
+    random >=1.2 && <1.4,
