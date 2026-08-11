@@ -16,7 +16,8 @@
   from any transparent generator) so repeated joins compose compact ECTA
   supports and exact rank indices without enumerating prior layers.
 * Generalize keyed operation application to any arity: a `Sig` is written
-  like a function type over keys (`leftKey --> rightKey --> resultKey`), and
+  like a many-sorted operation signature (`leftKey :* rightKey :-> resultKey`),
+  and
   the single `apply` joins the operation family with one argument family per
   signature component in one ECTA edge holding one equality constraint per
   argument.

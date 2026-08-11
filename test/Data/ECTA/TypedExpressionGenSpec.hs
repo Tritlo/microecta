@@ -8,7 +8,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatis
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges)
-import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, (-->))
+import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (unsafeGetEclasses)
@@ -99,8 +99,8 @@ atoms =
 functionSignature :: BinaryFunctionInstance -> FunctionSignature
 functionSignature instance_ =
     firstArgumentType instance_
-        --> secondArgumentType instance_
-        --> binaryResultType instance_
+        :* secondArgumentType instance_
+        :-> binaryResultType instance_
 
 {- | Function instances grouped by their complete ground signature.
 
@@ -128,7 +128,7 @@ atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 The qualified do-block builds exactly one 'ECTAGen.apply' join: the first
 bind chooses the operation family and the remaining binds choose its
 arguments. Each function signature reads as
-@leftArgumentType '-->' rightArgumentType '-->' resultType@. The
+@leftArgumentType ':*' rightArgumentType ':->' resultType@. The
 join matches the two signature keys with the two child result-type groups,
 equates their paths, takes their compact Cartesian product, and retains
 @resultType@ as the application's key.

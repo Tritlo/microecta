@@ -10,7 +10,7 @@ import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node (Node))
 import qualified Data.ECTA.Gen as Core
-import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), (-->))
+import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
@@ -268,7 +268,7 @@ spec = do
                 rights :: [(Int, String)]
                 rights = [(0, "right-a"), (0, "right-a"), (1, "right-b")]
                 signature (_, leftKey, rightKey, resultKey) =
-                    leftKey --> rightKey --> resultKey
+                    leftKey :* rightKey :-> resultKey
                 operations =
                     ECTAGen.regroupBy signature $
                         ECTAGen.groupBy fst (ECTAGen.elements centers)
@@ -297,8 +297,8 @@ spec = do
                                 (+)
                                 [(value, 1) | value <- accepted]
             ECTAGen.sizes operations
-                `shouldBe` Right (Map.fromList [(0 --> 0 --> (0 :: Int), 2), (1 --> 0 --> (1 :: Int), 1)])
-            ECTAGen.pmf (ECTAGen.atKey (0 --> 0 --> (0 :: Int)) operations)
+                `shouldBe` Right (Map.fromList [(0 :* 0 :-> 0, 2), (1 :* 0 :-> 1, 1)])
+            ECTAGen.pmf (ECTAGen.atKey (0 :* 0 :-> 0) operations)
                 `shouldBe` Right [(centers !! 0, 1 % 2), (centers !! 1, 1 % 2)]
             ECTAGen.pmf grouped `shouldBe` Right expected
 

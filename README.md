@@ -78,9 +78,10 @@ classifies any transparent generator's outcomes (enumerating them once), and
 grouped generators support ordinary `fmap`. `regroupBy` changes the
 classification without enumerating values, `sizes` returns the stored
 cardinality of every group, and `atKey` selects one group as an ordinary
-conditional generator. An operation of any arity is classified by
-a `Sig`, written like a function type over keys:
-`leftKey --> rightKey --> resultKey`. `apply` matches each signature
+conditional generator. An operation of any arity is classified by a `Sig`,
+written like a many-sorted operation signature — `:*` between argument keys,
+`:->` before the result key: `leftKey :* rightKey :-> resultKey`.
+`apply` matches each signature
 key with the corresponding argument family, equates their paths in one ECTA
 edge holding one equality constraint per argument, and retains the result key
 for later equality constraints. The operation family holds functions (`fmap`
@@ -94,7 +95,7 @@ functionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
 functionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
 
 signature function =
-  argument1Type function --> argument2Type function --> resultType function
+  argument1Type function :* argument2Type function :-> resultType function
 
 atomsByType :: Grouped Type TypedExpression
 atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)

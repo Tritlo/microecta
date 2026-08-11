@@ -7,13 +7,7 @@ module Data.ECTA.Gen.QuickCheck (
     ECTAGen,
     Grouped,
     Sig (..),
-    (-->),
-    ToSig (..),
-    ArgKeysOf,
-    ResultOf,
-    sigArgKeys,
     sigResult,
-    Keys (..),
     Args (..),
     ECTAGenError (..),
     fromIndexed,
@@ -49,18 +43,12 @@ import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node)
 import Data.ECTA.Gen (
-    ArgKeysOf,
     Args (..),
     ECTAGenError (..),
     Indexed (..),
-    Keys (..),
     On (..),
-    ResultOf,
     Sig (..),
-    ToSig (..),
-    sigArgKeys,
     sigResult,
-    (-->),
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do

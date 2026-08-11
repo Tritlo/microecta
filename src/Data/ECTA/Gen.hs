@@ -1,3 +1,4 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Indexed generators whose transparent regions are represented as ECTAs.
@@ -12,13 +13,7 @@ module Data.ECTA.Gen (
     ECTAGen,
     Grouped,
     Sig (..),
-    (-->),
-    ToSig (..),
-    ArgKeysOf,
-    ResultOf,
-    sigArgKeys,
     sigResult,
-    Keys (..),
     Args (..),
     ECTAGenError (..),
     GenBackend (..),
@@ -141,104 +136,65 @@ and indexed selection without storing all outcomes.
 newtype Grouped (gen :: Type -> Type) key a
     = Grouped (Either ECTAGenError (Map.Map key (KeyedBucket a)))
 
-{- | A heterogeneous list of group keys, one per generated operation argument.
+{- | The input and result group keys for a generated operation.
 
-Lists are compared lexicographically, element by element.
+Signatures are written like many-sorted operation signatures, with ':*'
+between argument keys and ':->' before the result key:
+@TInt ':*' TInt ':->' TBool@ is a binary signature with result key @TBool@.
+Since ':->' binds tighter, the chain nests as
+@TInt ':*' (TInt ':->' TBool)@: ':->' pairs the final argument key with the
+result key and ':*' prepends further argument keys. Both are ordinary
+constructors, so signatures can be pattern matched the way they are written.
 -}
-data Keys (argKeys :: [Type]) where
-    KNil :: Keys '[]
-    (:*) :: argKey -> Keys argKeys -> Keys (argKey ': argKeys)
+data Sig (argKeys :: [Type]) result where
+    (:->) :: argKey -> result -> Sig '[argKey] result
+    (:*) ::
+        argKey ->
+        Sig (nextKey ': argKeys) result ->
+        Sig (argKey ': nextKey ': argKeys) result
 
-infixr 5 :*
+infixr 5 :->
+infixr 4 :*
 
-instance Eq (Keys '[]) where
-    KNil == KNil = True
+instance (Eq argKey, Eq result) => Eq (Sig '[argKey] result) where
+    (key :-> result) == (otherKey :-> otherResult) =
+        key == otherKey && result == otherResult
 
-instance (Eq argKey, Eq (Keys argKeys)) => Eq (Keys (argKey ': argKeys)) where
-    (key :* keys) == (otherKey :* otherKeys) =
-        key == otherKey && keys == otherKeys
+instance
+    (Eq argKey, Eq (Sig (nextKey ': argKeys) result)) =>
+    Eq (Sig (argKey ': nextKey ': argKeys) result)
+    where
+    (key :* rest) == (otherKey :* otherRest) =
+        key == otherKey && rest == otherRest
 
-instance Ord (Keys '[]) where
-    compare KNil KNil = EQ
+instance (Ord argKey, Ord result) => Ord (Sig '[argKey] result) where
+    compare (key :-> result) (otherKey :-> otherResult) =
+        compare key otherKey <> compare result otherResult
 
-instance (Ord argKey, Ord (Keys argKeys)) => Ord (Keys (argKey ': argKeys)) where
-    compare (key :* keys) (otherKey :* otherKeys) =
-        compare key otherKey <> compare keys otherKeys
+instance
+    (Ord argKey, Ord (Sig (nextKey ': argKeys) result)) =>
+    Ord (Sig (argKey ': nextKey ': argKeys) result)
+    where
+    compare (key :* rest) (otherKey :* otherRest) =
+        compare key otherKey <> compare rest otherRest
 
-instance Show (Keys '[]) where
-    showsPrec _ KNil = showString "KNil"
-
-instance (Show argKey, Show (Keys argKeys)) => Show (Keys (argKey ': argKeys)) where
-    showsPrec depth (key :* keys) =
+instance (Show argKey, Show result) => Show (Sig '[argKey] result) where
+    showsPrec depth (key :-> result) =
         showParen (depth > 5) $
-            showsPrec 6 key . showString " :* " . showsPrec 5 keys
+            showsPrec 6 key . showString " :-> " . showsPrec 6 result
 
-{- | The input and result group keys for a generated operation of any arity.
-
-Signatures are written like function types with '-->':
-@TInt '-->' TInt '-->' TBool@ is a binary signature with result key @TBool@.
-The type distinguishes operation signatures from unrelated keys.
--}
-data Sig (argKeys :: [Type]) result = Sig (Keys argKeys) result
-
-deriving instance (Eq (Keys argKeys), Eq result) => Eq (Sig argKeys result)
-deriving instance (Ord (Keys argKeys), Ord result) => Ord (Sig argKeys result)
-
-instance (Show result) => Show (Sig '[] result) where
-    showsPrec depth (Sig KNil result) = showsPrec depth result
-
-instance (Show argKey, Show (Sig argKeys result)) => Show (Sig (argKey ': argKeys) result) where
-    showsPrec depth (Sig (key :* keys) result) =
-        showParen (depth > 0) $
-            showsPrec 1 key . showString " --> " . showsPrec 0 (Sig keys result)
-
--- | The argument keys of a signature, one per generated operation argument.
-sigArgKeys :: Sig argKeys result -> Keys argKeys
-sigArgKeys (Sig argKeys _) = argKeys
+instance
+    (Show argKey, Show (Sig (nextKey ': argKeys) result)) =>
+    Show (Sig (argKey ': nextKey ': argKeys) result)
+    where
+    showsPrec depth (key :* rest) =
+        showParen (depth > 4) $
+            showsPrec 5 key . showString " :* " . showsPrec 4 rest
 
 -- | The result key of a signature.
 sigResult :: Sig argKeys result -> result
-sigResult (Sig _ result) = result
-
--- | The argument keys contributed by the right-hand side of '-->'.
-type family ArgKeysOf signature :: [Type] where
-    ArgKeysOf (Sig argKeys result) = argKeys
-    ArgKeysOf result = '[]
-
--- | The result key contributed by the right-hand side of '-->'.
-type family ResultOf signature where
-    ResultOf (Sig argKeys result) = result
-    ResultOf result = result
-
-{- | The right-hand side of '-->': either a bare result key or a signature to
-extend with one more argument.
--}
-class ToSig signature where
-    toSig :: signature -> Sig (ArgKeysOf signature) (ResultOf signature)
-
-instance {-# OVERLAPPING #-} ToSig (Sig argKeys result) where
-    toSig = id
-
-instance {-# OVERLAPPABLE #-} (ArgKeysOf result ~ '[], ResultOf result ~ result) => ToSig result where
-    toSig = Sig KNil
-
-{- | Prepend one argument key to a signature, or pair the final argument key
-with a bare result key.
-
-Chains flatten to the right exactly like function arrows:
-@a '-->' b '-->' c@ is @'Sig' (a ':*' b ':*' 'KNil') c@. A result key that is
-itself a 'Sig' must therefore be written with the 'Sig' constructor.
--}
-(-->) ::
-    (ToSig rest) =>
-    argKey ->
-    rest ->
-    Sig (argKey ': ArgKeysOf rest) (ResultOf rest)
-argKey --> rest =
-    case toSig rest of
-        Sig argKeys result -> Sig (argKey :* argKeys) result
-
-infixr 0 -->
+sigResult (_ :-> result) = result
+sigResult (_ :* rest) = sigResult rest
 
 {- | Argument families for 'apply', one per signature component, in order.
 
@@ -446,9 +402,10 @@ apply (Grouped (Right operations)) arguments = Grouped $ do
     argumentMaps <- argsMaps arguments
     let matchingBuckets =
             [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
-            | (componentIndex, (Sig argKeys resultKey, operationBucket)) <-
+            | (componentIndex, (signature, operationBucket)) <-
                 zip [0 :: Int ..] $ Map.toAscList operations
-            , Just (mass, argumentBuckets) <- [lookupArgs argKeys argumentMaps]
+            , let resultKey = sigResult signature
+            , Just (mass, argumentBuckets) <- [lookupArgs signature argumentMaps]
             ]
     components <- traverse buildComponent matchingBuckets
     mergeComponentsByKey components
@@ -487,17 +444,23 @@ data ArgStatics operation result where
         ArgStatics (arg -> operation) result
 
 lookupArgs ::
-    Keys argKeys ->
+    Sig argKeys resultKey ->
     ArgMaps argKeys operation result ->
     Maybe (Rational, ArgStatics operation result)
-lookupArgs KNil MapsNil = Just (1, StaticsNil)
-lookupArgs (key :* keys) (MapsCons buckets rest) = do
+lookupArgs (key :-> _) (MapsCons buckets MapsNil) = do
     bucket <- Map.lookup key buckets
-    (mass, statics) <- lookupArgs keys rest
+    Just
+        ( keyedBucketMass bucket
+        , StaticsCons (keyedBucketStatic bucket) StaticsNil
+        )
+lookupArgs (key :* rest) (MapsCons buckets restMaps) = do
+    bucket <- Map.lookup key buckets
+    (mass, statics) <- lookupArgs rest restMaps
     Just
         ( keyedBucketMass bucket * mass
         , StaticsCons (keyedBucketStatic bucket) statics
         )
+lookupArgs signature MapsNil = case signature of {}
 
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
@@ -1119,6 +1082,17 @@ chainSampler sampler (StaticsCons static rest) =
 -- | Build a rank decoder once, capturing every suffix cardinality.
 chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
 chainDecoder StaticsNil = \value _ -> value
+chainDecoder (StaticsCons static StaticsNil) =
+    let valueAt = outcomeValueAt $ staticOutcomes static
+     in \operation index -> operation $ valueAt index
+chainDecoder (StaticsCons first (StaticsCons second StaticsNil)) =
+    let firstValueAt = outcomeValueAt $ staticOutcomes first
+        secondOutcomes = staticOutcomes second
+        secondCardinality = outcomeCardinality secondOutcomes
+        secondValueAt = outcomeValueAt secondOutcomes
+     in \operation index ->
+            let (firstIndex, secondIndex) = index `quotRem` secondCardinality
+             in operation (firstValueAt firstIndex) (secondValueAt secondIndex)
 chainDecoder (StaticsCons static rest) =
     let decodeRest = chainDecoder rest
         suffixCardinality = chainCardinality rest
