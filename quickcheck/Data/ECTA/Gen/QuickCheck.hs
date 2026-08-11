@@ -248,13 +248,16 @@ forAll generator prop =
         showRanked
         (prop . snd)
   where
-    shrinkCandidates (rank, _) =
-        take smallerMemberLimit (smallerMembers generator rank)
-            <> [ (candidate, value)
-               | candidate <- shrinkRank generator rank
-               , sizeOfRank generator candidate <= sizeOfRank generator rank
-               , Right value <- [unrank generator candidate]
-               ]
+    shrinkCandidates (rank, _) = smaller <> structural
+      where
+        smaller = take smallerMemberLimit (smallerMembers generator rank)
+        currentSize = sizeOfRank generator rank
+        structural =
+            [ (candidate, value)
+            | candidate <- shrinkRank generator rank
+            , sizeOfRank generator candidate <= currentSize
+            , Right value <- [unrank generator candidate]
+            ]
 
     showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
 
