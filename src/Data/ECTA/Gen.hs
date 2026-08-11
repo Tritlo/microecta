@@ -72,9 +72,10 @@ class (Applicative gen) => GenBackend gen where
     -- | Retry until the generated value satisfies a predicate.
     filterGen :: (a -> Bool) -> gen a -> gen a
 
--- | A backend-independent plan for sampling one rank and its decoded value.
-newtype RankSampler a = RankSampler
-    { runRankSampler :: forall gen. (GenBackend gen) => gen (Integer, a)
+-- | Backend-independent plans for sampling a value, with or without its rank.
+data Sampler a = Sampler
+    { runValueSampler :: forall gen. (GenBackend gen) => gen a
+    , runRankSampler :: forall gen. (GenBackend gen) => gen (Integer, a)
     }
 
 -- | Failure while constructing, inspecting, or sampling a generator.
@@ -98,7 +99,7 @@ data OutcomeIndex a = OutcomeIndex
     , outcomeUniformMass :: !(Maybe Rational)
     , outcomeSelect :: Integer -> Either ECTAGenError (Outcome a)
     , outcomeValueAt :: Integer -> a
-    , outcomeRankSampler :: !(RankSampler a)
+    , outcomeSampler :: !(Sampler a)
     }
 
 -- | One equality-key bucket used to count and unrank a conditioned product.
@@ -406,7 +407,7 @@ pureStatic value =
                 pure $ Outcome (Term pureSymbol []) 1 value
             )
             (\_ -> value)
-            (uniformRankSampler 1 $ const value)
+            (uniformSampler 1 $ const value)
         )
 
 indexedStatic :: Indexed a -> Static a
@@ -418,7 +419,7 @@ indexedStatic indexed =
             (Just $ 1 / fromInteger totalOutcomes)
             select
             (indexedSelect indexed)
-            (uniformRankSampler totalOutcomes $ indexedSelect indexed)
+            (uniformSampler totalOutcomes $ indexedSelect indexed)
         )
   where
     totalOutcomes = indexedCardinality indexed
@@ -444,10 +445,10 @@ applyStatic functions values =
             ((*) <$> outcomeUniformMass functionOutcomes <*> outcomeUniformMass valueOutcomes)
             select
             selectValue
-            ( productRankSampler
+            ( productSampler
                 valueCardinality
-                (outcomeRankSampler functionOutcomes)
-                (outcomeRankSampler valueOutcomes)
+                (outcomeSampler functionOutcomes)
+                (outcomeSampler valueOutcomes)
             )
         )
   where
@@ -490,7 +491,7 @@ frequencyStatic alternatives =
             uniformMass
             select
             selectValue
-            (frequencyRankSampler alternatives)
+            (frequencySampler alternatives)
         )
   where
     totalWeight = sum $ map fst alternatives
@@ -602,8 +603,8 @@ joinOutcomeIndex ::
     Either ECTAGenError (OutcomeIndex (left, right))
 joinOutcomeIndex left right groups = do
     rankSampler <- case uniformMass of
-        Just _ -> pure $ uniformRankSampler totalOutcomes selectValue
-        Nothing -> joinRankSampler groups
+        Just _ -> pure $ uniformSampler totalOutcomes selectValue
+        Nothing -> joinSampler groups
     pure $
         OutcomeIndex
             totalOutcomes
@@ -668,10 +669,10 @@ selectJoinGroup index (group : remaining)
   where
     groupSize = joinGroupCardinality group
 
-joinRankSampler ::
+joinSampler ::
     [JoinGroup left right] ->
-    Either ECTAGenError (RankSampler (left, right))
-joinRankSampler groups = do
+    Either ECTAGenError (Sampler (left, right))
+joinSampler groups = do
     weightedGroups <-
         integerOutcomes
             [ (joinGroupMass group, (offset, group))
@@ -679,8 +680,18 @@ joinRankSampler groups = do
             ]
     plans <- traverse branchPlan weightedGroups
     pure $
-        RankSampler $
-            frequencyGen
+        Sampler
+            ( frequencyGen
+                [ ( weight
+                  , liftA2
+                        (,)
+                        (runValueSampler leftSampler)
+                        (runValueSampler rightSampler)
+                  )
+                | (weight, _, _, leftSampler, rightSampler) <- plans
+                ]
+            )
+            ( frequencyGen
                 [ ( weight
                   , liftA2
                         ( \(leftIndex, leftValue) (rightIndex, rightValue) ->
@@ -693,10 +704,11 @@ joinRankSampler groups = do
                   )
                 | (weight, offset, rightCardinality, leftSampler, rightSampler) <- plans
                 ]
+            )
   where
     branchPlan (weight, (offset, group)) = do
-        leftSampler <- sequenceRankSampler $ joinGroupLeft group
-        rightSampler <- sequenceRankSampler $ joinGroupRight group
+        leftSampler <- sequenceSampler $ joinGroupLeft group
+        rightSampler <- sequenceSampler $ joinGroupRight group
         let rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
         pure (weight, offset, rightCardinality, leftSampler, rightSampler)
 
@@ -844,18 +856,18 @@ join3BucketStatic componentIndex center left right =
     totalOutcomes = outcomeCardinality centerOutcomes * childCardinality
     rankSampler
         | outcomeCardinality centerOutcomes == 1 =
-            singletonCenterRankSampler
+            singletonCenterSampler
                 rightCardinality
                 (outcomeValueAt centerOutcomes 0)
-                (outcomeRankSampler leftOutcomes)
-                (outcomeRankSampler rightOutcomes)
+                (outcomeSampler leftOutcomes)
+                (outcomeSampler rightOutcomes)
         | otherwise =
-            product3RankSampler
+            product3Sampler
                 childCardinality
                 rightCardinality
-                (outcomeRankSampler centerOutcomes)
-                (outcomeRankSampler leftOutcomes)
-                (outcomeRankSampler rightOutcomes)
+                (outcomeSampler centerOutcomes)
+                (outcomeSampler leftOutcomes)
+                (outcomeSampler rightOutcomes)
     uniformMass =
         (\centerMass leftMass rightMass -> centerMass * leftMass * rightMass)
             <$> outcomeUniformMass centerOutcomes
@@ -987,8 +999,8 @@ join3OutcomeIndex ::
     Either ECTAGenError (OutcomeIndex (center, left, right))
 join3OutcomeIndex center left right groups = do
     rankSampler <- case uniformMass of
-        Just _ -> pure $ uniformRankSampler totalOutcomes selectValue
-        Nothing -> join3RankSampler groups
+        Just _ -> pure $ uniformSampler totalOutcomes selectValue
+        Nothing -> join3Sampler groups
     pure $
         OutcomeIndex
             totalOutcomes
@@ -1065,10 +1077,10 @@ selectJoin3Group index (group : remaining)
   where
     groupSize = join3GroupCardinality group
 
-join3RankSampler ::
+join3Sampler ::
     [Join3Group center left right] ->
-    Either ECTAGenError (RankSampler (center, left, right))
-join3RankSampler groups = do
+    Either ECTAGenError (Sampler (center, left, right))
+join3Sampler groups = do
     weightedGroups <-
         integerOutcomes
             [ (join3GroupMass group, (offset, group))
@@ -1076,8 +1088,19 @@ join3RankSampler groups = do
             ]
     plans <- traverse branchPlan weightedGroups
     pure $
-        RankSampler $
-            frequencyGen
+        Sampler
+            ( frequencyGen
+                [ ( weight
+                  , liftA3
+                        (,,)
+                        (runValueSampler centerSampler)
+                        (runValueSampler leftSampler)
+                        (runValueSampler rightSampler)
+                  )
+                | (weight, _, _, _, centerSampler, leftSampler, rightSampler) <- plans
+                ]
+            )
+            ( frequencyGen
                 [ ( weight
                   , liftA3
                         ( \(centerIndex, centerValue) (leftIndex, leftValue) (rightIndex, rightValue) ->
@@ -1102,11 +1125,12 @@ join3RankSampler groups = do
                     ) <-
                     plans
                 ]
+            )
   where
     branchPlan (weight, (offset, group)) = do
-        centerSampler <- sequenceRankSampler $ join3GroupCenter group
-        leftSampler <- sequenceRankSampler $ join3GroupLeft group
-        rightSampler <- sequenceRankSampler $ join3GroupRight group
+        centerSampler <- sequenceSampler $ join3GroupCenter group
+        leftSampler <- sequenceSampler $ join3GroupLeft group
+        rightSampler <- sequenceSampler $ join3GroupRight group
         let leftCardinality = toInteger $ Sequence.length $ join3GroupLeft group
             rightCardinality = toInteger $ Sequence.length $ join3GroupRight group
             childCardinality = leftCardinality * rightCardinality
@@ -1129,17 +1153,20 @@ offsetJoin3Groups = go 0
     go offset (group : remaining) =
         (offset, group) : go (offset + join3GroupCardinality group) remaining
 
-sequenceRankSampler :: Seq (Outcome a) -> Either ECTAGenError (RankSampler a)
-sequenceRankSampler outcomes
+sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
+sequenceSampler outcomes
     | Just _ <- commonValue $ Just . outcomeMass <$> toList outcomes =
-        pure $ uniformRankSampler totalOutcomes selectValue
+        pure $ uniformSampler totalOutcomes selectValue
     | otherwise = do
         weightedRanks <-
             integerOutcomes
                 [ (outcomeMass outcome, (index, outcomeValue outcome))
                 | (index, outcome) <- zip [0 ..] $ toList outcomes
                 ]
-        pure $ RankSampler $ frequencyGen [(weight, pure rankedValue) | (weight, rankedValue) <- weightedRanks]
+        pure $
+            Sampler
+                (frequencyGen [(weight, pure value) | (weight, (_, value)) <- weightedRanks])
+                (frequencyGen [(weight, pure rankedValue) | (weight, rankedValue) <- weightedRanks])
   where
     totalOutcomes = toInteger $ Sequence.length outcomes
     selectValue = outcomeValue . Sequence.index outcomes . fromInteger
@@ -1166,41 +1193,46 @@ sampleStatic ::
     (GenBackend gen) =>
     Static a ->
     gen (Either ECTAGenError a)
-sampleStatic static = fmap (fmap snd) $ sampleStaticWithRank static
+sampleStatic static =
+    Right <$> runValueSampler (outcomeSampler $ staticOutcomes static)
 
 sampleStaticWithRank ::
     (GenBackend gen) =>
     Static a ->
     gen (Either ECTAGenError (Integer, a))
 sampleStaticWithRank static =
-    Right <$> runRankSampler (outcomeRankSampler $ staticOutcomes static)
+    Right <$> runRankSampler (outcomeSampler $ staticOutcomes static)
 
-uniformRankSampler :: Integer -> (Integer -> a) -> RankSampler a
-uniformRankSampler 1 valueAt = RankSampler $ pure (0, valueAt 0)
-uniformRankSampler totalOutcomes valueAt =
-    RankSampler $
-        (\index -> (index, valueAt index)) <$> selectInteger totalOutcomes
+uniformSampler :: Integer -> (Integer -> a) -> Sampler a
+uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
+uniformSampler totalOutcomes valueAt =
+    Sampler
+        (valueAt <$> selectInteger totalOutcomes)
+        ((\index -> (index, valueAt index)) <$> selectInteger totalOutcomes)
 
-productRankSampler :: Integer -> RankSampler (a -> b) -> RankSampler a -> RankSampler b
-productRankSampler rightCardinality leftSampler rightSampler =
-    RankSampler $
-        liftA2
+productSampler :: Integer -> Sampler (a -> b) -> Sampler a -> Sampler b
+productSampler rightCardinality leftSampler rightSampler =
+    Sampler
+        (runValueSampler leftSampler <*> runValueSampler rightSampler)
+        ( liftA2
             ( \(leftIndex, apply) (rightIndex, value) ->
                 (leftIndex * rightCardinality + rightIndex, apply value)
             )
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)
+        )
 
 -- | Sample a three-way product whose center has the sole rank zero.
-singletonCenterRankSampler ::
+singletonCenterSampler ::
     Integer ->
     center ->
-    RankSampler left ->
-    RankSampler right ->
-    RankSampler (center, left, right)
-singletonCenterRankSampler rightCardinality centerValue leftSampler rightSampler =
-    RankSampler $
-        liftA2
+    Sampler left ->
+    Sampler right ->
+    Sampler (center, left, right)
+singletonCenterSampler rightCardinality centerValue leftSampler rightSampler =
+    Sampler
+        (liftA2 (centerValue,,) (runValueSampler leftSampler) (runValueSampler rightSampler))
+        ( liftA2
             ( \(leftIndex, leftValue) (rightIndex, rightValue) ->
                 ( leftIndex * rightCardinality + rightIndex
                 , (centerValue, leftValue, rightValue)
@@ -1208,17 +1240,19 @@ singletonCenterRankSampler rightCardinality centerValue leftSampler rightSampler
             )
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)
+        )
 
-product3RankSampler ::
+product3Sampler ::
     Integer ->
     Integer ->
-    RankSampler center ->
-    RankSampler left ->
-    RankSampler right ->
-    RankSampler (center, left, right)
-product3RankSampler childCardinality rightCardinality centerSampler leftSampler rightSampler =
-    RankSampler $
-        liftA3
+    Sampler center ->
+    Sampler left ->
+    Sampler right ->
+    Sampler (center, left, right)
+product3Sampler childCardinality rightCardinality centerSampler leftSampler rightSampler =
+    Sampler
+        (liftA3 (,,) (runValueSampler centerSampler) (runValueSampler leftSampler) (runValueSampler rightSampler))
+        ( liftA3
             ( \(centerIndex, centerValue) (leftIndex, leftValue) (rightIndex, rightValue) ->
                 ( centerIndex * childCardinality
                     + leftIndex * rightCardinality
@@ -1229,17 +1263,24 @@ product3RankSampler childCardinality rightCardinality centerSampler leftSampler 
             (runRankSampler centerSampler)
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)
+        )
 
-frequencyRankSampler :: [(Integer, Static a)] -> RankSampler a
-frequencyRankSampler alternatives =
-    RankSampler $
-        frequencyGen
+frequencySampler :: [(Integer, Static a)] -> Sampler a
+frequencySampler alternatives =
+    Sampler
+        ( frequencyGen
+            [ (weight, runValueSampler $ outcomeSampler $ staticOutcomes static)
+            | (weight, static) <- alternatives
+            ]
+        )
+        ( frequencyGen
             [ ( weight
               , (\(rank, value) -> (offset + rank, value))
-                    <$> runRankSampler (outcomeRankSampler $ staticOutcomes static)
+                    <$> runRankSampler (outcomeSampler $ staticOutcomes static)
               )
             | (offset, (weight, static)) <- offsetAlternatives alternatives
             ]
+        )
 
 offsetAlternatives :: [(Integer, Static a)] -> [(Integer, (Integer, Static a))]
 offsetAlternatives = go 0
@@ -1258,9 +1299,11 @@ mapOutcomeIndex apply outcomes =
         (outcomeUniformMass outcomes)
         (\index -> mapOutcome apply <$> outcomeSelect outcomes index)
         (apply . outcomeValueAt outcomes)
-        ( RankSampler $
-            (\(rank, value) -> (rank, apply value))
-                <$> runRankSampler (outcomeRankSampler outcomes)
+        ( Sampler
+            (apply <$> runValueSampler (outcomeSampler outcomes))
+            ( (\(rank, value) -> (rank, apply value))
+                <$> runRankSampler (outcomeSampler outcomes)
+            )
         )
 
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b
