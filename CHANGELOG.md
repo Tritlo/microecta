@@ -14,6 +14,19 @@
   with two ECTA equality constraints.
 * Add partition-preserving keyed generators so repeated three-way joins compose
   compact ECTA supports and exact rank indices without enumerating prior layers.
+* Generalize keyed operation application to any arity: `Sig` now pairs a
+  heterogeneous key list (`leftKey :* rightKey :* KNil`) with a result key,
+  and the single `apply` joins the operation family with one argument family
+  per signature component in one ECTA edge holding one equality constraint
+  per argument.
+* Condition flat generators with reified key equalities: `match` takes an
+  `On` value such as `authenticatedUser :==: fileOwner`, conjoinable with
+  `:&&:`, replacing the positional `matchOn`. The three-way `matchOn3` is
+  gone; star-shaped conditioning belongs to the keyed layer (`apply`).
+* Add qualified do-notation in `Data.ECTA.Gen.Do`, re-exported by the
+  QuickCheck adapter: QuickCheck-style blocks for flat generators and for
+  grouped operation application at any arity, with curated compile-time errors
+  for monadic shapes.
 
 ## 0.1.0.0 - 2026-06-09
 

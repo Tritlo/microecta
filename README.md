@@ -60,44 +60,85 @@ products. Alongside the ECTA, the generator tracks an exact cardinality and a
 rank-to-outcome selector; applicative products multiply their counts rather
 than materializing their Cartesian products.
 
-`innerJoinOn` conditions two transparent generators by encoding their shared
-keys and adding an actual ECTA equality constraint. It groups each input by key,
-counts the matching bucket products, and can unrank directly into the selected
-bucket. `innerJoin3On` applies two key equalities to a center value and two
-arguments in one ECTA edge, avoiding an intermediate binary join. These generic
-joins accept arbitrary value projections, so discovering their buckets requires
-enumerating the input ranks.
+`match` generates two values under a reified key equality: in
+`match (authenticatedUser :==: fileOwner) authentication filesystem`, the
+`:==:` keeps both projections as data, so the match can group each input by
+its own key, encode the shared keys as an actual ECTA equality constraint,
+count the matching group products, and unrank directly into the selected
+group. `:&&:` conjoins several equalities. `match` accepts arbitrary value
+projections, so discovering its groups requires enumerating the input ranks;
+conditioning three or more generators is the keyed layer's job (`elementsBy`
+and `apply`).
 
-`KeyedECTAGen` is the explicit partition-preserving path for nested or very
-large languages. `keyedElements` records the initial buckets;
-`innerJoin3Keyed` combines matching compact bucket supports, cardinalities, and
-conditional rank samplers without enumerating their outcomes; `mapKeyed` keeps
-the result partitions available to the next layer. `forgetKey` returns an
-ordinary `ECTAGen` with the same exact distribution. The keyed join still
-constructs one ECTA edge with both argument equality constraints. Stable source
-order and ascending key order give deterministic replay ranks.
+`ECTAGenBy key a` is the explicit grouping-preserving path for nested or very
+large languages. The `key` is the type returned by the classifier and used to
+decide which groups may be joined; it is not part of the generated `a`. Matching
+key values receive equal internal labels on constrained ECTA paths. `elementsBy`
+records those initial keys, and grouped generators support ordinary `fmap`.
+`regroupBy` changes the classification without enumerating values, `sizeBy`
+returns the stored cardinality of every group, and `atKey` selects one group as
+an ordinary conditional generator. An operation of any arity is classified by
+a `Sig`, a heterogeneous list of argument keys plus a result key, e.g.
+`leftKey :* rightKey :* KNil :-> resultKey`. `apply` matches each signature
+key with the corresponding argument family, equates their paths in one ECTA
+edge holding one equality constraint per argument, and retains the result key
+for later equality constraints. The operation family holds functions (`fmap`
+a compiling function onto it); the argument families arrive as an `Args`
+chain. `ungroup` returns an ordinary `ECTAGen` with
+the same exact distribution. Stable source order and ascending key order give
+deterministic replay ranks.
 
 ```haskell
-functionsBySignature :: KeyedECTAGen (Type, Type, Type) BinaryFunctionInstance
-functionsBySignature = ECTAGen.keyedElements signature functionInstances
+functionsBySignature :: ECTAGenBy (Sig '[Type, Type] Type) BinaryFunctionInstance
+functionsBySignature = ECTAGen.elementsBy signature functionInstances
 
-atomsByType :: KeyedECTAGen Type TypedExpression
-atomsByType = ECTAGen.keyedElements expressionType atoms
+signature function =
+  argument1Type function :* argument2Type function :* KNil :-> resultType function
+
+atomsByType :: ECTAGenBy Type TypedExpression
+atomsByType = ECTAGen.elementsBy expressionType atoms
 
 applicationGen children =
-  ECTAGen.mapKeyed compile $
-    ECTAGen.innerJoin3Keyed id functionsBySignature children children
+  ECTAGen.apply (compile <$> functionsBySignature) (children :& children :& ANil)
 
 depthFour = applicationGen depthThree
 ```
+
+Both layers also support qualified do-notation through `Data.ECTA.Gen.Do`,
+which `Data.ECTA.Gen.QuickCheck` re-exports. Enable `QualifiedDo` together
+with `ApplicativeDo`; statements must stay independent, and the final
+statement must use the qualified `ECTAGen.pure`. A grouped block chooses the
+operation family first and then one argument per signature component in
+order; whatever the arity, it builds exactly one `apply` join:
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE QualifiedDo #-}
+
+authentication :: ECTAGen Authentication
+authentication = ECTAGen.do
+  user <- generatedUser
+  method <- ECTAGen.elements [Password, Token]
+  ECTAGen.pure (Authentication user method)
+
+applicationGen children = ECTAGen.do
+  op <- functionsBySignature
+  x <- children
+  y <- children
+  ECTAGen.pure (compile op x y)
+```
+
+Impossible shapes fail at compile time with an explanation: a statement using
+an earlier bound value, an unqualified `pure` ending, a missing operation
+argument, or a fallible pattern.
 
 Every transparent generator samples compositionally by rank, including exact
 non-uniform `frequency` and conditioned joins; sampling never materializes the
 final Cartesian product. `cardinality` and `unrank` expose deterministic replay,
 while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
 `pmf` enumerate every rank because their projections or complete result values
-are not retained partitions. The optional keyed path avoids that work when a
-caller supplies the reusable partition structure up front.
+are not retained groups. The `ECTAGenBy` path avoids that work when a caller
+supplies the reusable classification structure up front.
 The optional `microecta:quickcheck` sublibrary exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed.
 
@@ -107,9 +148,8 @@ import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
 
 joined :: ECTAGen (Authentication, Filesystem)
 joined =
-  ECTAGen.innerJoinOn
-    authenticatedUser
-    fileOwner
+  ECTAGen.match
+    (authenticatedUser :==: fileOwner)
     authentication
     filesystem
 ```

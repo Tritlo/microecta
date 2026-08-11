@@ -5,24 +5,29 @@
 An indexed source stores a finite cardinality and a function from indices to
 values. Applicative composition tracks exact cardinalities and rank-based
 selection alongside the ECTA, without materializing the product language.
-Joins count matched key-bucket products and unrank directly within them.
+Joins count matched group products and unrank directly within them.
 -}
 module Data.ECTA.Gen (
     Indexed (..),
     ECTAGen,
-    KeyedECTAGen,
+    ECTAGenBy,
+    Sig (..),
+    Keys (..),
+    Args (..),
     ECTAGenError (..),
     GenBackend (..),
     fromIndexed,
     fromBackend,
     elements,
-    keyedElements,
-    mapKeyed,
-    innerJoin3Keyed,
-    forgetKey,
+    elementsBy,
+    regroupBy,
+    sizeBy,
+    atKey,
+    apply,
+    ungroup,
     frequency,
-    innerJoinOn,
-    innerJoin3On,
+    On (..),
+    match,
     support,
     cardinality,
     unrank,
@@ -32,7 +37,6 @@ module Data.ECTA.Gen (
     lowerWithRank,
 ) where
 
-import Control.Applicative (liftA3)
 import Data.Foldable (toList)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -109,14 +113,6 @@ data JoinGroup left right = JoinGroup
     , joinGroupRight :: !(Seq (Outcome right))
     }
 
--- | One pair-of-keys bucket used by a three-way conditioned product.
-data Join3Group center left right = Join3Group
-    { join3GroupIndex :: !Int
-    , join3GroupCenter :: !(Seq (Outcome center))
-    , join3GroupLeft :: !(Seq (Outcome left))
-    , join3GroupRight :: !(Seq (Outcome right))
-    }
-
 -- | One transparent ECTA with a matching indexed outcome language.
 data Static a = Static
     { staticSupport :: !Node
@@ -129,23 +125,119 @@ data KeyedBucket a = KeyedBucket
     , keyedBucketStatic :: !(Static a)
     }
 
-{- | A transparent generator whose distribution remains explicitly partitioned
-by key.
+{- | A transparent generator whose values are classified by a projected key.
 
-Each partition retains compact ECTA support and indexed selection. It never
-stores all outcomes in that partition.
+The key is not part of the generated value. It classifies values into groups;
+during a join, matching key values determine which groups receive equal internal
+labels on constrained ECTA paths. Each key group retains compact ECTA support
+and indexed selection without storing all outcomes.
 -}
-newtype KeyedECTAGen (gen :: Type -> Type) key a
-    = KeyedECTAGen (Either ECTAGenError (Map.Map key (KeyedBucket a)))
+newtype ECTAGenBy (gen :: Type -> Type) key a
+    = ECTAGenBy (Either ECTAGenError (Map.Map key (KeyedBucket a)))
+
+{- | A heterogeneous list of group keys, one per generated operation argument.
+
+Lists are compared lexicographically, element by element.
+-}
+data Keys (argKeys :: [Type]) where
+    KNil :: Keys '[]
+    (:*) :: argKey -> Keys argKeys -> Keys (argKey ': argKeys)
+
+infixr 5 :*
+
+instance Eq (Keys '[]) where
+    KNil == KNil = True
+
+instance (Eq argKey, Eq (Keys argKeys)) => Eq (Keys (argKey ': argKeys)) where
+    (key :* keys) == (otherKey :* otherKeys) =
+        key == otherKey && keys == otherKeys
+
+instance Ord (Keys '[]) where
+    compare KNil KNil = EQ
+
+instance (Ord argKey, Ord (Keys argKeys)) => Ord (Keys (argKey ': argKeys)) where
+    compare (key :* keys) (otherKey :* otherKeys) =
+        compare key otherKey <> compare keys otherKeys
+
+instance Show (Keys '[]) where
+    showsPrec _ KNil = showString "KNil"
+
+instance (Show argKey, Show (Keys argKeys)) => Show (Keys (argKey ': argKeys)) where
+    showsPrec depth (key :* keys) =
+        showParen (depth > 5) $
+            showsPrec 6 key . showString " :* " . showsPrec 5 keys
+
+{- | The input and result group keys for a generated operation of any arity.
+
+The constructor makes the argument and result roles explicit at construction
+sites and distinguishes operation signatures from unrelated keys.
+-}
+data Sig (argKeys :: [Type]) result = Keys argKeys :-> result
+
+infixr 0 :->
+
+deriving instance (Eq (Keys argKeys), Eq result) => Eq (Sig argKeys result)
+deriving instance (Ord (Keys argKeys), Ord result) => Ord (Sig argKeys result)
+deriving instance (Show (Keys argKeys), Show result) => Show (Sig argKeys result)
+
+{- | Argument families for 'apply', one per signature component, in order.
+
+Each link requires the family key type named by the corresponding signature
+component and consumes the corresponding argument of the generated operation.
+-}
+data Args gen (argKeys :: [Type]) operation result where
+    ANil :: Args gen '[] result result
+    (:&) ::
+        (Ord argKey) =>
+        ECTAGenBy gen argKey arg ->
+        Args gen argKeys operation result ->
+        Args gen (argKey ': argKeys) (arg -> operation) result
+
+infixr 5 :&
+
+{- | Reified key equalities between one value of each side.
+
+@leftKey ':==:' rightKey@ requires the two projected keys to agree, and
+':&&:' conjoins equalities. Keeping the projections as data lets a match
+group each input by its own key instead of testing sampled pairs.
+-}
+data On left right where
+    (:==:) :: (Ord key) => (left -> key) -> (right -> key) -> On left right
+    (:&&:) :: On left right -> On left right -> On left right
+
+infix 4 :==:
+infixr 3 :&&:
+
+-- | Interpret a reified condition as one key projection per side.
+withKeys ::
+    On left right ->
+    (forall key. (Ord key) => (left -> key) -> (right -> key) -> t) ->
+    t
+withKeys (leftKey :==: rightKey) continue = continue leftKey rightKey
+withKeys (first :&&: second) continue =
+    withKeys first $ \leftKey rightKey ->
+        withKeys second $ \otherLeftKey otherRightKey ->
+            continue
+                (\left -> (leftKey left, otherLeftKey left))
+                (\right -> (rightKey right, otherRightKey right))
 
 -- | A generator is either inspectable ECTA structure or an opaque backend action.
 data ECTAGen gen a
     = Transparent !(Either ECTAGenError (Static a))
     | Opaque !(gen (Either ECTAGenError a))
 
+instance Functor (ECTAGenBy gen key) where
+    fmap transform (ECTAGenBy result) =
+        ECTAGenBy $ fmap (fmap mapBucket) result
+      where
+        mapBucket bucket =
+            KeyedBucket
+                (keyedBucketMass bucket)
+                (mapStatic transform $ keyedBucketStatic bucket)
+
 instance (Functor gen) => Functor (ECTAGen gen) where
-    fmap apply (Transparent result) = Transparent $ fmap (mapStatic apply) result
-    fmap apply (Opaque generated) = Opaque $ fmap (fmap apply) generated
+    fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
+    fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (GenBackend gen) => Applicative (ECTAGen gen) where
     pure value = Transparent $ Right $ pureStatic value
@@ -175,15 +267,16 @@ elements values =
             (toInteger $ length values)
             (\index -> atIndex "elements" index values)
 
-{- | Uniformly choose from a finite source while retaining its key partitions.
+{- | Uniformly choose from a finite source while retaining the projected keys
+used to match groups in later path equalities.
 
 Keys are ordered by their 'Ord' instance. Values within each key retain their
 source order.
 -}
-keyedElements :: (Ord key) => (a -> key) -> [a] -> KeyedECTAGen gen key a
-keyedElements _ [] = KeyedECTAGen $ Left EmptyGenerator
-keyedElements key values =
-    KeyedECTAGen $
+elementsBy :: (Ord key) => (a -> key) -> [a] -> ECTAGenBy gen key a
+elementsBy _ [] = ECTAGenBy $ Left EmptyGenerator
+elementsBy key values =
+    ECTAGenBy $
         Right $
             Map.map makeBucket $
                 foldl' insertValue Map.empty values
@@ -200,44 +293,126 @@ keyedElements key values =
                 ( indexedStatic $
                     Indexed
                         bucketCardinality
-                        (\index -> atIndex "keyedElements" index bucketValues)
+                        (\index -> atIndex "elementsBy" index bucketValues)
                 )
 
--- | Map partition values without changing their retained keys.
-mapKeyed :: (a -> b) -> KeyedECTAGen gen key a -> KeyedECTAGen gen key b
-mapKeyed apply (KeyedECTAGen result) =
-    KeyedECTAGen $ fmap (fmap mapBucket) result
-  where
-    mapBucket bucket =
-        KeyedBucket
-            (keyedBucketMass bucket)
-            (mapStatic apply $ keyedBucketStatic bucket)
+{- | Reclassify the groups without enumerating their values.
 
-{- | Join a keyed center with two keyed arguments and retain result-key
-partitions.
-
-The center key names the required left and right keys plus the result key.
-Joined supports are built directly from compact bucket supports and contain two
-real ECTA equality constraints. Ranks are ordered by result key, then center
-key, then the three source ranks.
+When several old keys map to one new key, their compact supports are merged and
+their probability masses are preserved.
 -}
-innerJoin3Keyed ::
-    (Ord leftKey, Ord rightKey, Ord resultKey) =>
-    (centerKey -> (leftKey, rightKey, resultKey)) ->
-    KeyedECTAGen gen centerKey center ->
-    KeyedECTAGen gen leftKey left ->
-    KeyedECTAGen gen rightKey right ->
-    KeyedECTAGen gen resultKey (center, left, right)
-innerJoin3Keyed _ (KeyedECTAGen (Left err)) _ _ = KeyedECTAGen $ Left err
-innerJoin3Keyed _ _ (KeyedECTAGen (Left err)) _ = KeyedECTAGen $ Left err
-innerJoin3Keyed _ _ _ (KeyedECTAGen (Left err)) = KeyedECTAGen $ Left err
-innerJoin3Keyed partitionCenter (KeyedECTAGen (Right centers)) (KeyedECTAGen (Right lefts)) (KeyedECTAGen (Right rights)) =
-    KeyedECTAGen $ join3KeyedBuckets partitionCenter centers lefts rights
+regroupBy :: (Ord newKey) => (oldKey -> newKey) -> ECTAGenBy gen oldKey a -> ECTAGenBy gen newKey a
+regroupBy _ (ECTAGenBy (Left err)) = ECTAGenBy $ Left err
+regroupBy regroup (ECTAGenBy (Right buckets)) =
+    ECTAGenBy $ traverse mergeBucketGroup grouped
+  where
+    grouped =
+        Map.foldlWithKey'
+            ( \groups oldKey bucket ->
+                Map.insertWith
+                    (flip (<>))
+                    (regroup oldKey)
+                    [(keyedBucketMass bucket, keyedBucketStatic bucket)]
+                    groups
+            )
+            Map.empty
+            buckets
 
--- | Forget retained keys while preserving the represented distribution.
-forgetKey :: KeyedECTAGen gen key a -> ECTAGen gen a
-forgetKey (KeyedECTAGen (Left err)) = Transparent $ Left err
-forgetKey (KeyedECTAGen (Right buckets)) =
+-- | Return the exact cardinality of each retained group in O(number of groups).
+sizeBy :: ECTAGenBy gen key a -> Either ECTAGenError (Map.Map key Integer)
+sizeBy (ECTAGenBy result) =
+    fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
+
+{- | Select one retained group as an ordinary conditional generator.
+
+A missing key produces 'EmptyGenerator'.
+-}
+atKey :: (Ord key) => key -> ECTAGenBy gen key a -> ECTAGen gen a
+atKey _ (ECTAGenBy (Left err)) = Transparent $ Left err
+atKey key (ECTAGenBy (Right buckets)) =
+    Transparent $
+        maybe
+            (Left EmptyGenerator)
+            (Right . keyedBucketStatic)
+            (Map.lookup key buckets)
+
+{- | Apply a generated operation of any arity to one argument family per
+signature component, retaining the operation's result group.
+
+The operation family must already hold functions consuming the 'Args' chain
+left to right; use 'fmap' to attach a compiling function. Every matched
+component joins the operation group and all
+argument groups in one ECTA edge holding one equality constraint per argument.
+Ranks are ordered by result key, then signature, then operation rank, then
+argument ranks left to right.
+-}
+apply ::
+    (Ord resultKey) =>
+    ECTAGenBy gen (Sig argKeys resultKey) operation ->
+    Args gen argKeys operation result ->
+    ECTAGenBy gen resultKey result
+apply (ECTAGenBy (Left err)) _ = ECTAGenBy $ Left err
+apply (ECTAGenBy (Right operations)) arguments = ECTAGenBy $ do
+    argumentMaps <- argsMaps arguments
+    let matchingBuckets =
+            [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
+            | (componentIndex, (argKeys :-> resultKey, operationBucket)) <-
+                zip [0 :: Int ..] $ Map.toAscList operations
+            , Just (mass, argumentBuckets) <- [lookupArgs argKeys argumentMaps]
+            ]
+    components <- traverse buildComponent matchingBuckets
+    mergeComponentsByKey components
+  where
+    buildComponent (componentIndex, resultKey, operationBucket, argumentsMass, argumentBuckets) = do
+        joined <-
+            joinNBucketStatic
+                componentIndex
+                (keyedBucketStatic operationBucket)
+                argumentBuckets
+        pure
+            ( resultKey
+            , keyedBucketMass operationBucket * argumentsMass
+            , joined
+            )
+
+-- | Bucket maps of every argument family, threaded through the operation type.
+data ArgMaps (argKeys :: [Type]) operation result where
+    MapsNil :: ArgMaps '[] result result
+    MapsCons ::
+        (Ord argKey) =>
+        Map.Map argKey (KeyedBucket arg) ->
+        ArgMaps argKeys operation result ->
+        ArgMaps (argKey ': argKeys) (arg -> operation) result
+
+argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps argKeys operation result)
+argsMaps ANil = Right MapsNil
+argsMaps (ECTAGenBy family :& rest) = MapsCons <$> family <*> argsMaps rest
+
+-- | The matched group of every argument family, in signature order.
+data ArgStatics operation result where
+    StaticsNil :: ArgStatics result result
+    StaticsCons ::
+        Static arg ->
+        ArgStatics operation result ->
+        ArgStatics (arg -> operation) result
+
+lookupArgs ::
+    Keys argKeys ->
+    ArgMaps argKeys operation result ->
+    Maybe (Rational, ArgStatics operation result)
+lookupArgs KNil MapsNil = Just (1, StaticsNil)
+lookupArgs (key :* keys) (MapsCons buckets rest) = do
+    bucket <- Map.lookup key buckets
+    (mass, statics) <- lookupArgs keys rest
+    Just
+        ( keyedBucketMass bucket * mass
+        , StaticsCons (keyedBucketStatic bucket) statics
+        )
+
+-- | Merge all retained groups while preserving their probability masses.
+ungroup :: ECTAGenBy gen key a -> ECTAGen gen a
+ungroup (ECTAGenBy (Left err)) = Transparent $ Left err
+ungroup (ECTAGenBy (Right buckets)) =
     Transparent $ mergeKeyedBuckets buckets
 
 -- | Choose one generator with the supplied positive relative weight.
@@ -273,61 +448,25 @@ frequency alternatives
     getStatic (weight, Transparent (Right static)) = Just (weight, static)
     getStatic _ = Nothing
 
-{- | Independently generate two values and condition their projected keys to
-agree.
-
-Transparent inputs are joined by adding an equality constraint between encoded
-key indices. If either side is opaque, the backend performs rejection instead.
--}
-innerJoinOn ::
-    (GenBackend gen, Ord key) =>
-    (left -> key) ->
-    (right -> key) ->
+-- | Generate two values whose projected keys agree.
+match ::
+    (GenBackend gen) =>
+    On left right ->
     ECTAGen gen left ->
     ECTAGen gen right ->
     ECTAGen gen (left, right)
-innerJoinOn _ _ (Transparent (Left err)) _ = Transparent $ Left err
-innerJoinOn _ _ _ (Transparent (Left err)) = Transparent $ Left err
-innerJoinOn leftKey rightKey (Transparent (Right left)) (Transparent (Right right)) =
-    Transparent $ joinStatic leftKey rightKey left right
-innerJoinOn leftKey rightKey left right =
-    Opaque $ filterGen matches generatedPairs
-  where
-    generatedPairs = liftA2 (liftA2 (,)) (lower left) (lower right)
-    matches (Left _) = True
-    matches (Right (leftValue, rightValue)) =
-        leftKey leftValue == rightKey rightValue
-
-{- | Independently generate a center value and two arguments, conditioning
-each projected center key to agree with the corresponding argument key.
-
-Transparent inputs use one ECTA edge with two equality constraints. If any
-input is opaque, the backend performs rejection instead.
--}
-innerJoin3On ::
-    (GenBackend gen, Ord leftKey, Ord rightKey) =>
-    (center -> (leftKey, rightKey)) ->
-    (left -> leftKey) ->
-    (right -> rightKey) ->
-    ECTAGen gen center ->
-    ECTAGen gen left ->
-    ECTAGen gen right ->
-    ECTAGen gen (center, left, right)
-innerJoin3On _ _ _ (Transparent (Left err)) _ _ = Transparent $ Left err
-innerJoin3On _ _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
-innerJoin3On _ _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
-innerJoin3On centerKeys leftKey rightKey (Transparent (Right center)) (Transparent (Right left)) (Transparent (Right right)) =
-    Transparent $ join3Static centerKeys leftKey rightKey center left right
-innerJoin3On centerKeys leftKey rightKey center left right =
-    Opaque $ filterGen matches generatedTriples
-  where
-    generatedTriples =
-        liftA3 (liftA3 (,,)) (lower center) (lower left) (lower right)
-    matches (Left _) = True
-    matches (Right (centerValue, leftValue, rightValue)) =
-        let (expectedLeft, expectedRight) = centerKeys centerValue
-         in expectedLeft == leftKey leftValue
-                && expectedRight == rightKey rightValue
+match _ (Transparent (Left err)) _ = Transparent $ Left err
+match _ _ (Transparent (Left err)) = Transparent $ Left err
+match condition (Transparent (Right left)) (Transparent (Right right)) =
+    withKeys condition $ \leftKey rightKey ->
+        Transparent $ joinStatic leftKey rightKey left right
+match condition left right =
+    withKeys condition $ \leftKey rightKey ->
+        let generatedPairs = liftA2 (liftA2 (,)) (lower left) (lower right)
+            matches (Left _) = True
+            matches (Right (leftValue, rightValue)) =
+                leftKey leftValue == rightKey rightValue
+         in Opaque $ filterGen matches generatedPairs
 
 -- | Return the ECTA support of a fully transparent generator.
 support :: ECTAGen gen a -> Either ECTAGenError Node
@@ -390,10 +529,10 @@ lowerWithRank (Transparent (Right static)) = sampleStaticWithRank static
 lowerWithRank (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
 mapStatic :: (a -> b) -> Static a -> Static b
-mapStatic apply static =
+mapStatic transform static =
     Static
         (staticSupport static)
-        (mapOutcomeIndex apply $ staticOutcomes static)
+        (mapOutcomeIndex transform $ staticOutcomes static)
 
 pureStatic :: a -> Static a
 pureStatic value =
@@ -739,63 +878,36 @@ mergeKeyedBuckets buckets = do
             ]
     pure $ frequencyStatic weightedBuckets
 
-join3KeyedBuckets ::
-    (Ord leftKey, Ord rightKey, Ord resultKey) =>
-    (centerKey -> (leftKey, rightKey, resultKey)) ->
-    Map.Map centerKey (KeyedBucket center) ->
-    Map.Map leftKey (KeyedBucket left) ->
-    Map.Map rightKey (KeyedBucket right) ->
-    Either ECTAGenError (Map.Map resultKey (KeyedBucket (center, left, right)))
-join3KeyedBuckets partitionCenter centers lefts rights = do
-    components <- traverse buildComponent matchingBuckets
-    if null components
-        then Left EmptyGenerator
-        else do
-            unnormalized <- traverse mergeComponents $ groupComponents components
-            let totalAcceptedMass = sum $ keyedBucketMass <$> unnormalized
-            pure $ fmap (normalizeBucket totalAcceptedMass) unnormalized
+mergeBucketGroup :: [(Rational, Static a)] -> Either ECTAGenError (KeyedBucket a)
+mergeBucketGroup alternatives = do
+    weightedAlternatives <- integerOutcomes alternatives
+    pure $
+        KeyedBucket
+            (sum $ map fst alternatives)
+            (frequencyStatic weightedAlternatives)
+
+-- | Merge weighted joined components into normalized result-key groups.
+mergeComponentsByKey ::
+    (Ord resultKey) =>
+    [(resultKey, Rational, Static a)] ->
+    Either ECTAGenError (Map.Map resultKey (KeyedBucket a))
+mergeComponentsByKey [] = Left EmptyGenerator
+mergeComponentsByKey components = do
+    unnormalized <- traverse mergeBucketGroup grouped
+    let totalAcceptedMass = sum $ keyedBucketMass <$> unnormalized
+    pure $ fmap (normalizeBucket totalAcceptedMass) unnormalized
   where
-    matchingBuckets =
-        [ (componentIndex, resultKey, center, left, right)
-        | (componentIndex, (centerKey, center)) <-
-            zip [0 :: Int ..] $ Map.toAscList centers
-        , let (leftKey, rightKey, resultKey) = partitionCenter centerKey
-        , Just left <- [Map.lookup leftKey lefts]
-        , Just right <- [Map.lookup rightKey rights]
-        ]
-
-    buildComponent (componentIndex, resultKey, center, left, right) = do
-        joined <-
-            join3BucketStatic
-                componentIndex
-                (keyedBucketStatic center)
-                (keyedBucketStatic left)
-                (keyedBucketStatic right)
-        pure
-            ( resultKey
-            , keyedBucketMass center
-                * keyedBucketMass left
-                * keyedBucketMass right
-            , joined
-            )
-
-    groupComponents =
+    grouped =
         foldl'
-            ( \grouped (resultKey, mass, static) ->
+            ( \groups (resultKey, mass, static) ->
                 Map.insertWith
                     (flip (<>))
                     resultKey
                     [(mass, static)]
-                    grouped
+                    groups
             )
             Map.empty
-
-    mergeComponents alternatives = do
-        weightedAlternatives <- integerOutcomes alternatives
-        pure $
-            KeyedBucket
-                (sum $ map fst alternatives)
-                (frequencyStatic weightedAlternatives)
+            components
 
     normalizeBucket totalAcceptedMass bucket =
         bucket
@@ -803,13 +915,12 @@ join3KeyedBuckets partitionCenter centers lefts rights = do
                 keyedBucketMass bucket / totalAcceptedMass
             }
 
-join3BucketStatic ::
+joinNBucketStatic ::
     Int ->
-    Static center ->
-    Static left ->
-    Static right ->
-    Either ECTAGenError (Static (center, left, right))
-join3BucketStatic componentIndex center left right =
+    Static operation ->
+    ArgStatics operation result ->
+    Either ECTAGenError (Static result)
+joinNBucketStatic componentIndex operation arguments =
     if joined == EmptyNode
         then Left EmptyGenerator
         else
@@ -824,345 +935,125 @@ join3BucketStatic componentIndex center left right =
                         rankSampler
                     )
   where
-    leftKeyTerm = Term (join3LeftKeySymbol componentIndex) []
-    rightKeyTerm = Term (join3RightKeySymbol componentIndex) []
-    leftKeyNode = singletonNode leftKeyTerm
-    rightKeyNode = singletonNode rightKeyTerm
-    centerNode =
+    keyTerms =
+        [ Term (argKeySymbol componentIndex position) []
+        | position <- [0 .. chainLength arguments - 1]
+        ]
+    keyNodes = map singletonNode keyTerms
+    operationNode =
         Node
             [ Edge
                 centerKeyedSymbol
-                [leftKeyNode, rightKeyNode, staticSupport center]
+                (keyNodes <> [staticSupport operation])
             ]
-    leftNode =
-        Node
-            [ Edge
-                leftKeyedSymbol
-                [leftKeyNode, staticSupport left]
-            ]
-    rightNode =
-        Node
-            [ Edge
-                rightKeyedSymbol
-                [rightKeyNode, staticSupport right]
-            ]
+    argumentNodes =
+        [ Node [Edge argKeyedSymbol [argKeyNode, support]]
+        | (argKeyNode, support) <- zip keyNodes (chainSupports arguments)
+        ]
     joined =
         reducePartially $
             Node
                 [ mkEdge
-                    join3Symbol
-                    [centerNode, leftNode, rightNode]
+                    joinNSymbol
+                    (operationNode : argumentNodes)
                     ( mkEqConstraints
-                        [ [path [0, 0], path [1, 0]]
-                        , [path [0, 1], path [2, 0]]
+                        [ [path [0, position], path [position + 1, 0]]
+                        | position <- [0 .. chainLength arguments - 1]
                         ]
                     )
                 ]
-    centerOutcomes = staticOutcomes center
-    leftOutcomes = staticOutcomes left
-    rightOutcomes = staticOutcomes right
-    leftCardinality = outcomeCardinality leftOutcomes
-    rightCardinality = outcomeCardinality rightOutcomes
-    childCardinality = leftCardinality * rightCardinality
-    totalOutcomes = outcomeCardinality centerOutcomes * childCardinality
-    rankSampler
-        | outcomeCardinality centerOutcomes == 1 =
-            singletonCenterSampler
-                rightCardinality
-                (outcomeValueAt centerOutcomes 0)
-                (outcomeSampler leftOutcomes)
-                (outcomeSampler rightOutcomes)
-        | otherwise =
-            product3Sampler
-                childCardinality
-                rightCardinality
-                (outcomeSampler centerOutcomes)
-                (outcomeSampler leftOutcomes)
-                (outcomeSampler rightOutcomes)
+    operationOutcomes = staticOutcomes operation
+    argumentsCardinality = chainCardinality arguments
+    totalOutcomes = outcomeCardinality operationOutcomes * argumentsCardinality
     uniformMass =
-        (\centerMass leftMass rightMass -> centerMass * leftMass * rightMass)
-            <$> outcomeUniformMass centerOutcomes
-            <*> outcomeUniformMass leftOutcomes
-            <*> outcomeUniformMass rightOutcomes
+        (*)
+            <$> outcomeUniformMass operationOutcomes
+            <*> chainUniformMass arguments
+    rankSampler = chainSampler (outcomeSampler operationOutcomes) arguments
+    decodeArguments = chainDecoder arguments
 
     select index = do
         checkIndex totalOutcomes index
-        let (centerIndex, leftIndex, rightIndex) = splitIndex index
-        centerOutcome <- outcomeSelect centerOutcomes centerIndex
-        leftOutcome <- outcomeSelect leftOutcomes leftIndex
-        rightOutcome <- outcomeSelect rightOutcomes rightIndex
-        let centerTerm =
-                Term
-                    centerKeyedSymbol
-                    [leftKeyTerm, rightKeyTerm, outcomeTerm centerOutcome]
-            leftTerm =
-                Term leftKeyedSymbol [leftKeyTerm, outcomeTerm leftOutcome]
-            rightTerm =
-                Term rightKeyedSymbol [rightKeyTerm, outcomeTerm rightOutcome]
+        let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
+        operationOutcome <- outcomeSelect operationOutcomes operationIndex
+        (argumentTerms, argumentsMass, value) <-
+            selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
+        let operationTerm =
+                Term centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
         pure $
             Outcome
-                (Term join3Symbol [centerTerm, leftTerm, rightTerm])
-                ( outcomeMass centerOutcome
-                    * outcomeMass leftOutcome
-                    * outcomeMass rightOutcome
-                )
-                (outcomeValue centerOutcome, outcomeValue leftOutcome, outcomeValue rightOutcome)
+                (Term joinNSymbol (operationTerm : argumentTerms))
+                (outcomeMass operationOutcome * argumentsMass)
+                value
 
     selectValue index =
-        let (centerIndex, leftIndex, rightIndex) = splitIndex index
-         in ( outcomeValueAt centerOutcomes centerIndex
-            , outcomeValueAt leftOutcomes leftIndex
-            , outcomeValueAt rightOutcomes rightIndex
-            )
+        let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
+         in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
 
-    splitIndex index =
-        let (centerIndex, childIndex) = index `quotRem` childCardinality
-            (leftIndex, rightIndex) = childIndex `quotRem` rightCardinality
-         in (centerIndex, leftIndex, rightIndex)
+chainLength :: ArgStatics operation result -> Int
+chainLength StaticsNil = 0
+chainLength (StaticsCons _ rest) = 1 + chainLength rest
 
-join3Static ::
-    (Ord leftKey, Ord rightKey) =>
-    (center -> (leftKey, rightKey)) ->
-    (left -> leftKey) ->
-    (right -> rightKey) ->
-    Static center ->
-    Static left ->
-    Static right ->
-    Either ECTAGenError (Static (center, left, right))
-join3Static centerKeys leftKey rightKey center left right = do
-    centerEntries <- keyedOutcomes centerKeys center
-    leftEntries <- keyedOutcomes leftKey left
-    rightEntries <- keyedOutcomes rightKey right
-    let centerGroups = groupOutcomes centerEntries
-        leftGroups = groupOutcomes leftEntries
-        rightGroups = groupOutcomes rightEntries
-        shared =
-            [ (centerOutcomes, leftOutcomes, rightOutcomes)
-            | ((expectedLeft, expectedRight), centerOutcomes) <-
-                Map.toAscList centerGroups
-            , Just leftOutcomes <- [Map.lookup expectedLeft leftGroups]
-            , Just rightOutcomes <- [Map.lookup expectedRight rightGroups]
-            ]
-    if null shared
-        then Left EmptyGenerator
-        else
-            let groups =
-                    [ Join3Group
-                        groupIndex
-                        (Sequence.fromList centerOutcomes)
-                        (Sequence.fromList leftOutcomes)
-                        (Sequence.fromList rightOutcomes)
-                    | (groupIndex, (centerOutcomes, leftOutcomes, rightOutcomes)) <-
-                        zip [0 :: Int ..] shared
-                    ]
-                centerNode =
-                    Node
-                        [ Edge
-                            centerKeyedSymbol
-                            [ join3LeftKeyNode $ join3GroupIndex group
-                            , join3RightKeyNode $ join3GroupIndex group
-                            , singletonNode $ outcomeTerm outcome
-                            ]
-                        | group <- groups
-                        , outcome <- toList $ join3GroupCenter group
-                        ]
-                leftNode =
-                    Node
-                        [ Edge
-                            leftKeyedSymbol
-                            [ join3LeftKeyNode $ join3GroupIndex group
-                            , singletonNode $ outcomeTerm outcome
-                            ]
-                        | group <- groups
-                        , outcome <- toList $ join3GroupLeft group
-                        ]
-                rightNode =
-                    Node
-                        [ Edge
-                            rightKeyedSymbol
-                            [ join3RightKeyNode $ join3GroupIndex group
-                            , singletonNode $ outcomeTerm outcome
-                            ]
-                        | group <- groups
-                        , outcome <- toList $ join3GroupRight group
-                        ]
-                joined =
-                    reducePartially $
-                        Node
-                            [ mkEdge
-                                join3Symbol
-                                [centerNode, leftNode, rightNode]
-                                ( mkEqConstraints
-                                    [ [path [0, 0], path [1, 0]]
-                                    , [path [0, 1], path [2, 0]]
-                                    ]
-                                )
-                            ]
-             in if joined == EmptyNode
-                    then Left EmptyGenerator
-                    else Static joined <$> join3OutcomeIndex center left right groups
+chainSupports :: ArgStatics operation result -> [Node]
+chainSupports StaticsNil = []
+chainSupports (StaticsCons static rest) = staticSupport static : chainSupports rest
 
-join3OutcomeIndex ::
-    Static center ->
-    Static left ->
-    Static right ->
-    [Join3Group center left right] ->
-    Either ECTAGenError (OutcomeIndex (center, left, right))
-join3OutcomeIndex center left right groups = do
-    rankSampler <- case uniformMass of
-        Just _ -> pure $ uniformSampler totalOutcomes selectValue
-        Nothing -> join3Sampler groups
-    pure $
-        OutcomeIndex
-            totalOutcomes
-            uniformMass
-            select
-            selectValue
-            rankSampler
-  where
-    totalOutcomes = sum $ map join3GroupCardinality groups
-    uniformMass = case (outcomeUniformMass $ staticOutcomes center, outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
-        (Just _, Just _, Just _) -> Just $ 1 / fromInteger totalOutcomes
-        _ -> Nothing
-    totalMass = sum $ map join3GroupMass groups
+chainCardinality :: ArgStatics operation result -> Integer
+chainCardinality StaticsNil = 1
+chainCardinality (StaticsCons static rest) =
+    outcomeCardinality (staticOutcomes static) * chainCardinality rest
 
-    select index = do
-        checkIndex totalOutcomes index
-        let (group, centerOutcome, leftOutcome, rightOutcome) = selectTriple index
-            leftKeyTerm = Term (join3LeftKeySymbol $ join3GroupIndex group) []
-            rightKeyTerm = Term (join3RightKeySymbol $ join3GroupIndex group) []
-            centerTerm =
-                Term
-                    centerKeyedSymbol
-                    [leftKeyTerm, rightKeyTerm, outcomeTerm centerOutcome]
-            leftTerm =
-                Term leftKeyedSymbol [leftKeyTerm, outcomeTerm leftOutcome]
-            rightTerm =
-                Term rightKeyedSymbol [rightKeyTerm, outcomeTerm rightOutcome]
-        pure $
-            Outcome
-                (Term join3Symbol [centerTerm, leftTerm, rightTerm])
-                ( outcomeMass centerOutcome
-                    * outcomeMass leftOutcome
-                    * outcomeMass rightOutcome
-                    / totalMass
-                )
-                (outcomeValue centerOutcome, outcomeValue leftOutcome, outcomeValue rightOutcome)
+chainUniformMass :: ArgStatics operation result -> Maybe Rational
+chainUniformMass StaticsNil = Just 1
+chainUniformMass (StaticsCons static rest) =
+    (*)
+        <$> outcomeUniformMass (staticOutcomes static)
+        <*> chainUniformMass rest
 
-    selectValue index =
-        let (_, centerOutcome, leftOutcome, rightOutcome) = selectTriple index
-         in (outcomeValue centerOutcome, outcomeValue leftOutcome, outcomeValue rightOutcome)
+{- | Compose the mixed-radix rank sampler as a left 'productSampler' fold.
 
-    selectTriple index =
-        let (group, groupIndex) = selectJoin3Group index groups
-            leftCardinality = toInteger $ Sequence.length $ join3GroupLeft group
-            rightCardinality = toInteger $ Sequence.length $ join3GroupRight group
-            childCardinality = leftCardinality * rightCardinality
-            (centerIndex, childIndex) = groupIndex `quotRem` childCardinality
-            (leftIndex, rightIndex) = childIndex `quotRem` rightCardinality
-            centerOutcome = Sequence.index (join3GroupCenter group) $ fromInteger centerIndex
-            leftOutcome = Sequence.index (join3GroupLeft group) $ fromInteger leftIndex
-            rightOutcome = Sequence.index (join3GroupRight group) $ fromInteger rightIndex
-         in (group, centerOutcome, leftOutcome, rightOutcome)
+The composed rank is @operationRank@ most significant, then argument ranks
+left to right, matching 'chainDecoder'.
+-}
+chainSampler :: Sampler operation -> ArgStatics operation result -> Sampler result
+chainSampler sampler StaticsNil = sampler
+chainSampler sampler (StaticsCons static rest) =
+    chainSampler
+        ( productSampler
+            (outcomeCardinality $ staticOutcomes static)
+            sampler
+            (outcomeSampler $ staticOutcomes static)
+        )
+        rest
 
-join3GroupCardinality :: Join3Group center left right -> Integer
-join3GroupCardinality group =
-    toInteger (Sequence.length $ join3GroupCenter group)
-        * toInteger (Sequence.length $ join3GroupLeft group)
-        * toInteger (Sequence.length $ join3GroupRight group)
+-- | Build a rank decoder once, capturing every suffix cardinality.
+chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
+chainDecoder StaticsNil = \value _ -> value
+chainDecoder (StaticsCons static rest) =
+    let decodeRest = chainDecoder rest
+        suffixCardinality = chainCardinality rest
+        valueAt = outcomeValueAt $ staticOutcomes static
+     in \apply index ->
+            let (here, there) = index `quotRem` suffixCardinality
+             in decodeRest (apply $ valueAt here) there
 
-join3GroupMass :: Join3Group center left right -> Rational
-join3GroupMass group =
-    sum (outcomeMass <$> join3GroupCenter group)
-        * sum (outcomeMass <$> join3GroupLeft group)
-        * sum (outcomeMass <$> join3GroupRight group)
-
-selectJoin3Group ::
+selectChain ::
+    operation ->
+    ArgStatics operation result ->
+    [Term] ->
     Integer ->
-    [Join3Group center left right] ->
-    (Join3Group center left right, Integer)
-selectJoin3Group _ [] = error "selectJoin3Group: rank outside groups"
-selectJoin3Group index (group : remaining)
-    | index < groupSize = (group, index)
-    | otherwise = selectJoin3Group (index - groupSize) remaining
-  where
-    groupSize = join3GroupCardinality group
-
-join3Sampler ::
-    [Join3Group center left right] ->
-    Either ECTAGenError (Sampler (center, left, right))
-join3Sampler groups = do
-    weightedGroups <-
-        integerOutcomes
-            [ (join3GroupMass group, (offset, group))
-            | (offset, group) <- offsetJoin3Groups groups
-            ]
-    plans <- traverse branchPlan weightedGroups
-    pure $
-        Sampler
-            ( frequencyGen
-                [ ( weight
-                  , liftA3
-                        (,,)
-                        (runValueSampler centerSampler)
-                        (runValueSampler leftSampler)
-                        (runValueSampler rightSampler)
-                  )
-                | (weight, _, _, _, centerSampler, leftSampler, rightSampler) <- plans
-                ]
-            )
-            ( frequencyGen
-                [ ( weight
-                  , liftA3
-                        ( \(centerIndex, centerValue) (leftIndex, leftValue) (rightIndex, rightValue) ->
-                            ( offset
-                                + centerIndex * childCardinality
-                                + leftIndex * rightCardinality
-                                + rightIndex
-                            , (centerValue, leftValue, rightValue)
-                            )
-                        )
-                        (runRankSampler centerSampler)
-                        (runRankSampler leftSampler)
-                        (runRankSampler rightSampler)
-                  )
-                | ( weight
-                    , offset
-                    , childCardinality
-                    , rightCardinality
-                    , centerSampler
-                    , leftSampler
-                    , rightSampler
-                    ) <-
-                    plans
-                ]
-            )
-  where
-    branchPlan (weight, (offset, group)) = do
-        centerSampler <- sequenceSampler $ join3GroupCenter group
-        leftSampler <- sequenceSampler $ join3GroupLeft group
-        rightSampler <- sequenceSampler $ join3GroupRight group
-        let leftCardinality = toInteger $ Sequence.length $ join3GroupLeft group
-            rightCardinality = toInteger $ Sequence.length $ join3GroupRight group
-            childCardinality = leftCardinality * rightCardinality
-        pure
-            ( weight
-            , offset
-            , childCardinality
-            , rightCardinality
-            , centerSampler
-            , leftSampler
-            , rightSampler
-            )
-
-offsetJoin3Groups ::
-    [Join3Group center left right] ->
-    [(Integer, Join3Group center left right)]
-offsetJoin3Groups = go 0
-  where
-    go _ [] = []
-    go offset (group : remaining) =
-        (offset, group) : go (offset + join3GroupCardinality group) remaining
+    Either ECTAGenError ([Term], Rational, result)
+selectChain value StaticsNil _ _ = Right ([], 1, value)
+selectChain apply (StaticsCons static rest) (keyTerm : keyTerms) index = do
+    let (here, there) = index `quotRem` chainCardinality rest
+    outcome <- outcomeSelect (staticOutcomes static) here
+    (terms, mass, value) <- selectChain (apply $ outcomeValue outcome) rest keyTerms there
+    pure
+        ( Term argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
+        , outcomeMass outcome * mass
+        , value
+        )
+selectChain _ (StaticsCons _ _) [] _ = error "selectChain: missing key terms"
 
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
 sequenceSampler outcomes
@@ -1184,12 +1075,6 @@ sequenceSampler outcomes
 
 keyNode :: Int -> Node
 keyNode index = Node [Edge (keySymbol index) []]
-
-join3LeftKeyNode :: Int -> Node
-join3LeftKeyNode index = Node [Edge (join3LeftKeySymbol index) []]
-
-join3RightKeyNode :: Int -> Node
-join3RightKeyNode index = Node [Edge (join3RightKeySymbol index) []]
 
 singletonNode :: Term -> Node
 singletonNode (Term symbol children) =
@@ -1233,49 +1118,6 @@ productSampler rightCardinality leftSampler rightSampler =
             (runRankSampler rightSampler)
         )
 
--- | Sample a three-way product whose center has the sole rank zero.
-singletonCenterSampler ::
-    Integer ->
-    center ->
-    Sampler left ->
-    Sampler right ->
-    Sampler (center, left, right)
-singletonCenterSampler rightCardinality centerValue leftSampler rightSampler =
-    Sampler
-        (liftA2 (centerValue,,) (runValueSampler leftSampler) (runValueSampler rightSampler))
-        ( liftA2
-            ( \(leftIndex, leftValue) (rightIndex, rightValue) ->
-                ( leftIndex * rightCardinality + rightIndex
-                , (centerValue, leftValue, rightValue)
-                )
-            )
-            (runRankSampler leftSampler)
-            (runRankSampler rightSampler)
-        )
-
-product3Sampler ::
-    Integer ->
-    Integer ->
-    Sampler center ->
-    Sampler left ->
-    Sampler right ->
-    Sampler (center, left, right)
-product3Sampler childCardinality rightCardinality centerSampler leftSampler rightSampler =
-    Sampler
-        (liftA3 (,,) (runValueSampler centerSampler) (runValueSampler leftSampler) (runValueSampler rightSampler))
-        ( liftA3
-            ( \(centerIndex, centerValue) (leftIndex, leftValue) (rightIndex, rightValue) ->
-                ( centerIndex * childCardinality
-                    + leftIndex * rightCardinality
-                    + rightIndex
-                , (centerValue, leftValue, rightValue)
-                )
-            )
-            (runRankSampler centerSampler)
-            (runRankSampler leftSampler)
-            (runRankSampler rightSampler)
-        )
-
 frequencySampler :: [(Integer, Static a)] -> Sampler a
 frequencySampler alternatives =
     Sampler
@@ -1304,25 +1146,25 @@ offsetAlternatives = go 0
                 remaining
 
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
-mapOutcomeIndex apply outcomes =
+mapOutcomeIndex transform outcomes =
     OutcomeIndex
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
-        (\index -> mapOutcome apply <$> outcomeSelect outcomes index)
-        (apply . outcomeValueAt outcomes)
+        (\index -> mapOutcome transform <$> outcomeSelect outcomes index)
+        (transform . outcomeValueAt outcomes)
         ( Sampler
-            (apply <$> runValueSampler (outcomeSampler outcomes))
-            ( (\(rank, value) -> (rank, apply value))
+            (transform <$> runValueSampler (outcomeSampler outcomes))
+            ( (\(rank, value) -> (rank, transform value))
                 <$> runRankSampler (outcomeSampler outcomes)
             )
         )
 
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b
-mapOutcome apply outcome =
+mapOutcome transform outcome =
     Outcome
         (outcomeTerm outcome)
         (outcomeMass outcome)
-        (apply $ outcomeValue outcome)
+        (transform $ outcomeValue outcome)
 
 enumerateOutcomeIndex :: OutcomeIndex a -> Either ECTAGenError [Outcome a]
 enumerateOutcomeIndex outcomes =
@@ -1377,14 +1219,15 @@ atIndex label index values
         value : _ -> value
         [] -> error $ label <> ": index out of range"
 
-pureSymbol, applySymbol, joinSymbol, join3Symbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol :: Symbol
+pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol :: Symbol
 pureSymbol = "$ecta-gen/pure"
 applySymbol = "$ecta-gen/apply"
 joinSymbol = "$ecta-gen/join"
-join3Symbol = "$ecta-gen/join3"
 centerKeyedSymbol = "$ecta-gen/center-keyed"
 leftKeyedSymbol = "$ecta-gen/left-keyed"
 rightKeyedSymbol = "$ecta-gen/right-keyed"
+joinNSymbol = "$ecta-gen/join-n"
+argKeyedSymbol = "$ecta-gen/arg-keyed"
 
 indexedSymbol :: Integer -> Symbol
 indexedSymbol index = Symbol $ Text.pack $ "$ecta-gen/index/" <> show index
@@ -1395,10 +1238,8 @@ frequencySymbol index = Symbol $ Text.pack $ "$ecta-gen/frequency/" <> show inde
 keySymbol :: Int -> Symbol
 keySymbol index = Symbol $ Text.pack $ "$ecta-gen/key/" <> show index
 
-join3LeftKeySymbol :: Int -> Symbol
-join3LeftKeySymbol index =
-    Symbol $ Text.pack $ "$ecta-gen/join3-left-key/" <> show index
-
-join3RightKeySymbol :: Int -> Symbol
-join3RightKeySymbol index =
-    Symbol $ Text.pack $ "$ecta-gen/join3-right-key/" <> show index
+argKeySymbol :: Int -> Int -> Symbol
+argKeySymbol componentIndex position =
+    Symbol $
+        Text.pack $
+            "$ecta-gen/key/" <> show componentIndex <> "/" <> show position

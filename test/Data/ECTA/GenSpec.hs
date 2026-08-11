@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE QualifiedDo #-}
 
 module Data.ECTA.GenSpec (spec) where
 
@@ -9,24 +10,30 @@ import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node (Node))
 import qualified Data.ECTA.Gen as Core
-import Data.ECTA.Gen.QuickCheck (ECTAGen)
+import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, Keys (..), On (..), Sig ((:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 
 data UserId = Alice | Bob | Carol | Dave
-    deriving (Eq, Ord, Show)
+    deriving (Bounded, Enum, Eq, Ord, Show)
 
 data AuthenticationMethod = Password | Token
-    deriving (Eq, Ord, Show)
+    deriving (Bounded, Enum, Eq, Ord, Show)
 
-data Authentication = Authentication UserId AuthenticationMethod
+data AuthenticationFixture = AuthenticationFixture
+    { authenticatedUser :: UserId
+    , authenticationMethod :: AuthenticationMethod
+    }
     deriving (Eq, Ord, Show)
 
 data Path = HomeFile | ConfigFile | CacheFile
-    deriving (Eq, Ord, Show)
+    deriving (Bounded, Enum, Eq, Ord, Show)
 
-data Filesystem = Filesystem UserId Path
+data FilesystemFixture = FilesystemFixture
+    { fileOwner :: UserId
+    , filePath :: Path
+    }
     deriving (Eq, Ord, Show)
 
 -- | A finite exact backend used to verify rank-sampling probabilities.
@@ -67,90 +74,160 @@ instance Core.GenBackend Exact where
         accepted = filter (predicate . snd) outcomes
         acceptedMass = sum $ map fst accepted
 
-generatedUser :: ECTAGen UserId
-generatedUser =
-    ECTAGen.frequency
-        [ (4, pure Alice)
-        , (2, pure Bob)
-        , (1, pure Carol)
-        , (1, pure Dave)
-        ]
+-- | All users shared by the independently authored fixture generators.
+allUsers :: [UserId]
+allUsers = [minBound .. maxBound]
 
-authentication :: ECTAGen Authentication
-authentication = do
-    user <- generatedUser
+-- | Transparent ECTA user generator.
+generatedUserId :: ECTAGen UserId
+generatedUserId = ECTAGen.elements allUsers
+
+-- | Uniform QuickCheck generator used by the handwritten baseline.
+generatedQuickCheckUserId :: QC.Gen UserId
+generatedQuickCheckUserId = QC.elements allUsers
+
+-- These are ordinary, closed generators. Neither accepts shared input.
+authenticationFixture :: ECTAGen AuthenticationFixture
+authenticationFixture = ECTAGen.do
+    user <- generatedUserId
     method <- ECTAGen.elements [Password, Token]
-    pure $ Authentication user method
+    ECTAGen.pure $ AuthenticationFixture user method
 
-filesystem :: ECTAGen Filesystem
-filesystem = do
-    owner <- generatedUser
+filesystemFixture :: ECTAGen FilesystemFixture
+filesystemFixture = ECTAGen.do
+    owner <- generatedUserId
     path <- ECTAGen.elements [HomeFile, ConfigFile, CacheFile]
-    pure $ Filesystem owner path
+    ECTAGen.pure $ FilesystemFixture owner path
 
-joined :: ECTAGen (Authentication, Filesystem)
-joined =
-    ECTAGen.innerJoinOn
-        (\(Authentication user _) -> user)
-        (\(Filesystem owner _) -> owner)
-        authentication
-        filesystem
+-- ECTA composes the closed fixtures by matching their existing user fields.
+matchedFixture :: ECTAGen (AuthenticationFixture, FilesystemFixture)
+matchedFixture =
+    ECTAGen.match
+        (authenticatedUser :==: fileOwner)
+        authenticationFixture
+        filesystemFixture
 
-expectedPmf :: [((Authentication, Filesystem), Rational)]
+-- Ordinary QuickCheck can compose the same fixtures by retrying.
+rejectionFixture :: QC.Gen (AuthenticationFixture, FilesystemFixture)
+rejectionFixture = ECTAGen.toGen rawFixture `QC.suchThat` matchingUsers
+
+-- If both generators can be refactored, handwritten sharing is simpler and
+-- samples the user prior exactly once.
+handwrittenFixture :: QC.Gen (AuthenticationFixture, FilesystemFixture)
+handwrittenFixture = do
+    user <- generatedQuickCheckUserId
+    method <- QC.elements [Password, Token]
+    path <- QC.elements [HomeFile, ConfigFile, CacheFile]
+    pure
+        ( AuthenticationFixture user method
+        , FilesystemFixture user path
+        )
+
+rawFixture :: ECTAGen (AuthenticationFixture, FilesystemFixture)
+rawFixture = (,) <$> authenticationFixture <*> filesystemFixture
+
+matchingUsers :: (AuthenticationFixture, FilesystemFixture) -> Bool
+matchingUsers (authentication, filesystem) =
+    authenticatedUser authentication == fileOwner filesystem
+
+expectedPmf :: [((AuthenticationFixture, FilesystemFixture), Rational)]
 expectedPmf =
-    [ ( (Authentication user method, Filesystem user path)
-      , joinedUserMass user / 6
+    [ ( (AuthenticationFixture user method, FilesystemFixture user path)
+      , 1 % 24
       )
-    | user <- [Alice, Bob, Carol, Dave]
-    , method <- [Password, Token]
-    , path <- [HomeFile, ConfigFile, CacheFile]
+    | user <- allUsers
+    , method <- [minBound .. maxBound]
+    , path <- [minBound .. maxBound]
     ]
-  where
-    joinedUserMass Alice = 8 % 11
-    joinedUserMass Bob = 2 % 11
-    joinedUserMass Carol = 1 % 22
-    joinedUserMass Dave = 1 % 22
+
+-- | The ECTA match guarantees that authentication grants access to the file.
+propMatchedAuthenticationCanRead :: QC.Property
+propMatchedAuthenticationCanRead =
+    QC.withNumTests 1000 $
+        QC.forAll (ECTAGen.toGen matchedFixture) $ \(authentication, filesystem) ->
+            authenticatedUser authentication QC.=== fileOwner filesystem
+
+-- | QuickCheck rejection also guarantees access, but may retry many draws.
+propRejectionAuthenticationCanRead :: QC.Property
+propRejectionAuthenticationCanRead =
+    QC.withNumTests 1000 $
+        QC.forAll rejectionFixture $ \(authentication, filesystem) ->
+            authenticatedUser authentication QC.=== fileOwner filesystem
+
+-- | Choosing the shared user explicitly guarantees the same property.
+propHandwrittenAuthenticationCanRead :: QC.Property
+propHandwrittenAuthenticationCanRead =
+    QC.withNumTests 1000 $
+        QC.forAll handwrittenFixture $ \(authentication, filesystem) ->
+            authenticatedUser authentication QC.=== fileOwner filesystem
+
+-- | Independent generators do not guarantee that authentication grants access.
+propIndependentAuthenticationCanRead :: QC.Property
+propIndependentAuthenticationCanRead =
+    QC.withNumTests 1000 $
+        QC.expectFailure $
+            QC.forAll (ECTAGen.toGen rawFixture) $ \(authentication, filesystem) ->
+                authenticatedUser authentication QC.=== fileOwner filesystem
 
 spec :: Spec
 spec = do
     describe "ECTAGen joins" $ do
         it "retains only matching keys with the conditioned product PMF" $
-            ECTAGen.pmf joined `shouldBe` Right expectedPmf
+            ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
+
+        it "matches the prototype's exact fixture and rejection counts" $ do
+            fmap length (ECTAGen.pmf authenticationFixture) `shouldBe` Right 8
+            fmap length (ECTAGen.pmf filesystemFixture) `shouldBe` Right 12
+            case ECTAGen.pmf rawFixture of
+                Left err -> expectationFailure $ show err
+                Right rawPmf -> do
+                    length rawPmf `shouldBe` 96
+                    length (filter (not . matchingUsers . fst) rawPmf) `shouldBe` 72
+                    sum
+                        [ probability
+                        | (pair, probability) <- rawPmf
+                        , not $ matchingUsers pair
+                        ]
+                        `shouldBe` 3 % 4
 
         it "represents the join with an ECTA equality constraint" $
-            case ECTAGen.support joined of
+            case ECTAGen.support matchedFixture of
                 Right (Node [edge]) -> edgeEcs edge `shouldNotBe` EmptyConstraints
                 result -> expectationFailure $ "unexpected join support: " <> show result
 
         it "reports an empty join" $
             ECTAGen.pmf
-                ( ECTAGen.innerJoinOn
-                    id
-                    id
+                ( ECTAGen.match
+                    (id :==: id)
                     (ECTAGen.elements [Alice])
                     (ECTAGen.elements [Bob])
                 )
                 `shouldBe` Left ECTAGen.EmptyGenerator
 
-        it "samples only matching keys" $
-            QC.property $
-                QC.forAll (ECTAGen.toGen joined) $ \(Authentication user _, Filesystem owner _) ->
-                    user QC.=== owner
+        it "matches authentication and ownership through ECTA" $
+            propMatchedAuthenticationCanRead
+
+        it "matches authentication and ownership through rejection" $
+            propRejectionAuthenticationCanRead
+
+        it "matches authentication and ownership through handwritten sharing" $
+            propHandwrittenAuthenticationCanRead
+
+        it "does not guarantee ownership for independent fixtures" $
+            propIndependentAuthenticationCanRead
 
         it "preserves frequency weights around already-conditioned generators" $
             let rare =
                     Password
-                        <$ ECTAGen.innerJoinOn
-                            id
-                            id
-                            generatedUser
+                        <$ ECTAGen.match
+                            (id :==: id)
+                            generatedUserId
                             (ECTAGen.elements [Carol])
                 common =
                     Token
-                        <$ ECTAGen.innerJoinOn
-                            id
-                            id
-                            generatedUser
+                        <$ ECTAGen.match
+                            (id :==: id)
+                            generatedUserId
                             (ECTAGen.elements [Alice])
              in ECTAGen.pmf (ECTAGen.frequency [(1, rare), (1, common)])
                     `shouldBe` Right [(Password, 1 % 2), (Token, 1 % 2)]
@@ -168,7 +245,7 @@ spec = do
                         [ (1, Core.elements [Alice])
                         , (3, Core.elements [Bob, Carol])
                         ]
-                generator = Core.innerJoinOn id id left right
+                generator = Core.match (id Core.:==: id) left right
                 sampled = runExact $ Core.lower generator
                 sampledErrors = [err | (_, Left err) <- sampled]
                 sampledPmf =
@@ -179,30 +256,36 @@ spec = do
             sampledErrors `shouldBe` []
             Right sampledPmf `shouldBe` Core.pmf generator
 
-        it "matches a brute-force keyed join with weighted multiplicities" $ do
-            let centers :: [((Int, Int, Int), String)]
+        it "matches a brute-force grouped apply with weighted multiplicities" $ do
+            let centers :: [((Char, Int, Int, Int), String)]
                 centers =
-                    [ ((0, 0, 0), "common")
-                    , ((0, 0, 0), "common")
-                    , ((1, 0, 1), "rare")
+                    [ (('a', 0, 0, 0), "common")
+                    , (('b', 0, 0, 0), "common")
+                    , (('c', 1, 0, 1), "rare")
                     ]
                 lefts :: [(Int, String)]
                 lefts = [(0, "left-a"), (0, "left-b"), (1, "left-c")]
                 rights :: [(Int, String)]
                 rights = [(0, "right-a"), (0, "right-a"), (1, "right-b")]
-                keyed =
-                    ECTAGen.forgetKey $
-                        ECTAGen.innerJoin3Keyed
-                            id
-                            (ECTAGen.keyedElements fst centers)
-                            (ECTAGen.keyedElements fst lefts)
-                            (ECTAGen.keyedElements fst rights)
+                signature (_, leftKey, rightKey, resultKey) =
+                    leftKey :* rightKey :* KNil :-> resultKey
+                operations =
+                    ECTAGen.regroupBy signature $
+                        ECTAGen.elementsBy fst centers
+                grouped =
+                    ECTAGen.ungroup $
+                        ECTAGen.apply
+                            ((,,) <$> operations)
+                            ( ECTAGen.elementsBy fst lefts
+                                :& ECTAGen.elementsBy fst rights
+                                :& ANil
+                            )
                 accepted =
                     [ (center, left, right)
                     | center <- centers
                     , left <- lefts
                     , right <- rights
-                    , let (expectedLeft, expectedRight, _) = fst center
+                    , let (_, expectedLeft, expectedRight, _) = fst center
                     , expectedLeft == fst left
                     , expectedRight == fst right
                     ]
@@ -213,7 +296,11 @@ spec = do
                             Map.fromListWith
                                 (+)
                                 [(value, 1) | value <- accepted]
-            ECTAGen.pmf keyed `shouldBe` Right expected
+            ECTAGen.sizeBy operations
+                `shouldBe` Right (Map.fromList [(0 :* 0 :* KNil :-> 0, 2), (1 :* 0 :* KNil :-> 1, 1)])
+            ECTAGen.pmf (ECTAGen.atKey (0 :* 0 :* KNil :-> 0) operations)
+                `shouldBe` Right [(centers !! 0, 1 % 2), (centers !! 1, 1 % 2)]
+            ECTAGen.pmf grouped `shouldBe` Right expected
 
     describe "indexed and opaque sources" $ do
         it "decodes a transparent source from stable indices" $
@@ -245,13 +332,13 @@ spec = do
 
         it "returns a sampled rank that deterministically replays its value" $
             QC.property $
-                QC.forAll (ECTAGen.toGenWithRank joined) $ \(rank, value) ->
-                    ECTAGen.unrank joined rank QC.=== Right value
+                QC.forAll (ECTAGen.toGenWithRank matchedFixture) $ \(rank, value) ->
+                    ECTAGen.unrank matchedFixture rank QC.=== Right value
 
         it "keeps fromGen opaque" $ do
             let opaque = ECTAGen.fromGen $ QC.elements [Alice, Bob]
                 opaqueJoin =
-                    ECTAGen.innerJoinOn id id opaque (ECTAGen.elements [Bob])
+                    ECTAGen.match (id :==: id) opaque (ECTAGen.elements [Bob])
             ECTAGen.pmf opaqueJoin
                 `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
             ECTAGen.cardinality opaque
@@ -262,7 +349,7 @@ spec = do
         it "allows an opaque source to participate in a join" $
             let opaque = ECTAGen.fromGen $ QC.elements [Alice, Bob]
                 opaqueJoin =
-                    ECTAGen.innerJoinOn id id opaque (ECTAGen.elements [Bob])
+                    ECTAGen.match (id :==: id) opaque (ECTAGen.elements [Bob])
              in QC.property
                     ( QC.forAll (ECTAGen.toGen opaqueJoin) $ \(left, right) ->
                         left QC.=== right
