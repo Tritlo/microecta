@@ -27,6 +27,7 @@ module Data.ECTA.Gen.Internal.Size (
     countAtSize,
     countUpToSize,
     sizeClassOf,
+    constantIndex,
     mapIndex,
     productIndex,
     choiceIndex,
@@ -133,6 +134,19 @@ sizeIndex (PlanSized classes) =
     select size position = case [entry | entry@(size', _, _, _) <- offsets, size' == size] of
         (_, offset, _, decode) : _ -> (offset + position, decode position)
         [] -> error $ "sizeIndex: no members of size " <> show size
+
+-- | The one-member index of a single value, of size one.
+constantIndex :: a -> SizeIndex a
+constantIndex value =
+    SizeIndex [1] select
+  where
+    select 1 0 = (0, value)
+    select size position =
+        error $
+            "constantIndex: no member at size "
+                <> show size
+                <> " position "
+                <> show position
 
 -- | Map the values of an index, keeping its counts and ranks.
 mapIndex :: (a -> b) -> SizeIndex a -> SizeIndex b

@@ -71,6 +71,7 @@ library
 
   other-modules:
     Data.ECTA.Gen.Internal
+    Data.ECTA.Gen.Internal.Automaton
     Data.ECTA.Gen.Internal.Decoder
     Data.ECTA.Gen.Internal.Shrink
     Data.ECTA.Gen.Internal.Size

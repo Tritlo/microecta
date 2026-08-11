@@ -18,6 +18,7 @@ module Data.ECTA.Gen (
     GenBackend (..),
     fromIndexed,
     fromBackend,
+    fromECTA,
     mu,
     upToSize,
     isRecursive,
@@ -53,6 +54,7 @@ import qualified Data.Map.Strict as Map
 
 import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu)
 import Data.ECTA.Gen.Internal
+import Data.ECTA.Gen.Internal.Automaton (automatonIndex)
 import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
 import Data.ECTA.Gen.Internal.Shrink (
     planMemberSize,
@@ -70,6 +72,7 @@ import Data.ECTA.Gen.Internal.Size (
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
+import Data.ECTA.Term (Term)
 
 {- | A transparent generator whose values are classified by a projected key.
 
@@ -129,6 +132,7 @@ recursiveView (Transparent result) = do
         Recursive
             (staticSupport static)
             (sizeIndex $ outcomePlan $ staticOutcomes static)
+            Nothing
 recursiveView (Cyclic result) = result
 recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -154,6 +158,7 @@ instance (Functor gen) => Functor (ECTAGen gen) where
             Recursive
                 (recursiveSupport recursive)
                 (mapIndex transform $ recursiveIndex recursive)
+                Nothing
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (GenBackend gen) => Applicative (ECTAGen gen) where
@@ -177,6 +182,7 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
                             ]
                         )
                         (productIndex (recursiveIndex left) (recursiveIndex right))
+                        Nothing
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
@@ -226,16 +232,35 @@ mu build = Cyclic result
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
-            bodyOf (Cyclic $ Right $ Recursive EmptyNode self)
+            bodyOf (Cyclic $ Right $ Recursive EmptyNode self Nothing)
     emptyIndex = SizeIndex [] $ \_ _ -> error "mu: no members"
 
     automaton = createMu $ \self ->
         either (const EmptyNode) recursiveSupport $
-            bodyOf (Cyclic $ Right $ Recursive self tied)
+            bodyOf (Cyclic $ Right $ Recursive self tied Nothing)
 
     result = do
-        _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied)
-        pure $ Recursive automaton tied
+        _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied Nothing)
+        pure $ Recursive automaton tied Nothing
+
+{- | Read an ECTA as a generator of the terms it accepts.
+
+The automaton is the support, unchanged, and members are counted by size —
+the number of term nodes — so the generator draws uniformly from the terms
+of at most a given size, recursive @Mu@ nodes included. Because the values
+are the accepted terms, a bounded generator keeps full inspection: 'pmf',
+'countBy', and 'groupBy' all work on it.
+
+Equality constraints are not counted: they correlate an edge's children, so
+its count is the size of an intersection rather than a product, and an
+automaton carrying them is rejected with 'CannotCountConstrainedEdges'
+rather than miscounted.
+-}
+fromECTA :: Node -> ECTAGen gen Term
+fromECTA node =
+    Cyclic $ do
+        index <- automatonIndex node
+        pure $ Recursive node index $ Just id
 
 {- | Bound a generator to the members of size at most the given bound.
 
@@ -467,6 +492,7 @@ frequency alternatives
                                 ]
                             )
                             (choiceIndex $ map recursiveIndex views)
+                            Nothing
                 else Left WeightedRecursiveAlternatives
     | otherwise =
         Opaque $

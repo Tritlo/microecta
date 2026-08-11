@@ -83,6 +83,12 @@ data ECTAGenError
       language is uniform by size, so it has no room for them.
       -}
       WeightedRecursiveAlternatives
+    | {- | An automaton's edges carry equality constraints, which correlate
+      their children: the edge's count is an intersection, not a product.
+      -}
+      CannotCountConstrainedEdges
+    | -- | An automaton has free recursive variables, so it is not a language.
+      OpenAutomaton
     deriving (Eq, Show)
 
 -- | One term, its normalized probability mass, and its decoded value.
@@ -132,6 +138,12 @@ cardinality, and ranks are size-major, so bounding the language with
 data Recursive a = Recursive
     { recursiveSupport :: !Node
     , recursiveIndex :: SizeIndex a
+    , recursiveTerm :: Maybe (a -> Term)
+    {- ^ How to read a member's ECTA term off its value, when the values are
+    the accepted terms themselves. Every combinator drops it, because a
+    mapped or combined value no longer stands for one term of the
+    support.
+    -}
     }
 
 {- | Bound a recursive language to its members of size at most the bound.
@@ -142,9 +154,11 @@ so a rank replays through either. The support stays the recursive
 automaton — a size bound restricts the rank space, not the set of terms the
 automaton accepts.
 
-Members carry no retained 'Term', so inspection through 'outcomeSelect'
-reports 'CannotInspectRecursiveGenerator'; sampling, unranking, and
-shrinking go through the value decoder and the plan.
+Members carry a retained 'Term' only when the values are the accepted terms
+themselves, as they are for an automaton read with @fromECTA@; otherwise
+inspection through 'outcomeSelect' reports
+'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
+go through the value decoder and the plan.
 -}
 boundedStatic :: Int -> Recursive a -> Either ECTAGenError (Static a)
 boundedStatic bound recursive
@@ -156,12 +170,19 @@ boundedStatic bound recursive
                 ( OutcomeIndex
                     totalOutcomes
                     (Just $ 1 / fromInteger totalOutcomes)
-                    (const $ Left CannotInspectRecursiveGenerator)
+                    select
                     selectValue
                     (uniformSampler totalOutcomes selectValue)
                     plan
                 )
   where
+    select index = case recursiveTerm recursive of
+        Nothing -> Left CannotInspectRecursiveGenerator
+        Just readTerm -> do
+            checkIndex totalOutcomes index
+            let value = selectValue index
+            pure $ Outcome (readTerm value) (1 / fromInteger totalOutcomes) value
+
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
     totalOutcomes = sum [count | (_, count, _) <- classes]

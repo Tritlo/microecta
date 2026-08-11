@@ -59,3 +59,12 @@
   around a recursive occurrence must carry equal weights, and inspection
   that needs one term per member (`groupBy`, `match`, `pmf`, `countBy`)
   reports an error on a recursive language.
+* Add `fromECTA`, which reads an existing automaton as a generator of the
+  terms it accepts. Nodes become choices, edges become products under a
+  size-one symbol, and interning ties `Mu` nodes into the same recursive
+  size index `mu` uses, so a recursive automaton generates uniformly by
+  size with the automaton itself as the support. The generated values are
+  the accepted terms, so a bounded one supports `pmf`, `countBy`, and
+  `groupBy`. Automata whose edges carry equality constraints are rejected
+  with `CannotCountConstrainedEdges`: a constrained edge's count is the size
+  of an intersection rather than a product of its children's counts.

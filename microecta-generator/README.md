@@ -186,6 +186,33 @@ ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
 `pmf`, `countBy`) is not available on a recursive language; bound it first,
 or keep that layer finite.
 
+`fromECTA` goes the other way: it reads an existing automaton as a generator
+of the terms it accepts, counting them by size — the number of term nodes —
+with the automaton itself as the support.
+
+```haskell
+types :: Node
+types = createMu $ \recursive -> Node
+    [ Edge "baseType" []
+    , Edge "->" [recursive, recursive]
+    , Edge "Maybe" [recursive]
+    ]
+
+typeGen :: ECTAGen Term
+typeGen = ECTAGen.fromECTA types
+```
+
+`countAtSize typeGen` reports 1, 1, 2, 4, 9 for sizes one to five, `unrank`
+walks the terms in size order, and sampling draws uniformly from the terms
+of at most the current size. Because the generated values *are* the accepted
+terms, bounding one of these keeps full inspection: `pmf`, `countBy`, and
+`groupBy` all work on `upToSize n (fromECTA node)`.
+
+Equality constraints are not counted. They correlate an edge's children, so
+the edge's count is the size of an intersection rather than a product of the
+children's counts; an automaton carrying them is rejected with
+`CannotCountConstrainedEdges` rather than miscounted.
+
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
@@ -205,10 +232,11 @@ structure explicit.
 - `Data.ECTA.Gen.Do` provides the qualified do-notation operators.
 - `Data.ECTA.Gen.QuickCheck` provides the ordinary QuickCheck-facing API,
   including `fromGen`, `toGen`, `forAll`, and `sized`.
-- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Decoder`,
-  `Data.ECTA.Gen.Internal.Shrink`, and `Data.ECTA.Gen.Internal.Size`
-  implement static languages, joins, compiled rank decoding, structural
-  shrinking, and size-stratified counting. They are not exposed.
+- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Automaton`,
+  `Data.ECTA.Gen.Internal.Decoder`, `Data.ECTA.Gen.Internal.Shrink`, and
+  `Data.ECTA.Gen.Internal.Size` implement static languages, joins, reading
+  an automaton, compiled rank decoding, structural shrinking, and
+  size-stratified counting. They are not exposed.
 
 ## Dependency surface
 

@@ -32,6 +32,7 @@ module Data.ECTA.Gen.QuickCheck (
     sizeOfRank,
     countBy,
     pmf,
+    fromECTA,
     mu,
     upToSize,
     fromGen,
@@ -63,6 +64,7 @@ import Data.ECTA.Gen (
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
+import Data.ECTA.Term (Term)
 
 -- | The private wrapper avoids an orphan backend instance for 'QC.Gen'.
 newtype QuickCheckBackend a = QuickCheckBackend (QC.Gen a)
@@ -109,6 +111,15 @@ fromIndexed = ECTA.fromIndexed
 -- | Choose uniformly from a finite non-empty list.
 elements :: [a] -> ECTAGen a
 elements = ECTA.elements
+
+{- | Read an ECTA as a generator of the terms it accepts.
+
+The automaton is the support and members are counted by size, so this draws
+uniformly from the terms of at most the current QuickCheck size. Automata
+whose edges carry equality constraints are rejected.
+-}
+fromECTA :: Node -> ECTAGen Term
+fromECTA = ECTA.fromECTA
 
 {- | Build a recursive generator from its own language.
 
