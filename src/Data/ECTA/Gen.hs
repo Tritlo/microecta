@@ -37,6 +37,8 @@ module Data.ECTA.Gen (
     pmf,
     lower,
     lowerWithRank,
+    lowerUniform,
+    lowerUniformWithRank,
 ) where
 
 import Data.Foldable (toList)
@@ -46,6 +48,7 @@ import Data.Ratio (denominator, numerator)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
+import GHC.Arr (Array, listArray, unsafeAt)
 
 import Data.ECTA (
     Edge (Edge),
@@ -71,6 +74,10 @@ data Indexed a = Indexed
 class (Applicative gen) => GenBackend gen where
     -- | Select an integer in @[0, bound)@.
     selectInteger :: Integer -> gen Integer
+
+    -- | Select a machine 'Int' in @[0, bound)@.
+    selectInt :: Int -> gen Int
+    selectInt bound = fromInteger <$> selectInteger (toInteger bound)
 
     -- | Select one backend generator with a positive relative weight.
     frequencyGen :: [(Integer, gen a)] -> gen a
@@ -106,7 +113,309 @@ data OutcomeIndex a = OutcomeIndex
     , outcomeSelect :: Integer -> Either ECTAGenError (Outcome a)
     , outcomeValueAt :: Integer -> a
     , outcomeSampler :: !(Sampler a)
+    , outcomePlan :: Plan a
     }
+
+{- | Symbolic rank-decoding structure retained beside every outcome index.
+
+The plan preserves choice, product, and map structure instead of losing it in
+nested @Integer -> a@ closures, so lowering can normalize and compile it into
+one flat decoder. Branch order and mixed-radix product order match the stable
+rank order of the corresponding selectors exactly.
+-}
+data Plan a where
+    PlanSelect :: !Integer -> (Integer -> a) -> Plan a
+    PlanMap :: (b -> a) -> Plan b -> Plan a
+    PlanChoice :: [(Integer, Plan a)] -> Plan a
+    PlanAp :: !Integer -> Plan (b -> a) -> Plan b -> Plan a
+
+-- | A compiled rank decoder, on machine ints whenever the cardinality fits.
+data RankDecoder a
+    = SmallDecoder !Int (Int -> a)
+    | LargeDecoder !Integer (Integer -> a)
+
+planCardinality :: Plan a -> Integer
+planCardinality (PlanSelect cardinality' _) = cardinality'
+planCardinality (PlanMap _ plan) = planCardinality plan
+planCardinality (PlanChoice branches) = sum $ map fst branches
+planCardinality (PlanAp rightCardinality planF _) =
+    planCardinality planF * rightCardinality
+
+{- | Normalize a plan: push maps into leaves and product functions, splice
+nested choices into one level, and collapse singleton choices.
+
+Splicing preserves rank order because nested branch offsets concatenate in
+the same order as the flattened cumulative offsets.
+-}
+normalizePlan :: Plan a -> Plan a
+normalizePlan (PlanMap transform plan) = pushMap transform plan
+normalizePlan (PlanChoice branches) =
+    rebuildChoice $ concatMap flattenBranch branches
+  where
+    flattenBranch (branchCardinality, branch) =
+        case normalizePlan branch of
+            PlanChoice inner -> inner
+            other -> [(branchCardinality, other)]
+normalizePlan (PlanAp rightCardinality planF planX) =
+    PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
+normalizePlan plan@(PlanSelect _ _) = plan
+
+pushMap :: (b -> a) -> Plan b -> Plan a
+pushMap transform (PlanMap inner plan) = pushMap (transform . inner) plan
+pushMap transform (PlanSelect cardinality' decode) =
+    PlanSelect cardinality' (transform . decode)
+pushMap transform (PlanChoice branches) =
+    rebuildChoice $ concatMap flattenBranch branches
+  where
+    flattenBranch (branchCardinality, branch) =
+        case pushMap transform branch of
+            PlanChoice inner -> inner
+            other -> [(branchCardinality, other)]
+pushMap transform (PlanAp rightCardinality planF planX) =
+    PlanAp
+        rightCardinality
+        (pushMap (transform .) planF)
+        (normalizePlan planX)
+
+rebuildChoice :: [(Integer, Plan a)] -> Plan a
+rebuildChoice [(_, only)] = only
+rebuildChoice branches = PlanChoice branches
+
+-- | Leaves at most this large are tabulated into arrays at compile time.
+tabulationBound :: Int
+tabulationBound = 4096
+
+-- | Compile a plan, choosing the machine-'Int' path when the language fits.
+compilePlan :: Integer -> Plan a -> RankDecoder a
+compilePlan totalOutcomes plan
+    | totalOutcomes <= toInteger (maxBound :: Int) =
+        SmallDecoder (fromInteger totalOutcomes) (compileInt normalized)
+    | otherwise = LargeDecoder totalOutcomes (compileInteger normalized)
+  where
+    normalized = normalizePlan plan
+
+compileInt :: Plan a -> Int -> a
+compileInt (PlanSelect cardinality' decode)
+    | size <= tabulationBound =
+        let table =
+                listArray
+                    (0, size - 1)
+                    [decode (toInteger index) | index <- [0 .. size - 1]]
+         in unsafeAt table
+    | otherwise = decode . toInteger
+  where
+    size :: Int
+    size = fromInteger cardinality'
+compileInt (PlanMap transform plan) = (transform .) (compileInt plan)
+compileInt (PlanChoice branches) =
+    dispatchTree totalOutcomes $ offsetBranches 0 branches
+  where
+    totalOutcomes = fromInteger $ sum $ map fst branches
+
+    offsetBranches _ [] = []
+    offsetBranches offset ((branchCardinality, branch) : rest) =
+        let upper = offset + fromInteger branchCardinality
+         in (offset, compileInt branch) : offsetBranches upper rest
+
+    -- Split where the cumulative cardinality crosses the midpoint of the
+    -- covered range, so heavy branches sit near the root and the expected
+    -- number of comparisons tracks the branch mass distribution.
+    dispatchTree _ [(offset, decode)]
+        | offset == 0 = decode
+        | otherwise = \index -> decode (index - offset)
+    dispatchTree upper offsetBranches' =
+        let low = case offsetBranches' of
+                (offset, _) : _ -> offset
+                [] -> error "compileInt: empty dispatch"
+            midpoint = (low + upper) `div` 2
+            (lowBranches, highBranches) =
+                case break (\(offset, _) -> offset > midpoint) offsetBranches' of
+                    (allBranches, []) -> (init allBranches, [last allBranches])
+                    split -> split
+            pivot = case highBranches of
+                (offset, _) : _ -> offset
+                [] -> error "compileInt: empty dispatch"
+            decodeLow = dispatchTree pivot lowBranches
+            decodeHigh = dispatchTree upper highBranches
+         in \index ->
+                if index < pivot
+                    then decodeLow index
+                    else decodeHigh index
+compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
+    | outerRadix > 1
+    , innerRadix > 1
+    , Just leftTable <- leafTableInt planX1
+    , Just rightTable <- leafTableInt planX2 =
+        let outer = fromInteger outerRadix :: Int
+            inner = fromInteger innerRadix :: Int
+         in if planCardinality planF == 1
+                then
+                    let onlyFunction = compileInt planF 0
+                     in \index ->
+                            case index `quotRem` outer of
+                                (leftIndex, rightIndex) ->
+                                    onlyFunction
+                                        (unsafeAt leftTable leftIndex)
+                                        (unsafeAt rightTable rightIndex)
+                else
+                    let decodeF = compileInt planF
+                     in \index ->
+                            case index `quotRem` outer of
+                                (functionAndLeft, rightIndex) ->
+                                    case functionAndLeft `quotRem` inner of
+                                        (functionIndex, leftIndex) ->
+                                            decodeF
+                                                functionIndex
+                                                (unsafeAt leftTable leftIndex)
+                                                (unsafeAt rightTable rightIndex)
+compileInt (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
+    | outerRadix > 1
+    , innerRadix > 1 =
+        let decodeX1 = compileInt planX1
+            decodeX2 = compileInt planX2
+            outer = fromInteger outerRadix :: Int
+            inner = fromInteger innerRadix :: Int
+         in if planCardinality planF == 1
+                then
+                    let onlyFunction = compileInt planF 0
+                     in \index ->
+                            case index `quotRem` outer of
+                                (leftIndex, rightIndex) ->
+                                    onlyFunction
+                                        (decodeX1 leftIndex)
+                                        (decodeX2 rightIndex)
+                else
+                    let decodeF = compileInt planF
+                     in \index ->
+                            case index `quotRem` outer of
+                                (functionAndLeft, rightIndex) ->
+                                    case functionAndLeft `quotRem` inner of
+                                        (functionIndex, leftIndex) ->
+                                            decodeF
+                                                functionIndex
+                                                (decodeX1 leftIndex)
+                                                (decodeX2 rightIndex)
+compileInt (PlanAp rightCardinality planF planX)
+    | rightCardinality == 1 =
+        let decodeF = compileInt planF
+            firstArgument = compileInt planX 0
+         in \index -> decodeF index firstArgument
+    | planCardinality planF == 1 =
+        let onlyFunction = compileInt planF 0
+            decodeX = compileInt planX
+         in onlyFunction . decodeX
+    | otherwise =
+        let decodeF = compileInt planF
+            decodeX = compileInt planX
+            radix = fromInteger rightCardinality
+         in \index ->
+                case index `quotRem` radix of
+                    (functionIndex, argumentIndex) ->
+                        decodeF functionIndex (decodeX argumentIndex)
+
+-- | The tabulated array of a small leaf, for saturated in-branch reads.
+leafTableInt :: Plan a -> Maybe (Array Int a)
+leafTableInt (PlanSelect cardinality' decode)
+    | size <= tabulationBound =
+        Just $
+            listArray
+                (0, size - 1)
+                [decode (toInteger index) | index <- [0 .. size - 1]]
+  where
+    size :: Int
+    size = fromInteger cardinality'
+leafTableInt _ = Nothing
+
+compileInteger :: Plan a -> Integer -> a
+compileInteger (PlanSelect cardinality' decode)
+    | cardinality' <= toInteger tabulationBound =
+        let size = fromInteger cardinality' :: Int
+            table =
+                listArray
+                    (0, size - 1)
+                    [decode (toInteger index) | index <- [0 .. size - 1]]
+         in unsafeAt table . fromInteger
+    | otherwise = decode
+compileInteger (PlanMap transform plan) = (transform .) (compileInteger plan)
+compileInteger (PlanChoice branches) =
+    dispatchTree totalOutcomes $ offsetBranches 0 branches
+  where
+    totalOutcomes = sum $ map fst branches
+
+    offsetBranches _ [] = []
+    offsetBranches offset ((branchCardinality, branch) : rest) =
+        let upper = offset + branchCardinality
+         in (offset, compileInteger branch) : offsetBranches upper rest
+
+    dispatchTree _ [(offset, decode)]
+        | offset == 0 = decode
+        | otherwise = \index -> decode (index - offset)
+    dispatchTree upper offsetBranches' =
+        let low = case offsetBranches' of
+                (offset, _) : _ -> offset
+                [] -> error "compileInteger: empty dispatch"
+            midpoint = (low + upper) `div` 2
+            (lowBranches, highBranches) =
+                case break (\(offset, _) -> offset > midpoint) offsetBranches' of
+                    (allBranches, []) -> (init allBranches, [last allBranches])
+                    split -> split
+            pivot = case highBranches of
+                (offset, _) : _ -> offset
+                [] -> error "compileInteger: empty dispatch"
+            decodeLow = dispatchTree pivot lowBranches
+            decodeHigh = dispatchTree upper highBranches
+         in \index ->
+                if index < pivot
+                    then decodeLow index
+                    else decodeHigh index
+compileInteger (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
+    | outerRadix > 1
+    , innerRadix > 1 =
+        let decodeX1 = compileInteger planX1
+            decodeX2 = compileInteger planX2
+         in if planCardinality planF == 1
+                then
+                    let onlyFunction = compileInteger planF 0
+                     in \index ->
+                            case index `quotRem` outerRadix of
+                                (leftIndex, rightIndex) ->
+                                    onlyFunction
+                                        (decodeX1 leftIndex)
+                                        (decodeX2 rightIndex)
+                else
+                    let decodeF = compileInteger planF
+                     in \index ->
+                            case index `quotRem` outerRadix of
+                                (functionAndLeft, rightIndex) ->
+                                    case functionAndLeft `quotRem` innerRadix of
+                                        (functionIndex, leftIndex) ->
+                                            decodeF
+                                                functionIndex
+                                                (decodeX1 leftIndex)
+                                                (decodeX2 rightIndex)
+compileInteger (PlanAp rightCardinality planF planX)
+    | rightCardinality == 1 =
+        let decodeF = compileInteger planF
+            firstArgument = compileInteger planX 0
+         in \index -> decodeF index firstArgument
+    | planCardinality planF == 1 =
+        let onlyFunction = compileInteger planF 0
+            decodeX = compileInteger planX
+         in onlyFunction . decodeX
+    | otherwise =
+        let decodeF = compileInteger planF
+            decodeX = compileInteger planX
+         in \index ->
+                case index `quotRem` rightCardinality of
+                    (functionIndex, argumentIndex) ->
+                        decodeF functionIndex (decodeX argumentIndex)
+
+-- | Decode positions of one enumerated outcome sequence.
+seqPlan :: Seq (Outcome a) -> Plan a
+seqPlan outcomes =
+    PlanSelect
+        (toInteger $ Sequence.length outcomes)
+        (outcomeValue . Sequence.index outcomes . fromInteger)
 
 -- | One equality-key bucket used to count and unrank a conditioned product.
 data JoinGroup left right = JoinGroup
@@ -324,6 +633,7 @@ bucketFromOutcomes outcomes = do
                     select
                     selectValue
                     sampler
+                    (PlanSelect totalOutcomes selectValue)
                 )
   where
     bucketMass = sum $ map outcomeMass outcomes
@@ -667,6 +977,7 @@ pureStatic value =
             )
             (\_ -> value)
             (uniformSampler 1 $ const value)
+            (PlanSelect 1 $ const value)
         )
 
 indexedStatic :: Indexed a -> Static a
@@ -679,6 +990,7 @@ indexedStatic indexed =
             select
             (indexedSelect indexed)
             (uniformSampler totalOutcomes $ indexedSelect indexed)
+            (PlanSelect totalOutcomes $ indexedSelect indexed)
         )
   where
     totalOutcomes = indexedCardinality indexed
@@ -708,6 +1020,11 @@ applyStatic functions values =
                 valueCardinality
                 (outcomeSampler functionOutcomes)
                 (outcomeSampler valueOutcomes)
+            )
+            ( PlanAp
+                valueCardinality
+                (outcomePlan functionOutcomes)
+                (outcomePlan valueOutcomes)
             )
         )
   where
@@ -751,6 +1068,13 @@ frequencyStatic alternatives =
             select
             selectValue
             sampler
+            ( PlanChoice
+                [ ( outcomeCardinality $ staticOutcomes static
+                  , outcomePlan $ staticOutcomes static
+                  )
+                | (_, static) <- alternatives
+                ]
+            )
         )
   where
     totalWeight = sum $ map fst alternatives
@@ -882,6 +1206,16 @@ joinOutcomeIndex left right groups = do
             select
             selectValue
             rankSampler
+            ( PlanChoice
+                [ ( joinGroupCardinality group
+                  , PlanAp
+                        (toInteger $ Sequence.length $ joinGroupRight group)
+                        (PlanMap (,) $ seqPlan $ joinGroupLeft group)
+                        (seqPlan $ joinGroupRight group)
+                  )
+                | group <- groups
+                ]
+            )
   where
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
@@ -1053,6 +1387,7 @@ joinNBucketStatic componentIndex operation arguments =
                         select
                         selectValue
                         rankSampler
+                        (chainPlan (outcomePlan operationOutcomes) arguments)
                     )
   where
     keyTerms =
@@ -1146,6 +1481,18 @@ chainSampler sampler (StaticsCons static rest) =
         )
         rest
 
+-- | Mirror 'chainSampler' as plan structure, one product per argument.
+chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
+chainPlan plan StaticsNil = plan
+chainPlan plan (StaticsCons static rest) =
+    chainPlan
+        ( PlanAp
+            (outcomeCardinality $ staticOutcomes static)
+            plan
+            (outcomePlan $ staticOutcomes static)
+        )
+        rest
+
 -- | Build a rank decoder once, capturing every suffix cardinality.
 chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
 chainDecoder StaticsNil = \value _ -> value
@@ -1164,9 +1511,9 @@ chainDecoder (StaticsCons static rest) =
     let decodeRest = chainDecoder rest
         suffixCardinality = chainCardinality rest
         valueAt = outcomeValueAt $ staticOutcomes static
-     in \apply index ->
+     in \partial index ->
             let (here, there) = index `quotRem` suffixCardinality
-             in decodeRest (apply $ valueAt here) there
+             in decodeRest (partial $ valueAt here) there
 
 selectChain ::
     operation ->
@@ -1175,10 +1522,10 @@ selectChain ::
     Integer ->
     Either ECTAGenError ([Term], Rational, result)
 selectChain value StaticsNil _ _ = Right ([], 1, value)
-selectChain apply (StaticsCons static rest) (keyTerm : keyTerms) index = do
+selectChain partial (StaticsCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
-    (terms, mass, value) <- selectChain (apply $ outcomeValue outcome) rest keyTerms there
+    (terms, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
     pure
         ( Term argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
         , outcomeMass outcome * mass
@@ -1220,15 +1567,64 @@ sampleStatic ::
     (GenBackend gen) =>
     Static a ->
     gen (Either ECTAGenError a)
-sampleStatic static =
-    Right <$> runValueSampler (outcomeSampler $ staticOutcomes static)
+sampleStatic static
+    | Just _ <- outcomeUniformMass outcomes =
+        case compiledDecoder outcomes of
+            SmallDecoder bound decode -> Right . decode <$> selectInt bound
+            LargeDecoder bound decode -> Right . decode <$> selectInteger bound
+    | otherwise =
+        Right <$> runValueSampler (outcomeSampler outcomes)
+  where
+    outcomes = staticOutcomes static
 
 sampleStaticWithRank ::
     (GenBackend gen) =>
     Static a ->
     gen (Either ECTAGenError (Integer, a))
-sampleStaticWithRank static =
-    Right <$> runRankSampler (outcomeSampler $ staticOutcomes static)
+sampleStaticWithRank static
+    | Just _ <- outcomeUniformMass outcomes =
+        case compiledDecoder outcomes of
+            SmallDecoder bound decode ->
+                (\index -> Right (toInteger index, decode index)) <$> selectInt bound
+            LargeDecoder bound decode ->
+                (\index -> Right (index, decode index)) <$> selectInteger bound
+    | otherwise =
+        Right <$> runRankSampler (outcomeSampler outcomes)
+  where
+    outcomes = staticOutcomes static
+
+-- | Compile the retained plan once, at lowering time.
+compiledDecoder :: OutcomeIndex a -> RankDecoder a
+compiledDecoder outcomes =
+    compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
+
+{- | Lower a transparent uniform generator to a direct backend action.
+
+The action carries no per-sample error wrapping; construction errors and the
+non-uniform and opaque cases return 'Nothing' and must go through 'lower'.
+-}
+lowerUniform :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen a)
+lowerUniform (Transparent (Right static))
+    | Just _ <- outcomeUniformMass outcomes =
+        Just $ case compiledDecoder outcomes of
+            SmallDecoder bound decode -> decode <$> selectInt bound
+            LargeDecoder bound decode -> decode <$> selectInteger bound
+  where
+    outcomes = staticOutcomes static
+lowerUniform _ = Nothing
+
+-- | Like 'lowerUniform', retaining the sampled replay rank.
+lowerUniformWithRank :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen (Integer, a))
+lowerUniformWithRank (Transparent (Right static))
+    | Just _ <- outcomeUniformMass outcomes =
+        Just $ case compiledDecoder outcomes of
+            SmallDecoder bound decode ->
+                (\index -> (toInteger index, decode index)) <$> selectInt bound
+            LargeDecoder bound decode ->
+                (\index -> (index, decode index)) <$> selectInteger bound
+  where
+    outcomes = staticOutcomes static
+lowerUniformWithRank _ = Nothing
 
 uniformSampler :: Integer -> (Integer -> a) -> Sampler a
 uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
@@ -1242,8 +1638,8 @@ productSampler rightCardinality leftSampler rightSampler =
     Sampler
         (runValueSampler leftSampler <*> runValueSampler rightSampler)
         ( liftA2
-            ( \(leftIndex, apply) (rightIndex, value) ->
-                (leftIndex * rightCardinality + rightIndex, apply value)
+            ( \(leftIndex, partial) (rightIndex, value) ->
+                (leftIndex * rightCardinality + rightIndex, partial value)
             )
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)
@@ -1289,6 +1685,7 @@ mapOutcomeIndex transform outcomes =
                 <$> runRankSampler (outcomeSampler outcomes)
             )
         )
+        (PlanMap transform $ outcomePlan outcomes)
 
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b
 mapOutcome transform outcome =

@@ -27,6 +27,13 @@
   gone; star-shaped conditioning belongs to the keyed layer (`apply`).
 * Add `frequencies`, the per-group weighted choice among grouped generators,
   so alternated layers such as depth-bounded languages stay grouped.
+* Compile transparent uniform sampling: every outcome index now retains a
+  symbolic decode plan (choices, mixed-radix products, maps) that lowering
+  normalizes — maps pushed into leaves, nested choices spliced flat, small
+  leaves tabulated — and compiles to one flat decoder, on machine `Int`
+  arithmetic whenever the cardinality fits and `Integer` otherwise. Rank
+  order, masses, supports, and inspection are unchanged; non-uniform and
+  opaque generators keep the previous sampling path.
 * Add `mapWithKey` for grouped generators, and `forAll` and `sized` to the
   QuickCheck adapter: `forAll` shrinks by walking ranks toward zero, so every
   shrink stays inside the generated language and the failing rank replays the

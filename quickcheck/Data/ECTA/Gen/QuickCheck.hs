@@ -65,6 +65,9 @@ instance ECTA.GenBackend QuickCheckBackend where
     selectInteger bound =
         QuickCheckBackend $ QC.chooseInteger (0, bound - 1)
 
+    selectInt bound =
+        QuickCheckBackend $ QC.chooseInt (0, bound - 1)
+
     frequencyGen alternatives =
         -- Ranked branches already carry their offsets, so sampling can put
         -- likely branches first without changing rank order.
@@ -195,14 +198,18 @@ toGenWithRankEither generator = case ECTA.lowerWithRank generator of
 
 -- | Sample through the generator type expected by QuickCheck.
 toGen :: ECTAGen a -> QC.Gen a
-toGen generator =
-    either (error . ("ECTAGen: " <>) . show) id <$> toGenEither generator
+toGen generator
+    | Just (QuickCheckBackend direct) <- ECTA.lowerUniform generator = direct
+    | otherwise =
+        either (error . ("ECTAGen: " <>) . show) id <$> toGenEither generator
 
 -- | Sample a transparent generator together with its stable replay rank.
 toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
-toGenWithRank generator =
-    either (error . ("ECTAGen: " <>) . show) id
-        <$> toGenWithRankEither generator
+toGenWithRank generator
+    | Just (QuickCheckBackend direct) <- ECTA.lowerUniformWithRank generator = direct
+    | otherwise =
+        either (error . ("ECTAGen: " <>) . show) id
+            <$> toGenWithRankEither generator
 
 {- | Check a property over a transparent generator, shrinking by rank.
 

@@ -5,7 +5,7 @@ module Data.ECTA.GenSpec (spec) where
 
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe)
+import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node (Node))
@@ -168,6 +168,19 @@ propIndependentAuthenticationCanRead =
         QC.expectFailure $
             QC.forAll (ECTAGen.toGen rawFixture) $ \(authentication, filesystem) ->
                 authenticatedUser authentication QC.=== fileOwner filesystem
+
+{- | Enumerate the compiled decoder through the exact backend and require,
+for every rank in order: uniform mass and agreement with 'Core.unrank'.
+-}
+decodesEveryRankExactly :: (Eq a, Show a) => Core.ECTAGen Exact a -> Expectation
+decodesEveryRankExactly generator =
+    case Core.cardinality generator of
+        Left err -> expectationFailure $ show err
+        Right total ->
+            runExact (Core.lowerWithRank generator)
+                `shouldBe` [ (1 % total, fmap (\value -> (rank, value)) (Core.unrank generator rank))
+                           | rank <- [0 .. total - 1]
+                           ]
 
 spec :: Spec
 spec = do
@@ -354,3 +367,105 @@ spec = do
                     ( QC.forAll (ECTAGen.toGen opaqueJoin) $ \(left, right) ->
                         left QC.=== right
                     )
+
+    describe "compiled rank decoding" $ do
+        it "decodes every rank of a mapped source" $
+            decodesEveryRankExactly $
+                show <$> Core.elements [1 :: Int .. 5]
+
+        it "decodes every rank of nested uniform frequencies" $
+            decodesEveryRankExactly $
+                Core.frequency
+                    [ (2, Core.elements "ab")
+                    , (2, Core.frequency [(1, Core.elements "c"), (1, Core.elements "d")])
+                    ]
+
+        it "decodes every rank of an applicative product" $
+            decodesEveryRankExactly $
+                (,) <$> Core.elements [1 :: Int, 2, 3] <*> Core.elements "ab"
+
+        it "decodes every rank of a grouped ternary application tower" $ do
+            let operations =
+                    Core.groupBy
+                        (\(_, key1, key2, key3, resultKey) -> key1 :* key2 :* key3 :-> resultKey)
+                        (Core.elements [("f", 0 :: Int, 0, 1, 0 :: Int), ("g", 0, 1, 1, 1), ("h", 1, 0, 0, 1)])
+                family =
+                    Core.groupBy fst (Core.elements [(0 :: Int, "a"), (0, "b"), (1, "c")])
+                applied =
+                    Core.apply
+                        ((\(name, _, _, _, _) x y z -> name <> snd x <> snd y <> snd z) <$> operations)
+                        (family :& family :& family :& ANil)
+            decodesEveryRankExactly $
+                Core.ungroup $
+                    Core.mapWithKey (\key value -> (key, value)) applied
+
+        it "decodes every rank of a mixed-depth frequencies tower" $ do
+            let atomsFamily =
+                    snd <$> Core.groupBy fst (Core.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
+                operations =
+                    Core.groupBy
+                        (\(_, leftKey, rightKey, resultKey) -> leftKey :* rightKey :-> resultKey)
+                        (Core.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
+                layer children =
+                    Core.apply
+                        ((\(name, _, _, _) left right -> name <> left <> right) <$> operations)
+                        (children :& children :& ANil)
+                mixed =
+                    Core.frequencies
+                        [ (3, atomsFamily)
+                        , (8, layer atomsFamily)
+                        ]
+            decodesEveryRankExactly $ Core.ungroup mixed
+
+        it "agrees with unrank on every enumerated non-uniform rank" $ do
+            let generator =
+                    Core.frequency
+                        [ (3, Core.elements [1 :: Int])
+                        , (1, Core.elements [2, 3])
+                        ]
+                sampled = runExact $ Core.lowerWithRank generator
+            [() | (_, Left _) <- sampled] `shouldBe` []
+            [ Core.unrank generator rank == Right value
+              | (_, Right (rank, value)) <- sampled
+              ]
+                `shouldSatisfy` and
+
+        it "replays sampled ranks below the Int cardinality boundary" $
+            let chunk = ECTAGen.elements [0 :: Int .. 199]
+                wide =
+                    (,,,,,,,)
+                        <$> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+             in QC.withNumTests 200 $
+                    ECTAGen.cardinality wide QC.=== Right (200 ^ (8 :: Int))
+                        QC..&&. QC.forAll
+                            (ECTAGen.toGenWithRank wide)
+                            ( \(rank, value) ->
+                                ECTAGen.unrank wide rank QC.=== Right value
+                            )
+
+        it "replays sampled ranks beyond the Int cardinality boundary" $
+            let chunk = ECTAGen.elements [0 :: Int .. 255]
+                wide =
+                    (,,,,,,,)
+                        <$> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+                        <*> chunk
+             in QC.withNumTests 200 $
+                    ECTAGen.cardinality wide QC.=== Right (256 ^ (8 :: Int))
+                        QC..&&. QC.forAll
+                            (ECTAGen.toGenWithRank wide)
+                            ( \(rank, value) ->
+                                ECTAGen.unrank wide rank QC.=== Right value
+                            )
