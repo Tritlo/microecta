@@ -14,11 +14,11 @@
   with two ECTA equality constraints.
 * Add partition-preserving keyed generators so repeated three-way joins compose
   compact ECTA supports and exact rank indices without enumerating prior layers.
-* Generalize keyed operation application to any arity: `Sig` now pairs a
-  heterogeneous key list (`leftKey :* rightKey :* KNil`) with a result key,
-  and the single `apply` joins the operation family with one argument family
-  per signature component in one ECTA edge holding one equality constraint
-  per argument.
+* Generalize keyed operation application to any arity: a `Sig` is written
+  like a function type over keys (`leftKey --> rightKey --> resultKey`), and
+  the single `apply` joins the operation family with one argument family per
+  signature component in one ECTA edge holding one equality constraint per
+  argument.
 * Condition flat generators with reified key equalities: `match` takes an
   `On` value such as `authenticatedUser :==: fileOwner`, conjoinable with
   `:&&:`, replacing the positional `matchOn`. The three-way `matchOn3` is

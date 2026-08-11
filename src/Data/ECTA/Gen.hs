@@ -12,6 +12,12 @@ module Data.ECTA.Gen (
     ECTAGen,
     ECTAGenBy,
     Sig (..),
+    (-->),
+    ToSig (..),
+    ArgKeysOf,
+    ResultOf,
+    sigArgKeys,
+    sigResult,
     Keys (..),
     Args (..),
     ECTAGenError (..),
@@ -169,16 +175,70 @@ instance (Show argKey, Show (Keys argKeys)) => Show (Keys (argKey ': argKeys)) w
 
 {- | The input and result group keys for a generated operation of any arity.
 
-The constructor makes the argument and result roles explicit at construction
-sites and distinguishes operation signatures from unrelated keys.
+Signatures are written like function types with '-->':
+@TInt '-->' TInt '-->' TBool@ is a binary signature with result key @TBool@.
+The type distinguishes operation signatures from unrelated keys.
 -}
-data Sig (argKeys :: [Type]) result = Keys argKeys :-> result
-
-infixr 0 :->
+data Sig (argKeys :: [Type]) result = Sig (Keys argKeys) result
 
 deriving instance (Eq (Keys argKeys), Eq result) => Eq (Sig argKeys result)
 deriving instance (Ord (Keys argKeys), Ord result) => Ord (Sig argKeys result)
-deriving instance (Show (Keys argKeys), Show result) => Show (Sig argKeys result)
+
+instance (Show result) => Show (Sig '[] result) where
+    showsPrec depth (Sig KNil result) = showsPrec depth result
+
+instance (Show argKey, Show (Sig argKeys result)) => Show (Sig (argKey ': argKeys) result) where
+    showsPrec depth (Sig (key :* keys) result) =
+        showParen (depth > 0) $
+            showsPrec 1 key . showString " --> " . showsPrec 0 (Sig keys result)
+
+-- | The argument keys of a signature, one per generated operation argument.
+sigArgKeys :: Sig argKeys result -> Keys argKeys
+sigArgKeys (Sig argKeys _) = argKeys
+
+-- | The result key of a signature.
+sigResult :: Sig argKeys result -> result
+sigResult (Sig _ result) = result
+
+-- | The argument keys contributed by the right-hand side of '-->'.
+type family ArgKeysOf signature :: [Type] where
+    ArgKeysOf (Sig argKeys result) = argKeys
+    ArgKeysOf result = '[]
+
+-- | The result key contributed by the right-hand side of '-->'.
+type family ResultOf signature where
+    ResultOf (Sig argKeys result) = result
+    ResultOf result = result
+
+{- | The right-hand side of '-->': either a bare result key or a signature to
+extend with one more argument.
+-}
+class ToSig signature where
+    toSig :: signature -> Sig (ArgKeysOf signature) (ResultOf signature)
+
+instance {-# OVERLAPPING #-} ToSig (Sig argKeys result) where
+    toSig = id
+
+instance {-# OVERLAPPABLE #-} (ArgKeysOf result ~ '[], ResultOf result ~ result) => ToSig result where
+    toSig = Sig KNil
+
+{- | Prepend one argument key to a signature, or pair the final argument key
+with a bare result key.
+
+Chains flatten to the right exactly like function arrows:
+@a '-->' b '-->' c@ is @'Sig' (a ':*' b ':*' 'KNil') c@. A result key that is
+itself a 'Sig' must therefore be written with the 'Sig' constructor.
+-}
+(-->) ::
+    (ToSig rest) =>
+    argKey ->
+    rest ->
+    Sig (argKey ': ArgKeysOf rest) (ResultOf rest)
+argKey --> rest =
+    case toSig rest of
+        Sig argKeys result -> Sig (argKey :* argKeys) result
+
+infixr 0 -->
 
 {- | Argument families for 'apply', one per signature component, in order.
 
@@ -356,7 +416,7 @@ apply (ECTAGenBy (Right operations)) arguments = ECTAGenBy $ do
     argumentMaps <- argsMaps arguments
     let matchingBuckets =
             [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
-            | (componentIndex, (argKeys :-> resultKey, operationBucket)) <-
+            | (componentIndex, (Sig argKeys resultKey, operationBucket)) <-
                 zip [0 :: Int ..] $ Map.toAscList operations
             , Just (mass, argumentBuckets) <- [lookupArgs argKeys argumentMaps]
             ]
