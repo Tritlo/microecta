@@ -57,6 +57,9 @@ shrinkPlanRank = go
                 [offset' | (offset', _, _) <- earlier]
                     <> [offset + inner | inner <- go branch (index - offset)]
             (_, []) -> []
+    -- Size-major ranks: a smaller rank is never a larger member, so the
+    -- ordinary integral shrink sequence is already a structural one.
+    go (PlanSized _) index = towardZero index
     go (PlanAp radix planF planX) index =
         case index `quotRem` radix of
             (functionIndex, argumentIndex) ->
@@ -101,6 +104,12 @@ planMemberSize (PlanAp radix planF planX) rank =
     case rank `quotRem` radix of
         (functionRank, argumentRank) ->
             planMemberSize planF functionRank + planMemberSize planX argumentRank
+planMemberSize (PlanSized classes) rank = go 0 classes
+  where
+    go _ [] = error "planMemberSize: rank outside plan"
+    go offset ((size, count, _) : rest)
+        | rank < offset + count = size
+        | otherwise = go (offset + count) rest
 
 {- | Every member structurally smaller than the given rank's member, in size
 order, as replayable rank and value.

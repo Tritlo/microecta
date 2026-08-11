@@ -18,6 +18,9 @@ module Data.ECTA.Gen (
     GenBackend (..),
     fromIndexed,
     fromBackend,
+    mu,
+    upToSize,
+    isRecursive,
     elements,
     groupBy,
     regroupBy,
@@ -32,6 +35,7 @@ module Data.ECTA.Gen (
     match,
     support,
     cardinality,
+    countAtSize,
     unrank,
     shrinkRank,
     smallerMembers,
@@ -47,7 +51,7 @@ module Data.ECTA.Gen (
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (Node)
+import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
 import Data.ECTA.Gen.Internal.Shrink (
@@ -55,6 +59,16 @@ import Data.ECTA.Gen.Internal.Shrink (
     shrinkPlanRank,
     smallerPlanMembers,
  )
+import Data.ECTA.Gen.Internal.Size (
+    SizeIndex (SizeIndex, sizeClassCounts, sizeClassSelect),
+    choiceIndex,
+    fixIndex,
+    mapIndex,
+    productIndex,
+    sizeClassOf,
+    sizeIndex,
+ )
+import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 
 {- | A transparent generator whose values are classified by a projected key.
@@ -95,10 +109,33 @@ withKeys (first :&&: second) continue =
                 (\left -> (leftKey left, otherLeftKey left))
                 (\right -> (rightKey right, otherRightKey right))
 
--- | A generator is either inspectable ECTA structure or an opaque backend action.
+{- | A generator is inspectable ECTA structure — finite or recursive — or an
+opaque backend action.
+-}
 data ECTAGen gen a
     = Transparent !(Either ECTAGenError (Static a))
+    | Cyclic !(Either ECTAGenError (Recursive a))
     | Opaque !(gen (Either ECTAGenError a))
+
+{- | View any inspectable generator as a recursive one.
+
+A finite generator is a recursive language that happens to stop: its plan
+already counts by size, and its support is already its automaton.
+-}
+recursiveView :: ECTAGen gen a -> Either ECTAGenError (Recursive a)
+recursiveView (Transparent result) = do
+    static <- result
+    pure $
+        Recursive
+            (staticSupport static)
+            (sizeIndex $ outcomePlan $ staticOutcomes static)
+recursiveView (Cyclic result) = result
+recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
+
+-- | Whether a generator stands for a recursive language.
+isRecursive :: ECTAGen gen a -> Bool
+isRecursive (Cyclic _) = True
+isRecursive _ = False
 
 instance Functor (Grouped gen key) where
     fmap transform (Grouped result) =
@@ -111,6 +148,12 @@ instance Functor (Grouped gen key) where
 
 instance (Functor gen) => Functor (ECTAGen gen) where
     fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
+    fmap transform (Cyclic result) = Cyclic $ fmap mapRecursive result
+      where
+        mapRecursive recursive =
+            Recursive
+                (recursiveSupport recursive)
+                (mapIndex transform $ recursiveIndex recursive)
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (GenBackend gen) => Applicative (ECTAGen gen) where
@@ -120,6 +163,20 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
     _ <*> Transparent (Left err) = Transparent $ Left err
     Transparent (Right functions) <*> Transparent (Right values) =
         Transparent $ Right $ applyStatic functions values
+    functions <*> values
+        | isRecursive functions || isRecursive values =
+            Cyclic $ do
+                left <- recursiveView functions
+                right <- recursiveView values
+                pure $
+                    Recursive
+                        ( Node
+                            [ Edge
+                                applySymbol
+                                [recursiveSupport left, recursiveSupport right]
+                            ]
+                        )
+                        (productIndex (recursiveIndex left) (recursiveIndex right))
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
@@ -132,6 +189,66 @@ fromIndexed indexed
 -- | Embed an opaque backend generator.
 fromBackend :: (Functor gen) => gen a -> ECTAGen gen a
 fromBackend generated = Opaque $ Right <$> generated
+
+{- | Build a recursive generator from its own language.
+
+The argument receives the generator being defined and returns its body, so
+a language can refer to itself:
+
+@
+tree = ECTAGen.mu $ \\self ->
+    ECTAGen.frequency
+        [ (1, Leaf '<$>' ECTAGen.elements [0 .. 3])
+        , (1, Branch '<$>' self '<*>' self)
+        ]
+@
+
+The result stands for the whole unbounded language: it has size classes and
+size-major ranks instead of a cardinality, and its ECTA support is a @Mu@
+node. 'upToSize' bounds it back to an ordinary finite generator, and the
+QuickCheck adapter does that automatically from the size parameter.
+
+Two rules apply inside the knot. The recursion must be guarded — every
+occurrence of the argument under at least one '<*>' — or the language has
+no smallest member and counting it diverges, exactly as @let x = x@ does.
+And a recursive language is uniform over each size class, so 'frequency'
+alternatives around a recursive occurrence must carry equal weights; use
+the size bound, not weights, to control how large members get.
+-}
+mu :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
+mu build = Cyclic result
+  where
+    -- The body is built three times against three placeholders: once to tie
+    -- the counts, once to learn whether it is well formed, and once inside
+    -- 'createMu' where the recursive node is in scope. Each is one pass over
+    -- the generator definition, not over its language.
+    bodyOf placeholder = recursiveView $ build placeholder
+
+    tied = fixIndex $ \self ->
+        either (const emptyIndex) recursiveIndex $
+            bodyOf (Cyclic $ Right $ Recursive EmptyNode self)
+    emptyIndex = SizeIndex [] $ \_ _ -> error "mu: no members"
+
+    automaton = createMu $ \self ->
+        either (const EmptyNode) recursiveSupport $
+            bodyOf (Cyclic $ Right $ Recursive self tied)
+
+    result = do
+        _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied)
+        pure $ Recursive automaton tied
+
+{- | Bound a generator to the members of size at most the given bound.
+
+Size is the number of source choices in a member. A recursive generator
+becomes an ordinary finite one, uniform over exactly those members and
+keeping the ranks it already had, so a rank found under one bound replays
+under any larger bound and through the unbounded generator itself. A
+generator that is not recursive is already finite and is returned
+unchanged.
+-}
+upToSize :: Int -> ECTAGen gen a -> ECTAGen gen a
+upToSize bound (Cyclic result) = Transparent $ result >>= boundedStatic bound
+upToSize _ generator = generator
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: [a] -> ECTAGen gen a
@@ -165,6 +282,7 @@ groupBy key (Transparent (Right static)) =
                 )
                 Map.empty
                 outcomes
+groupBy _ (Cyclic _) = Grouped $ Left UnboundedGenerator
 groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
 {- | Reclassify the groups without enumerating their values.
@@ -336,6 +454,20 @@ frequency alternatives
     | Just err <- firstError alternatives = Transparent $ Left err
     | Just staticAlternatives <- traverse getStatic alternatives =
         Transparent $ Right $ frequencyStatic staticAlternatives
+    | any (isRecursive . snd) alternatives =
+        Cyclic $ do
+            views <- traverse (recursiveView . snd) alternatives
+            if sameWeights
+                then
+                    pure $
+                        Recursive
+                            ( Node
+                                [ Edge (frequencySymbol index) [recursiveSupport view]
+                                | (index, view) <- zip [0 ..] views
+                                ]
+                            )
+                            (choiceIndex $ map recursiveIndex views)
+                else Left WeightedRecursiveAlternatives
     | otherwise =
         Opaque $
             frequencyGen
@@ -357,6 +489,10 @@ frequency alternatives
     getStatic (weight, Transparent (Right static)) = Just (weight, static)
     getStatic _ = Nothing
 
+    sameWeights = case map fst alternatives of
+        [] -> True
+        firstWeight : rest -> all (== firstWeight) rest
+
 -- | Generate two values whose projected keys agree.
 match ::
     (GenBackend gen) =>
@@ -366,6 +502,8 @@ match ::
     ECTAGen gen (left, right)
 match _ (Transparent (Left err)) _ = Transparent $ Left err
 match _ _ (Transparent (Left err)) = Transparent $ Left err
+match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
+match _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
 match condition (Transparent (Right left)) (Transparent (Right right)) =
     withKeys condition $ \leftKey rightKey ->
         Transparent $ joinStatic leftKey rightKey left right
@@ -377,16 +515,36 @@ match condition left right =
                 leftKey leftValue == rightKey rightValue
          in Opaque $ filterGen matches generatedPairs
 
--- | Return the ECTA support of a fully transparent generator.
+{- | Return the ECTA support of an inspectable generator.
+
+A recursive generator's support is its @Mu@ node, which accepts members of
+every size: a size bound restricts the rank space, not the automaton.
+-}
 support :: ECTAGen gen a -> Either ECTAGenError Node
 support (Transparent result) = staticSupport <$> result
+support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator
 
--- | Return the exact number of ranks in a transparent generator.
+{- | Return the exact number of ranks in a transparent generator.
+
+A recursive generator has no cardinality; bound it with 'upToSize', or ask
+for one size class with 'countAtSize'.
+-}
 cardinality :: ECTAGen gen a -> Either ECTAGenError Integer
 cardinality (Transparent result) =
     outcomeCardinality . staticOutcomes <$> result
+cardinality (Cyclic _) = Left UnboundedGenerator
 cardinality (Opaque _) = Left CannotInspectOpaqueGenerator
+
+{- | The number of members of one size, for any inspectable generator.
+
+Size is the number of source choices in a member. This is the counting a
+recursive generator supports in place of a cardinality: every class is
+finite even when the language is not.
+-}
+countAtSize :: ECTAGen gen a -> Int -> Either ECTAGenError Integer
+countAtSize generator size =
+    flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
 
 {- | Decode one stable rank from a transparent generator.
 
@@ -399,6 +557,17 @@ unrank (Transparent result) index = do
     let outcomes = staticOutcomes static
     checkIndex (outcomeCardinality outcomes) index
     pure $ outcomeValueAt outcomes index
+unrank (Cyclic result) index = do
+    recursive <- result
+    let recursiveIndex' = recursiveIndex recursive
+    case sizeClassOf recursiveIndex' index of
+        Just (size, position) ->
+            pure $ snd $ sizeClassSelect recursiveIndex' size position
+        Nothing ->
+            Left $
+                SelectionOutOfRange index $
+                    sum $
+                        sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 {- | Structural shrink candidates for one rank of a transparent generator.
@@ -408,6 +577,7 @@ their minimal ranks come first, then each product component shrinks
 independently. Opaque generators and out-of-range ranks have no candidates.
 -}
 shrinkRank :: ECTAGen gen a -> Integer -> [Integer]
+shrinkRank (Cyclic _) _ = []
 shrinkRank (Transparent (Right static)) rank
     | rank > 0
     , rank < outcomeCardinality outcomes =
@@ -430,6 +600,17 @@ smallerMembers (Transparent (Right static)) rank
         smallerPlanMembers (outcomePlan outcomes) rank
   where
     outcomes = staticOutcomes static
+-- Recursive ranks are size-major, so every smaller rank already decodes to
+-- a member of at most the same size, and the members of strictly smaller
+-- size are exactly the ranks below the current size class.
+smallerMembers (Cyclic (Right recursive)) rank
+    | Just (size, _) <- sizeClassOf index rank =
+        [ sizeClassSelect index smallerSize position
+        | smallerSize <- [1 .. size - 1]
+        , position <- [0 .. Size.countAtSize index smallerSize - 1]
+        ]
+  where
+    index = recursiveIndex recursive
 smallerMembers _ _ = []
 
 {- | The number of source choices in the member a rank decodes to.
@@ -437,6 +618,8 @@ smallerMembers _ _ = []
 'Nothing' for opaque generators and out-of-range ranks.
 -}
 sizeOfRank :: ECTAGen gen a -> Integer -> Maybe Int
+sizeOfRank (Cyclic (Right recursive)) rank =
+    fst <$> sizeClassOf (recursiveIndex recursive) rank
 sizeOfRank (Transparent (Right static)) rank
     | rank >= 0
     , rank < outcomeCardinality outcomes =
@@ -454,6 +637,7 @@ countBy key (Transparent result) = do
         Map.fromListWith
             (+)
             [(key $ outcomeValue outcome, 1) | outcome <- outcomes]
+countBy _ (Cyclic _) = Left UnboundedGenerator
 countBy _ (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Aggregate the exact probability mass of every transparent result.
@@ -464,12 +648,14 @@ pmf (Transparent result) = do
     pure $
         Map.toAscList $
             Map.fromListWith (+) [(value, mass) | (mass, value) <- outcomes]
+pmf (Cyclic _) = Left UnboundedGenerator
 pmf (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Lower to the backend, preserving construction and decoding errors.
 lower :: (GenBackend gen) => ECTAGen gen a -> gen (Either ECTAGenError a)
 lower (Transparent (Left err)) = pure $ Left err
 lower (Transparent (Right static)) = sampleStatic static
+lower (Cyclic _) = pure $ Left UnboundedGenerator
 lower (Opaque generated) = generated
 
 -- | Lower a transparent generator while retaining the sampled rank.
@@ -479,6 +665,7 @@ lowerWithRank ::
     gen (Either ECTAGenError (Integer, a))
 lowerWithRank (Transparent (Left err)) = pure $ Left err
 lowerWithRank (Transparent (Right static)) = sampleStaticWithRank static
+lowerWithRank (Cyclic _) = pure $ Left UnboundedGenerator
 lowerWithRank (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
 {- | Lower a transparent uniform generator to a direct backend action.

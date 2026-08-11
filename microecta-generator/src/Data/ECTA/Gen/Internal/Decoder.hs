@@ -31,6 +31,15 @@ data Plan a where
     and the radix is the argument cardinality.
     -}
     PlanAp :: !Integer -> Plan (b -> a) -> Plan b -> Plan a
+    {- | A language already stratified by member size: ascending sizes, each
+    with its member count and a decoder for one position in that size class.
+
+    Ranks are size-major, so a smaller rank never decodes to a larger member.
+    This is what a recursive generator bounded by 'Data.ECTA.Gen.upToSize'
+    lowers to; the other constructors keep the mixed-radix order they always
+    had.
+    -}
+    PlanSized :: [(Int, Integer, Integer -> a)] -> Plan a
 
 -- | A compiled rank decoder, on machine ints whenever the cardinality fits.
 data RankDecoder a
@@ -44,6 +53,8 @@ planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
 planCardinality (PlanAp rightCardinality planF _) =
     planCardinality planF * rightCardinality
+planCardinality (PlanSized classes) =
+    sum [classCount | (_, classCount, _) <- classes]
 
 {- | Normalize a plan: push maps into leaves and product functions, splice
 nested choices into one level, and collapse singleton choices.
@@ -63,6 +74,7 @@ normalizePlan (PlanChoice branches) =
 normalizePlan (PlanAp rightCardinality planF planX) =
     PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
 normalizePlan plan@(PlanSelect _ _) = plan
+normalizePlan plan@(PlanSized _) = plan
 
 -- | Push one pending map down while normalizing below it.
 pushMap :: (b -> a) -> Plan b -> Plan a
@@ -81,6 +93,11 @@ pushMap transform (PlanAp rightCardinality planF planX) =
         rightCardinality
         (pushMap (transform .) planF)
         (normalizePlan planX)
+pushMap transform (PlanSized classes) =
+    PlanSized
+        [ (size, classCount, transform . decode)
+        | (size, classCount, decode) <- classes
+        ]
 
 -- | Collapse a singleton choice into its only branch.
 rebuildChoice :: [(Integer, Plan a)] -> Plan a
@@ -124,39 +141,14 @@ compileRank (PlanMap transform plan) =
             let !value = decode index
              in transform value
 compileRank (PlanChoice branches) =
-    dispatchTree totalOutcomes $ offsetBranches 0 branches
+    dispatchTree totalOutcomes $ offsetParts 0 [(branchCardinality, compileRank branch) | (branchCardinality, branch) <- branches]
   where
     totalOutcomes = fromInteger $ sum $ map fst branches
-
-    offsetBranches _ [] = []
-    offsetBranches offset ((branchCardinality, branch) : rest) =
-        let upper = offset + fromInteger branchCardinality
-         in (offset, compileRank branch) : offsetBranches upper rest
-
-    -- Split where the cumulative cardinality crosses the midpoint of the
-    -- covered range, so heavy branches sit near the root and the expected
-    -- number of comparisons tracks the branch mass distribution.
-    dispatchTree _ [(offset, decode)]
-        | offset == 0 = decode
-        | otherwise = \index -> decode (index - offset)
-    dispatchTree upper offsetBranches' =
-        let low = case offsetBranches' of
-                (offset, _) : _ -> offset
-                [] -> error "compileRank: empty dispatch"
-            midpoint = (low + upper) `div` 2
-            (lowBranches, highBranches) =
-                case break (\(offset, _) -> offset > midpoint) offsetBranches' of
-                    (allBranches, []) -> (init allBranches, [last allBranches])
-                    split -> split
-            pivot = case highBranches of
-                (offset, _) : _ -> offset
-                [] -> error "compileRank: empty dispatch"
-            decodeLow = dispatchTree pivot lowBranches
-            decodeHigh = dispatchTree upper highBranches
-         in \index ->
-                if index < pivot
-                    then decodeLow index
-                    else decodeHigh index
+compileRank (PlanSized classes) =
+    dispatchTree totalOutcomes $
+        offsetParts 0 [(classCount, decode . toInteger) | (_, classCount, decode) <- classes]
+  where
+    totalOutcomes = fromInteger $ sum [classCount | (_, classCount, _) <- classes]
 compileRank (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
     -- One fused decoder per binary application: one closure, one or two
     -- quotient-remainder steps, instead of two nested product closures.
@@ -207,3 +199,38 @@ compileRank (PlanAp rightCardinality planF planX)
                          in decodeF functionIndex argument
 {-# SPECIALIZE compileRank :: Plan a -> Int -> a #-}
 {-# SPECIALIZE compileRank :: Plan a -> Integer -> a #-}
+
+-- | Pair each part decoder with its cumulative rank offset.
+offsetParts :: (Integral rank) => rank -> [(Integer, rank -> a)] -> [(rank, rank -> a)]
+offsetParts _ [] = []
+offsetParts offset ((partCardinality, decode) : rest) =
+    (offset, decode) : offsetParts (offset + fromInteger partCardinality) rest
+
+{- | Dispatch a rank to the part holding it, rebased into that part.
+
+The tree splits where the cumulative cardinality crosses the midpoint of the
+covered range, so heavy parts sit near the root and the expected number of
+comparisons tracks how the mass is distributed.
+-}
+dispatchTree :: (Integral rank) => rank -> [(rank, rank -> a)] -> rank -> a
+dispatchTree _ [(offset, decode)]
+    | offset == 0 = decode
+    | otherwise = \index -> decode (index - offset)
+dispatchTree upper parts =
+    let low = case parts of
+            (offset, _) : _ -> offset
+            [] -> error "dispatchTree: empty dispatch"
+        midpoint = (low + upper) `div` 2
+        (lowParts, highParts) =
+            case break (\(offset, _) -> offset > midpoint) parts of
+                (allParts, []) -> (init allParts, [last allParts])
+                split -> split
+        pivot = case highParts of
+            (offset, _) : _ -> offset
+            [] -> error "dispatchTree: empty dispatch"
+        decodeLow = dispatchTree pivot lowParts
+        decodeHigh = dispatchTree upper highParts
+     in \index ->
+            if index < pivot
+                then decodeLow index
+                else decodeHigh index

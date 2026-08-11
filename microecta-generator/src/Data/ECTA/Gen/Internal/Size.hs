@@ -1,34 +1,49 @@
-{- | Size-stratified counting and indexing for plans.
+{- | Size-stratified counting and indexing.
 
-A plan's members split into size classes, where size is the number of source
-choices in a member: an atom has size one, and an application adds the sizes
-of its operation and argument choices. 'sizeIndex' counts every class by
-FEAT-style convolution — a product of size @s@ splits into an operation of
-size @a@ and arguments of size @s - a@ — and indexes into one directly,
-returning the member's canonical rank alongside its value.
+A language's members split into size classes, where size is the number of
+source choices in a member: an atom has size one, and an application adds
+the sizes of its operation and argument choices. A 'SizeIndex' counts every
+class by FEAT-style convolution — a product of size @s@ splits into an
+operation of size @a@ and arguments of size @s - a@ — and indexes into one
+directly, returning the member's rank alongside its value.
 
-Counting is independent of the canonical rank order: a class is enumerated
-in split-ascending, branch order, and each member's canonical rank is
-reassembled from the sub-ranks on the way back up. Building the index costs
-one traversal per plan occurrence, like compiling a decoder does; nothing
-enumerates the language.
+Two kinds of index share the type. 'sizeIndex' reads a finite 'Plan' and
+reports that plan's own mixed-radix rank, so counting a class never changes
+what a rank means. The combinators ('mapIndex', 'productIndex',
+'choiceIndex', 'fixIndex') build languages that may be recursive, where
+mixed radix has no meaning because a side can be unbounded; those report a
+size-major rank instead, the position of the member in the size-ordered
+enumeration. Either way the rank is the one canonical rank of the
+generator it came from.
+
+Convolution is productive on infinite operands, which is what makes
+'fixIndex' work: a recursive occurrence contributes to size @s@ only
+through products, and a product needs one choice from each side, so
+counting size @s@ only ever consults sizes below it.
 -}
 module Data.ECTA.Gen.Internal.Size (
     SizeIndex (..),
     sizeIndex,
     countAtSize,
+    countUpToSize,
+    sizeClassOf,
+    mapIndex,
+    productIndex,
+    choiceIndex,
+    fixIndex,
+    sizeClasses,
 ) where
 
 import Data.ECTA.Gen.Internal.Decoder (Plan (..))
 
-{- | The size classes of one plan: how many members each holds, and how to
-select one by its position in the class.
+{- | The size classes of one language: how many members each holds, and how
+to select one by its position in the class.
 -}
 data SizeIndex a = SizeIndex
     { sizeClassCounts :: [Integer]
     -- ^ Members per size, for ascending sizes from one.
     , sizeClassSelect :: Int -> Integer -> (Integer, a)
-    -- ^ Canonical rank and value of one member of one size class.
+    -- ^ Rank and value of one member of one size class.
     }
 
 -- | The number of members of one size, zero outside the counted sizes.
@@ -39,60 +54,202 @@ countAtSize index size
         count : _ -> count
         [] -> 0
 
--- | Count and index the size classes of a plan.
+-- | The number of members of size at most the bound.
+countUpToSize :: SizeIndex a -> Int -> Integer
+countUpToSize index bound = sum $ take bound $ sizeClassCounts index
+
+{- | The size class holding one rank, with the rank rebased into it.
+
+Only meaningful for a size-major index. 'Nothing' means the rank is outside
+the language, which can only be discovered for a language with finitely
+many size classes.
+-}
+sizeClassOf :: SizeIndex a -> Integer -> Maybe (Int, Integer)
+sizeClassOf index rank
+    | rank < 0 = Nothing
+    | otherwise = go 1 rank $ sizeClassCounts index
+  where
+    go _ _ [] = Nothing
+    go size position (count : rest)
+        | position < count = Just (size, position)
+        | otherwise = go (size + 1) (position - count) rest
+
+{- | The non-empty size classes up to a bound, as size, count, and a decoder
+for one position in that class.
+
+This is the bridge back to a finite language: a recursive index bounded this
+way becomes an ordinary 'PlanSized' plan whose ranks are size-major.
+-}
+sizeClasses :: Int -> SizeIndex a -> [(Int, Integer, Integer -> a)]
+sizeClasses bound index =
+    [ (size, count, snd . sizeClassSelect index size)
+    | (size, count) <- zip [1 ..] (take bound (sizeClassCounts index))
+    , count > 0
+    ]
+
+-- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanSelect cardinality' decode) =
     SizeIndex [cardinality'] select
   where
-    select 1 index = (index, decode index)
-    select size _ = error $ "sizeIndex: leaf has no members of size " <> show size
-sizeIndex (PlanMap transform plan) =
-    SizeIndex (sizeClassCounts inner) select
-  where
-    inner = sizeIndex plan
-    select size index =
-        let (rank, value) = sizeClassSelect inner size index
-         in (rank, transform value)
+    select 1 position = (position, decode position)
+    select size _ = error $ "sizeIndex: a leaf has no members of size " <> show size
+sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
     SizeIndex counts select
   where
+    entries = offsetBranches 0 branches
     offsetBranches _ [] = []
     offsetBranches offset ((branchCardinality, branch) : rest) =
         (offset, sizeIndex branch) : offsetBranches (offset + branchCardinality) rest
-    entries = offsetBranches 0 branches
     counts = foldr (addPoly . sizeClassCounts . snd) [] entries
 
-    select size = go entries
-      where
-        go [] _ = error "sizeIndex: index outside choice size class"
-        go ((offset, inner) : rest) index
-            | index < count =
-                let (rank, value) = sizeClassSelect inner size index
-                 in (offset + rank, value)
-            | otherwise = go rest (index - count)
-          where
-            count = countAtSize inner size
+    select size position =
+        let (offset, inner, rebased) = partAt size entries position
+            (rank, value) = sizeClassSelect inner size rebased
+         in (offset + rank, value)
 sizeIndex (PlanAp radix planF planX) =
     SizeIndex counts select
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
+    counts = productCounts indexF indexX
+
+    select size position =
+        let (functionSize, functionPosition, argumentSize, argumentPosition) =
+                productSplit indexF indexX size position
+            (functionRank, function) = sizeClassSelect indexF functionSize functionPosition
+            (argumentRank, argument) = sizeClassSelect indexX argumentSize argumentPosition
+         in (functionRank * radix + argumentRank, function argument)
+sizeIndex (PlanSized classes) =
+    SizeIndex counts select
+  where
+    counts = classCounts classes
+    offsets = offsetClasses 0 classes
+    offsetClasses _ [] = []
+    offsetClasses offset ((size, count, decode) : rest) =
+        (size, offset, count, decode) : offsetClasses (offset + count) rest
+
+    select size position = case [entry | entry@(size', _, _, _) <- offsets, size' == size] of
+        (_, offset, _, decode) : _ -> (offset + position, decode position)
+        [] -> error $ "sizeIndex: no members of size " <> show size
+
+-- | Map the values of an index, keeping its counts and ranks.
+mapIndex :: (a -> b) -> SizeIndex a -> SizeIndex b
+mapIndex transform index =
+    SizeIndex (sizeClassCounts index) select
+  where
+    select size position =
+        let (rank, value) = sizeClassSelect index size position
+         in (rank, transform value)
+
+{- | The product of two indexes, ranked size-major.
+
+Within a size class, splits come in ascending operation size, and each split
+is ordered operation-major. Either side may be recursive.
+-}
+productIndex :: SizeIndex (a -> b) -> SizeIndex a -> SizeIndex b
+productIndex indexF indexX =
+    SizeIndex counts select
+  where
+    counts = productCounts indexF indexX
+    ranks = sizeMajorRanks counts
+
+    select size position =
+        let (functionSize, functionPosition, argumentSize, argumentPosition) =
+                productSplit indexF indexX size position
+            (_, function) = sizeClassSelect indexF functionSize functionPosition
+            (_, argument) = sizeClassSelect indexX argumentSize argumentPosition
+         in (rankAt ranks size position, function argument)
+
+{- | Ordered alternatives, ranked size-major.
+
+Within a size class the alternatives keep their order. Any alternative may
+be recursive.
+-}
+choiceIndex :: [SizeIndex a] -> SizeIndex a
+choiceIndex branches =
+    SizeIndex counts select
+  where
+    counts = foldr (addPoly . sizeClassCounts) [] branches
+    ranks = sizeMajorRanks counts
+    entries = [((), branch) | branch <- branches]
+
+    select size position =
+        let (_, inner, rebased) = partAt size entries position
+            (_, value) = sizeClassSelect inner size rebased
+         in (rankAt ranks size position, value)
+
+{- | Tie a recursive index: the body is built from the index being defined.
+
+The recursion must be guarded — every recursive occurrence under at least
+one 'productIndex' — so that counting a size only consults smaller sizes.
+An unguarded knot diverges, exactly as @let x = x@ does.
+-}
+fixIndex :: (SizeIndex a -> SizeIndex a) -> SizeIndex a
+fixIndex build = index
+  where
+    index = build index
+
+-- | Cumulative counts: the rank the first member of each size class takes.
+sizeMajorRanks :: [Integer] -> [Integer]
+sizeMajorRanks = scanl (+) 0
+
+-- | The size-major rank of one position in one size class.
+rankAt :: [Integer] -> Int -> Integer -> Integer
+rankAt ranks size position = case drop (size - 1) ranks of
+    rank : _ -> rank + position
+    [] -> error $ "sizeIndex: no size class " <> show size
+
+-- | Size counts of a product: one choice from each side, so sizes add.
+productCounts :: SizeIndex (a -> b) -> SizeIndex a -> [Integer]
+productCounts indexF indexX =
     -- A product needs one choice from each side, so the smallest product is
     -- size two: the convolution starts one size later than its operands.
-    counts = 0 : mulPoly (sizeClassCounts indexF) (sizeClassCounts indexX)
+    0 : mulPoly (sizeClassCounts indexF) (sizeClassCounts indexX)
 
-    select size = go [(functionSize, size - functionSize) | functionSize <- [1 .. size - 1]]
+-- | Size counts of an already stratified language.
+classCounts :: [(Int, Integer, Integer -> a)] -> [Integer]
+classCounts classes = go 1 classes
+  where
+    go _ [] = []
+    go size all'@((classSize, count, _) : rest)
+        | size < classSize = 0 : go (size + 1) all'
+        | otherwise = count : go (size + 1) rest
+
+{- | The alternative holding one position of a size class, with the position
+rebased into it.
+-}
+partAt :: Int -> [(offset, SizeIndex a)] -> Integer -> (offset, SizeIndex a, Integer)
+partAt size = go
+  where
+    go [] _ = error "sizeIndex: position outside the size class"
+    go ((offset, inner) : rest) position
+        | position < count = (offset, inner, position)
+        | otherwise = go rest (position - count)
       where
-        go [] _ = error "sizeIndex: index outside product size class"
-        go ((functionSize, argumentSize) : rest) index
-            | index < block =
-                let (functionIndex, argumentIndex) = index `quotRem` countAtSize indexX argumentSize
-                    (functionRank, function) = sizeClassSelect indexF functionSize functionIndex
-                    (argumentRank, argument) = sizeClassSelect indexX argumentSize argumentIndex
-                 in (functionRank * radix + argumentRank, function argument)
-            | otherwise = go rest (index - block)
-          where
-            block = countAtSize indexF functionSize * countAtSize indexX argumentSize
+        count = countAtSize inner size
+
+{- | The split of a product size class holding one position, as the size and
+position of each side.
+-}
+productSplit ::
+    SizeIndex (a -> b) ->
+    SizeIndex a ->
+    Int ->
+    Integer ->
+    (Int, Integer, Int, Integer)
+productSplit indexF indexX size = go [1 .. size - 1]
+  where
+    go [] _ = error "sizeIndex: position outside the product size class"
+    go (functionSize : rest) position
+        | position < block =
+            let (functionPosition, argumentPosition) = position `quotRem` argumentCount
+             in (functionSize, functionPosition, size - functionSize, argumentPosition)
+        | otherwise = go rest (position - block)
+      where
+        argumentCount = countAtSize indexX (size - functionSize)
+        block = countAtSize indexF functionSize * argumentCount
 
 -- | Add two size-count vectors, keeping the longer tail.
 addPoly :: [Integer] -> [Integer] -> [Integer]

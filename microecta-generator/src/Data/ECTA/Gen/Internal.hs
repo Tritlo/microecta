@@ -28,6 +28,7 @@ import Data.ECTA.Gen.Internal.Decoder (
     RankDecoder (..),
     compilePlan,
  )
+import Data.ECTA.Gen.Internal.Size (SizeIndex, sizeClasses)
 import Data.ECTA.Gen.Sig (Sig (..))
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
@@ -70,6 +71,18 @@ data ECTAGenError
     | NonPositiveWeight !Integer
     | CannotInspectOpaqueGenerator
     | SelectionOutOfRange !Integer !Integer
+    | {- | An inspection that needs a finite language met a recursive one;
+      bound it with @upToSize@ first.
+      -}
+      UnboundedGenerator
+    | {- | An inspection that needs one ECTA term per member met a recursive
+      language, which retains its automaton rather than its members.
+      -}
+      CannotInspectRecursiveGenerator
+    | {- | Recursive alternatives carried unequal weights: a recursive
+      language is uniform by size, so it has no room for them.
+      -}
+      WeightedRecursiveAlternatives
     deriving (Eq, Show)
 
 -- | One term, its normalized probability mass, and its decoded value.
@@ -108,6 +121,57 @@ data Static a = Static
     { staticSupport :: !Node
     , staticOutcomes :: !(OutcomeIndex a)
     }
+
+{- | One recursive ECTA and the size-stratified language it accepts.
+
+The support is a @Mu@ node: a finite automaton standing for an unbounded
+language. Members are reached through size classes rather than a
+cardinality, and ranks are size-major, so bounding the language with
+'boundedStatic' keeps every rank it already had.
+-}
+data Recursive a = Recursive
+    { recursiveSupport :: !Node
+    , recursiveIndex :: SizeIndex a
+    }
+
+{- | Bound a recursive language to its members of size at most the bound.
+
+The result is an ordinary finite language: uniform over exactly those
+members, with the same size-major ranks the recursive language gives them,
+so a rank replays through either. The support stays the recursive
+automaton — a size bound restricts the rank space, not the set of terms the
+automaton accepts.
+
+Members carry no retained 'Term', so inspection through 'outcomeSelect'
+reports 'CannotInspectRecursiveGenerator'; sampling, unranking, and
+shrinking go through the value decoder and the plan.
+-}
+boundedStatic :: Int -> Recursive a -> Either ECTAGenError (Static a)
+boundedStatic bound recursive
+    | totalOutcomes <= 0 = Left EmptyGenerator
+    | otherwise =
+        Right $
+            Static
+                (recursiveSupport recursive)
+                ( OutcomeIndex
+                    totalOutcomes
+                    (Just $ 1 / fromInteger totalOutcomes)
+                    (const $ Left CannotInspectRecursiveGenerator)
+                    selectValue
+                    (uniformSampler totalOutcomes selectValue)
+                    plan
+                )
+  where
+    classes = sizeClasses bound $ recursiveIndex recursive
+    plan = PlanSized classes
+    totalOutcomes = sum [count | (_, count, _) <- classes]
+
+    selectValue = go classes
+      where
+        go [] _ = error "boundedStatic: rank outside the bounded language"
+        go ((_, count, decode) : rest) index
+            | index < count = decode index
+            | otherwise = go rest (index - count)
 
 -- | One compact conditional generator and its mass in the whole distribution.
 data KeyedBucket a = KeyedBucket
