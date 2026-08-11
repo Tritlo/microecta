@@ -3,9 +3,9 @@
 {- | Indexed generators whose transparent regions are represented as ECTAs.
 
 An indexed source stores a finite cardinality and a function from indices to
-values. Applicative composition builds an ECTA over those indices without
-materializing the generated values. Values are decoded only when a concrete
-term is inspected or sampled.
+values. Applicative composition tracks exact cardinalities and rank-based
+selection alongside the ECTA, without materializing the product language.
+Joins count matched key-bucket products and unrank directly within them.
 -}
 module Data.ECTA.Gen (
     Indexed (..),
@@ -22,14 +22,16 @@ module Data.ECTA.Gen (
     lower,
 ) where
 
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
 
 import Data.ECTA (
     Edge (Edge),
     Node (EmptyNode, Node),
-    getAllTerms,
     mkEdge,
     reducePartially,
  )
@@ -63,14 +65,34 @@ data ECTAGenError
     = EmptyGenerator
     | NonPositiveWeight !Integer
     | CannotInspectOpaqueGenerator
-    | InvalidGeneratorTerm !Term
     | SelectionOutOfRange !Integer !Integer
     deriving (Eq, Show)
 
--- | One transparent ECTA with a compiler from terms to weighted values.
+-- | One term, its unnormalized mass, and its decoded value.
+data Outcome a = Outcome
+    { outcomeTerm :: Term
+    , outcomeMass :: Rational
+    , outcomeValue :: a
+    }
+
+-- | A finite language with exact cardinality and rank-based selection.
+data OutcomeIndex a = OutcomeIndex
+    { outcomeCardinality :: !Integer
+    , outcomeUniformMass :: !(Maybe Rational)
+    , outcomeSelect :: Integer -> Either ECTAGenError (Outcome a)
+    }
+
+-- | One equality-key bucket used to count and unrank a conditioned product.
+data JoinGroup left right = JoinGroup
+    { joinGroupIndex :: !Int
+    , joinGroupLeft :: !(Seq (Outcome left))
+    , joinGroupRight :: !(Seq (Outcome right))
+    }
+
+-- | One transparent ECTA with a matching indexed outcome language.
 data Static a = Static
     { staticSupport :: !Node
-    , staticCompile :: Term -> Either ECTAGenError (Rational, a)
+    , staticOutcomes :: !(OutcomeIndex a)
     }
 
 -- | A generator is either inspectable ECTA structure or an opaque backend action.
@@ -193,40 +215,39 @@ mapStatic :: (a -> b) -> Static a -> Static b
 mapStatic apply static =
     Static
         (staticSupport static)
-        (fmap (fmap apply) . staticCompile static)
+        (mapOutcomeIndex apply $ staticOutcomes static)
 
 pureStatic :: a -> Static a
 pureStatic value =
     Static
         (Node [Edge pureSymbol []])
-        compile
-  where
-    compile term@(Term symbol [])
-        | symbol == pureSymbol = Right (1, value)
-        | otherwise = Left $ InvalidGeneratorTerm term
-    compile term = Left $ InvalidGeneratorTerm term
+        ( OutcomeIndex
+            1
+            (Just 1)
+            ( \index -> do
+                checkIndex 1 index
+                pure $ Outcome (Term pureSymbol []) 1 value
+            )
+        )
 
 indexedStatic :: Indexed a -> Static a
 indexedStatic indexed =
     Static
-        (Node [Edge symbol [] | symbol <- Map.keys indices])
-        compile
+        (Node [Edge (indexedSymbol index) [] | index <- [0 .. cardinality - 1]])
+        ( OutcomeIndex
+            cardinality
+            (Just $ 1 / fromInteger cardinality)
+            select
+        )
   where
     cardinality = indexedCardinality indexed
-    indices =
-        Map.fromList
-            [ (indexedSymbol index, index)
-            | index <- [0 .. cardinality - 1]
-            ]
-
-    compile term@(Term symbol []) = case Map.lookup symbol indices of
-        Just index ->
-            Right
-                ( 1 / fromInteger cardinality
-                , indexedSelect indexed index
-                )
-        Nothing -> Left $ InvalidGeneratorTerm term
-    compile term = Left $ InvalidGeneratorTerm term
+    select index = do
+        checkIndex cardinality index
+        pure $
+            Outcome
+                (Term (indexedSymbol index) [])
+                (1 / fromInteger cardinality)
+                (indexedSelect indexed index)
 
 applyStatic :: Static (a -> b) -> Static a -> Static b
 applyStatic functions values =
@@ -237,42 +258,73 @@ applyStatic functions values =
                 [staticSupport functions, staticSupport values]
             ]
         )
-        compile
+        ( OutcomeIndex
+            cardinality
+            ((*) <$> outcomeUniformMass functionOutcomes <*> outcomeUniformMass valueOutcomes)
+            select
+        )
   where
-    compile term@(Term symbol [functionTerm, valueTerm])
-        | symbol == applySymbol = do
-            (functionMass, function) <- staticCompile functions functionTerm
-            (valueMass, value) <- staticCompile values valueTerm
-            pure (functionMass * valueMass, function value)
-        | otherwise = Left $ InvalidGeneratorTerm term
-    compile term = Left $ InvalidGeneratorTerm term
+    functionOutcomes = staticOutcomes functions
+    valueOutcomes = staticOutcomes values
+    valueCardinality = outcomeCardinality valueOutcomes
+    cardinality = outcomeCardinality functionOutcomes * valueCardinality
+
+    select index = do
+        checkIndex cardinality index
+        let (functionIndex, valueIndex) = index `divMod` valueCardinality
+        functionOutcome <- outcomeSelect functionOutcomes functionIndex
+        valueOutcome <- outcomeSelect valueOutcomes valueIndex
+        pure $
+            Outcome
+                ( Term
+                    applySymbol
+                    [outcomeTerm functionOutcome, outcomeTerm valueOutcome]
+                )
+                (outcomeMass functionOutcome * outcomeMass valueOutcome)
+                (outcomeValue functionOutcome $ outcomeValue valueOutcome)
 
 frequencyStatic :: [(Integer, Static a)] -> Static a
 frequencyStatic alternatives =
     Static
         ( Node
-            [ Edge symbol [staticSupport static]
-            | (symbol, (_, static)) <- Map.toAscList branches
+            [ Edge (frequencySymbol index) [staticSupport static]
+            | (index, (_, static)) <- numbered
             ]
         )
-        compile
+        ( OutcomeIndex
+            cardinality
+            uniformMass
+            select
+        )
   where
     totalWeight = sum $ map fst alternatives
-    branches =
-        Map.fromList
-            [ (frequencySymbol index, alternative)
-            | (index, alternative) <- zip [0 :: Int ..] alternatives
-            ]
+    numbered = zip [0 :: Int ..] alternatives
+    cardinality = sum [outcomeCardinality $ staticOutcomes static | (_, static) <- alternatives]
+    uniformMass = commonValue $ map branchUniformMass alternatives
 
-    compile term@(Term symbol [child]) = case Map.lookup symbol branches of
-        Just (weight, static) -> do
-            (childMass, value) <- staticCompile static child
-            pure
-                ( fromInteger weight / fromInteger totalWeight * childMass
-                , value
+    branchUniformMass (weight, static) =
+        (fromInteger weight / fromInteger totalWeight *)
+            <$> outcomeUniformMass (staticOutcomes static)
+
+    select index = do
+        checkIndex cardinality index
+        (branchIndex, weight, static, childIndex) <- selectBranch index numbered
+        child <- outcomeSelect (staticOutcomes static) childIndex
+        pure $
+            Outcome
+                (Term (frequencySymbol branchIndex) [outcomeTerm child])
+                ( fromInteger weight
+                    / fromInteger totalWeight
+                    * outcomeMass child
                 )
-        Nothing -> Left $ InvalidGeneratorTerm term
-    compile term = Left $ InvalidGeneratorTerm term
+                (outcomeValue child)
+
+    selectBranch _ [] = Left EmptyGenerator
+    selectBranch index ((branchIndex, (weight, static)) : remaining)
+        | index < branchCardinality = Right (branchIndex, weight, static, index)
+        | otherwise = selectBranch (index - branchCardinality) remaining
+      where
+        branchCardinality = outcomeCardinality $ staticOutcomes static
 
 joinStatic ::
     (Ord key) =>
@@ -282,32 +334,43 @@ joinStatic ::
     Static right ->
     Either ECTAGenError (Static (left, right))
 joinStatic leftKey rightKey left right = do
-    leftEntries <- keyedTerms leftKey left
-    rightEntries <- keyedTerms rightKey right
+    leftEntries <- keyedOutcomes leftKey left
+    rightEntries <- keyedOutcomes rightKey right
     let shared =
             Map.intersectionWith
                 (,)
-                (groupTerms leftEntries)
-                (groupTerms rightEntries)
+                (groupOutcomes leftEntries)
+                (groupOutcomes rightEntries)
     if Map.null shared
         then Left EmptyGenerator
         else
-            let numbered = zip [0 :: Int ..] $ Map.toAscList shared
+            let groups =
+                    [ JoinGroup
+                        keyIndex
+                        (Sequence.fromList leftOutcomes)
+                        (Sequence.fromList rightOutcomes)
+                    | (keyIndex, (_, (leftOutcomes, rightOutcomes))) <-
+                        zip [0 :: Int ..] $ Map.toAscList shared
+                    ]
                 leftNode =
                     Node
                         [ Edge
                             leftKeyedSymbol
-                            [keyNode keyIndex, singletonNode term]
-                        | (keyIndex, (_, (leftTerms, _))) <- numbered
-                        , term <- leftTerms
+                            [ keyNode $ joinGroupIndex group
+                            , singletonNode $ outcomeTerm outcome
+                            ]
+                        | group <- groups
+                        , outcome <- toList $ joinGroupLeft group
                         ]
                 rightNode =
                     Node
                         [ Edge
                             rightKeyedSymbol
-                            [keyNode keyIndex, singletonNode term]
-                        | (keyIndex, (_, (_, rightTerms))) <- numbered
-                        , term <- rightTerms
+                            [ keyNode $ joinGroupIndex group
+                            , singletonNode $ outcomeTerm outcome
+                            ]
+                        | group <- groups
+                        , outcome <- toList $ joinGroupRight group
                         ]
                 joined =
                     reducePartially $
@@ -319,40 +382,65 @@ joinStatic leftKey rightKey left right = do
                             ]
              in if joined == EmptyNode
                     then Left EmptyGenerator
-                    else Right $ Static joined compile
-  where
-    compile term@(Term symbol [leftTerm, rightTerm])
-        | symbol == joinSymbol = do
-            (leftMass, leftValue) <- compileKeyed leftKeyedSymbol left leftTerm
-            (rightMass, rightValue) <- compileKeyed rightKeyedSymbol right rightTerm
-            pure (leftMass * rightMass, (leftValue, rightValue))
-        | otherwise = Left $ InvalidGeneratorTerm term
-    compile term = Left $ InvalidGeneratorTerm term
+                    else Right $ Static joined $ joinOutcomeIndex left right groups
 
-keyedTerms ::
+keyedOutcomes ::
     (value -> key) ->
     Static value ->
-    Either ECTAGenError [(key, Term)]
-keyedTerms key static =
-    traverse
-        ( \term -> do
-            (_, value) <- staticCompile static term
-            pure (key value, term)
-        )
-        (getAllTerms $ staticSupport static)
+    Either ECTAGenError [(key, Outcome value)]
+keyedOutcomes key static =
+    map (\outcome -> (key $ outcomeValue outcome, outcome))
+        <$> enumerateOutcomeIndex (staticOutcomes static)
 
-groupTerms :: (Ord key) => [(key, Term)] -> Map.Map key [Term]
-groupTerms = Map.fromListWith (<>) . map (fmap pure)
+groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
+groupOutcomes = Map.fromListWith (<>) . map (fmap pure)
 
-compileKeyed ::
-    Symbol ->
-    Static a ->
-    Term ->
-    Either ECTAGenError (Rational, a)
-compileKeyed expected static term@(Term symbol [_keyTerm, valueTerm])
-    | symbol == expected = staticCompile static valueTerm
-    | otherwise = Left $ InvalidGeneratorTerm term
-compileKeyed _ _ term = Left $ InvalidGeneratorTerm term
+joinOutcomeIndex ::
+    Static left ->
+    Static right ->
+    [JoinGroup left right] ->
+    OutcomeIndex (left, right)
+joinOutcomeIndex left right groups =
+    OutcomeIndex
+        cardinality
+        ((*) <$> outcomeUniformMass (staticOutcomes left) <*> outcomeUniformMass (staticOutcomes right))
+        select
+  where
+    cardinality = sum $ map joinGroupCardinality groups
+
+    select index = do
+        checkIndex cardinality index
+        (group, groupIndex) <- selectJoinGroup index groups
+        let rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
+            (leftIndex, rightIndex) = groupIndex `divMod` rightCardinality
+            leftOutcome = Sequence.index (joinGroupLeft group) $ fromInteger leftIndex
+            rightOutcome = Sequence.index (joinGroupRight group) $ fromInteger rightIndex
+            keyTerm = Term (keySymbol $ joinGroupIndex group) []
+            leftTerm =
+                Term leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
+            rightTerm =
+                Term rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
+        pure $
+            Outcome
+                (Term joinSymbol [leftTerm, rightTerm])
+                (outcomeMass leftOutcome * outcomeMass rightOutcome)
+                (outcomeValue leftOutcome, outcomeValue rightOutcome)
+
+joinGroupCardinality :: JoinGroup left right -> Integer
+joinGroupCardinality group =
+    toInteger (Sequence.length $ joinGroupLeft group)
+        * toInteger (Sequence.length $ joinGroupRight group)
+
+selectJoinGroup ::
+    Integer ->
+    [JoinGroup left right] ->
+    Either ECTAGenError (JoinGroup left right, Integer)
+selectJoinGroup _ [] = Left EmptyGenerator
+selectJoinGroup index (group : remaining)
+    | index < cardinality = Right (group, index)
+    | otherwise = selectJoinGroup (index - cardinality) remaining
+  where
+    cardinality = joinGroupCardinality group
 
 keyNode :: Int -> Node
 keyNode index = Node [Edge (keySymbol index) []]
@@ -363,28 +451,68 @@ singletonNode (Term symbol children) =
 
 compileOutcomes :: Static a -> Either ECTAGenError [(Rational, a)]
 compileOutcomes static = do
-    outcomes <- traverse (staticCompile static) $ getAllTerms $ staticSupport static
-    normalize outcomes
+    outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+    normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]
 
 sampleStatic ::
     (GenBackend gen) =>
     Static a ->
     gen (Either ECTAGenError a)
-sampleStatic static = case compileOutcomes static >>= integerOutcomes of
-    Left err -> pure $ Left err
-    Right outcomes ->
-        let total = sum $ map fst outcomes
-         in choose outcomes total <$> selectInteger total
+sampleStatic static
+    | Just _ <- outcomeUniformMass outcomes =
+        select <$> selectInteger cardinality
+    | otherwise = case compileOutcomes static >>= integerOutcomes of
+        Left err -> pure $ Left err
+        Right weightedOutcomes ->
+            let total = sum $ map fst weightedOutcomes
+             in choose weightedOutcomes total <$> selectInteger total
   where
-    choose outcomes total selected
+    outcomes = staticOutcomes static
+    cardinality = outcomeCardinality outcomes
+
+    select index = outcomeValue <$> outcomeSelect outcomes index
+
+    choose weightedOutcomes total selected
         | selected < 0 || selected >= total =
             Left $ SelectionOutOfRange selected total
-        | otherwise = Right $ pick selected outcomes
+        | otherwise = Right $ pick selected weightedOutcomes
 
     pick _ [] = error "sampleStatic: impossible empty distribution"
     pick selected ((weight, value) : remaining)
         | selected < weight = value
         | otherwise = pick (selected - weight) remaining
+
+mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
+mapOutcomeIndex apply outcomes =
+    OutcomeIndex
+        (outcomeCardinality outcomes)
+        (outcomeUniformMass outcomes)
+        (\index -> mapOutcome apply <$> outcomeSelect outcomes index)
+
+mapOutcome :: (a -> b) -> Outcome a -> Outcome b
+mapOutcome apply outcome =
+    Outcome
+        (outcomeTerm outcome)
+        (outcomeMass outcome)
+        (apply $ outcomeValue outcome)
+
+enumerateOutcomeIndex :: OutcomeIndex a -> Either ECTAGenError [Outcome a]
+enumerateOutcomeIndex outcomes =
+    traverse
+        (outcomeSelect outcomes)
+        [0 .. outcomeCardinality outcomes - 1]
+
+commonValue :: (Eq a) => [Maybe a] -> Maybe a
+commonValue [] = Nothing
+commonValue (Just value : remaining)
+    | all (== Just value) remaining = Just value
+commonValue _ = Nothing
+
+checkIndex :: Integer -> Integer -> Either ECTAGenError ()
+checkIndex cardinality index
+    | index < 0 || index >= cardinality =
+        Left $ SelectionOutOfRange index cardinality
+    | otherwise = Right ()
 
 normalize :: [(Rational, a)] -> Either ECTAGenError [(Rational, a)]
 normalize [] = Left EmptyGenerator

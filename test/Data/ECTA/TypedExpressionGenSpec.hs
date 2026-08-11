@@ -5,6 +5,7 @@ import Data.Ratio ((%))
 import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe)
 import qualified Test.QuickCheck as QC
 
+import Data.ECTA (getAllTerms)
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 
@@ -253,6 +254,9 @@ spec =
         it "matches the exact 29,456-expression depth-two language" $ do
             length depthTwoExpressions `shouldBe` 29456
             shouldMatchExactLanguage depthTwoExpressionGen depthTwoExpressions
+            case ECTAGen.support depthTwoExpressionGen of
+                Left err -> expectationFailure $ show err
+                Right node -> length (getAllTerms node) `shouldBe` 29456
 
         it "accepts only one ninth of the independent QuickCheck candidates" $
             ( toInteger (length depthOneExpressions)

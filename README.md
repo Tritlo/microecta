@@ -56,13 +56,18 @@ Useful operations:
 `Data.ECTA.Gen` turns a finite indexed source into an ECTA whose leaves contain
 stable indices, not generated values. `Functor` and `Applicative` composition
 preserve that symbolic structure, so ordinary `ApplicativeDo` builds ECTA
-products while decoding an index only when a term is inspected or sampled.
+products. Alongside the ECTA, the generator tracks an exact cardinality and a
+rank-to-outcome selector; applicative products multiply their counts rather
+than materializing their Cartesian products.
 
 `innerJoinOn` conditions two transparent generators by encoding their shared
-keys and adding an actual ECTA equality constraint. `pmf` enumerates the valid
-finite ECTA terms and reports their exact rational probabilities. The optional
-`microecta:quickcheck` sublibrary samples the same terms as an ordinary
-`QuickCheck.Gen` with `toGen`.
+keys and adding an actual ECTA equality constraint. It groups each input by key,
+counts the matching bucket products, and can unrank directly into the selected
+bucket. For uniformly weighted transparent languages, `toGen` therefore draws
+one rank without enumerating the final language. `pmf` still enumerates all
+ranks to report exact rational probabilities; non-uniform weighted sampling
+also uses that exact enumerated fallback. The optional `microecta:quickcheck`
+sublibrary exposes sampling as an ordinary `QuickCheck.Gen`.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)

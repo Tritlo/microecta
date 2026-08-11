@@ -7,6 +7,8 @@
 * Add indexed applicative generators represented by ECTA terms, conditioned
   joins backed by ECTA equality constraints, and an optional public QuickCheck
   adapter with an explicit opaque `fromGen` boundary.
+* Count and unrank uniform transparent generator languages without
+  materializing applicative or joined Cartesian products.
 
 ## 0.1.0.0 - 2026-06-09
 
