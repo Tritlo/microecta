@@ -269,7 +269,10 @@ language recurses with 'recurGrouped' instead.
 The self-reference has to go through this combinator. A generator that
 names itself directly, as in @tree = Branch '<$>' tree '<*>' tree@, is an
 infinite Haskell value: building it never finishes, and the failure is a
-hang or @\<\<loop\>\>@ rather than anything this library can report.
+hang or @\<\<loop\>\>@ rather than anything this library can report. In the
+other direction, a body that never uses the argument still yields a
+recursive language, which has no cardinality: drop the 'recur' when the
+language turns out to be finite.
 
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has
@@ -427,9 +430,11 @@ recurGrouped build = CyclicGrouped result
 Size is the number of source choices in a member. A recursive generator
 becomes an ordinary finite one, uniform over exactly those members and
 keeping the ranks it already had, so a rank found under one bound replays
-under any larger bound and through the unbounded generator itself. A
-generator that is not recursive is already finite and is returned
-unchanged.
+under any larger bound and through the unbounded generator itself.
+
+This bounds recursion; it does not filter a finite language. A generator
+that is not recursive is returned unchanged, members larger than the bound
+included.
 -}
 upToSize :: Int -> ECTAGen gen a -> ECTAGen gen a
 upToSize bound (Cyclic result) = Transparent $ result >>= boundedStatic bound
