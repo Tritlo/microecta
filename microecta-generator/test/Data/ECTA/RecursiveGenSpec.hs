@@ -135,6 +135,12 @@ spec = do
             ECTAGen.countAtSize (mapped :: ECTAGen Tree) 1
                 `shouldBe` Left UnguardedRecursion
 
+        it "hands back a body that never uses the argument" $ do
+            let notRecursive = ECTAGen.recur $ \_self -> Leaf <$> ECTAGen.elements [0 .. 2]
+            ECTAGen.cardinality notRecursive `shouldBe` Right 3
+            fmap numNestedMu (ECTAGen.support notRecursive) `shouldBe` Right 0
+            fmap length (ECTAGen.pmf notRecursive) `shouldBe` Right 3
+
         it "shrinks a failing member to the smallest of its size" $ do
             let containsOne (Leaf value) = value == 1
                 containsOne (Branch left right) = containsOne left || containsOne right

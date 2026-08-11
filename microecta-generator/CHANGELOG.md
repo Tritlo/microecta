@@ -92,3 +92,7 @@
   `UnboundedGenerator`, since only argument families may recurse. Internal
   invariant failures name themselves as bugs in this package so they are
   not mistaken for misuse.
+* `recur` and `recurGrouped` return the body unchanged when it never uses
+  the argument they pass it. Such a body is not recursive, so a finite one
+  stays a finite generator with a cardinality and full inspection instead of
+  becoming a language with neither.

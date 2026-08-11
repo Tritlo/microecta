@@ -179,7 +179,9 @@ by walking whole size classes below the failing member.
 The self-reference has to go through `recur`. A generator that names itself
 directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
 value: building it never finishes, and the failure is a hang rather than
-anything the library can report.
+anything the library can report. In the other direction, a body that never
+uses the argument is not recursive, and is handed back as it is: a finite
+body stays a finite generator, cardinality and inspection included.
 
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language

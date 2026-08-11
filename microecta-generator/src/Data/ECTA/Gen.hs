@@ -88,6 +88,7 @@ import Data.ECTA.Gen.Internal.Size (
     productIndex,
     sizeClassOf,
     sizeIndex,
+    usesOccurrence,
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
@@ -270,9 +271,9 @@ The self-reference has to go through this combinator. A generator that
 names itself directly, as in @tree = Branch '<$>' tree '<*>' tree@, is an
 infinite Haskell value: building it never finishes, and the failure is a
 hang or @\<\<loop\>\>@ rather than anything this library can report. In the
-other direction, a body that never uses the argument still yields a
-recursive language, which has no cardinality: drop the 'recur' when the
-language turns out to be finite.
+other direction, a body that never uses the argument is not recursive, and
+is returned as it is: a finite body stays a finite generator, with the
+cardinality and the inspection that come with it.
 
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has
@@ -284,7 +285,13 @@ that already reads that way, and the size bound, not the weights, is what
 controls how large members get.
 -}
 recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
-recur build = Cyclic result
+recur build
+    -- A body that never reaches its own occurrence is an ordinary language,
+    -- and handing it back keeps everything a finite generator can do.
+    | Right viewed <- recursiveView probeBody
+    , not $ usesOccurrence $ recursiveIndex viewed =
+        probeBody
+    | otherwise = Cyclic result
   where
     -- The body is built three times against three placeholders: once to tie
     -- the counts, once to learn whether it is well formed, and once inside
@@ -302,9 +309,11 @@ recur build = Cyclic result
             bodyOf (Cyclic $ Right $ Recursive self tied Nothing)
 
     -- Built against a probe rather than the knot: reading whether the
-    -- occurrence is guarded must not count anything, or an unguarded
-    -- definition would hang here instead of being reported.
-    probed = bodyOf (Cyclic $ Right $ Recursive EmptyNode probeIndex Nothing)
+    -- occurrence is used, and whether it is guarded, must not count
+    -- anything, or an unguarded definition would hang here instead of being
+    -- reported.
+    probeBody = build $ Cyclic $ Right $ Recursive EmptyNode probeIndex Nothing
+    probed = recursiveView probeBody
 
     result = do
         _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied Nothing)
@@ -369,7 +378,11 @@ recurGrouped ::
     (Ord key) =>
     (Grouped gen key a -> Grouped gen key a) ->
     Grouped gen key a
-recurGrouped build = CyclicGrouped result
+recurGrouped build
+    | Right groups <- recursiveGroups probeBody
+    , not $ any (usesOccurrence . recursiveIndex) groups =
+        probeBody
+    | otherwise = CyclicGrouped result
   where
     bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
 
@@ -410,7 +423,8 @@ recurGrouped build = CyclicGrouped result
             | key <- keys
             ]
 
-    probed = bodyGroups $ Map.fromList [(key, Recursive EmptyNode probeIndex Nothing) | key <- keys]
+    probeBody = build $ CyclicGrouped $ Right $ Map.fromList [(key, Recursive EmptyNode probeIndex Nothing) | key <- keys]
+    probed = recursiveGroups probeBody
 
     result = do
         bodies <- bodyGroups indexPlaceholders

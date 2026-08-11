@@ -25,6 +25,7 @@ module Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect),
     probeIndex,
     isUnguarded,
+    usesOccurrence,
     sizeIndex,
     countAtSize,
     countUpToSize,
@@ -52,6 +53,10 @@ data SizeIndex a = SizeIndex
     product. Counting such an index would consult its own size, so a
     recursive definition shaped this way has no smallest member.
     -}
+    , usedOccurrence :: Bool
+    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
+    whose body never reaches its own occurrence is not recursive.
+    -}
     }
 
 {- | A stand-in for a recursive occurrence, used to check that a recursive
@@ -66,12 +71,13 @@ probeIndex =
     SizeIndex
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
-            \a probe counts no size classes; only its guardedness is read"
+            \a probe counts no size classes; only its two flags are read"
         )
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
-            \a probe decodes no members; only its guardedness is read"
+            \a probe decodes no members; only its two flags are read"
         )
+        True
         True
 
 {- | Whether a language built around 'probeIndex' left the occurrence
@@ -79,6 +85,13 @@ unguarded, so that counting it would not terminate.
 -}
 isUnguarded :: SizeIndex a -> Bool
 isUnguarded = unguardedOccurrence
+
+{- | Whether a language built around 'probeIndex' reaches the occurrence at
+all. A body that does not is a language in its own right, not a recursive
+one.
+-}
+usesOccurrence :: SizeIndex a -> Bool
+usesOccurrence = usedOccurrence
 
 -- | The number of members of one size, zero outside the counted sizes.
 countAtSize :: SizeIndex a -> Int -> Integer
@@ -124,7 +137,7 @@ sizeClasses bound index =
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanSelect cardinality' decode) =
-    SizeIndex [cardinality'] select False
+    SizeIndex [cardinality'] select False False
   where
     select 1 position = (position, decode position)
     select size _ =
@@ -134,7 +147,7 @@ sizeIndex (PlanSelect cardinality' decode) =
                 <> show size
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
-    SizeIndex counts select False
+    SizeIndex counts select False False
   where
     entries = offsetBranches 0 branches
     offsetBranches _ [] = []
@@ -147,7 +160,7 @@ sizeIndex (PlanChoice branches) =
             (rank, value) = sizeClassSelect inner size rebased
          in (offset + rank, value)
 sizeIndex (PlanAp radix planF planX) =
-    SizeIndex counts select False
+    SizeIndex counts select False False
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
@@ -160,7 +173,7 @@ sizeIndex (PlanAp radix planF planX) =
             (argumentRank, argument) = sizeClassSelect indexX argumentSize argumentPosition
          in (functionRank * radix + argumentRank, function argument)
 sizeIndex (PlanSized classes) =
-    SizeIndex counts select False
+    SizeIndex counts select False False
   where
     counts = classCounts classes
     offsets = offsetClasses 0 classes
@@ -179,7 +192,7 @@ sizeIndex (PlanSized classes) =
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [1] select False
+    SizeIndex [1] select False False
   where
     select 1 0 = (0, value)
     select size position =
@@ -193,7 +206,11 @@ constantIndex value =
 -- | Map the values of an index, keeping its counts and ranks.
 mapIndex :: (a -> b) -> SizeIndex a -> SizeIndex b
 mapIndex transform index =
-    SizeIndex (sizeClassCounts index) select (unguardedOccurrence index)
+    SizeIndex
+        (sizeClassCounts index)
+        select
+        (unguardedOccurrence index)
+        (usedOccurrence index)
   where
     select size position =
         let (rank, value) = sizeClassSelect index size position
@@ -208,7 +225,11 @@ productIndex :: SizeIndex (a -> b) -> SizeIndex a -> SizeIndex b
 -- A product consumes one choice from each side, so counting a size only
 -- consults smaller ones: this is what guards a recursive occurrence.
 productIndex indexF indexX =
-    SizeIndex counts select False
+    SizeIndex
+        counts
+        select
+        False
+        (usedOccurrence indexF || usedOccurrence indexX)
   where
     counts = productCounts indexF indexX
     ranks = sizeMajorRanks counts
@@ -227,7 +248,11 @@ be recursive.
 -}
 choiceIndex :: [SizeIndex a] -> SizeIndex a
 choiceIndex branches =
-    SizeIndex counts select (any unguardedOccurrence branches)
+    SizeIndex
+        counts
+        select
+        (any unguardedOccurrence branches)
+        (any usedOccurrence branches)
   where
     counts = foldr (addPoly . sizeClassCounts) [] branches
     ranks = sizeMajorRanks counts
