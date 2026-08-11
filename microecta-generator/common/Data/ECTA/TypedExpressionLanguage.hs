@@ -32,6 +32,7 @@ module Data.ECTA.TypedExpressionLanguage (
     depthByType,
     expressionGenAtDepth,
     upToDepthByType,
+    recursiveExpressions,
 
     -- * Exact counts
     expressionCount,
@@ -220,6 +221,21 @@ upToDepthByType depth =
         ]
   where
     atomCount = sum $ map (expressionCount 0) allTypes
+
+{- | Every well-typed expression, as one recursive family.
+
+The same application layer as 'upToDepthByType', but referring to itself
+instead of to a hand-unrolled tower: no depth bound, no hand-computed
+weights, and members counted by size rather than by depth. All three result
+types share one recursive automaton whose cycle carries the application
+layer's equality constraints.
+-}
+recursiveExpressions :: Grouped Type TypedExpression
+recursiveExpressions = ECTAGen.muGrouped $ \self ->
+    ECTAGen.frequencies
+        [ (1, atomsByType)
+        , (1, applicationGen self)
+        ]
 
 -- | Erase the ground instantiation after constructing a typed expression.
 compileApplication ::

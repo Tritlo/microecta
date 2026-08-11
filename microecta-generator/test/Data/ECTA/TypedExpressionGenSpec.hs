@@ -2,10 +2,11 @@ module Data.ECTA.TypedExpressionGenSpec (spec) where
 
 import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
-import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges)
+import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (unsafeGetEclasses)
@@ -193,6 +194,63 @@ spec =
                             nodes (expression shrunk) `shouldBe` minimalFailingNodes
                         Left err -> expectationFailure $ show err
                 _ -> expectationFailure "expected the property to fail"
+
+        it "counts the recursive family by size, matching the depth counts" $ do
+            let flat = ECTAGen.ungroup recursiveExpressions
+            traverse (ECTAGen.countAtSize flat) [1 .. 3]
+                `shouldBe` Right
+                    [ sum (map (expressionCount 0) allTypes)
+                    , 0
+                    , sum (map (expressionCount 1) allTypes)
+                    ]
+            traverse
+                (\result -> ECTAGen.countAtSize (ECTAGen.atKey result recursiveExpressions) 3)
+                allTypes
+                `shouldBe` Right (map (expressionCount 1) allTypes)
+
+        it "generates the depth-at-most-one language at size at most three" $ do
+            let bounded = ECTAGen.upToSize 3 $ ECTAGen.ungroup recursiveExpressions
+                members generator = case ECTAGen.cardinality generator of
+                    Right total ->
+                        Right $
+                            Set.fromList
+                                [ member
+                                | rank <- [0 .. total - 1]
+                                , Right member <- [ECTAGen.unrank generator rank]
+                                ]
+                    Left err -> Left err
+            ECTAGen.cardinality bounded `shouldBe` Right 106
+            members bounded `shouldBe` members (ECTAGen.ungroup $ upToDepthByType 1)
+
+        it "retains one recursive automaton whose cycle carries the constraints" $
+            case ECTAGen.support (ECTAGen.ungroup recursiveExpressions) of
+                Left err -> expectationFailure $ show err
+                Right node -> do
+                    numNestedMu node `shouldBe` 1
+                    hasTwoArgumentConstraints node `shouldBe` True
+                    -- Unfolding the recursion twice admits the atoms and one
+                    -- application layer, and nothing ill-typed: the same 106
+                    -- members the size classes count.
+                    length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 106
+
+        it "keeps every recursive group at its own result type" $
+            traverse
+                ( \result ->
+                    let bounded = ECTAGen.upToSize 5 $ ECTAGen.atKey result recursiveExpressions
+                     in fmap
+                            (all (== result))
+                            ( traverse
+                                (fmap expressionType . ECTAGen.unrank bounded)
+                                [0 .. either (const 0) id (ECTAGen.cardinality bounded) - 1]
+                            )
+                )
+                allTypes
+                `shouldBe` Right [True, True, True]
+
+        it "samples only well-typed expressions from the recursive family" $
+            QC.withNumTests 500 $
+                QC.forAll (QC.resize 7 $ ECTAGen.toGen $ ECTAGen.ungroup recursiveExpressions) $
+                    \typed -> QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
         it "samples only well-typed depth-at-most-four expressions" $
             QC.withNumTests 1000 $
