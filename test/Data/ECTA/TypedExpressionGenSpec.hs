@@ -168,6 +168,23 @@ still only a 'TypedExpression'.
 expressionGenAtDepth :: Int -> ECTAGen TypedExpression
 expressionGenAtDepth = ECTAGen.ungroup . depthByType
 
+{- | Expressions of depth at most the bound, grouped by result type.
+
+'ECTAGen.frequencies' merges the atom layer and the application layer group
+by group. Weighting the two alternatives by their exact expression counts
+makes every expression of every admitted depth equally likely, so the whole
+bounded language is uniform.
+-}
+upToDepthByType :: Int -> Grouped Type TypedExpression
+upToDepthByType 0 = atomsByType
+upToDepthByType depth =
+    ECTAGen.frequencies
+        [ (atomCount, atomsByType)
+        , (upToDepthCount depth - atomCount, applicationGen $ upToDepthByType $ depth - 1)
+        ]
+  where
+    atomCount = sum $ map (expressionCount 0) allTypes
+
 -- | Erase the ground instantiation after constructing a typed expression.
 compileApplication ::
     BinaryFunctionInstance -> TypedExpression -> TypedExpression -> TypedExpression
@@ -189,6 +206,24 @@ expressionCount depth result =
         ]
   where
     childDepth = depth - 1
+
+-- | Number of expressions of depth at most the bound with the result type.
+expressionCountUpTo :: Int -> Type -> Integer
+expressionCountUpTo 0 result = expressionCount 0 result
+expressionCountUpTo depth result =
+    expressionCount 0 result
+        + sum
+            [ expressionCountUpTo childDepth (firstArgumentType instance_)
+                * expressionCountUpTo childDepth (secondArgumentType instance_)
+            | instance_ <- binaryFunctionInstances
+            , binaryResultType instance_ == result
+            ]
+  where
+    childDepth = depth - 1
+
+-- | Number of expressions of depth at most the bound across all result types.
+upToDepthCount :: Int -> Integer
+upToDepthCount depth = sum $ map (expressionCountUpTo depth) allTypes
 
 {- | The handwritten generator makes the dependency explicit by accepting the
 desired result type and selecting only compatible function instances. Its
@@ -347,6 +382,33 @@ spec =
                         , (TChar, 24)
                         ]
                     )
+
+        it "builds the uniform depth-at-most-two language with frequencies" $ do
+            let expectedMass = 1 / fromIntegral (upToDepthCount 2)
+                generator = ECTAGen.ungroup $ upToDepthByType 2
+            upToDepthCount 2 `shouldBe` 32970
+            ECTAGen.sizes (upToDepthByType 2)
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ (TInt, 9522)
+                        , (TBool, 17934)
+                        , (TChar, 5514)
+                        ]
+                    )
+            case ECTAGen.pmf generator of
+                Left err -> expectationFailure $ show err
+                Right outcomes -> do
+                    toInteger (length outcomes) `shouldBe` upToDepthCount 2
+                    all ((== expectedMass) . snd) outcomes `shouldBe` True
+
+        it "counts the depth-at-most-four language without enumerating it" $
+            ECTAGen.cardinality (ECTAGen.ungroup $ upToDepthByType 4)
+                `shouldBe` Right (upToDepthCount 4)
+
+        it "samples only well-typed depth-at-most-four expressions" $
+            QC.withNumTests 1000 $
+                QC.forAll (ECTAGen.toGen $ ECTAGen.ungroup $ upToDepthByType 4) $ \typed ->
+                    QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
         it "samples only well-typed depth-four expressions through ECTA" $
             QC.withNumTests 1000 $
