@@ -10,6 +10,8 @@ module Data.ECTA.Gen.Internal.Decoder (
     planCardinality,
     compilePlan,
     shrinkPlanRank,
+    planMemberSize,
+    smallerPlanMembers,
 ) where
 
 import GHC.Arr (listArray, unsafeAt)
@@ -256,3 +258,65 @@ shrinkPlanRank plan = go (normalizePlan plan)
     -- halvings of the distance back toward the original.
     towardZero index =
         [index - step | step <- takeWhile (> 0) (iterate (`div` 2) index)]
+
+{- | The size of the member a rank decodes to: its number of source choices.
+
+An atom has size one; an application adds the sizes of its operation and
+argument choices.
+-}
+planMemberSize :: Plan a -> Integer -> Int
+planMemberSize (PlanSelect _ _) _ = 1
+planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
+planMemberSize (PlanChoice branches) rank = locate 0 branches
+  where
+    locate offset ((branchCardinality, branch) : rest)
+        | rank < offset + branchCardinality = planMemberSize branch (rank - offset)
+        | otherwise = locate (offset + branchCardinality) rest
+    locate _ [] = error "planMemberSize: rank outside plan"
+planMemberSize (PlanAp radix planF planX) rank =
+    case rank `quotRem` radix of
+        (functionRank, argumentRank) ->
+            planMemberSize planF functionRank + planMemberSize planX argumentRank
+
+{- | Members of exactly the given size, as replayable rank and value.
+
+Order is fixed: branch order through choices, and ascending function size
+through products. Leaves stream lazily, so large sources are safe to cap.
+-}
+sizedMembers :: Plan a -> Int -> [(Integer, a)]
+sizedMembers (PlanSelect cardinality' decode) size
+    | size == 1 = [(index, decode index) | index <- [0 .. cardinality' - 1]]
+    | otherwise = []
+sizedMembers (PlanMap transform plan) size =
+    [(rank, transform value) | (rank, value) <- sizedMembers plan size]
+sizedMembers (PlanChoice branches) size = goBranches 0 branches
+  where
+    goBranches _ [] = []
+    goBranches offset ((branchCardinality, branch) : rest) =
+        [(offset + rank, value) | (rank, value) <- sizedMembers branch size]
+            <> goBranches (offset + branchCardinality) rest
+sizedMembers (PlanAp radix planF planX) size =
+    [ (functionRank * radix + argumentRank, function argument)
+    | functionSize <- [1 .. size - 1]
+    , (functionRank, function) <- sizedMembers planF functionSize
+    , (argumentRank, argument) <- sizedMembers planX (size - functionSize)
+    ]
+
+{- | Every member structurally smaller than the given rank's member, in size
+order, as replayable rank and value.
+
+The stream is lazy in both directions: consumers may cap it, and a size
+class larger than the consumer's demand is never forced completely.
+-}
+smallerPlanMembers :: Plan a -> Integer -> [(Integer, a)]
+smallerPlanMembers plan rank = go 1 0
+  where
+    normalized = normalizePlan plan
+    bound = planMemberSize normalized rank
+    total = planCardinality normalized
+    go currentSize seen
+        | currentSize >= bound || seen >= total = []
+        | otherwise =
+            members <> go (currentSize + 1) (seen + toInteger (length members))
+      where
+        members = sizedMembers normalized currentSize

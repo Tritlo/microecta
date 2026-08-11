@@ -427,6 +427,35 @@ spec =
                     shown `shouldSatisfy` (show minimal `isSuffixOf`)
                 _ -> expectationFailure "expected the depth property to fail"
 
+        it "shrinks to the globally smallest failing member" $ do
+            let generator = ECTAGen.ungroup $ upToDepthByType 2
+                containsAdd (ApplyBinary function_ first second) =
+                    function_ == Add || containsAdd first || containsAdd second
+                containsAdd _ = False
+                nodes (ApplyBinary _ first second) = 1 + nodes first + nodes second
+                nodes _ = 1
+                failing typed =
+                    containsAdd (expression typed)
+                        && expressionDepth (expression typed) >= 2
+                minimalFailingNodes = case ECTAGen.pmf generator of
+                    Right outcomes ->
+                        minimum [nodes (expression typed) | (typed, _) <- outcomes, failing typed]
+                    Left err -> error $ show err
+            result <-
+                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False} $
+                    QC.withNumTests 500 $
+                        ECTAGen.forAll generator $ \typed ->
+                            not (failing typed)
+            case result of
+                QC.Failure{QC.failingTestCase = [shown]} -> do
+                    let rank = read (takeWhile (/= ':') (drop 5 shown)) :: Integer
+                    case ECTAGen.unrank generator rank of
+                        Right shrunk -> do
+                            failing shrunk `shouldBe` True
+                            nodes (expression shrunk) `shouldBe` minimalFailingNodes
+                        Left err -> expectationFailure $ show err
+                _ -> expectationFailure "expected the property to fail"
+
         it "samples only well-typed depth-at-most-four expressions" $
             QC.withNumTests 1000 $
                 QC.forAll (ECTAGen.toGen $ ECTAGen.ungroup $ upToDepthByType 4) $ \typed ->

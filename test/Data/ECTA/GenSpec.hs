@@ -430,6 +430,44 @@ spec = do
               ]
                 `shouldSatisfy` and
 
+        it "streams exactly the structurally smaller members in size order" $ do
+            let atomsFamily =
+                    snd <$> Core.groupBy fst (Core.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
+                operations =
+                    Core.groupBy
+                        (\(_, leftKey, rightKey, resultKey) -> leftKey :* rightKey :-> resultKey)
+                        (Core.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
+                mixed :: Core.ECTAGen Exact String
+                mixed =
+                    Core.ungroup $
+                        Core.frequencies
+                            [ (3, atomsFamily)
+                            ,
+                                ( 8
+                                , Core.apply
+                                    ((\(name, _, _, _) left right -> name <> left <> right) <$> operations)
+                                    (atomsFamily :& atomsFamily :& ANil)
+                                )
+                            ]
+            case Core.cardinality mixed of
+                Left err -> expectationFailure $ show err
+                Right total -> do
+                    let applicationRanks =
+                            [ rank
+                            | rank <- [0 .. total - 1]
+                            , Right value <- [Core.unrank mixed rank]
+                            , length value == 3
+                            ]
+                    case applicationRanks of
+                        (firstApplication : _) -> do
+                            map snd (Core.smallerMembers mixed firstApplication)
+                                `shouldBe` ["x", "y", "z"]
+                            [ Core.unrank mixed rank == Right value
+                              | (rank, value) <- Core.smallerMembers mixed firstApplication
+                              ]
+                                `shouldSatisfy` and
+                        [] -> expectationFailure "expected an application member"
+
         it "produces exactly the structural shrink candidates of a product" $
             let pairs :: Core.ECTAGen Exact (Int, Char)
                 pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"

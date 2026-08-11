@@ -27,6 +27,8 @@ module Data.ECTA.Gen.QuickCheck (
     cardinality,
     unrank,
     shrinkRank,
+    smallerMembers,
+    sizeOfRank,
     countBy,
     pmf,
     fromGen,
@@ -179,6 +181,16 @@ unrank = ECTA.unrank
 shrinkRank :: ECTAGen a -> Integer -> [Integer]
 shrinkRank = ECTA.shrinkRank
 
+{- | Every member structurally smaller than the given rank's member, in size
+order, as replayable rank and value. The stream is lazy; cap it before use.
+-}
+smallerMembers :: ECTAGen a -> Integer -> [(Integer, a)]
+smallerMembers = ECTA.smallerMembers
+
+-- | The number of source choices in the member a rank decodes to.
+sizeOfRank :: ECTAGen a -> Integer -> Maybe Int
+sizeOfRank = ECTA.sizeOfRank
+
 -- | Count ranked outcomes by a projected key.
 countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either ECTAGenError (Map key Integer)
 countBy = ECTA.countBy
@@ -216,14 +228,17 @@ toGenWithRank generator
         either (error . ("ECTAGen: " <>) . show) id
             <$> toGenWithRankEither generator
 
-{- | Check a property over a transparent generator, shrinking structurally.
+{- | Check a property over a transparent generator, shrinking to the
+smallest failing member.
 
-Sampling retains the replay rank, and shrink candidates come from
-'shrinkRank': every candidate is itself a member of the generated language,
-so shrinking can never leave the constraints. Earlier alternatives shrink to
-their minimal members first, so list base alternatives first in layered
-generators. The failing rank is printed with the counterexample, so 'unrank'
-replays it deterministically.
+Shrink candidates first search every structurally smaller member in size
+order, capped at 'smallerMemberLimit', so the result is the globally
+smallest failing member whenever the search reaches one. Structural
+component shrinking through 'shrinkRank' follows as a fallback, restricted
+to candidates of at most the current size so shrinking always terminates.
+Every candidate is a member of the generated language, and the failing rank
+is printed with the counterexample, so 'unrank' replays it
+deterministically.
 -}
 forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
 forAll generator prop =
@@ -234,12 +249,20 @@ forAll generator prop =
         (prop . snd)
   where
     shrinkCandidates (rank, _) =
-        [ (candidate, value)
-        | candidate <- shrinkRank generator rank
-        , Right value <- [unrank generator candidate]
-        ]
+        take smallerMemberLimit (smallerMembers generator rank)
+            <> [ (candidate, value)
+               | candidate <- shrinkRank generator rank
+               , sizeOfRank generator candidate <= sizeOfRank generator rank
+               , Right value <- [unrank generator candidate]
+               ]
 
     showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
+
+{- | 'forAll' tests at most this many structurally smaller members per shrink
+step before falling back to component shrinking.
+-}
+smallerMemberLimit :: Int
+smallerMemberLimit = 1000
 
 {- | Build the generator from QuickCheck's size parameter.
 

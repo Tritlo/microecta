@@ -34,6 +34,8 @@ module Data.ECTA.Gen (
     cardinality,
     unrank,
     shrinkRank,
+    smallerMembers,
+    sizeOfRank,
     countBy,
     pmf,
     lower,
@@ -45,17 +47,15 @@ module Data.ECTA.Gen (
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (
-    Edge (Edge),
-    Node (EmptyNode, Node),
-    mkEdge,
-    reducePartially,
- )
+import Data.ECTA (Node)
 import Data.ECTA.Gen.Internal
-import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..), shrinkPlanRank)
+import Data.ECTA.Gen.Internal.Decoder (
+    RankDecoder (..),
+    planMemberSize,
+    shrinkPlanRank,
+    smallerPlanMembers,
+ )
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
 
 {- | A transparent generator whose values are classified by a projected key.
 
@@ -415,6 +415,35 @@ shrinkRank (Transparent (Right static)) rank
   where
     outcomes = staticOutcomes static
 shrinkRank _ _ = []
+
+{- | Every member structurally smaller than the given rank's member, in size
+order, as replayable rank and value.
+
+Size is the number of source choices in a member. The stream is lazy, so cap
+it before use; a smallest failing member found in it is globally minimal.
+Opaque generators and out-of-range ranks have no smaller members.
+-}
+smallerMembers :: ECTAGen gen a -> Integer -> [(Integer, a)]
+smallerMembers (Transparent (Right static)) rank
+    | rank >= 0
+    , rank < outcomeCardinality outcomes =
+        smallerPlanMembers (outcomePlan outcomes) rank
+  where
+    outcomes = staticOutcomes static
+smallerMembers _ _ = []
+
+{- | The number of source choices in the member a rank decodes to.
+
+'Nothing' for opaque generators and out-of-range ranks.
+-}
+sizeOfRank :: ECTAGen gen a -> Integer -> Maybe Int
+sizeOfRank (Transparent (Right static)) rank
+    | rank >= 0
+    , rank < outcomeCardinality outcomes =
+        Just $ planMemberSize (outcomePlan outcomes) rank
+  where
+    outcomes = staticOutcomes static
+sizeOfRank _ _ = Nothing
 
 -- | Count ranked outcomes by a projected key without aggregating equal values.
 countBy :: (Ord key) => (a -> key) -> ECTAGen gen a -> Either ECTAGenError (Map.Map key Integer)
