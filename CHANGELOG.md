@@ -4,9 +4,9 @@
 
 * Relax package lower bounds to less precise minor-version floors while keeping
   the existing upper bounds.
-* Add resumable and bounded complete-term sampling.
-* Add a compiled generator for finite ECTAs with nested and overlapping
-  equality constraints.
+* Add indexed applicative generators represented by ECTA terms, conditioned
+  joins backed by ECTA equality constraints, and an optional public QuickCheck
+  adapter with an explicit opaque `fromGen` boundary.
 
 ## 0.1.0.0 - 2026-06-09
 

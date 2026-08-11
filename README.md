@@ -50,38 +50,42 @@ Useful operations:
 - `nodeRepresentsTemplate` checks pruning-template membership; a template
   symbol named `<v>` acts as a wildcard.
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms.
-- `sampleTerm` selects one accepted term without enumerating all complete terms.
 
-## Sampling API
+## Indexed generator adapter
 
-`startTermSearch` creates a persistent search value. `stepTermSearch` exposes
-one ECTA edge choice at a time. A caller can retain unselected `TermBranch`
-values and continue them later with `followTermBranch`.
+`Data.ECTA.Gen` turns a finite indexed source into an ECTA whose leaves contain
+stable indices, not generated values. `Functor` and `Applicative` composition
+preserve that symbolic structure, so ordinary `ApplicativeDo` builds ECTA
+products while decoding an index only when a term is inspected or sampled.
 
-`sampleTerm` implements bounded depth-first sampling over this interface. The
-caller supplies the branch selector and its state, so `microecta` does not need
-a random-number or property-testing dependency. Use `sampleTermSearch` with one
-shared `TermSearch` when sampling repeatedly. Evaluated search prefixes and
-their enumeration states are then reused. The sampler retries with bounded
-backtracking if a selected branch cannot satisfy its constraints.
-`sampleTermSearchByCount` avoids branch metadata when the selector needs only
-the number of alternatives.
+`innerJoinOn` conditions two transparent generators by encoding their shared
+keys and adding an actual ECTA equality constraint. `pmf` enumerates the valid
+finite ECTA terms and reports their exact rational probabilities. The optional
+`microecta:quickcheck` sublibrary samples the same terms as an ordinary
+`QuickCheck.Gen` with `toGen`.
 
-Sampling is weighted by local branch selections. It is not uniform over
-distinct complete terms. Recursive callers should first construct a finite
-automaton, for example with `unfoldBounded`, or set limits that report failure
-at the required boundary.
+```haskell
+import Data.ECTA.Gen.QuickCheck (ECTAGen)
+import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
 
-`compileGenerationPlan` is a faster bounded-memory path for finite ECTAs. It
-turns equality classes on any edge into shared value slots and constant-folds
-finite domain terms. It also synchronizes overlapping slots, such as equality
-on a record and equality on one field of that record. Each slot occurrence must
-have the same reduced ECTA node. Recursive and empty nodes are rejected. Use
-`sampleGenerationPlan` to sample the checked plan repeatedly.
-`compileRootGenerationPlan` is a compatibility name for the same compiler.
-If an earlier random choice cannot extend through overlapping slots, sampling
-returns `GenerationPlanInconsistentSlots`. The search API remains the complete
-backtracking path.
+joined :: ECTAGen (Authentication, Filesystem)
+joined =
+  ECTAGen.innerJoinOn
+    authenticatedUser
+    fileOwner
+    authentication
+    filesystem
+```
+
+`fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
+it needs only a cardinality and a stable function from an integer index to a
+value. `elements` is the corresponding list convenience function.
+
+`fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
+Opaque regions still compose and sample, but cannot be inspected with `pmf`;
+joining through one falls back to QuickCheck rejection. There is deliberately
+no `Monad` or `Selective` instance. This keeps inspectable applicative regions
+inside ECTA and makes the loss of structure explicit.
 
 ## Pruning API
 
@@ -135,6 +139,9 @@ the pieces that downstream projects still use:
 
 - `Data.ECTA` is the main ECTA API: node and edge construction, intersection,
   reduction, traversal, and enumeration.
+- `Data.ECTA.Gen` is the indexed, applicative ECTA generator core.
+- `Data.ECTA.Gen.QuickCheck` adds the opaque `fromGen` boundary and samples
+  generators through the optional `microecta:quickcheck` sublibrary.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
@@ -157,6 +164,7 @@ The library dependency set is intentionally small:
 - `equivalence`
 
 `equivalence` is retained for equality-constraint closure in the path logic.
+The optional `microecta:quickcheck` sublibrary adds `QuickCheck`.
 
 ## Performance Notes
 

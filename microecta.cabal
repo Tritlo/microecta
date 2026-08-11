@@ -1,4 +1,4 @@
-cabal-version: 2.4
+cabal-version: 3.0
 name: microecta
 version: 0.1.0.0
 synopsis: Small equality-constrained tree automata core
@@ -70,8 +70,8 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
+    Data.ECTA.Gen
     Data.ECTA.Internal.ECTA.Enumeration
-    Data.ECTA.Internal.ECTA.Generation
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
     Data.ECTA.Internal.Paths
@@ -99,6 +99,16 @@ library
     transformers >=0.6 && <0.7,
     unordered-containers >=0.2 && <0.3,
 
+library quickcheck
+  import: warnings, extensions
+  visibility: public
+  hs-source-dirs: quickcheck
+  exposed-modules: Data.ECTA.Gen.QuickCheck
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.13 && <5,
+    microecta,
+
 test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
@@ -111,6 +121,8 @@ test-suite unit-tests
     -Wno-orphans
 
   other-modules:
+    Data.ECTA.GenSpec
+    Data.ECTA.TypedExpressionGenSpec
     Data.Persistent.UnionFindSpec
     ECTASpec
     PathsSpec
@@ -125,6 +137,7 @@ test-suite unit-tests
     hashable,
     hspec,
     microecta,
+    microecta:quickcheck,
     mtl,
     text,
     unordered-containers,

@@ -27,20 +27,6 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     pruneDeps,
     initEnumerationState,
     EnumerateM,
-    TermSearch,
-    TermSearchStep (..),
-    TermBranch,
-    BranchInfo (..),
-    startTermSearch,
-    stepTermSearch,
-    termBranchInfo,
-    followTermBranch,
-    SampleLimits (..),
-    defaultSampleLimits,
-    SampleError (..),
-    sampleTermSearch,
-    sampleTermSearchByCount,
-    sampleTerm,
     getUVarRepresentative,
     assimilateUvarVal,
     mergeNodeIntoUVarVal,
@@ -68,14 +54,10 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     enumPrune,
 ) where
 
-import Control.Applicative (Alternative (..))
-import Control.Monad (MonadPlus (..), ap, filterM, forM_, guard, void, zipWithM)
+import Control.Monad (filterM, forM_, guard, mzero, void, zipWithM)
 import Control.Monad.State.Strict (StateT (..), gets, modify')
-import qualified Control.Monad.State.Strict as State
 import Control.Monad.Trans.Class (lift)
 import qualified Data.IntMap as IntMap
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (fromMaybe)
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
@@ -108,67 +90,6 @@ data TermFragment
 termFragToTruncatedTerm :: TermFragment -> Term
 termFragToTruncatedTerm (TermFragmentNode s ts) = Term s (map termFragToTruncatedTerm ts)
 termFragToTruncatedTerm (TermFragmentUVar uv) = Term (Symbol $ "v" <> pretty (uvarToInt uv)) []
-
----------------------------------------------------------------------------
------------------------------- Search tree -------------------------------
----------------------------------------------------------------------------
-
--- | Lazy nondeterministic computation with explicit local choices.
-data SearchTree a
-    = SearchTreeDead
-    | SearchTreeDone a
-    | SearchTreeChoice (NonEmpty (SearchTreeBranch a))
-
--- | One labeled continuation in a search-tree choice.
-data SearchTreeBranch a = SearchTreeBranch !(Maybe Symbol) !(SearchTree a)
-
-instance Functor SearchTree where
-    fmap _ SearchTreeDead = SearchTreeDead
-    fmap f (SearchTreeDone x) = SearchTreeDone (f x)
-    fmap f (SearchTreeChoice branches) = SearchTreeChoice (fmap mapBranch branches)
-      where
-        mapBranch (SearchTreeBranch label search) = SearchTreeBranch label (fmap f search)
-
-instance Applicative SearchTree where
-    pure = SearchTreeDone
-    (<*>) = ap
-
-instance Monad SearchTree where
-    SearchTreeDead >>= _ = SearchTreeDead
-    SearchTreeDone x >>= f = f x
-    SearchTreeChoice branches >>= f = SearchTreeChoice (fmap bindBranch branches)
-      where
-        bindBranch (SearchTreeBranch label search) = SearchTreeBranch label (search >>= f)
-
-instance MonadFail SearchTree where
-    fail _ = SearchTreeDead
-
-instance Alternative SearchTree where
-    empty = SearchTreeDead
-    SearchTreeDead <|> right = right
-    left <|> SearchTreeDead = left
-    left <|> right =
-        SearchTreeChoice
-            (SearchTreeBranch Nothing left :| [SearchTreeBranch Nothing right])
-
-instance MonadPlus SearchTree where
-    mzero = empty
-    mplus = (<|>)
-
--- | Collect all search results in depth-first order.
-searchTreeResults :: SearchTree a -> [a]
-searchTreeResults SearchTreeDead = []
-searchTreeResults (SearchTreeDone x) = [x]
-searchTreeResults (SearchTreeChoice branches) =
-    concatMap (\(SearchTreeBranch _ search) -> searchTreeResults search) branches
-
--- | Create an explicit search choice for multiple ECTA edges.
-chooseEdges :: [Edge] -> EnumerateM Edge
-chooseEdges [] = mzero
-chooseEdges [edge] = pure edge
-chooseEdges (edge : edges) = lift $ SearchTreeChoice (toBranch edge :| map toBranch edges)
-  where
-    toBranch e = SearchTreeBranch (Just (edgeSymbol e)) (SearchTreeDone e)
 
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
@@ -294,11 +215,11 @@ initEnumerationState n =
 ---------------------
 
 -- | Nondeterministic enumeration state monad.
-type EnumerateM = StateT EnumerationState SearchTree
+type EnumerateM = StateT EnumerationState []
 
 -- | Run a lower-level enumeration action from an explicit state.
 runEnumerateM :: EnumerateM a -> EnumerationState -> [(a, EnumerationState)]
-runEnumerateM action = searchTreeResults . runStateT action
+runEnumerateM = runStateT
 
 -- Prune deps --
 
@@ -473,7 +394,7 @@ enumerateNode scs n =
      in case hereConstraints of
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
-                Node es -> enumerateEdge scs =<< chooseEdges es
+                Node es -> enumerateEdge scs =<< lift es
                 _ -> error $ "enumerateNode: unexpected node " <> show n
             (x :<| xs) -> do
                 reps <- mapM (getUVarRepresentative . scGetUVar) hereConstraints
@@ -751,38 +672,8 @@ expandTermFrag (TermFragmentUVar uv) =
 -- | Expand an already-enumerated UVar into a concrete term.
 expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do
-    values <- gets _uvarValues
-    representatives <- gets _uvarRepresentative
-    return $
-        State.evalState
-            (expandUVarMemo representatives values uv)
-            IntMap.empty
-
--- | Expand a UVar once and share equal subterms in the result.
-expandUVarMemo ::
-    UnionFind ->
-    Seq UVarValue ->
-    UVar ->
-    State.State (IntMap.IntMap Term) Term
-expandUVarMemo representatives values = expandUVar'
-  where
-    expandFragment (TermFragmentNode symbol children) =
-        Term symbol <$> mapM expandFragment children
-    expandFragment (TermFragmentUVar child) = expandUVar' child
-
-    expandUVar' child = do
-        let (representative, _) = UnionFind.find child representatives
-            index = uvarToInt representative
-        cached <- State.gets (IntMap.lookup index)
-        case cached of
-            Just term -> return term
-            Nothing -> case Sequence.index values index of
-                UVarEnumerated fragment -> do
-                    term <- expandFragment fragment
-                    State.modify' (IntMap.insert index term)
-                    return term
-                UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-                _ -> error "expandUVarMemo: Non-recursive, unenumerated node encountered"
+    UVarEnumerated t <- getUVarValue uv
+    expandTermFrag t
 
 ---------------------
 -------- Full enumeration
@@ -830,316 +721,6 @@ enumPrune a oracle = do
     finished <- enumerateFully' a True oracle
     if finished then expandUVar (intToUVar 0) else mzero
 
-{- | Resumable search for complete terms represented by an ECTA.
-
-Use 'stepTermSearch' to inspect one edge choice at a time. The search value is
-persistent, so callers can retain unselected branches for backtracking.
--}
-newtype TermSearch = TermSearch (SearchTree Term)
-
--- | One observable step in a term search.
-data TermSearchStep
-    = TermSearchDead
-    | TermSearchDone !Term
-    | TermSearchChoice !(NonEmpty TermBranch)
-
--- | One alternative from an ECTA edge choice.
-data TermBranch = TermBranch !BranchInfo !TermSearch
-
--- | Information that a branch-selection policy can inspect.
-newtype BranchInfo = BranchInfo
-    { branchSymbol :: Maybe Symbol
-    }
-    deriving (Eq, Ord, Show)
-
--- | Limits for one sampling attempt.
-data SampleLimits = SampleLimits
-    { sampleChoiceLimit :: !Int
-    , sampleBacktrackLimit :: !Int
-    }
-    deriving (Eq, Ord, Show)
-
--- | Failures reported by bounded sampling.
-data SampleError
-    = SampleNoAcceptedTerm
-    | SampleChoiceLimitExceeded
-    | SampleBacktrackLimitExceeded
-    | SampleInvalidChoiceIndex !Int !Int
-    deriving (Eq, Ord, Show)
-
--- | Conservative limits suitable for finite testing automata.
-defaultSampleLimits :: SampleLimits
-defaultSampleLimits =
-    SampleLimits
-        { sampleChoiceLimit = 100000
-        , sampleBacktrackLimit = 10000
-        }
-
--- | Start a resumable search without a pruning oracle.
-startTermSearch :: Node -> TermSearch
-startTermSearch n =
-    TermSearch $
-        fmap fst $
-            runStateT
-                (enumPrune () (\_ _ _ -> return (False, ())))
-                (initEnumerationState n)
-
--- | Inspect the next result or edge choice in a term search.
-stepTermSearch :: TermSearch -> TermSearchStep
-stepTermSearch (TermSearch SearchTreeDead) = TermSearchDead
-stepTermSearch (TermSearch (SearchTreeDone term)) = TermSearchDone term
-stepTermSearch (TermSearch (SearchTreeChoice branches)) =
-    TermSearchChoice (fmap toTermBranch branches)
-  where
-    toTermBranch (SearchTreeBranch label search) =
-        TermBranch (BranchInfo label) (TermSearch search)
-
--- | Return the metadata for one term-search branch.
-termBranchInfo :: TermBranch -> BranchInfo
-termBranchInfo (TermBranch info _) = info
-
--- | Continue a term search through one branch.
-followTermBranch :: TermBranch -> TermSearch
-followTermBranch (TermBranch _ search) = search
-
-{- | Select one complete term without enumerating all complete terms.
-
-The selector receives the available branch metadata and must return a zero-based
-index plus its next state. Unselected alternatives remain available for bounded
-depth-first backtracking.
--}
-sampleTerm ::
-    SampleLimits ->
-    (NonEmpty BranchInfo -> g -> (Int, g)) ->
-    g ->
-    Node ->
-    Either SampleError (Term, g)
-sampleTerm limits select initialState = go 0 0 initialState [] . startTermSearch
-  where
-    go choices backtracks selectorState pending search =
-        case stepTermSearch search of
-            TermSearchDead ->
-                case pending of
-                    [] -> Left SampleNoAcceptedTerm
-                    next : rest
-                        | backtracks >= sampleBacktrackLimit limits ->
-                            Left SampleBacktrackLimitExceeded
-                        | otherwise ->
-                            go choices (backtracks + 1) selectorState rest next
-            TermSearchDone term -> Right (term, selectorState)
-            TermSearchChoice branches
-                | choices >= sampleChoiceLimit limits -> Left SampleChoiceLimitExceeded
-                | otherwise ->
-                    let infos = fmap termBranchInfo branches
-                        (selectedIndex, selectorState') = select infos selectorState
-                        branchCount = length (NonEmpty.toList branches)
-                     in case removeAt selectedIndex (NonEmpty.toList branches) of
-                            Nothing -> Left (SampleInvalidChoiceIndex selectedIndex branchCount)
-                            Just (selected, remaining) ->
-                                let pending' = maybe pending (: pending) (searchFor remaining)
-                                 in go
-                                        (choices + 1)
-                                        backtracks
-                                        selectorState'
-                                        pending'
-                                        (followTermBranch selected)
-
-    removeAt i xs
-        | i < 0 = Nothing
-        | otherwise =
-            case splitAt i xs of
-                (before, selected : after) -> Just (selected, before <> after)
-                _ -> Nothing
-
-    searchFor [] = Nothing
-    searchFor (branch : branches) =
-        Just $
-            TermSearch $
-                SearchTreeChoice
-                    (toSearchBranch branch :| map toSearchBranch branches)
-
-    toSearchBranch (TermBranch (BranchInfo label) (TermSearch search)) =
-        SearchTreeBranch label search
-
--- | Select a complete term and retain alternatives only for backtracking.
-sampleTermBacktracking ::
-    SampleLimits ->
-    (NonEmpty BranchInfo -> g -> (Int, g)) ->
-    g ->
-    TermSearch ->
-    Either SampleError (Term, g)
-sampleTermBacktracking limits select initialState (TermSearch initialSearch) =
-    go 0 0 initialState [] initialSearch
-  where
-    go choices backtracks selectorState pending search =
-        case search of
-            SearchTreeDead ->
-                case pending of
-                    [] -> Left SampleNoAcceptedTerm
-                    next : rest
-                        | backtracks >= sampleBacktrackLimit limits ->
-                            Left SampleBacktrackLimitExceeded
-                        | otherwise ->
-                            go choices (backtracks + 1) selectorState rest next
-            SearchTreeDone term -> Right (term, selectorState)
-            SearchTreeChoice branches
-                | choices >= sampleChoiceLimit limits -> Left SampleChoiceLimitExceeded
-                | otherwise ->
-                    let infos = fmap (BranchInfo . searchTreeBranchLabel) branches
-                        (selectedIndex, selectorState') = select infos selectorState
-                        branchCount = NonEmpty.length branches
-                     in case removeSearchBranchAt selectedIndex branches of
-                            Nothing -> Left (SampleInvalidChoiceIndex selectedIndex branchCount)
-                            Just (selected, remaining) ->
-                                go
-                                    (choices + 1)
-                                    backtracks
-                                    selectorState'
-                                    (maybe pending (: pending) remaining)
-                                    (searchTreeBranchSearch selected)
-
-{- | Select one term from a reusable search.
-
-The search is persistent. Reusing it shares the evaluated search prefixes and
-their enumeration states between samples. A successful branch does not retain
-backtracking alternatives. If it reaches a dead end, the sampler restarts with
-bounded backtracking.
--}
-sampleTermSearch ::
-    SampleLimits ->
-    (NonEmpty BranchInfo -> g -> (Int, g)) ->
-    g ->
-    TermSearch ->
-    Either SampleError (Term, g)
-sampleTermSearch limits select initialState initialSearch =
-    case goFast 0 initialState initialSearch of
-        Left SampleNoAcceptedTerm ->
-            sampleTermBacktracking limits select initialState initialSearch
-        result -> result
-  where
-    goFast choices selectorState (TermSearch search) =
-        case search of
-            SearchTreeDead -> Left SampleNoAcceptedTerm
-            SearchTreeDone term -> Right (term, selectorState)
-            SearchTreeChoice branches
-                | choices >= sampleChoiceLimit limits -> Left SampleChoiceLimitExceeded
-                | otherwise ->
-                    let infos = fmap (BranchInfo . searchTreeBranchLabel) branches
-                        (selectedIndex, selectorState') = select infos selectorState
-                        branchCount = NonEmpty.length branches
-                     in case selectAt selectedIndex branches of
-                            Nothing -> Left (SampleInvalidChoiceIndex selectedIndex branchCount)
-                            Just selected ->
-                                goFast
-                                    (choices + 1)
-                                    selectorState'
-                                    (TermSearch $ searchTreeBranchSearch selected)
-
-    selectAt i _ | i < 0 = Nothing
-    selectAt 0 (branch :| _) = Just branch
-    selectAt i (_ :| branches) = goTo (i - 1) branches
-      where
-        goTo _ [] = Nothing
-        goTo 0 (branch : _) = Just branch
-        goTo n (_ : rest) = goTo (n - 1) rest
-{-# INLINE sampleTermSearch #-}
-
-{- | Select one term when the policy needs only the branch count.
-
-This variant does not allocate branch metadata. Use 'sampleTermSearch' when a
-policy must inspect branch symbols.
--}
-sampleTermSearchByCount ::
-    SampleLimits ->
-    (Int -> g -> (Int, g)) ->
-    g ->
-    TermSearch ->
-    Either SampleError (Term, g)
-sampleTermSearchByCount limits select initialState initialSearch =
-    case goFast 0 initialState initialSearch of
-        Left SampleNoAcceptedTerm -> go 0 0 initialState [] initialSearch
-        result -> result
-  where
-    goFast choices selectorState (TermSearch search) =
-        case search of
-            SearchTreeDead -> Left SampleNoAcceptedTerm
-            SearchTreeDone term -> Right (term, selectorState)
-            SearchTreeChoice branches
-                | choices >= sampleChoiceLimit limits -> Left SampleChoiceLimitExceeded
-                | otherwise ->
-                    let branchCount = NonEmpty.length branches
-                        (selectedIndex, selectorState') = select branchCount selectorState
-                     in case selectAt selectedIndex branches of
-                            Nothing -> Left (SampleInvalidChoiceIndex selectedIndex branchCount)
-                            Just selected ->
-                                goFast
-                                    (choices + 1)
-                                    selectorState'
-                                    (TermSearch $ searchTreeBranchSearch selected)
-
-    go choices backtracks selectorState pending (TermSearch search) =
-        case search of
-            SearchTreeDead ->
-                case pending of
-                    [] -> Left SampleNoAcceptedTerm
-                    next : rest
-                        | backtracks >= sampleBacktrackLimit limits ->
-                            Left SampleBacktrackLimitExceeded
-                        | otherwise ->
-                            go choices (backtracks + 1) selectorState rest (TermSearch next)
-            SearchTreeDone term -> Right (term, selectorState)
-            SearchTreeChoice branches
-                | choices >= sampleChoiceLimit limits -> Left SampleChoiceLimitExceeded
-                | otherwise ->
-                    let branchCount = NonEmpty.length branches
-                        (selectedIndex, selectorState') = select branchCount selectorState
-                     in case removeSearchBranchAt selectedIndex branches of
-                            Nothing -> Left (SampleInvalidChoiceIndex selectedIndex branchCount)
-                            Just (selected, remaining) ->
-                                go
-                                    (choices + 1)
-                                    backtracks
-                                    selectorState'
-                                    (maybe pending (: pending) remaining)
-                                    (TermSearch $ searchTreeBranchSearch selected)
-
-    selectAt i _ | i < 0 = Nothing
-    selectAt 0 (branch :| _) = Just branch
-    selectAt i (_ :| branches) = goTo (i - 1) branches
-      where
-        goTo _ [] = Nothing
-        goTo 0 (branch : _) = Just branch
-        goTo n (_ : rest) = goTo (n - 1) rest
-{-# INLINE sampleTermSearchByCount #-}
-
--- | Select one branch and package the other branches as one search.
-removeSearchBranchAt ::
-    Int ->
-    NonEmpty (SearchTreeBranch a) ->
-    Maybe (SearchTreeBranch a, Maybe (SearchTree a))
-removeSearchBranchAt index (first :| rest)
-    | index < 0 = Nothing
-    | otherwise = go [] index (first : rest)
-  where
-    go _ _ [] = Nothing
-    go before 0 (selected : after) =
-        Just (selected, searchChoice $ reverse before <> after)
-    go before i (branch : branches) = go (branch : before) (i - 1) branches
-
-    searchChoice [] = Nothing
-    searchChoice (branch : branches) =
-        Just $ SearchTreeChoice (branch :| branches)
-
--- | Return the label attached to a search branch.
-searchTreeBranchLabel :: SearchTreeBranch a -> Maybe Symbol
-searchTreeBranchLabel (SearchTreeBranch label _) = label
-
--- | Return the continuation attached to a search branch.
-searchTreeBranchSearch :: SearchTreeBranch a -> SearchTree a
-searchTreeBranchSearch (SearchTreeBranch _ search) = search
-
--- | Enumerate all complete terms represented by an ECTA in depth-first order.
+-- | Enumerate all complete terms represented by an ECTA.
 getAllTerms :: Node -> [Term]
-getAllTerms n = searchTreeResults search
-  where
-    TermSearch search = startTermSearch n
+getAllTerms = getAllTermsPrune () (\_ _ _ -> return (False, ()))

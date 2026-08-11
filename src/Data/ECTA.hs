@@ -16,7 +16,7 @@ The usual workflow is:
 4. Remove implied alternatives with 'withoutRedundantEdges'.
 5. Check concrete or template membership with 'nodeRepresents' or
    'nodeRepresentsTemplate'.
-6. Enumerate accepted terms with 'getAllTerms', or sample one with 'sampleTerm'.
+6. Enumerate accepted terms with 'getAllTerms' or 'getAllTermsPrune'.
 
 Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
@@ -60,31 +60,11 @@ module Data.ECTA (
     TermFragment (..),
     enumerateFully,
     fragRepresents,
-    TermSearch,
-    TermSearchStep (..),
-    TermBranch,
-    BranchInfo (..),
-    startTermSearch,
-    stepTermSearch,
-    termBranchInfo,
-    followTermBranch,
-    SampleLimits (..),
-    defaultSampleLimits,
-    SampleError (..),
-    sampleTermSearch,
-    sampleTermSearchByCount,
-    sampleTerm,
-    GenerationPlan,
-    GenerationPlanError (..),
-    compileGenerationPlan,
-    compileRootGenerationPlan,
-    sampleGenerationPlan,
     getAllTerms,
     getAllTermsPrune,
     getAllTruncatedTerms,
 ) where
 
 import Data.ECTA.Internal.ECTA.Enumeration
-import Data.ECTA.Internal.ECTA.Generation
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
