@@ -34,6 +34,10 @@ module Data.ECTA.Internal.ECTA.Operations (
     nodeRepresents,
     edgeRepresents,
 
+    -- * Constraints
+    dropEdgeConstraints,
+    dropConstraints,
+
     -- * Membership of templates
     nodeRepresentsTemplate,
     edgeRepresentsTemplate,
@@ -327,6 +331,25 @@ edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
         go !_ [] = True
         go !x (!y : ys) = (x == y) && (go x ys)
     {-# INLINE allTheSame #-}
+
+-----------------------
+------ Constraints
+-----------------------
+
+{- | Drop an edge's equality constraints.
+
+The result accepts every combination of children the edge's nodes allow, so it over-approximates: use it when the
+constraints are not the property being studied, not to simplify a language you still rely on.
+-}
+dropEdgeConstraints :: Edge -> Edge
+dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
+
+-- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
+dropConstraints :: Node -> Node
+dropConstraints = mapNodes dropNodeConstraints
+    where
+        dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
+        dropNodeConstraints n = n
 
 ------------
 ------ Intersect

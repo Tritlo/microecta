@@ -47,6 +47,8 @@ module Data.ECTA (
     intersect,
     withoutRedundantEdges,
     reducePartially,
+    dropEdgeConstraints,
+    dropConstraints,
 
     -- * Membership
     nodeRepresents,
