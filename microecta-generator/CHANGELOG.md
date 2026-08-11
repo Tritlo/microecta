@@ -1,12 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.0.0 - Unreleased
 
-* Relax package lower bounds to less precise minor-version floors while keeping
-  the existing upper bounds.
 * Add indexed applicative generators represented by ECTA terms, conditioned
-  joins backed by ECTA equality constraints, and an optional public QuickCheck
-  adapter with an explicit opaque `fromGen` boundary.
+  joins backed by ECTA equality constraints, and QuickCheck integration with
+  an explicit opaque `fromGen` boundary.
 * Count and unrank uniform transparent generator languages without
   materializing applicative or joined Cartesian products.
 * Expose deterministic rank replay and exact coverage counts, sample weighted
@@ -49,14 +47,3 @@
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
   for monadic shapes.
-
-## 0.1.0.0 - 2026-06-09
-
-* Initial release of microecta
-* Extract the small ECTA core and term-search compatibility layer into a
-  Cabal-only package.
-* Add ECTA pruning
-* Add sparse path tries, a dependency-light benchmark harness, and baked
-  compile-time RTS caps so optimized builds stay inside the 512M target.
-* Document the main API, pruning callbacks, module map, dependency surface,
-  and benchmark baseline.

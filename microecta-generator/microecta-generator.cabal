@@ -1,0 +1,104 @@
+cabal-version: 3.0
+name: microecta-generator
+version: 0.1.0.0
+synopsis: Indexed ECTA generators with exact replay and shrinking
+description:
+  Generator combinators backed by equality-constrained tree automata, with
+  QuickCheck integration, exact replay, conditioned joins, and shrinking.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microecta-generator#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Testing
+author: Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.12.2
+extra-doc-files:
+  CHANGELOG.md
+  IDEAS.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microecta-generator
+
+common warnings
+  ghc-options: -Wall
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    PatternGuards
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.ECTA.Gen
+    Data.ECTA.Gen.Do
+    Data.ECTA.Gen.QuickCheck
+    Data.ECTA.Gen.Sig
+
+  other-modules:
+    Data.ECTA.Gen.Internal
+    Data.ECTA.Gen.Internal.Decoder
+    Data.ECTA.Gen.Internal.Shrink
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.13 && <5,
+    containers >=0.7 && <0.8,
+    microecta >=0.1.0.0 && <0.2,
+    text >=2.1 && <2.2,
+
+test-suite unit-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  other-modules:
+    Data.ECTA.GenSpec
+    Data.ECTA.TypedExpressionGenSpec
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.13 && <5,
+    containers >=0.7 && <0.8,
+    hspec >=2.11 && <2.12,
+    microecta >=0.1.0.0 && <0.2,
+    microecta-generator,

@@ -1,17 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
-PACKAGE="microecta"
-
 usage() {
-  echo "Usage: $0 [--publish]"
+  echo "Usage: $0 PACKAGE [--publish]"
   echo ""
+  echo "PACKAGE must be microecta or microecta-generator."
   echo "Without --publish, uploads as a package candidate (dry run)."
   echo "With --publish, uploads as a published release."
   exit 1
 }
 
-# Parse args
+if [[ $# -eq 0 ]]; then
+  usage
+fi
+
+PACKAGE="$1"
+shift
+
+case "$PACKAGE" in
+  microecta|microecta-generator) ;;
+  *) echo "Error: unknown package '$PACKAGE'"; usage ;;
+esac
+
 publish_flag=""
 for arg in "$@"; do
   case "$arg" in
@@ -25,10 +35,9 @@ done
 rm -rf dist-newstyle/"$PACKAGE"-[0-9]*-docs.tar.gz
 rm -rf dist-newstyle/sdist/"$PACKAGE"-[0-9]*.tar.gz
 
-# Build docs and sdist. Haddock takes `lib:$PACKAGE`; sdist runs with no target
-# and operates on every local package, of which we have one.
+# Build docs and the selected source distribution.
 cabal haddock --haddock-for-hackage "lib:$PACKAGE"
-cabal sdist
+cabal sdist "$PACKAGE"
 
 # Credentials
 read -p "Username: " username

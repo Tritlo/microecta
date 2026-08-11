@@ -1,0 +1,186 @@
+# microecta-generator
+
+[![Hackage](https://img.shields.io/hackage/v/microecta-generator.svg)](https://hackage.haskell.org/package/microecta-generator)
+
+`microecta-generator` builds indexed generators on
+[`microecta`](https://hackage.haskell.org/package/microecta). Transparent
+generator regions retain an exact ECTA support, cardinality, and replay rank;
+the same package includes QuickCheck integration for sampling, opaque fallbacks,
+and structural shrinking.
+
+Add the package to `build-depends` and import the QuickCheck-facing API:
+
+```cabal
+build-depends: microecta-generator
+```
+
+```haskell
+import Data.ECTA.Gen.QuickCheck (ECTAGen)
+import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
+```
+
+## Generator API
+
+`Data.ECTA.Gen` turns a finite indexed source into an ECTA whose leaves contain
+stable indices, not generated values. `Functor` and `Applicative` composition
+preserve that symbolic structure, so ordinary `ApplicativeDo` builds ECTA
+products. Alongside the ECTA, the generator tracks an exact cardinality and a
+rank-to-outcome selector; applicative products multiply their counts rather
+than materializing their Cartesian products.
+
+`match` generates two values under a reified key equality: in
+`match (authenticatedUser :==: fileOwner) authentication filesystem`, the
+`:==:` keeps both projections as data, so the match can group each input by
+its own key, encode the shared keys as an actual ECTA equality constraint,
+count the matching group products, and unrank directly into the selected
+group. `:&&:` conjoins several equalities. `match` accepts arbitrary value
+projections, so discovering its groups requires enumerating the input ranks;
+conditioning three or more generators is the grouped layer's job (`groupBy`
+and `apply`).
+
+`Grouped key a` is the explicit grouping-preserving path for nested or very
+large languages. The `key` is the type returned by the classifier and used to
+decide which groups may be joined; it is not part of the generated `a`. Matching
+key values receive equal internal labels on constrained ECTA paths. `groupBy`
+classifies any transparent generator's outcomes (enumerating them once), and
+grouped generators support ordinary `fmap` (and `mapWithKey` when the value
+should absorb its key). `regroupBy` changes the
+classification without enumerating values, `sizes` returns the stored
+cardinality of every group, and `atKey` selects one group as an ordinary
+conditional generator. An operation of any arity is classified by a `Sig`,
+written like a many-sorted operation signature — `:*` between argument keys,
+`:->` before the result key: `leftKey :* rightKey :-> resultKey`.
+`apply` matches each signature
+key with the corresponding argument family, equates their paths in one ECTA
+edge holding one equality constraint per argument, and retains the result key
+for later equality constraints. The operation family holds functions (`fmap`
+a compiling function onto it); the argument families arrive as an `Args`
+chain. `frequencies` chooses among grouped generators with relative weights,
+group by group, so alternated layers (for example expressions of depth at
+most n) stay grouped. `ungroup` returns an ordinary `ECTAGen` with
+the same exact distribution. Stable source order and ascending key order give
+deterministic replay ranks.
+
+```haskell
+functionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
+functionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
+
+signature function =
+  argument1Type function :* argument2Type function :-> resultType function
+
+atomsByType :: Grouped Type TypedExpression
+atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
+
+applicationGen children =
+  ECTAGen.apply (compile <$> functionsBySignature) (children :& children :& ANil)
+
+depthFour = applicationGen depthThree
+
+upToDepth 0 = atomsByType
+upToDepth n = ECTAGen.frequencies
+  [(1, atomsByType), (3, applicationGen (upToDepth (n - 1)))]
+```
+
+Both layers also support qualified do-notation through `Data.ECTA.Gen.Do`,
+which `Data.ECTA.Gen.QuickCheck` re-exports. Enable `QualifiedDo` together
+with `ApplicativeDo`; statements must stay independent, and the final
+statement must use the qualified `ECTAGen.pure`. A grouped block chooses the
+operation family first and then one argument per signature component in
+order; whatever the arity, it builds exactly one `apply` join:
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE QualifiedDo #-}
+
+authentication :: ECTAGen Authentication
+authentication = ECTAGen.do
+  user <- generatedUser
+  method <- ECTAGen.elements [Password, Token]
+  ECTAGen.pure (Authentication user method)
+
+applicationGen children = ECTAGen.do
+  op <- functionsBySignature
+  x <- children
+  y <- children
+  ECTAGen.pure (compile op x y)
+```
+
+Impossible shapes fail at compile time with an explanation: a statement using
+an earlier bound value, an unqualified `pure` ending, a missing operation
+argument, or a fallible pattern.
+
+Every transparent generator samples compositionally by rank, including exact
+non-uniform `frequency` and conditioned joins; sampling never materializes the
+final Cartesian product. `cardinality` and `unrank` expose deterministic replay,
+while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
+`pmf` enumerate every rank because their projections or complete result values
+are not retained groups. The `Grouped` path avoids that work when a caller
+supplies the reusable classification structure up front.
+`Data.ECTA.Gen.QuickCheck` exposes `toGen`, plus
+`toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
+property and shrinks to the smallest failing member: candidates first search
+every structurally smaller member in size order (`smallerMembers`, capped),
+so the reported counterexample is globally size-minimal whenever the search
+reaches one - a guarantee ordinary shrinking cannot make. Structural
+component shrinking through `shrinkRank` follows as a fallback. Every
+candidate is a member of the generated language, and the failing rank is
+printed for deterministic replay with `unrank`. `sized` builds one generator per QuickCheck size (shared
+across samples), so layered generators can scale with the size parameter.
+
+```haskell
+import Data.ECTA.Gen.QuickCheck (ECTAGen)
+import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
+
+joined :: ECTAGen (Authentication, Filesystem)
+joined =
+  ECTAGen.match
+    (authenticatedUser :==: fileOwner)
+    authentication
+    filesystem
+```
+
+```haskell
+replay :: Either ECTAGenError Authentication
+replay = ECTAGen.unrank authentication 42
+
+coverage :: Either ECTAGenError (Map UserId Integer)
+coverage = ECTAGen.countBy authenticatedUser authentication
+```
+
+`fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
+it needs only a cardinality and a stable function from an integer index to a
+value. `elements` is the corresponding list convenience function.
+
+`fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
+Opaque regions still compose and sample, but cannot be inspected with `pmf`;
+joining through one falls back to QuickCheck rejection. Opaque regions also
+have no replay rank. There is deliberately no `Monad` or `Selective` instance.
+This keeps inspectable applicative regions inside ECTA and makes the loss of
+structure explicit.
+
+## Module map
+
+- `Data.ECTA.Gen` is the backend-polymorphic indexed generator core.
+- `Data.ECTA.Gen.Sig` defines the signature (`Sig`) and condition (`On`)
+  syntax; `Data.ECTA.Gen` re-exports both.
+- `Data.ECTA.Gen.Do` provides the qualified do-notation operators.
+- `Data.ECTA.Gen.QuickCheck` provides the ordinary QuickCheck-facing API,
+  including `fromGen`, `toGen`, `forAll`, and `sized`.
+- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Decoder`, and
+  `Data.ECTA.Gen.Internal.Shrink` implement static languages, joins, compiled
+  rank decoding, and structural shrinking. They are not exposed.
+
+## Dependency surface
+
+The package depends directly on `microecta`, `QuickCheck`, `containers`,
+and `text`. The dependency direction is one-way: `microecta` does not depend
+on this package or on QuickCheck.
+
+## Build
+
+From the repository root:
+
+```sh
+cabal build microecta-generator -j1
+cabal test microecta-generator:unit-tests -j1
+```

@@ -1,4 +1,6 @@
-packages: ./
+packages:
+  microecta
+  microecta-generator
 
 package *
   optimization: False

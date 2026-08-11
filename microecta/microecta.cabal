@@ -1,9 +1,9 @@
 cabal-version: 3.0
 name: microecta
-version: 0.1.0.0
+version: 0.1.0.1
 synopsis: Small equality-constrained tree automata core
 description: A small equality-constrained tree automata core extracted from ecta.
-homepage: https://github.com/Tritlo/microecta#readme
+homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
 category: Data
 author: Jimmy Koppel, Matthias Pall Gissurarson
@@ -15,12 +15,12 @@ build-type: Simple
 tested-with: ghc ==9.12.2
 extra-doc-files:
   CHANGELOG.md
-  IDEAS.md
   README.md
 
 source-repository head
   type: git
   location: https://github.com/Tritlo/microecta.git
+  subdir: microecta
 
 common warnings
   ghc-options: -Wall
@@ -71,9 +71,6 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
-    Data.ECTA.Gen
-    Data.ECTA.Gen.Do
-    Data.ECTA.Gen.Sig
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
@@ -88,9 +85,6 @@ library
     Utility.HashJoin
 
   other-modules:
-    Data.ECTA.Gen.Internal
-    Data.ECTA.Gen.Internal.Decoder
-    Data.ECTA.Gen.Internal.Shrink
     Data.Text.Extended.Pretty
 
   build-depends:
@@ -105,17 +99,6 @@ library
     transformers >=0.6 && <0.7,
     unordered-containers >=0.2 && <0.3,
 
-library quickcheck
-  import: warnings, extensions
-  visibility: public
-  hs-source-dirs: quickcheck
-  exposed-modules: Data.ECTA.Gen.QuickCheck
-  build-depends:
-    QuickCheck >=2.14 && <2.19,
-    base >=4.13 && <5,
-    containers >=0.7 && <0.8,
-    microecta,
-
 test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
@@ -128,8 +111,6 @@ test-suite unit-tests
     -Wno-orphans
 
   other-modules:
-    Data.ECTA.GenSpec
-    Data.ECTA.TypedExpressionGenSpec
     Data.Persistent.UnionFindSpec
     ECTASpec
     PathsSpec
@@ -137,17 +118,16 @@ test-suite unit-tests
     Utility.HashJoinSpec
 
   build-depends:
-    QuickCheck,
+    QuickCheck >=2.14 && <2.19,
     base >=4.13 && <5,
-    containers,
+    containers >=0.7 && <0.8,
     equivalence >=0.4 && <0.5,
-    hashable,
-    hspec,
+    hashable >=1.5 && <1.6,
+    hspec >=2.11 && <2.12,
     microecta,
-    microecta:quickcheck,
-    mtl,
-    text,
-    unordered-containers,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
 
 benchmark micro-bench
   import: warnings, extensions
@@ -155,11 +135,10 @@ benchmark micro-bench
   main-is: Benchmarks.hs
   hs-source-dirs: benchmarks
   ghc-options:
-    -O2
     -rtsopts
     -with-rtsopts=-M512M
 
   build-depends:
     base >=4.13 && <5,
     microecta,
-    text,
+    text >=2.1 && <2.2,
