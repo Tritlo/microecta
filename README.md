@@ -246,9 +246,10 @@ the pieces that downstream projects still use:
 - `Data.ECTA.Gen.Sig` defines the signature (`Sig`) and condition (`On`)
   syntax; `Data.ECTA.Gen` re-exports both.
 - `Data.ECTA.Gen.Do` provides the qualified do-notation operators.
-- `Data.ECTA.Gen.Internal` and `Data.ECTA.Gen.Internal.Decoder` are the
-  hidden generator engine: static languages, joins, samplers, and compiled
-  rank decoders.
+- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Decoder`, and
+  `Data.ECTA.Gen.Internal.Shrink` are the hidden generator engine: static
+  languages, joins, and samplers; compiled rank decoders; and structural
+  shrinking with size-ordered member enumeration.
 - `Data.ECTA.Gen.QuickCheck` adds the opaque `fromGen` boundary and samples
   generators through the optional `microecta:quickcheck` sublibrary.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality

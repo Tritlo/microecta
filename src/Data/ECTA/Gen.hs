@@ -49,8 +49,8 @@ import qualified Data.Map.Strict as Map
 
 import Data.ECTA (Node)
 import Data.ECTA.Gen.Internal
-import Data.ECTA.Gen.Internal.Decoder (
-    RankDecoder (..),
+import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
+import Data.ECTA.Gen.Internal.Shrink (
     planMemberSize,
     shrinkPlanRank,
     smallerPlanMembers,
