@@ -798,13 +798,7 @@ join3BucketStatic componentIndex center left right =
                         uniformMass
                         select
                         selectValue
-                        ( product3RankSampler
-                            childCardinality
-                            rightCardinality
-                            (outcomeRankSampler centerOutcomes)
-                            (outcomeRankSampler leftOutcomes)
-                            (outcomeRankSampler rightOutcomes)
-                        )
+                        rankSampler
                     )
   where
     leftKeyTerm = Term (join3LeftKeySymbol componentIndex) []
@@ -848,6 +842,20 @@ join3BucketStatic componentIndex center left right =
     rightCardinality = outcomeCardinality rightOutcomes
     childCardinality = leftCardinality * rightCardinality
     totalOutcomes = outcomeCardinality centerOutcomes * childCardinality
+    rankSampler
+        | outcomeCardinality centerOutcomes == 1 =
+            singletonCenterRankSampler
+                rightCardinality
+                (outcomeValueAt centerOutcomes 0)
+                (outcomeRankSampler leftOutcomes)
+                (outcomeRankSampler rightOutcomes)
+        | otherwise =
+            product3RankSampler
+                childCardinality
+                rightCardinality
+                (outcomeRankSampler centerOutcomes)
+                (outcomeRankSampler leftOutcomes)
+                (outcomeRankSampler rightOutcomes)
     uniformMass =
         (\centerMass leftMass rightMass -> centerMass * leftMass * rightMass)
             <$> outcomeUniformMass centerOutcomes
@@ -1179,6 +1187,24 @@ productRankSampler rightCardinality leftSampler rightSampler =
         liftA2
             ( \(leftIndex, apply) (rightIndex, value) ->
                 (leftIndex * rightCardinality + rightIndex, apply value)
+            )
+            (runRankSampler leftSampler)
+            (runRankSampler rightSampler)
+
+-- | Sample a three-way product whose center has the sole rank zero.
+singletonCenterRankSampler ::
+    Integer ->
+    center ->
+    RankSampler left ->
+    RankSampler right ->
+    RankSampler (center, left, right)
+singletonCenterRankSampler rightCardinality centerValue leftSampler rightSampler =
+    RankSampler $
+        liftA2
+            ( \(leftIndex, leftValue) (rightIndex, rightValue) ->
+                ( leftIndex * rightCardinality + rightIndex
+                , (centerValue, leftValue, rightValue)
+                )
             )
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)

@@ -28,7 +28,9 @@ module Data.ECTA.Gen.QuickCheck (
     toGenWithRankEither,
 ) where
 
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
+import Data.Ord (Down (..))
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node)
@@ -47,10 +49,13 @@ instance ECTA.GenBackend QuickCheckBackend where
         QuickCheckBackend $ QC.chooseInteger (0, bound - 1)
 
     frequencyGen alternatives =
-        QuickCheckBackend $ do
-            let total = sum $ map fst alternatives
-            selected <- QC.chooseInteger (0, total - 1)
-            pick selected alternatives
+        -- Ranked branches already carry their offsets, so sampling can put
+        -- likely branches first without changing rank order.
+        let ordered = sortOn (Down . fst) alternatives
+            total = sum $ map fst ordered
+         in QuickCheckBackend $ do
+                selected <- QC.chooseInteger (0, total - 1)
+                pick selected ordered
       where
         pick _ [] = error "frequencyGen: impossible empty alternatives"
         pick selected ((weight, QuickCheckBackend generated) : remaining)
