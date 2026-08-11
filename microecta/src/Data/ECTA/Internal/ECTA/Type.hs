@@ -29,6 +29,7 @@ module Data.ECTA.Internal.ECTA.Type (
     freeVars,
     modifyNode,
     createMu,
+    createMuDontCleanup,
     shape,
     matchMu,
 ) where
@@ -578,11 +579,29 @@ pattern Mu f <- (matchMu -> Just f)
 
 {- | Construct recursive node
 
+A 'Mu' whose variable does not occur in its body binds nothing, so the body is returned on its own. Intersection
+already avoids introducing such nodes (see @maybeMu@); doing it here covers every recursive node, however it was
+built.
+
 Implementation note: 'createMu' and 'matchMu' interact in non-trivial ways; see docs of the 'Mu' pattern synonym
 for performance considerations.
 -}
 createMu :: (Node -> Node) -> Node
-createMu f = intern $ UninternedMu (f . Rec)
+createMu = dropRedundantMu . createMuDontCleanup
+    where
+        dropRedundantMu :: Node -> Node
+        dropRedundantMu node@(InternedMu mu)
+            | RecInt (internedMuId mu) `Set.notMember` freeVars (internedMuBody mu) = internedMuBody mu
+            | otherwise = node
+        dropRedundantMu node = node
+
+{- | Construct a recursive node, keeping it even when its variable is unused.
+
+Interning a 'Mu' is what assigns the identity its body refers to, so the redundancy check in 'createMu' can only run
+afterwards. This is that first half, exported for tests that need to observe a redundant node before it is dropped.
+-}
+createMuDontCleanup :: (Node -> Node) -> Node
+createMuDontCleanup f = intern $ UninternedMu (f . Rec)
 
 {- | Match on a 'Mu' node
 

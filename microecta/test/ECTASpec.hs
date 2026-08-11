@@ -270,6 +270,31 @@ spec = do
         it "nested" $
             numNestedMu (Mu $ \x -> Node [Edge "f" [x], Edge "g" [Mu $ \y -> Node [Edge "g" [y]]]]) `shouldBe` 2
 
+    describe "redundant Mu" $ do
+        it "redundant inner Mu is skipped" $
+            (Mu $ \r1 -> Mu $ \_r2 -> Node [Edge "f" [r1]])
+                `shouldBe` (Mu $ \r1 -> Node [Edge "f" [r1]])
+
+        it "redundant outer Mu is skipped" $
+            (Mu $ \_r1 -> Mu $ \r2 -> Node [Edge "f" [r2]])
+                `shouldBe` (Mu $ \r1 -> Node [Edge "f" [r1]])
+
+        it "two redundant Mus are both skipped" $
+            (Mu $ \_r1 -> Mu $ \_r2 -> Node [Edge "f" []])
+                `shouldBe` Node [Edge "f" []]
+
+        it "a used outer Mu is kept" $
+            numNestedMu (Mu $ \r1 -> Mu $ \_r2 -> Node [Edge "f" [r1]]) `shouldBe` 1
+
+        it "a used inner Mu is kept, and is not the same as reusing the outer one" $ do
+            let nested = Mu $ \r1 -> Mu $ \r2 -> Node [Edge "f" [r1], Edge "g" [r2]]
+                shared = Mu $ \r1 -> Node [Edge "f" [r1], Edge "g" [r1]]
+            numNestedMu nested `shouldBe` 2
+            nested `shouldNotBe` shared
+
+        it "keeping a redundant Mu is what createMuDontCleanup is for" $
+            numNestedMu (createMuDontCleanup $ \_r -> Node [Edge "f" []]) `shouldBe` 1
+
     describe "nested Mu" $
         it "references to different Mu nodes are not confused" $
             property $ do
@@ -365,8 +390,12 @@ intTest10 = Node [Edge "f" [intTest9], Edge "a" []]
 
 -- | Example with nested Mu: refer to outer Mu
 intTest11 :: Node
-intTest11 = createMu $ \r -> createMu $ \_r' -> Node [Edge "f" [r]]
+intTest11 = createMuDontCleanup $ \r -> createMuDontCleanup $ \_r' -> Node [Edge "f" [r]]
 
--- | Example with nested Mu: refer to inner Mu
+{- | Example with nested Mu: refer to inner Mu
+
+Both examples hold one redundant binder, which 'createMu' would drop, so they are built with
+'createMuDontCleanup' to keep the nesting these cases are about.
+-}
 intTest12 :: Node
-intTest12 = createMu $ \_r -> createMu $ \r' -> Node [Edge "f" [r']]
+intTest12 = createMuDontCleanup $ \_r -> createMuDontCleanup $ \r' -> Node [Edge "f" [r']]
