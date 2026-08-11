@@ -1,13 +1,16 @@
 module Data.ECTA.TypedExpressionGenSpec (spec) where
 
 import Data.List (sort)
+import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
-import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe)
+import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
-import Data.ECTA (getAllTerms)
-import Data.ECTA.Gen.QuickCheck (ECTAGen)
+import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges)
+import Data.ECTA.Gen.QuickCheck (ECTAGen, KeyedECTAGen)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
+import Data.ECTA.Internal.ECTA.Type (edgeEcs)
+import Data.ECTA.Paths (unsafeGetEclasses)
 
 -- | The ground types in the expression language.
 data Type = TInt | TBool | TChar
@@ -93,49 +96,78 @@ atoms =
     , TypedExpression TChar (CharLiteral 'z')
     ]
 
--- | Uniformly select a binary function instance inside ECTA.
-binaryFunctionInstanceGen :: ECTAGen BinaryFunctionInstance
-binaryFunctionInstanceGen = ECTAGen.elements binaryFunctionInstances
+-- | The argument and result types retained for one function partition.
+type FunctionSignature = (Type, Type, Type)
 
--- | Uniformly select a typed literal inside ECTA.
-atomGen :: ECTAGen TypedExpression
-atomGen = ECTAGen.elements atoms
+-- | Extract the retained signature of one ground function instance.
+functionSignature :: BinaryFunctionInstance -> FunctionSignature
+functionSignature instance_ =
+    ( firstArgumentType instance_
+    , secondArgumentType instance_
+    , binaryResultType instance_
+    )
+
+-- | Uniform function instances partitioned by complete ground signature.
+functionsBySignature :: KeyedECTAGen FunctionSignature BinaryFunctionInstance
+functionsBySignature =
+    ECTAGen.keyedElements functionSignature binaryFunctionInstances
+
+-- | Uniform literals partitioned by their ground type.
+atomsByType :: KeyedECTAGen Type TypedExpression
+atomsByType = ECTAGen.keyedElements expressionType atoms
 
 {- | Generate a well-typed binary application over one child language.
 
-The first join constrains the first argument. The second join composes with
-that result and constrains the second argument.
+One three-way join constrains both argument types against the selected function
+instance.
 -}
-applicationGen :: ECTAGen TypedExpression -> ECTAGen TypedExpression
-applicationGen childGen =
-    compileCandidate . toBinaryCandidate
-        <$> ECTAGen.innerJoinOn
-            (secondArgumentType . fst)
-            expressionType
-            withFirstArgument
-            childGen
+applicationGen :: KeyedECTAGen Type TypedExpression -> KeyedECTAGen Type TypedExpression
+applicationGen children =
+    ECTAGen.mapKeyed (compileCandidate . toBinaryCandidate) $
+        ECTAGen.innerJoin3Keyed
+            id
+            functionsBySignature
+            children
+            children
   where
-    withFirstArgument =
-        ECTAGen.innerJoinOn
-            firstArgumentType
-            expressionType
-            binaryFunctionInstanceGen
-            childGen
-
-    toBinaryCandidate ((instance_, first), second) =
+    toBinaryCandidate (instance_, first, second) =
         Candidate instance_ first second
 
--- | Literal expressions, with no function application.
-depthZeroExpressionGen :: ECTAGen TypedExpression
-depthZeroExpressionGen = atomGen
+-- | Literal expressions, partitioned by type.
+depthZeroByType :: KeyedECTAGen Type TypedExpression
+depthZeroByType = atomsByType
+
+-- | Function applications over literals, partitioned by result type.
+depthOneByType :: KeyedECTAGen Type TypedExpression
+depthOneByType = applicationGen depthZeroByType
+
+-- | Function applications over depth-one children, partitioned by result type.
+depthTwoByType :: KeyedECTAGen Type TypedExpression
+depthTwoByType = applicationGen depthOneByType
+
+-- | Function applications over depth-two children, partitioned by result type.
+depthThreeByType :: KeyedECTAGen Type TypedExpression
+depthThreeByType = applicationGen depthTwoByType
+
+-- | Function applications over depth-three children, partitioned by result type.
+depthFourByType :: KeyedECTAGen Type TypedExpression
+depthFourByType = applicationGen depthThreeByType
 
 -- | Function applications over literals.
 depthOneExpressionGen :: ECTAGen TypedExpression
-depthOneExpressionGen = applicationGen depthZeroExpressionGen
+depthOneExpressionGen = ECTAGen.forgetKey depthOneByType
 
 -- | Function applications whose children are depth-one applications.
 depthTwoExpressionGen :: ECTAGen TypedExpression
-depthTwoExpressionGen = applicationGen depthOneExpressionGen
+depthTwoExpressionGen = ECTAGen.forgetKey depthTwoByType
+
+-- | Exact-depth-three applications as an ordinary generator.
+depthThreeExpressionGen :: ECTAGen TypedExpression
+depthThreeExpressionGen = ECTAGen.forgetKey depthThreeByType
+
+-- | Exact-depth-four applications as an ordinary generator.
+depthFourExpressionGen :: ECTAGen TypedExpression
+depthFourExpressionGen = ECTAGen.forgetKey depthFourByType
 
 -- | The complete independent candidate space over one child language.
 allCandidatesFor :: [TypedExpression] -> [Candidate]
@@ -229,6 +261,14 @@ isWellTyped :: TypedExpression -> Bool
 isWellTyped typed =
     inferType (expression typed) == Just (expressionType typed)
 
+-- | Find a joined edge that retains both argument equality constraints.
+hasTwoArgumentConstraints :: Node -> Bool
+hasTwoArgumentConstraints node = any edgeMatches $ nodeEdges node
+  where
+    edgeMatches edge =
+        length (unsafeGetEclasses $ edgeEcs edge) == 2
+            || any hasTwoArgumentConstraints (edgeChildren edge)
+
 -- | Check an ECTA generator against an exact, uniformly weighted language.
 shouldMatchExactLanguage ::
     ECTAGen TypedExpression ->
@@ -258,6 +298,52 @@ spec =
                 Left err -> expectationFailure $ show err
                 Right node -> length (getAllTerms node) `shouldBe` 29456
 
+        it "represents both argument constraints in one ECTA edge" $
+            case ECTAGen.support depthOneExpressionGen of
+                Right node -> hasTwoArgumentConstraints node `shouldBe` True
+                Left err -> expectationFailure $ show err
+
+        it "counts the exact depth-three language without enumerating it" $
+            ECTAGen.cardinality depthThreeExpressionGen
+                `shouldBe` Right 2760555776
+
+        it "constructs the exact depth-four language from compact partitions" $
+            ECTAGen.cardinality depthFourExpressionGen
+                `shouldBe` Right 26679325111164403712
+
+        it "retains the exact depth-four result-type partitions" $ do
+            let intCount = 4356154180428103680
+                boolCount = 20761924256729464832
+                boundaries =
+                    [ (0, TInt)
+                    , (intCount - 1, TInt)
+                    , (intCount, TBool)
+                    , (intCount + boolCount - 1, TBool)
+                    , (intCount + boolCount, TChar)
+                    , (26679325111164403712 - 1, TChar)
+                    ]
+            traverse
+                (\(rank, _) -> expressionType <$> ECTAGen.unrank depthFourExpressionGen rank)
+                boundaries
+                `shouldBe` Right (map snd boundaries)
+
+        it "unranks representative depth-four expressions" $ do
+            let total = 26679325111164403712
+            traverse
+                (ECTAGen.unrank depthFourExpressionGen)
+                [0, total `div` 2, total - 1]
+                `shouldSatisfy` either (const False) (all isWellTyped)
+
+        it "counts exact depth-one coverage by result type" $
+            ECTAGen.countBy expressionType depthOneExpressionGen
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ (TInt, 32)
+                        , (TBool, 44)
+                        , (TChar, 24)
+                        ]
+                    )
+
         it "accepts only one ninth of the independent QuickCheck candidates" $
             ( toInteger (length depthOneExpressions)
                 % toInteger (length $ allCandidatesFor atoms)
@@ -267,6 +353,11 @@ spec =
         it "samples only well-typed depth-two expressions through ECTA" $
             QC.property $
                 QC.forAll (ECTAGen.toGen depthTwoExpressionGen) $ \typed ->
+                    QC.counterexample (show typed) $ QC.property $ isWellTyped typed
+
+        it "samples only well-typed depth-four expressions through ECTA" $
+            QC.property $
+                QC.forAll (ECTAGen.toGen depthFourExpressionGen) $ \typed ->
                     QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
         it "samples well-typed depth-two expressions through nested QuickCheck rejection" $

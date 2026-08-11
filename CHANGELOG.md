@@ -9,6 +9,11 @@
   adapter with an explicit opaque `fromGen` boundary.
 * Count and unrank uniform transparent generator languages without
   materializing applicative or joined Cartesian products.
+* Expose deterministic rank replay and exact coverage counts, sample weighted
+  transparent generators compositionally, and support direct three-way joins
+  with two ECTA equality constraints.
+* Add partition-preserving keyed generators so repeated three-way joins compose
+  compact ECTA supports and exact rank indices without enumerating prior layers.
 
 ## 0.1.0.0 - 2026-06-09
 

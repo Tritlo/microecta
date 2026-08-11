@@ -63,11 +63,43 @@ than materializing their Cartesian products.
 `innerJoinOn` conditions two transparent generators by encoding their shared
 keys and adding an actual ECTA equality constraint. It groups each input by key,
 counts the matching bucket products, and can unrank directly into the selected
-bucket. For uniformly weighted transparent languages, `toGen` therefore draws
-one rank without enumerating the final language. `pmf` still enumerates all
-ranks to report exact rational probabilities; non-uniform weighted sampling
-also uses that exact enumerated fallback. The optional `microecta:quickcheck`
-sublibrary exposes sampling as an ordinary `QuickCheck.Gen`.
+bucket. `innerJoin3On` applies two key equalities to a center value and two
+arguments in one ECTA edge, avoiding an intermediate binary join. These generic
+joins accept arbitrary value projections, so discovering their buckets requires
+enumerating the input ranks.
+
+`KeyedECTAGen` is the explicit partition-preserving path for nested or very
+large languages. `keyedElements` records the initial buckets;
+`innerJoin3Keyed` combines matching compact bucket supports, cardinalities, and
+conditional rank samplers without enumerating their outcomes; `mapKeyed` keeps
+the result partitions available to the next layer. `forgetKey` returns an
+ordinary `ECTAGen` with the same exact distribution. The keyed join still
+constructs one ECTA edge with both argument equality constraints. Stable source
+order and ascending key order give deterministic replay ranks.
+
+```haskell
+functionsBySignature :: KeyedECTAGen (Type, Type, Type) BinaryFunctionInstance
+functionsBySignature = ECTAGen.keyedElements signature functionInstances
+
+atomsByType :: KeyedECTAGen Type TypedExpression
+atomsByType = ECTAGen.keyedElements expressionType atoms
+
+applicationGen children =
+  ECTAGen.mapKeyed compile $
+    ECTAGen.innerJoin3Keyed id functionsBySignature children children
+
+depthFour = applicationGen depthThree
+```
+
+Every transparent generator samples compositionally by rank, including exact
+non-uniform `frequency` and conditioned joins; sampling never materializes the
+final Cartesian product. `cardinality` and `unrank` expose deterministic replay,
+while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
+`pmf` enumerate every rank because their projections or complete result values
+are not retained partitions. The optional keyed path avoids that work when a
+caller supplies the reusable partition structure up front.
+The optional `microecta:quickcheck` sublibrary exposes `toGen`, plus
+`toGenWithRank` when the sampled replay rank is needed.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
@@ -82,15 +114,24 @@ joined =
     filesystem
 ```
 
+```haskell
+replay :: Either ECTAGenError Authentication
+replay = ECTAGen.unrank authentication 42
+
+coverage :: Either ECTAGenError (Map UserId Integer)
+coverage = ECTAGen.countBy authenticatedUser authentication
+```
+
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
 
 `fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
 Opaque regions still compose and sample, but cannot be inspected with `pmf`;
-joining through one falls back to QuickCheck rejection. There is deliberately
-no `Monad` or `Selective` instance. This keeps inspectable applicative regions
-inside ECTA and makes the loss of structure explicit.
+joining through one falls back to QuickCheck rejection. Opaque regions also
+have no replay rank. There is deliberately no `Monad` or `Selective` instance.
+This keeps inspectable applicative regions inside ECTA and makes the loss of
+structure explicit.
 
 ## Pruning API
 

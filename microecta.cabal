@@ -15,6 +15,7 @@ build-type: Simple
 tested-with: ghc ==9.12.2
 extra-doc-files:
   CHANGELOG.md
+  IDEAS.md
   README.md
 
 source-repository head
@@ -107,6 +108,7 @@ library quickcheck
   build-depends:
     QuickCheck >=2.14 && <2.19,
     base >=4.13 && <5,
+    containers >=0.7 && <0.8,
     microecta,
 
 test-suite unit-tests
