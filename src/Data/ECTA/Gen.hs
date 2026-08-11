@@ -25,6 +25,7 @@ module Data.ECTA.Gen (
     sizes,
     atKey,
     apply,
+    frequencies,
     ungroup,
     frequency,
     On (..),
@@ -461,6 +462,63 @@ lookupArgs (key :* rest) (MapsCons buckets restMaps) = do
         , StaticsCons (keyedBucketStatic bucket) statics
         )
 lookupArgs signature MapsNil = case signature of {}
+
+{- | Choose among grouped generators with positive relative weights,
+group by group.
+
+Every key present in any alternative is retained. Within one key, the group
+is the weighted mixture of that key's groups across the alternatives; a key
+missing from an alternative simply contributes nothing to it. Ranks within a
+merged group are ordered by alternative order, then by the inner rank.
+-}
+frequencies ::
+    (Ord key) =>
+    [(Integer, Grouped gen key a)] ->
+    Grouped gen key a
+frequencies [] = Grouped $ Left EmptyGenerator
+frequencies alternatives
+    | Just badWeight <- firstNonPositive alternatives =
+        Grouped $ Left $ NonPositiveWeight badWeight
+    | Just err <- firstError alternatives = Grouped $ Left err
+    | otherwise = Grouped $ traverse mergeBucketGroup grouped
+  where
+    totalWeight = sum $ map fst alternatives
+
+    firstNonPositive = go
+      where
+        go [] = Nothing
+        go ((weight, _) : rest)
+            | weight <= 0 = Just weight
+            | otherwise = go rest
+
+    firstError = go
+      where
+        go [] = Nothing
+        go ((_, Grouped (Left err)) : _) = Just err
+        go (_ : rest) = go rest
+
+    grouped =
+        foldl'
+            ( \groups (weight, buckets) ->
+                Map.foldlWithKey'
+                    ( \keyGroups key bucket ->
+                        Map.insertWith
+                            (flip (<>))
+                            key
+                            [
+                                ( fromInteger weight
+                                    / fromInteger totalWeight
+                                    * keyedBucketMass bucket
+                                , keyedBucketStatic bucket
+                                )
+                            ]
+                            keyGroups
+                    )
+                    groups
+                    buckets
+            )
+            Map.empty
+            [(weight, buckets) | (weight, Grouped (Right buckets)) <- alternatives]
 
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a

@@ -86,7 +86,9 @@ key with the corresponding argument family, equates their paths in one ECTA
 edge holding one equality constraint per argument, and retains the result key
 for later equality constraints. The operation family holds functions (`fmap`
 a compiling function onto it); the argument families arrive as an `Args`
-chain. `ungroup` returns an ordinary `ECTAGen` with
+chain. `frequencies` chooses among grouped generators with relative weights,
+group by group, so alternated layers (for example expressions of depth at
+most n) stay grouped. `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 
@@ -104,6 +106,10 @@ applicationGen children =
   ECTAGen.apply (compile <$> functionsBySignature) (children :& children :& ANil)
 
 depthFour = applicationGen depthThree
+
+upToDepth 0 = atomsByType
+upToDepth n = ECTAGen.frequencies
+  [(1, atomsByType), (3, applicationGen (upToDepth (n - 1)))]
 ```
 
 Both layers also support qualified do-notation through `Data.ECTA.Gen.Do`,

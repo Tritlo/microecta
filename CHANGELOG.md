@@ -25,6 +25,8 @@
   `On` value such as `authenticatedUser :==: fileOwner`, conjoinable with
   `:&&:`, replacing the positional `matchOn`. The three-way `matchOn3` is
   gone; star-shaped conditioning belongs to the keyed layer (`apply`).
+* Add `frequencies`, the per-group weighted choice among grouped generators,
+  so alternated layers such as depth-bounded languages stay grouped.
 * Add qualified do-notation in `Data.ECTA.Gen.Do`, re-exported by the
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors

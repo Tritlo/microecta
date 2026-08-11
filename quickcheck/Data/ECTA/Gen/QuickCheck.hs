@@ -17,6 +17,7 @@ module Data.ECTA.Gen.QuickCheck (
     sizes,
     atKey,
     apply,
+    frequencies,
     ungroup,
     frequency,
     On (..),
@@ -128,6 +129,12 @@ apply ::
     Args QuickCheckBackend argKeys operation result ->
     Grouped resultKey result
 apply = ECTA.apply
+
+{- | Choose among grouped generators with positive relative weights,
+group by group.
+-}
+frequencies :: (Ord key) => [(Integer, Grouped key a)] -> Grouped key a
+frequencies = ECTA.frequencies
 
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped key a -> ECTAGen a
