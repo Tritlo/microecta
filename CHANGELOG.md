@@ -12,8 +12,9 @@
 * Expose deterministic rank replay and exact coverage counts, sample weighted
   transparent generators compositionally, and support direct three-way joins
   with two ECTA equality constraints.
-* Add partition-preserving keyed generators so repeated three-way joins compose
-  compact ECTA supports and exact rank indices without enumerating prior layers.
+* Add partition-preserving grouped generators (`Grouped`, built with `groupBy`
+  from any transparent generator) so repeated joins compose compact ECTA
+  supports and exact rank indices without enumerating prior layers.
 * Generalize keyed operation application to any arity: a `Sig` is written
   like a function type over keys (`leftKey --> rightKey --> resultKey`), and
   the single `apply` joins the operation family with one argument family per

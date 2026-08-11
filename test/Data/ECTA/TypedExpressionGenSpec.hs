@@ -8,7 +8,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatis
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges)
-import Data.ECTA.Gen.QuickCheck (ECTAGen, ECTAGenBy, (-->))
+import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, (-->))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (unsafeGetEclasses)
@@ -104,15 +104,15 @@ functionSignature instance_ =
 
 {- | Function instances grouped by their complete ground signature.
 
-An 'ECTAGenBy' does not generate the signature as part of its result. The
+An 'Grouped' does not generate the signature as part of its result. The
 projected signature classifies functions into groups; matching key values tell
 joins which groups should receive equal internal labels on constrained ECTA
 paths. Conceptually, this is a compact map from each signature to the sublanguage
 of functions having that signature.
 -}
-functionsBySignature :: ECTAGenBy FunctionSignature BinaryFunctionInstance
+functionsBySignature :: Grouped FunctionSignature BinaryFunctionInstance
 functionsBySignature =
-    ECTAGen.elementsBy functionSignature binaryFunctionInstances
+    ECTAGen.groupBy functionSignature (ECTAGen.elements binaryFunctionInstances)
 
 {- | Literals grouped by their ground type.
 
@@ -120,8 +120,8 @@ Each projected @Type@ classifies literals into a group. Those keys let later
 applications match compatible children and equate their ECTA paths without
 enumerating or inspecting every expression.
 -}
-atomsByType :: ECTAGenBy Type TypedExpression
-atomsByType = ECTAGen.elementsBy expressionType atoms
+atomsByType :: Grouped Type TypedExpression
+atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 
 {- | Add one application layer and retain its result type for the next layer.
 
@@ -138,7 +138,7 @@ three arbitrary values and rejecting ill-typed combinations.
 Keeping the result group is what lets the operation compose recursively at the
 next depth.
 -}
-applicationGen :: ECTAGenBy Type TypedExpression -> ECTAGenBy Type TypedExpression
+applicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
 applicationGen children = ECTAGen.do
     operation <- functionsBySignature
     left <- children
@@ -152,7 +152,7 @@ difference from an ordinary 'ECTAGen': each completed language can immediately
 serve as both typed child inputs to the following application layer, where
 matching result-type groups have their paths equated.
 -}
-depthByType :: Int -> ECTAGenBy Type TypedExpression
+depthByType :: Int -> Grouped Type TypedExpression
 depthByType 0 = atomsByType
 depthByType depth
     | depth > 0 = applicationGen $ depthByType $ depth - 1
@@ -318,7 +318,7 @@ spec =
                     , (intCount + boolCount, TChar)
                     , (26679325111164403712 - 1, TChar)
                     ]
-            ECTAGen.sizeBy (depthByType 4)
+            ECTAGen.sizes (depthByType 4)
                 `shouldBe` Right
                     ( Map.fromList
                         [ (TInt, intCount)

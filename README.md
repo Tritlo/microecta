@@ -67,17 +67,18 @@ its own key, encode the shared keys as an actual ECTA equality constraint,
 count the matching group products, and unrank directly into the selected
 group. `:&&:` conjoins several equalities. `match` accepts arbitrary value
 projections, so discovering its groups requires enumerating the input ranks;
-conditioning three or more generators is the keyed layer's job (`elementsBy`
+conditioning three or more generators is the grouped layer's job (`groupBy`
 and `apply`).
 
-`ECTAGenBy key a` is the explicit grouping-preserving path for nested or very
+`Grouped key a` is the explicit grouping-preserving path for nested or very
 large languages. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
-key values receive equal internal labels on constrained ECTA paths. `elementsBy`
-records those initial keys, and grouped generators support ordinary `fmap`.
-`regroupBy` changes the classification without enumerating values, `sizeBy`
-returns the stored cardinality of every group, and `atKey` selects one group as
-an ordinary conditional generator. An operation of any arity is classified by
+key values receive equal internal labels on constrained ECTA paths. `groupBy`
+classifies any transparent generator's outcomes (enumerating them once), and
+grouped generators support ordinary `fmap`. `regroupBy` changes the
+classification without enumerating values, `sizes` returns the stored
+cardinality of every group, and `atKey` selects one group as an ordinary
+conditional generator. An operation of any arity is classified by
 a `Sig`, written like a function type over keys:
 `leftKey --> rightKey --> resultKey`. `apply` matches each signature
 key with the corresponding argument family, equates their paths in one ECTA
@@ -89,14 +90,14 @@ the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 
 ```haskell
-functionsBySignature :: ECTAGenBy (Sig '[Type, Type] Type) BinaryFunctionInstance
-functionsBySignature = ECTAGen.elementsBy signature functionInstances
+functionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
+functionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
 
 signature function =
   argument1Type function --> argument2Type function --> resultType function
 
-atomsByType :: ECTAGenBy Type TypedExpression
-atomsByType = ECTAGen.elementsBy expressionType atoms
+atomsByType :: Grouped Type TypedExpression
+atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 
 applicationGen children =
   ECTAGen.apply (compile <$> functionsBySignature) (children :& children :& ANil)
@@ -137,7 +138,7 @@ non-uniform `frequency` and conditioned joins; sampling never materializes the
 final Cartesian product. `cardinality` and `unrank` expose deterministic replay,
 while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
 `pmf` enumerate every rank because their projections or complete result values
-are not retained groups. The `ECTAGenBy` path avoids that work when a caller
+are not retained groups. The `Grouped` path avoids that work when a caller
 supplies the reusable classification structure up front.
 The optional `microecta:quickcheck` sublibrary exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed.

@@ -10,7 +10,7 @@ Joins count matched group products and unrank directly within them.
 module Data.ECTA.Gen (
     Indexed (..),
     ECTAGen,
-    ECTAGenBy,
+    Grouped,
     Sig (..),
     (-->),
     ToSig (..),
@@ -25,9 +25,9 @@ module Data.ECTA.Gen (
     fromIndexed,
     fromBackend,
     elements,
-    elementsBy,
+    groupBy,
     regroupBy,
-    sizeBy,
+    sizes,
     atKey,
     apply,
     ungroup,
@@ -138,8 +138,8 @@ during a join, matching key values determine which groups receive equal internal
 labels on constrained ECTA paths. Each key group retains compact ECTA support
 and indexed selection without storing all outcomes.
 -}
-newtype ECTAGenBy (gen :: Type -> Type) key a
-    = ECTAGenBy (Either ECTAGenError (Map.Map key (KeyedBucket a)))
+newtype Grouped (gen :: Type -> Type) key a
+    = Grouped (Either ECTAGenError (Map.Map key (KeyedBucket a)))
 
 {- | A heterogeneous list of group keys, one per generated operation argument.
 
@@ -249,7 +249,7 @@ data Args gen (argKeys :: [Type]) operation result where
     ANil :: Args gen '[] result result
     (:&) ::
         (Ord argKey) =>
-        ECTAGenBy gen argKey arg ->
+        Grouped gen argKey arg ->
         Args gen argKeys operation result ->
         Args gen (argKey ': argKeys) (arg -> operation) result
 
@@ -286,9 +286,9 @@ data ECTAGen gen a
     = Transparent !(Either ECTAGenError (Static a))
     | Opaque !(gen (Either ECTAGenError a))
 
-instance Functor (ECTAGenBy gen key) where
-    fmap transform (ECTAGenBy result) =
-        ECTAGenBy $ fmap (fmap mapBucket) result
+instance Functor (Grouped gen key) where
+    fmap transform (Grouped result) =
+        Grouped $ fmap (fmap mapBucket) result
       where
         mapBucket bucket =
             KeyedBucket
@@ -327,44 +327,74 @@ elements values =
             (toInteger $ length values)
             (\index -> atIndex "elements" index values)
 
-{- | Uniformly choose from a finite source while retaining the projected keys
-used to match groups in later path equalities.
+{- | Classify a transparent generator's outcomes by a projected key.
 
-Keys are ordered by their 'Ord' instance. Values within each key retain their
-source order.
+This is the boundary from flat to grouped generation: any transparent
+generator can be grouped, including 'frequency'-weighted sources and 'match'
+results. Building the groups enumerates the generator's outcomes once. Keys
+are ordered by their 'Ord' instance; outcomes within each key retain their
+rank order. Opaque generators cannot be grouped.
 -}
-elementsBy :: (Ord key) => (a -> key) -> [a] -> ECTAGenBy gen key a
-elementsBy _ [] = ECTAGenBy $ Left EmptyGenerator
-elementsBy key values =
-    ECTAGenBy $
-        Right $
-            Map.map makeBucket $
-                foldl' insertValue Map.empty values
-  where
-    totalOutcomes = toInteger $ length values
-
-    insertValue buckets value =
-        Map.insertWith (flip (<>)) (key value) [value] buckets
-
-    makeBucket bucketValues =
-        let bucketCardinality = toInteger $ length bucketValues
-         in KeyedBucket
-                (fromInteger bucketCardinality / fromInteger totalOutcomes)
-                ( indexedStatic $
-                    Indexed
-                        bucketCardinality
-                        (\index -> atIndex "elementsBy" index bucketValues)
+groupBy :: (Ord key) => (a -> key) -> ECTAGen gen a -> Grouped gen key a
+groupBy _ (Transparent (Left err)) = Grouped $ Left err
+groupBy key (Transparent (Right static)) =
+    Grouped $ do
+        outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+        traverse bucketFromOutcomes $
+            foldl'
+                ( \buckets outcome ->
+                    Map.insertWith
+                        (flip (<>))
+                        (key $ outcomeValue outcome)
+                        [outcome]
+                        buckets
                 )
+                Map.empty
+                outcomes
+groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
+
+-- | Build one retained group from its outcomes, in rank order.
+bucketFromOutcomes :: [Outcome a] -> Either ECTAGenError (KeyedBucket a)
+bucketFromOutcomes outcomes = do
+    sampler <- sequenceSampler conditional
+    pure $
+        KeyedBucket bucketMass $
+            Static
+                bucketSupport
+                ( OutcomeIndex
+                    totalOutcomes
+                    uniformMass
+                    select
+                    selectValue
+                    sampler
+                )
+  where
+    bucketMass = sum $ map outcomeMass outcomes
+    conditional =
+        Sequence.fromList
+            [ outcome{outcomeMass = outcomeMass outcome / bucketMass}
+            | outcome <- outcomes
+            ]
+    totalOutcomes = toInteger $ length outcomes
+    uniformMass = commonValue $ Just . outcomeMass <$> toList conditional
+    bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- outcomes]
+    termEdge (Term symbol children) = Edge symbol $ map singletonNode children
+
+    select index = do
+        checkIndex totalOutcomes index
+        pure $ Sequence.index conditional $ fromInteger index
+
+    selectValue = outcomeValue . Sequence.index conditional . fromInteger
 
 {- | Reclassify the groups without enumerating their values.
 
 When several old keys map to one new key, their compact supports are merged and
 their probability masses are preserved.
 -}
-regroupBy :: (Ord newKey) => (oldKey -> newKey) -> ECTAGenBy gen oldKey a -> ECTAGenBy gen newKey a
-regroupBy _ (ECTAGenBy (Left err)) = ECTAGenBy $ Left err
-regroupBy regroup (ECTAGenBy (Right buckets)) =
-    ECTAGenBy $ traverse mergeBucketGroup grouped
+regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped gen oldKey a -> Grouped gen newKey a
+regroupBy _ (Grouped (Left err)) = Grouped $ Left err
+regroupBy regroup (Grouped (Right buckets)) =
+    Grouped $ traverse mergeBucketGroup grouped
   where
     grouped =
         Map.foldlWithKey'
@@ -379,17 +409,17 @@ regroupBy regroup (ECTAGenBy (Right buckets)) =
             buckets
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
-sizeBy :: ECTAGenBy gen key a -> Either ECTAGenError (Map.Map key Integer)
-sizeBy (ECTAGenBy result) =
+sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)
+sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
 
 {- | Select one retained group as an ordinary conditional generator.
 
 A missing key produces 'EmptyGenerator'.
 -}
-atKey :: (Ord key) => key -> ECTAGenBy gen key a -> ECTAGen gen a
-atKey _ (ECTAGenBy (Left err)) = Transparent $ Left err
-atKey key (ECTAGenBy (Right buckets)) =
+atKey :: (Ord key) => key -> Grouped gen key a -> ECTAGen gen a
+atKey _ (Grouped (Left err)) = Transparent $ Left err
+atKey key (Grouped (Right buckets)) =
     Transparent $
         maybe
             (Left EmptyGenerator)
@@ -408,11 +438,11 @@ argument ranks left to right.
 -}
 apply ::
     (Ord resultKey) =>
-    ECTAGenBy gen (Sig argKeys resultKey) operation ->
+    Grouped gen (Sig argKeys resultKey) operation ->
     Args gen argKeys operation result ->
-    ECTAGenBy gen resultKey result
-apply (ECTAGenBy (Left err)) _ = ECTAGenBy $ Left err
-apply (ECTAGenBy (Right operations)) arguments = ECTAGenBy $ do
+    Grouped gen resultKey result
+apply (Grouped (Left err)) _ = Grouped $ Left err
+apply (Grouped (Right operations)) arguments = Grouped $ do
     argumentMaps <- argsMaps arguments
     let matchingBuckets =
             [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
@@ -446,7 +476,7 @@ data ArgMaps (argKeys :: [Type]) operation result where
 
 argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps argKeys operation result)
 argsMaps ANil = Right MapsNil
-argsMaps (ECTAGenBy family :& rest) = MapsCons <$> family <*> argsMaps rest
+argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
 
 -- | The matched group of every argument family, in signature order.
 data ArgStatics operation result where
@@ -470,9 +500,9 @@ lookupArgs (key :* keys) (MapsCons buckets rest) = do
         )
 
 -- | Merge all retained groups while preserving their probability masses.
-ungroup :: ECTAGenBy gen key a -> ECTAGen gen a
-ungroup (ECTAGenBy (Left err)) = Transparent $ Left err
-ungroup (ECTAGenBy (Right buckets)) =
+ungroup :: Grouped gen key a -> ECTAGen gen a
+ungroup (Grouped (Left err)) = Transparent $ Left err
+ungroup (Grouped (Right buckets)) =
     Transparent $ mergeKeyedBuckets buckets
 
 -- | Choose one generator with the supplied positive relative weight.

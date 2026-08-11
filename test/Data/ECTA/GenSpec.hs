@@ -271,13 +271,13 @@ spec = do
                     leftKey --> rightKey --> resultKey
                 operations =
                     ECTAGen.regroupBy signature $
-                        ECTAGen.elementsBy fst centers
+                        ECTAGen.groupBy fst (ECTAGen.elements centers)
                 grouped =
                     ECTAGen.ungroup $
                         ECTAGen.apply
                             ((,,) <$> operations)
-                            ( ECTAGen.elementsBy fst lefts
-                                :& ECTAGen.elementsBy fst rights
+                            ( ECTAGen.groupBy fst (ECTAGen.elements lefts)
+                                :& ECTAGen.groupBy fst (ECTAGen.elements rights)
                                 :& ANil
                             )
                 accepted =
@@ -296,7 +296,7 @@ spec = do
                             Map.fromListWith
                                 (+)
                                 [(value, 1) | value <- accepted]
-            ECTAGen.sizeBy operations
+            ECTAGen.sizes operations
                 `shouldBe` Right (Map.fromList [(0 --> 0 --> (0 :: Int), 2), (1 --> 0 --> (1 :: Int), 1)])
             ECTAGen.pmf (ECTAGen.atKey (0 --> 0 --> (0 :: Int)) operations)
                 `shouldBe` Right [(centers !! 0, 1 % 2), (centers !! 1, 1 % 2)]

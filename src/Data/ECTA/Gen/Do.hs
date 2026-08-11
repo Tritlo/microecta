@@ -61,8 +61,8 @@ import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import Data.ECTA.Gen (
     Args (..),
     ECTAGen,
-    ECTAGenBy,
     GenBackend,
+    Grouped,
     Sig,
     apply,
  )
@@ -119,23 +119,23 @@ newtype Applying gen (pendingKeys :: [Type]) resultKey b
     = Applying
         ( forall result.
           Args gen pendingKeys b result ->
-          ECTAGenBy gen resultKey result
+          Grouped gen resultKey result
         )
 
 instance
     (Ord argKey, Ord resultKey) =>
     GenApply
-        (ECTAGenBy gen (Sig '[argKey] resultKey))
-        (ECTAGenBy gen argKey)
-        (ECTAGenBy gen resultKey)
+        (Grouped gen (Sig '[argKey] resultKey))
+        (Grouped gen argKey)
+        (Grouped gen resultKey)
     where
     operations <*> argument = apply operations (argument :& ANil)
 
 instance
     (Ord argKey, Ord resultKey) =>
     GenApply
-        (ECTAGenBy gen (Sig (argKey ': nextKey ': pendingKeys) resultKey))
-        (ECTAGenBy gen argKey)
+        (Grouped gen (Sig (argKey ': nextKey ': pendingKeys) resultKey))
+        (Grouped gen argKey)
         (Applying gen (nextKey ': pendingKeys) resultKey)
     where
     operations <*> argument =
@@ -145,8 +145,8 @@ instance
     (Ord argKey) =>
     GenApply
         (Applying gen '[argKey] resultKey)
-        (ECTAGenBy gen argKey)
-        (ECTAGenBy gen resultKey)
+        (Grouped gen argKey)
+        (Grouped gen resultKey)
     where
     Applying continue <*> argument = continue (argument :& ANil)
 
@@ -154,7 +154,7 @@ instance
     (Ord argKey) =>
     GenApply
         (Applying gen (argKey ': nextKey ': pendingKeys) resultKey)
-        (ECTAGenBy gen argKey)
+        (Grouped gen argKey)
         (Applying gen (nextKey ': pendingKeys) resultKey)
     where
     Applying continue <*> argument =

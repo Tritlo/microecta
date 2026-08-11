@@ -5,7 +5,7 @@
 module Data.ECTA.Gen.QuickCheck (
     Indexed (..),
     ECTAGen,
-    ECTAGenBy,
+    Grouped,
     Sig (..),
     (-->),
     ToSig (..),
@@ -18,9 +18,9 @@ module Data.ECTA.Gen.QuickCheck (
     ECTAGenError (..),
     fromIndexed,
     elements,
-    elementsBy,
+    groupBy,
     regroupBy,
-    sizeBy,
+    sizes,
     atKey,
     apply,
     ungroup,
@@ -98,7 +98,7 @@ instance ECTA.GenBackend QuickCheckBackend where
 type ECTAGen = ECTA.ECTAGen QuickCheckBackend
 
 -- | An ECTA generator classified by a projected key used to match ECTA paths.
-type ECTAGenBy key = ECTA.ECTAGenBy QuickCheckBackend key
+type Grouped key = ECTA.Grouped QuickCheckBackend key
 
 -- | Lift one finite indexed source into transparent ECTA structure.
 fromIndexed :: Indexed a -> ECTAGen a
@@ -108,20 +108,24 @@ fromIndexed = ECTA.fromIndexed
 elements :: [a] -> ECTAGen a
 elements = ECTA.elements
 
--- | Uniformly choose while retaining projected keys for later path matching.
-elementsBy :: (Ord key) => (a -> key) -> [a] -> ECTAGenBy key a
-elementsBy = ECTA.elementsBy
+{- | Classify a transparent generator's outcomes by a projected key.
+
+Building the groups enumerates the generator's outcomes once. Opaque
+generators cannot be grouped.
+-}
+groupBy :: (Ord key) => (a -> key) -> ECTAGen a -> Grouped key a
+groupBy = ECTA.groupBy
 
 -- | Reclassify groups without enumerating their values.
-regroupBy :: (Ord newKey) => (oldKey -> newKey) -> ECTAGenBy oldKey a -> ECTAGenBy newKey a
+regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped oldKey a -> Grouped newKey a
 regroupBy = ECTA.regroupBy
 
 -- | Return the exact cardinality of each retained group.
-sizeBy :: ECTAGenBy key a -> Either ECTAGenError (Map key Integer)
-sizeBy = ECTA.sizeBy
+sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
+sizes = ECTA.sizes
 
 -- | Select one retained group as an ordinary conditional generator.
-atKey :: (Ord key) => key -> ECTAGenBy key a -> ECTAGen a
+atKey :: (Ord key) => key -> Grouped key a -> ECTAGen a
 atKey = ECTA.atKey
 
 {- | Apply a generated operation of any arity to one argument family per
@@ -132,13 +136,13 @@ left to right; use 'fmap' to attach a compiling function.
 -}
 apply ::
     (Ord resultKey) =>
-    ECTAGenBy (Sig argKeys resultKey) operation ->
+    Grouped (Sig argKeys resultKey) operation ->
     Args QuickCheckBackend argKeys operation result ->
-    ECTAGenBy resultKey result
+    Grouped resultKey result
 apply = ECTA.apply
 
 -- | Merge all retained groups while preserving their probability masses.
-ungroup :: ECTAGenBy key a -> ECTAGen a
+ungroup :: Grouped key a -> ECTAGen a
 ungroup = ECTA.ungroup
 
 -- | Choose one generator with the supplied positive relative weight.
