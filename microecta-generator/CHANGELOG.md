@@ -47,3 +47,15 @@
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
   for monadic shapes.
+* Add `mu`, which builds a generator from its own language. A recursive
+  generator stands for the whole unbounded language: size classes counted by
+  FEAT-style convolution instead of a cardinality, size-major ranks, and a
+  `Mu` node for a support. `upToSize` bounds it to an ordinary finite
+  generator, and `toGen` and `forAll` do that from QuickCheck's size
+  parameter, drawing uniformly from the members of at most that size.
+  Bounding preserves ranks, so a counterexample replays under any bound.
+  Finite generators keep their mixed-radix ranks and compiled decoder
+  unchanged. Recursion must be guarded by `<*>`, `frequency` alternatives
+  around a recursive occurrence must carry equal weights, and inspection
+  that needs one term per member (`groupBy`, `match`, `pmf`, `countBy`)
+  reports an error on a recursive language.

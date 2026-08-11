@@ -147,6 +147,45 @@ coverage :: Either ECTAGenError (Map UserId Integer)
 coverage = ECTAGen.countBy authenticatedUser authentication
 ```
 
+## Recursive languages
+
+`mu` builds a generator from its own language, so a language can be
+unbounded rather than unrolled layer by layer:
+
+```haskell
+tree :: ECTAGen Tree
+tree = ECTAGen.mu $ \self ->
+    ECTAGen.frequency
+        [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
+        , (1, Branch <$> self <*> self)
+        ]
+```
+
+The result stands for the whole language. It has no cardinality; it has
+size classes, counted by FEAT-style convolution, where size is the number of
+source choices in a member — `countAtSize tree 4` is `Right 405` for the
+tree above. Ranks are size-major, so `unrank tree 0` is the smallest member
+and every rank replays as usual, and the ECTA support is a `Mu` node: one
+finite automaton for infinitely many terms.
+
+`upToSize n` bounds the language back to an ordinary finite generator over
+the members of size at most `n`, and `toGen` and `forAll` apply it from
+QuickCheck's size parameter, so a recursive generator samples uniformly from
+the members of at most the current size. Bounding preserves ranks — the
+members of size at most `n` hold the same ranks under every bound — so a
+counterexample found at one size replays at any other, and `forAll` shrinks
+by walking whole size classes below the failing member.
+
+Two rules apply inside the knot. The recursion must be guarded: every
+occurrence of the argument sits under at least one `<*>`, or the language
+has no smallest member and counting it diverges. And a recursive language is
+uniform over each size class, so `frequency` alternatives around a recursive
+occurrence must carry equal weights — the size bound, not the weights,
+controls how large members get. Unequal weights are rejected rather than
+ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
+`pmf`, `countBy`) is not available on a recursive language; bound it first,
+or keep that layer finite.
+
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
@@ -166,9 +205,10 @@ structure explicit.
 - `Data.ECTA.Gen.Do` provides the qualified do-notation operators.
 - `Data.ECTA.Gen.QuickCheck` provides the ordinary QuickCheck-facing API,
   including `fromGen`, `toGen`, `forAll`, and `sized`.
-- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Decoder`, and
-  `Data.ECTA.Gen.Internal.Shrink` implement static languages, joins, compiled
-  rank decoding, and structural shrinking. They are not exposed.
+- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Decoder`,
+  `Data.ECTA.Gen.Internal.Shrink`, and `Data.ECTA.Gen.Internal.Size`
+  implement static languages, joins, compiled rank decoding, structural
+  shrinking, and size-stratified counting. They are not exposed.
 
 ## Dependency surface
 
