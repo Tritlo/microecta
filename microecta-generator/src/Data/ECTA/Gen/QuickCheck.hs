@@ -37,6 +37,7 @@ module Data.ECTA.Gen.QuickCheck (
     toGenWithRank,
     toGenWithRankEither,
     forAll,
+    forAllWithLimit,
     sized,
 
     -- * Qualified do-notation
@@ -241,7 +242,23 @@ is printed with the counterexample, so 'unrank' replays it
 deterministically.
 -}
 forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
-forAll generator prop =
+forAll = forAllWithLimit smallerMemberLimit
+
+{- | 'forAll' with an explicit cap on the smaller-member search per shrink
+step.
+
+The cap bounds the members tested when the current failing member is
+already minimal. When the language holds more small members than
+'smallerMemberLimit' — command sequences, for example, accumulate many
+short members — the default search never reaches the failing sizes and
+structural shrinking alone cannot remove members in the middle of a
+product. Raising the cap past the number of passing smaller members
+restores the globally smallest failing member at the cost of testing that
+many members per shrink step.
+-}
+forAllWithLimit ::
+    (QC.Testable prop, Show a) => Int -> ECTAGen a -> (a -> prop) -> QC.Property
+forAllWithLimit limit generator prop =
     QC.forAllShrinkShow
         (toGenWithRank generator)
         shrinkCandidates
@@ -250,7 +267,7 @@ forAll generator prop =
   where
     shrinkCandidates (rank, _) = smaller <> structural
       where
-        smaller = take smallerMemberLimit (smallerMembers generator rank)
+        smaller = take limit (smallerMembers generator rank)
         currentSize = sizeOfRank generator rank
         structural =
             [ (candidate, value)
