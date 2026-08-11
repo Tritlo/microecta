@@ -14,6 +14,7 @@ module Data.ECTA.Gen.QuickCheck (
     elements,
     groupBy,
     regroupBy,
+    mapWithKey,
     sizes,
     atKey,
     apply,
@@ -32,6 +33,8 @@ module Data.ECTA.Gen.QuickCheck (
     toGenEither,
     toGenWithRank,
     toGenWithRankEither,
+    forAll,
+    sized,
 
     -- * Qualified do-notation
     module Data.ECTA.Gen.Do,
@@ -108,6 +111,10 @@ groupBy = ECTA.groupBy
 -- | Reclassify groups without enumerating their values.
 regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped oldKey a -> Grouped newKey a
 regroupBy = ECTA.regroupBy
+
+-- | Map group values with access to their retained key.
+mapWithKey :: (key -> a -> b) -> Grouped key a -> Grouped key b
+mapWithKey = ECTA.mapWithKey
 
 -- | Return the exact cardinality of each retained group.
 sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
@@ -196,3 +203,38 @@ toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
 toGenWithRank generator =
     either (error . ("ECTAGen: " <>) . show) id
         <$> toGenWithRankEither generator
+
+{- | Check a property over a transparent generator, shrinking by rank.
+
+Sampling retains the replay rank, and shrink candidates walk toward rank
+zero along the generator's rank order, so every shrink candidate is itself a
+member of the generated language: shrinking can never leave the constraints.
+List base alternatives first in layered generators so that smaller ranks mean
+smaller values. The failing rank is printed with the counterexample, so
+'unrank' replays it deterministically.
+-}
+forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
+forAll generator prop =
+    QC.forAllShrinkShow
+        (toGenWithRank generator)
+        shrinkCandidates
+        showRanked
+        (prop . snd)
+  where
+    shrinkCandidates (rank, _) =
+        [ (candidate, value)
+        | candidate <- QC.shrinkIntegral rank
+        , Right value <- [unrank generator candidate]
+        ]
+
+    showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
+
+{- | Build the generator from QuickCheck's size parameter.
+
+The generators for every size are built once and shared across samples, so a
+layered generator is not reconstructed on every draw.
+-}
+sized :: (Int -> ECTAGen a) -> QC.Gen a
+sized build = QC.sized $ \size -> toGen $ towers !! max 0 size
+  where
+    towers = map build [0 ..]

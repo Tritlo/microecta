@@ -1,4 +1,3 @@
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Indexed generators whose transparent regions are represented as ECTAs.
@@ -22,6 +21,7 @@ module Data.ECTA.Gen (
     elements,
     groupBy,
     regroupBy,
+    mapWithKey,
     sizes,
     atKey,
     apply,
@@ -365,6 +365,16 @@ regroupBy regroup (Grouped (Right buckets)) =
             Map.empty
             buckets
 
+-- | Map group values with access to their retained key.
+mapWithKey :: (key -> a -> b) -> Grouped gen key a -> Grouped gen key b
+mapWithKey transform (Grouped result) =
+    Grouped $ fmap (Map.mapWithKey mapBucket) result
+  where
+    mapBucket key bucket =
+        KeyedBucket
+            (keyedBucketMass bucket)
+            (mapStatic (transform key) $ keyedBucketStatic bucket)
+
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)
 sizes (Grouped result) =
@@ -461,7 +471,6 @@ lookupArgs (key :* rest) (MapsCons buckets restMaps) = do
         ( keyedBucketMass bucket * mass
         , StaticsCons (keyedBucketStatic bucket) statics
         )
-lookupArgs signature MapsNil = case signature of {}
 
 {- | Choose among grouped generators with positive relative weights,
 group by group.
@@ -1058,8 +1067,8 @@ joinNBucketStatic componentIndex operation arguments =
                 (keyNodes <> [staticSupport operation])
             ]
     argumentNodes =
-        [ Node [Edge argKeyedSymbol [argKeyNode, support]]
-        | (argKeyNode, support) <- zip keyNodes (chainSupports arguments)
+        [ Node [Edge argKeyedSymbol [argKeyNode, argSupport]]
+        | (argKeyNode, argSupport) <- zip keyNodes (chainSupports arguments)
         ]
     joined =
         reducePartially $

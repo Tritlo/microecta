@@ -75,7 +75,8 @@ large languages. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
 key values receive equal internal labels on constrained ECTA paths. `groupBy`
 classifies any transparent generator's outcomes (enumerating them once), and
-grouped generators support ordinary `fmap`. `regroupBy` changes the
+grouped generators support ordinary `fmap` (and `mapWithKey` when the value
+should absorb its key). `regroupBy` changes the
 classification without enumerating values, `sizes` returns the stored
 cardinality of every group, and `atKey` selects one group as an ordinary
 conditional generator. An operation of any arity is classified by a `Sig`,
@@ -148,7 +149,12 @@ while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
 are not retained groups. The `Grouped` path avoids that work when a caller
 supplies the reusable classification structure up front.
 The optional `microecta:quickcheck` sublibrary exposes `toGen`, plus
-`toGenWithRank` when the sampled replay rank is needed.
+`toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
+property with rank-based shrinking: every shrink candidate walks toward rank
+zero along the generator's rank order, so shrinking can never leave the
+generated language, and the failing rank is printed for deterministic replay
+with `unrank`. `sized` builds one generator per QuickCheck size (shared
+across samples), so layered generators can scale with the size parameter.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)

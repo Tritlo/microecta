@@ -27,6 +27,11 @@
   gone; star-shaped conditioning belongs to the keyed layer (`apply`).
 * Add `frequencies`, the per-group weighted choice among grouped generators,
   so alternated layers such as depth-bounded languages stay grouped.
+* Add `mapWithKey` for grouped generators, and `forAll` and `sized` to the
+  QuickCheck adapter: `forAll` shrinks by walking ranks toward zero, so every
+  shrink stays inside the generated language and the failing rank replays the
+  counterexample deterministically; `sized` maps QuickCheck's size parameter
+  to a generator, building each size once.
 * Add qualified do-notation in `Data.ECTA.Gen.Do`, re-exported by the
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
