@@ -476,7 +476,7 @@ applyStatic functions values =
          in outcomeValueAt functionOutcomes functionIndex $
                 outcomeValueAt valueOutcomes valueIndex
 
-    splitIndex index = index `divMod` valueCardinality
+    splitIndex index = index `quotRem` valueCardinality
 
 frequencyStatic :: [(Integer, Static a)] -> Static a
 frequencyStatic alternatives =
@@ -496,6 +496,16 @@ frequencyStatic alternatives =
   where
     totalWeight = sum $ map fst alternatives
     numbered = zip [0 :: Int ..] alternatives
+    rankedBranches =
+        [ ( offset + outcomeCardinality (staticOutcomes static)
+          , offset
+          , branchIndex
+          , weight
+          , static
+          )
+        | (branchIndex, (offset, (weight, static))) <-
+            zip [0 :: Int ..] $ offsetAlternatives alternatives
+        ]
     totalOutcomes = sum [outcomeCardinality $ staticOutcomes static | (_, static) <- alternatives]
     uniformMass = commonValue $ map branchUniformMass alternatives
     sampler = case uniformMass of
@@ -508,7 +518,7 @@ frequencyStatic alternatives =
 
     select index = do
         checkIndex totalOutcomes index
-        let (branchIndex, weight, static, childIndex) = selectBranch index numbered
+        let (branchIndex, weight, static, childIndex) = selectBranch index rankedBranches
         child <- outcomeSelect (staticOutcomes static) childIndex
         pure $
             Outcome
@@ -520,15 +530,13 @@ frequencyStatic alternatives =
                 (outcomeValue child)
 
     selectValue index =
-        let (_, _, static, childIndex) = selectBranch index numbered
+        let (_, _, static, childIndex) = selectBranch index rankedBranches
          in outcomeValueAt (staticOutcomes static) childIndex
 
     selectBranch _ [] = error "frequencyStatic: rank outside alternatives"
-    selectBranch index ((branchIndex, (weight, static)) : remaining)
-        | index < branchCardinality = (branchIndex, weight, static, index)
-        | otherwise = selectBranch (index - branchCardinality) remaining
-      where
-        branchCardinality = outcomeCardinality $ staticOutcomes static
+    selectBranch index ((upperBound, offset, branchIndex, weight, static) : remaining)
+        | index < upperBound = (branchIndex, weight, static, index - offset)
+        | otherwise = selectBranch index remaining
 
 joinStatic ::
     (Ord key) =>
@@ -646,7 +654,7 @@ joinOutcomeIndex left right groups = do
     selectPair index =
         let (group, groupIndex) = selectJoinGroup index groups
             rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
-            (leftIndex, rightIndex) = groupIndex `divMod` rightCardinality
+            (leftIndex, rightIndex) = groupIndex `quotRem` rightCardinality
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromInteger leftIndex
             rightOutcome = Sequence.index (joinGroupRight group) $ fromInteger rightIndex
          in (group, leftOutcome, rightOutcome)
@@ -908,8 +916,8 @@ join3BucketStatic componentIndex center left right =
             )
 
     splitIndex index =
-        let (centerIndex, childIndex) = index `divMod` childCardinality
-            (leftIndex, rightIndex) = childIndex `divMod` rightCardinality
+        let (centerIndex, childIndex) = index `quotRem` childCardinality
+            (leftIndex, rightIndex) = childIndex `quotRem` rightCardinality
          in (centerIndex, leftIndex, rightIndex)
 
 join3Static ::
@@ -1050,8 +1058,8 @@ join3OutcomeIndex center left right groups = do
             leftCardinality = toInteger $ Sequence.length $ join3GroupLeft group
             rightCardinality = toInteger $ Sequence.length $ join3GroupRight group
             childCardinality = leftCardinality * rightCardinality
-            (centerIndex, childIndex) = groupIndex `divMod` childCardinality
-            (leftIndex, rightIndex) = childIndex `divMod` rightCardinality
+            (centerIndex, childIndex) = groupIndex `quotRem` childCardinality
+            (leftIndex, rightIndex) = childIndex `quotRem` rightCardinality
             centerOutcome = Sequence.index (join3GroupCenter group) $ fromInteger centerIndex
             leftOutcome = Sequence.index (join3GroupLeft group) $ fromInteger leftIndex
             rightOutcome = Sequence.index (join3GroupRight group) $ fromInteger rightIndex
