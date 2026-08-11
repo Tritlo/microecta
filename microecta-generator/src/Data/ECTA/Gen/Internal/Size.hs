@@ -64,8 +64,14 @@ counting anything.
 probeIndex :: SizeIndex a
 probeIndex =
     SizeIndex
-        (error "probeIndex: a probe counts no size classes")
-        (error "probeIndex: a probe decodes no members")
+        ( error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            \a probe counts no size classes; only its guardedness is read"
+        )
+        ( error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            \a probe decodes no members; only its guardedness is read"
+        )
         True
 
 {- | Whether a language built around 'probeIndex' left the occurrence
@@ -121,7 +127,11 @@ sizeIndex (PlanSelect cardinality' decode) =
     SizeIndex [cardinality'] select False
   where
     select 1 position = (position, decode position)
-    select size _ = error $ "sizeIndex: a leaf has no members of size " <> show size
+    select size _ =
+        error $
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \a leaf has no members of size "
+                <> show size
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
     SizeIndex counts select False
@@ -160,7 +170,11 @@ sizeIndex (PlanSized classes) =
 
     select size position = case [entry | entry@(size', _, _, _) <- offsets, size' == size] of
         (_, offset, _, decode) : _ -> (offset + position, decode position)
-        [] -> error $ "sizeIndex: no members of size " <> show size
+        [] ->
+            error $
+                "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+                \no size class of size "
+                    <> show size
 
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
@@ -170,7 +184,8 @@ constantIndex value =
     select 1 0 = (0, value)
     select size position =
         error $
-            "constantIndex: no member at size "
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.constantIndex: \
+            \no member at size "
                 <> show size
                 <> " position "
                 <> show position
@@ -243,7 +258,11 @@ sizeMajorRanks = scanl (+) 0
 rankAt :: [Integer] -> Int -> Integer -> Integer
 rankAt ranks size position = case drop (size - 1) ranks of
     rank : _ -> rank + position
-    [] -> error $ "sizeIndex: no size class " <> show size
+    [] ->
+        error $
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.rankAt: \
+            \no size class of size "
+                <> show size
 
 -- | Size counts of a product: one choice from each side, so sizes add.
 productCounts :: SizeIndex (a -> b) -> SizeIndex a -> [Integer]
@@ -267,7 +286,10 @@ rebased into it.
 partAt :: Int -> [(offset, SizeIndex a)] -> Integer -> (offset, SizeIndex a, Integer)
 partAt size = go
   where
-    go [] _ = error "sizeIndex: position outside the size class"
+    go [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \position outside the size class"
     go ((offset, inner) : rest) position
         | position < count = (offset, inner, position)
         | otherwise = go rest (position - count)
@@ -285,7 +307,10 @@ productSplit ::
     (Int, Integer, Int, Integer)
 productSplit indexF indexX size = go [1 .. size - 1]
   where
-    go [] _ = error "sizeIndex: position outside the product size class"
+    go [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \position outside the product size class"
     go (functionSize : rest) position
         | position < block =
             let (functionPosition, argumentPosition) = position `quotRem` argumentCount

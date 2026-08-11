@@ -11,6 +11,7 @@ module Data.ECTA.Gen.Internal where
 
 import Data.Foldable (toList)
 import Data.Kind (Type)
+import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
 import Data.Sequence (Seq)
@@ -71,24 +72,34 @@ data Sampler a = Sampler
     , runRankSampler :: forall gen. (GenBackend gen) => gen (Integer, a)
     }
 
--- | Failure while constructing, inspecting, or sampling a generator.
+{- | Failure while constructing, inspecting, or sampling a generator.
+
+The derived 'Show' names the case; 'explain' says what it means and what to
+do about it.
+-}
 data ECTAGenError
-    = EmptyGenerator
-    | NonPositiveWeight !Integer
-    | CannotInspectOpaqueGenerator
-    | SelectionOutOfRange !Integer !Integer
-    | {- | An inspection that needs a finite language met a recursive one;
-      bound it with @upToSize@ first.
+    = -- | The language has no members at all.
+      EmptyGenerator
+    | -- | A weighted alternative carried a weight below one.
+      NonPositiveWeight !Integer
+    | -- | The generator crosses an opaque region, which has no structure.
+      CannotInspectOpaqueGenerator
+    | -- | A rank fell outside a language of the given cardinality.
+      SelectionOutOfRange !Integer !Integer
+    | {- | Something needing a finite language met a recursive one, which has
+      size classes rather than a cardinality.
       -}
       UnboundedGenerator
-    | {- | An inspection that needs one ECTA term per member met a recursive
+    | {- | Something needing one ECTA term per member met a recursive
       language, which retains its automaton rather than its members.
       -}
       CannotInspectRecursiveGenerator
-    | {- | Recursive alternatives carried unequal weights: a recursive
-      language is uniform by size, so it has no room for them.
+    | {- | Alternatives around a recursive occurrence carried unequal
+      weights, and a recursive language is uniform over each size class.
       -}
       WeightedRecursiveAlternatives
+    | -- | The operation family of an application is recursive.
+      RecursiveOperationFamily
     | {- | An automaton's edges carry equality constraints, which correlate
       their children: the edge's count is an intersection, not a product.
       -}
@@ -100,6 +111,115 @@ data ECTAGenError
       -}
       UnguardedRecursion
     deriving (Eq, Show)
+
+{- | What one failure means, and what to do about it.
+
+Written for the person who hit it: the first line says what the generator
+could not do in the vocabulary of the library, and the rest says which
+combinator resolves it.
+-}
+explain :: ECTAGenError -> String
+explain EmptyGenerator =
+    guidance
+        [ "The language has no members."
+        , "Common causes: elements or fromIndexed over an empty list, a"
+        , "match or apply whose keys never agree, or a size bound below one."
+        ]
+explain (NonPositiveWeight weight) =
+    guidance
+        [ "A weighted alternative carries the weight " <> show weight <> ". Weights are"
+        , "relative counts, so every alternative needs a weight of one or more."
+        , "Fix: give it a positive weight, or use oneof, which weights every"
+        , "alternative equally."
+        ]
+explain CannotInspectOpaqueGenerator =
+    guidance
+        [ "The generator crosses an opaque region built with fromGen. An"
+        , "opaque region has no ECTA structure, so it has no support, no"
+        , "cardinality, and no ranks."
+        , "Fix: build that region from elements, fromIndexed, or fromECTA, or"
+        , "inspect the transparent parts around it instead."
+        ]
+explain (SelectionOutOfRange rank total)
+    | total <= 0 =
+        guidance
+            [ "Rank " <> show rank <> " was asked of a language with no members."
+            , "Fix: see EmptyGenerator for what leaves a language empty."
+            ]
+    | otherwise =
+        guidance
+            [ "Rank " <> show rank <> " is outside the language, which holds " <> show total
+            , "members ranked 0 to " <> show (total - 1) <> "."
+            , "Fix: a rank comes from unrank, toGenWithRank, or a forAll"
+            , "counterexample, and replays only into the language it came from."
+            , "For a recursive language that means the same size bound too:"
+            , "countAtSize reports one size class, and upToSize fixes the"
+            , "language a rank has to fall inside."
+            ]
+explain UnboundedGenerator =
+    guidance
+        [ "This needs a language with finitely many members, but the generator"
+        , "is recursive: it has a count per size class rather than a"
+        , "cardinality."
+        , "Fix: bound it with upToSize first. Grouping and mass inspection"
+        , "(groupBy, match, pmf, countBy) additionally need one ECTA term per"
+        , "member, which only a language read with fromECTA retains."
+        ]
+explain CannotInspectRecursiveGenerator =
+    guidance
+        [ "The members of this language carry no ECTA term. A recursive"
+        , "generator retains its automaton instead of a term per member, and a"
+        , "term per member is what groupBy, match, pmf, and countBy read."
+        , "Fix: keep the layer that needs terms finite, or read the language"
+        , "from an automaton with fromECTA, whose members are terms."
+        ]
+explain WeightedRecursiveAlternatives =
+    guidance
+        [ "Alternatives around a recursive occurrence carry different weights."
+        , "A recursive language is uniform over each of its size classes, so"
+        , "there is no room for relative weights inside one."
+        , "Fix: use oneof, or oneofGrouped in a grouped family, and control how"
+        , "large members get with the size bound rather than with weights."
+        ]
+explain RecursiveOperationFamily =
+    guidance
+        [ "The operation family passed to apply is recursive. Which components"
+        , "an application has is decided by the operation signatures, so that"
+        , "family has to be finite; only the argument families may recurse."
+        , "Fix: build the operations with elements and groupBy, and let the"
+        , "recursion go through the arguments."
+        ]
+explain CannotCountConstrainedEdges =
+    guidance
+        [ "An edge of this automaton carries equality constraints, which"
+        , "correlate its children: the edge's count is the size of an"
+        , "intersection rather than the product of its children's counts, and"
+        , "fromECTA does not compute that."
+        , "Fix: build a constrained language with the generator combinators,"
+        , "where apply and match count their joins exactly, or read an"
+        , "automaton whose edges are unconstrained."
+        ]
+explain OpenAutomaton =
+    guidance
+        [ "The automaton has free recursive variables, so it stands for the"
+        , "body of a Mu rather than a language of its own."
+        , "Fix: pass the whole recursive node, the one createMu returns, not a"
+        , "node taken from inside it."
+        ]
+explain UnguardedRecursion =
+    guidance
+        [ "The recursive language reaches itself without passing through an"
+        , "application, so its members never get smaller and no size class can"
+        , "be counted."
+        , "Fix: put every occurrence of the argument under <*>, as in"
+        , "Branch <$> self <*> self, or under apply in a grouped family. An"
+        , "alternative that is the argument itself, such as oneof [leaf, self],"
+        , "is the shape to look for."
+        ]
+
+-- | One guidance message, one line per element.
+guidance :: [String] -> String
+guidance = intercalate "\n"
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome a = Outcome
@@ -199,7 +319,10 @@ boundedStatic bound recursive
 
     selectValue = go classes
       where
-        go [] _ = error "boundedStatic: rank outside the bounded language"
+        go [] _ =
+            error
+                "microecta-generator bug in Data.ECTA.Gen.Internal.boundedStatic: \
+                \rank outside the bounded language"
         go ((_, count, decode) : rest) index
             | index < count = decode index
             | otherwise = go rest (index - count)
@@ -456,7 +579,10 @@ frequencyStatic alternatives =
         let (_, _, static, childIndex) = selectBranch index rankedBranches
          in outcomeValueAt (staticOutcomes static) childIndex
 
-    selectBranch _ [] = error "frequencyStatic: rank outside alternatives"
+    selectBranch _ [] =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.frequencyStatic: \
+            \rank outside the alternatives"
     selectBranch index ((upperBound, offset, branchIndex, weight, static) : remaining)
         | index < upperBound = (branchIndex, weight, static, index - offset)
         | otherwise = selectBranch index remaining
@@ -613,7 +739,10 @@ selectJoinGroup ::
     Integer ->
     [JoinGroup left right] ->
     (JoinGroup left right, Integer)
-selectJoinGroup _ [] = error "selectJoinGroup: rank outside groups"
+selectJoinGroup _ [] =
+    error
+        "microecta-generator bug in Data.ECTA.Gen.Internal.selectJoinGroup: \
+        \rank outside the matched groups"
 selectJoinGroup index (group : remaining)
     | index < groupSize = (group, index)
     | otherwise = selectJoinGroup (index - groupSize) remaining
@@ -971,7 +1100,10 @@ selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
         , outcomeMass outcome * mass
         , value
         )
-selectChain _ (ChainCons _ _) [] _ = error "selectChain: missing key terms"
+selectChain _ (ChainCons _ _) [] _ =
+    error
+        "microecta-generator bug in Data.ECTA.Gen.Internal.selectChain: \
+        \fewer key terms than arguments"
 
 -- | Sample one outcome sequence by its masses.
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
@@ -1172,10 +1304,16 @@ integerOutcomes outcomes =
 -- | Index into a list, failing loudly outside it.
 atIndex :: String -> Integer -> [a] -> a
 atIndex label index values
-    | index < 0 = error $ label <> ": negative index"
+    | index < 0 =
+        error $
+            "microecta-generator bug in Data.ECTA.Gen.Internal.atIndex: negative index in "
+                <> label
     | otherwise = case drop (fromInteger index) values of
         value : _ -> value
-        [] -> error $ label <> ": index out of range"
+        [] ->
+            error $
+                "microecta-generator bug in Data.ECTA.Gen.Internal.atIndex: index out of range in "
+                    <> label
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.

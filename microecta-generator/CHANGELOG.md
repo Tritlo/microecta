@@ -84,3 +84,11 @@
   grouped generators. They are `frequency` and `frequencies` with equal
   weights, which is the only shape a recursive definition admits, so a
   recursive generator reads without weights it cannot use.
+* Add `explain`, which turns an `ECTAGenError` into what it means and which
+  combinator resolves it. Sampling a generator that could not be built now
+  raises the case name together with that guidance instead of the
+  constructor alone. An application whose *operation* family is recursive
+  reports `RecursiveOperationFamily` rather than the general
+  `UnboundedGenerator`, since only argument families may recurse. Internal
+  invariant failures name themselves as bugs in this package so they are
+  not mistaken for misuse.

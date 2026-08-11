@@ -7,6 +7,7 @@ module Data.ECTA.Gen.QuickCheck (
     ECTAGen,
     Grouped,
     ECTAGenError (..),
+    explain,
 
     -- * Sources
     Indexed (..),
@@ -77,6 +78,7 @@ import Data.ECTA.Gen (
     Indexed (..),
     On (..),
     Sig (..),
+    explain,
     sigResult,
  )
 import qualified Data.ECTA.Gen as ECTA
@@ -107,7 +109,10 @@ instance ECTA.GenBackend QuickCheckBackend where
             let upperBound = total + weight
              in (upperBound, (upperBound, generated))
 
-        pick _ [] = error "frequencyGen: impossible empty alternatives"
+        pick _ [] =
+            error
+                "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
+                \no alternative to pick"
         pick selected ((upperBound, QuickCheckBackend generated) : remaining)
             | selected < upperBound = generated
             | otherwise = pick selected remaining
@@ -143,8 +148,13 @@ fromECTA = ECTA.fromECTA
 The argument receives the generator being defined, so a language can refer
 to itself. 'toGen' and 'forAll' bound it by QuickCheck's size parameter,
 drawing uniformly from the members of at most that size; 'upToSize' bounds
-it explicitly. Recursion must be guarded by '<*>', and 'frequency'
-alternatives around a recursive occurrence must carry equal weights.
+it explicitly. Recursion must be guarded by '<*>', and alternatives around
+a recursive occurrence must carry equal weights, which is what 'oneof'
+gives without asking for them.
+
+The self-reference has to go through this combinator: a generator that
+names itself directly is an infinite Haskell value and hangs while it is
+being built.
 -}
 recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 recur = ECTA.recur
@@ -301,8 +311,7 @@ toGen :: ECTAGen a -> QC.Gen a
 toGen generator
     | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
     | Just (QuickCheckBackend direct) <- ECTA.lowerUniform generator = direct
-    | otherwise =
-        either (error . ("ECTAGen: " <>) . show) id <$> toGenEither generator
+    | otherwise = either (raise "toGen") id <$> toGenEither generator
   where
     bounded = [toGen (ECTA.upToSize (max 1 size) generator) | size <- [0 ..]]
 
@@ -311,11 +320,25 @@ toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
 toGenWithRank generator
     | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
     | Just (QuickCheckBackend direct) <- ECTA.lowerUniformWithRank generator = direct
-    | otherwise =
-        either (error . ("ECTAGen: " <>) . show) id
-            <$> toGenWithRankEither generator
+    | otherwise = either (raise "toGenWithRank") id <$> toGenWithRankEither generator
   where
     bounded = [toGenWithRank (ECTA.upToSize (max 1 size) generator) | size <- [0 ..]]
+
+{- | Fail a sample with the error's own guidance.
+
+Sampling cannot return a failure, so a generator that could not be built
+raises one here. The name is kept alongside the guidance so it can be
+looked up or grepped for.
+-}
+raise :: String -> ECTAGenError -> a
+raise called err =
+    error $
+        "Data.ECTA.Gen.QuickCheck."
+            <> called
+            <> ": "
+            <> show err
+            <> "\n"
+            <> explain err
 
 {- | Check a property over a transparent generator, shrinking to the
 smallest failing member.

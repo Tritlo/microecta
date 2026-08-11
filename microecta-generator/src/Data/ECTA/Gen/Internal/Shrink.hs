@@ -99,14 +99,20 @@ planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =
     case dropWhile (not . holdsRank rank) (withOffsets branches) of
         (offset, _, branch) : _ -> planMemberSize branch (rank - offset)
-        [] -> error "planMemberSize: rank outside plan"
+        [] ->
+            error
+                "microecta-generator bug in Data.ECTA.Gen.Internal.Shrink.planMemberSize: \
+                \rank outside the plan"
 planMemberSize (PlanAp radix planF planX) rank =
     case rank `quotRem` radix of
         (functionRank, argumentRank) ->
             planMemberSize planF functionRank + planMemberSize planX argumentRank
 planMemberSize (PlanSized classes) rank = go 0 classes
   where
-    go _ [] = error "planMemberSize: rank outside plan"
+    go _ [] =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Shrink.planMemberSize: \
+            \rank outside the plan"
     go offset ((size, count, _) : rest)
         | rank < offset + count = size
         | otherwise = go (offset + count) rest

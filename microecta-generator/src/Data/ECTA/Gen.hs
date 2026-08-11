@@ -12,6 +12,7 @@ module Data.ECTA.Gen (
     ECTAGen,
     Grouped,
     ECTAGenError (..),
+    explain,
     GenBackend (..),
 
     -- * Sources
@@ -262,7 +263,13 @@ tree = ECTAGen.recur $ \\self ->
 The result stands for the whole unbounded language: it has size classes and
 size-major ranks instead of a cardinality, and its ECTA support is a @Mu@
 node. 'upToSize' bounds it back to an ordinary finite generator, and the
-QuickCheck adapter does that automatically from the size parameter.
+QuickCheck adapter does that automatically from the size parameter. A keyed
+language recurses with 'recurGrouped' instead.
+
+The self-reference has to go through this combinator. A generator that
+names itself directly, as in @tree = Branch '<$>' tree '<*>' tree@, is an
+infinite Haskell value: building it never finishes, and the failure is a
+hang or @\<\<loop\>\>@ rather than anything this library can report.
 
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has
@@ -553,10 +560,10 @@ apply ::
     Args gen argKeys operation result ->
     Grouped gen resultKey result
 apply operations arguments
-    | isRecursiveGrouped operations = Grouped $ Left UnboundedGenerator
+    | isRecursiveGrouped operations = Grouped $ Left RecursiveOperationFamily
     | anyRecursiveArgument arguments = applyRecursive operations arguments
 apply (Grouped (Left err)) _ = Grouped $ Left err
-apply (CyclicGrouped _) _ = Grouped $ Left UnboundedGenerator
+apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
 apply (Grouped (Right operations)) arguments = Grouped $ do
     argumentMaps <- argsMaps arguments
     let matchingBuckets =
@@ -601,7 +608,7 @@ applyRecursive ::
     Args gen argKeys operation result ->
     Grouped gen resultKey result
 applyRecursive (Grouped (Left err)) _ = CyclicGrouped $ Left err
-applyRecursive (CyclicGrouped _) _ = CyclicGrouped $ Left UnboundedGenerator
+applyRecursive (CyclicGrouped _) _ = CyclicGrouped $ Left RecursiveOperationFamily
 applyRecursive (Grouped (Right operations)) arguments =
     CyclicGrouped $ do
         argumentMaps <- argsRecursiveMaps arguments

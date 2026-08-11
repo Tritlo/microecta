@@ -176,6 +176,11 @@ members of size at most `n` hold the same ranks under every bound — so a
 counterexample found at one size replays at any other, and `forAll` shrinks
 by walking whole size classes below the failing member.
 
+The self-reference has to go through `recur`. A generator that names itself
+directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
+value: building it never finishes, and the failure is a hang rather than
+anything the library can report.
+
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
@@ -247,6 +252,21 @@ children's counts; an automaton carrying them is rejected with
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
+
+Every failure is an `ECTAGenError`. The derived `Show` names the case, and
+`explain` says what it means and which combinator resolves it; sampling a
+generator that could not be built raises both together.
+
+```
+>>> putStrLn (ECTAGen.explain ECTAGen.UnguardedRecursion)
+The recursive language reaches itself without passing through an
+application, so its members never get smaller and no size class can
+be counted.
+Fix: put every occurrence of the argument under <*>, as in
+Branch <$> self <*> self, or under apply in a grouped family. An
+alternative that is the argument itself, such as oneof [leaf, self],
+is the shape to look for.
+```
 
 `fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
 Opaque regions still compose and sample, but cannot be inspected with `pmf`;

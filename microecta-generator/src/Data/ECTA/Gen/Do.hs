@@ -203,13 +203,16 @@ data EctaGeneratorsCannotFail
 
 -- | Rejected at compile time: ECTA generators have no bind.
 (>>=) :: EctaGeneratorsHaveNoBind -> continuation -> result
-(>>=) _ _ = Prelude.error "Data.ECTA.Gen.Do.>>=: unreachable"
+(>>=) _ _ = Prelude.error
+    "microecta-generator bug in Data.ECTA.Gen.Do.>>=: the stub argument is uninhabited"
 
 -- | Rejected at compile time: ECTA generators have no bind.
 join :: EctaGeneratorsHaveNoBind -> result
-join _ = Prelude.error "Data.ECTA.Gen.Do.join: unreachable"
+join _ = Prelude.error
+    "microecta-generator bug in Data.ECTA.Gen.Do.join: the stub argument is uninhabited"
 
 -- | Rejected at compile time: ECTA generators cannot discard outcomes.
 fail :: EctaGeneratorsCannotFail -> result
-fail _ = Prelude.error "Data.ECTA.Gen.Do.fail: unreachable"
+fail _ = Prelude.error
+    "microecta-generator bug in Data.ECTA.Gen.Do.fail: the stub argument is uninhabited"
 #endif

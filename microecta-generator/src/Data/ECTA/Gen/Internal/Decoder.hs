@@ -219,7 +219,10 @@ dispatchTree _ [(offset, decode)]
 dispatchTree upper parts =
     let low = case parts of
             (offset, _) : _ -> offset
-            [] -> error "dispatchTree: empty dispatch"
+            [] ->
+                error
+                    "microecta-generator bug in Data.ECTA.Gen.Internal.Decoder.dispatchTree: \
+                    \no part to dispatch to"
         midpoint = (low + upper) `div` 2
         (lowParts, highParts) =
             case break (\(offset, _) -> offset > midpoint) parts of
@@ -227,7 +230,10 @@ dispatchTree upper parts =
                 split -> split
         pivot = case highParts of
             (offset, _) : _ -> offset
-            [] -> error "dispatchTree: empty dispatch"
+            [] ->
+                error
+                    "microecta-generator bug in Data.ECTA.Gen.Internal.Decoder.dispatchTree: \
+                    \no part to dispatch to"
         decodeLow = dispatchTree pivot lowParts
         decodeHigh = dispatchTree upper highParts
      in \index ->
