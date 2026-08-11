@@ -3,48 +3,62 @@
 
 -- | QuickCheck integration for indexed ECTA generators.
 module Data.ECTA.Gen.QuickCheck (
-    Indexed (..),
+    -- * Generators
     ECTAGen,
     Grouped,
+    ECTAGenError (..),
+
+    -- * Sources
+    Indexed (..),
+    fromIndexed,
+    elements,
+    fromECTA,
+    fromGen,
+
+    -- * Composing
+    frequency,
+    oneof,
+    On (..),
+    match,
+
+    -- * The grouped layer
     Sig (..),
     sigResult,
     Args (..),
-    ECTAGenError (..),
-    fromIndexed,
-    elements,
     groupBy,
     regroupBy,
     mapWithKey,
-    sizes,
     atKey,
     apply,
     frequencies,
     oneofGrouped,
     ungroup,
-    frequency,
-    oneof,
-    On (..),
-    match,
-    support,
-    cardinality,
-    countAtSize,
-    unrank,
-    shrinkRank,
-    smallerMembers,
-    sizeOfRank,
-    countBy,
-    pmf,
-    fromECTA,
+
+    -- * Recursion
     recur,
     recurGrouped,
     upToSize,
-    fromGen,
+
+    -- * Inspection
+    support,
+    cardinality,
+    sizes,
+    countAtSize,
+    countBy,
+    pmf,
+    unrank,
+    sizeOfRank,
+    smallerMembers,
+    shrinkRank,
+
+    -- * Sampling and properties
     toGen,
-    toGenEither,
     toGenWithRank,
+    toGenEither,
     toGenWithRankEither,
     forAll,
     forAllWithLimit,
+    smallerMemberLimit,
     sized,
 
     -- * Qualified do-notation

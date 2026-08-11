@@ -8,44 +8,57 @@ selection alongside the ECTA, without materializing the product language.
 Joins count matched group products and unrank directly within them.
 -}
 module Data.ECTA.Gen (
-    Indexed (..),
+    -- * Generators
     ECTAGen,
     Grouped,
+    ECTAGenError (..),
+    GenBackend (..),
+
+    -- * Sources
+    Indexed (..),
+    fromIndexed,
+    elements,
+    fromECTA,
+    fromBackend,
+
+    -- * Composing
+    frequency,
+    oneof,
+    On (..),
+    match,
+
+    -- * The grouped layer
     Sig (..),
     sigResult,
     Args (..),
-    ECTAGenError (..),
-    GenBackend (..),
-    fromIndexed,
-    fromBackend,
-    fromECTA,
-    recur,
-    recurGrouped,
-    upToSize,
-    isRecursive,
-    elements,
     groupBy,
     regroupBy,
     mapWithKey,
-    sizes,
     atKey,
     apply,
     frequencies,
     oneofGrouped,
     ungroup,
-    frequency,
-    oneof,
-    On (..),
-    match,
+
+    -- * Recursion
+    recur,
+    recurGrouped,
+    upToSize,
+    isRecursive,
+
+    -- * Inspection
     support,
     cardinality,
+    sizes,
     countAtSize,
-    unrank,
-    shrinkRank,
-    smallerMembers,
-    sizeOfRank,
     countBy,
     pmf,
+    unrank,
+    sizeOfRank,
+    smallerMembers,
+    shrinkRank,
+
+    -- * Lowering
     lower,
     lowerWithRank,
     lowerUniform,
