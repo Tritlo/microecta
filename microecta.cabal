@@ -73,6 +73,7 @@ library
     Data.ECTA
     Data.ECTA.Gen
     Data.ECTA.Gen.Do
+    Data.ECTA.Gen.Sig
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
@@ -87,6 +88,7 @@ library
     Utility.HashJoin
 
   other-modules:
+    Data.ECTA.Gen.Decoder
     Data.Text.Extended.Pretty
 
   build-depends:
