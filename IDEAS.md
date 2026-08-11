@@ -1,3 +1,3 @@
 # Future work
 + Generate from arbitrary ECTAs with direct counting and unranking of finite equality-constrained automata, eventually extending that boundary to bounded recursive languages.
-+ Add structure-preserving shrinking that enumerates smaller accepted terms while retaining equality and typing constraints, backed by a domain-term codec or cost model.
++ Extend structural rank shrinking (shrinkRank factors ranks through the plan) to globally minimal counterexamples: size-stratified counting per plan node (FEAT-style convolution) enumerates the language in size order, turning shrinking into a search for the smallest failing member. Term-level shrink rewrites validated by nodeRepresents against the support are the complementary route.

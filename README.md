@@ -150,10 +150,12 @@ are not retained groups. The `Grouped` path avoids that work when a caller
 supplies the reusable classification structure up front.
 The optional `microecta:quickcheck` sublibrary exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
-property with rank-based shrinking: every shrink candidate walks toward rank
-zero along the generator's rank order, so shrinking can never leave the
-generated language, and the failing rank is printed for deterministic replay
-with `unrank`. `sized` builds one generator per QuickCheck size (shared
+property with structural shrinking: a rank factors into a choice branch and
+product components through the generator's structure, so shrink candidates
+jump to the minimal member of an earlier alternative (replacing a subtree
+with an atom) and shrink each operation and argument independently. Every
+candidate is a member of the generated language, and the failing rank is
+printed for deterministic replay with `unrank`. `sized` builds one generator per QuickCheck size (shared
 across samples), so layered generators can scale with the size parameter.
 
 ```haskell

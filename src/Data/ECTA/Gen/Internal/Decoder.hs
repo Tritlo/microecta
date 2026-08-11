@@ -9,6 +9,7 @@ module Data.ECTA.Gen.Internal.Decoder (
     RankDecoder (..),
     planCardinality,
     compilePlan,
+    shrinkPlanRank,
 ) where
 
 import GHC.Arr (listArray, unsafeAt)
@@ -207,3 +208,51 @@ compileRank (PlanAp rightCardinality planF planX)
                          in decodeF functionIndex argument
 {-# SPECIALIZE compileRank :: Plan a -> Int -> a #-}
 {-# SPECIALIZE compileRank :: Plan a -> Integer -> a #-}
+
+{- | Shrink candidates for one rank, guided by the plan structure.
+
+The rank factors into a choice branch and mixed-radix product components,
+so shrinking is structural: jump to the minimal rank of an earlier
+alternative first (in layered generators with base alternatives first, this
+replaces a whole subtree with an atom), then shrink each product component
+independently, recursing into operation and argument sub-ranks. Every
+candidate is a valid smaller rank of the same plan, so shrinking never
+leaves the language.
+-}
+shrinkPlanRank :: Plan a -> Integer -> [Integer]
+shrinkPlanRank plan = go (normalizePlan plan)
+  where
+    go :: Plan b -> Integer -> [Integer]
+    go (PlanSelect _ _) index = towardZero index
+    go (PlanMap _ inner) index = go inner index
+    go (PlanChoice branches) index =
+        locate 0 branches
+      where
+        locate _ [] = []
+        locate offset ((branchCardinality, branch) : rest)
+            | index < offset + branchCardinality =
+                [ earlier
+                | earlier <- earlierMinima
+                , earlier < index
+                ]
+                    <> [offset + inner | inner <- go branch (index - offset)]
+            | otherwise = locate (offset + branchCardinality) rest
+          where
+            earlierMinima = branchOffsets 0 branches
+            branchOffsets at ((cardinality', _) : more)
+                | at < offset = at : branchOffsets (at + cardinality') more
+            branchOffsets _ _ = []
+    go (PlanAp radix planF planX) index =
+        case index `quotRem` radix of
+            (functionIndex, argumentIndex) ->
+                [ functionIndex' * radix + argumentIndex
+                | functionIndex' <- go planF functionIndex
+                ]
+                    <> [ functionIndex * radix + argumentIndex'
+                       | argumentIndex' <- go planX argumentIndex
+                       ]
+
+    -- The shrink sequence of 'shrinkIntegral': zero, then successive
+    -- halvings of the distance back toward the original.
+    towardZero index =
+        [index - step | step <- takeWhile (> 0) (iterate (`div` 2) index)]

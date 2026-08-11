@@ -38,10 +38,13 @@
   0.56x-1.39x of a handwritten QuickCheck generator to 1.31x-2.12x at depths
   one through four.
 * Add `mapWithKey` for grouped generators, and `forAll` and `sized` to the
-  QuickCheck adapter: `forAll` shrinks by walking ranks toward zero, so every
-  shrink stays inside the generated language and the failing rank replays the
-  counterexample deterministically; `sized` maps QuickCheck's size parameter
-  to a generator, building each size once.
+  QuickCheck adapter: `forAll` shrinks structurally through `shrinkRank`,
+  which factors a rank into its choice branch and product components, jumps
+  to earlier alternatives at their minimal members, and shrinks each
+  operation and argument independently - every shrink stays inside the
+  generated language and the failing rank replays the counterexample
+  deterministically; `sized` maps QuickCheck's size parameter to a
+  generator, building each size once.
 * Add qualified do-notation in `Data.ECTA.Gen.Do`, re-exported by the
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors

@@ -33,6 +33,7 @@ module Data.ECTA.Gen (
     support,
     cardinality,
     unrank,
+    shrinkRank,
     countBy,
     pmf,
     lower,
@@ -41,13 +42,8 @@ module Data.ECTA.Gen (
     lowerUniformWithRank,
 ) where
 
-import Data.Foldable (toList)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
-import Data.Ratio (denominator, numerator)
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Sequence
-import qualified Data.Text as Text
 
 import Data.ECTA (
     Edge (Edge),
@@ -56,7 +52,7 @@ import Data.ECTA (
     reducePartially,
  )
 import Data.ECTA.Gen.Internal
-import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
+import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..), shrinkPlanRank)
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
@@ -404,6 +400,21 @@ unrank (Transparent result) index = do
     checkIndex (outcomeCardinality outcomes) index
     pure $ outcomeValueAt outcomes index
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
+
+{- | Structural shrink candidates for one rank of a transparent generator.
+
+Candidates decode to values from the same language: earlier alternatives at
+their minimal ranks come first, then each product component shrinks
+independently. Opaque generators and out-of-range ranks have no candidates.
+-}
+shrinkRank :: ECTAGen gen a -> Integer -> [Integer]
+shrinkRank (Transparent (Right static)) rank
+    | rank > 0
+    , rank < outcomeCardinality outcomes =
+        shrinkPlanRank (outcomePlan outcomes) rank
+  where
+    outcomes = staticOutcomes static
+shrinkRank _ _ = []
 
 -- | Count ranked outcomes by a projected key without aggregating equal values.
 countBy :: (Ord key) => (a -> key) -> ECTAGen gen a -> Either ECTAGenError (Map.Map key Integer)

@@ -26,6 +26,7 @@ module Data.ECTA.Gen.QuickCheck (
     support,
     cardinality,
     unrank,
+    shrinkRank,
     countBy,
     pmf,
     fromGen,
@@ -174,6 +175,10 @@ cardinality = ECTA.cardinality
 unrank :: ECTAGen a -> Integer -> Either ECTAGenError a
 unrank = ECTA.unrank
 
+-- | Structural shrink candidates for one rank of a transparent generator.
+shrinkRank :: ECTAGen a -> Integer -> [Integer]
+shrinkRank = ECTA.shrinkRank
+
 -- | Count ranked outcomes by a projected key.
 countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either ECTAGenError (Map key Integer)
 countBy = ECTA.countBy
@@ -211,14 +216,14 @@ toGenWithRank generator
         either (error . ("ECTAGen: " <>) . show) id
             <$> toGenWithRankEither generator
 
-{- | Check a property over a transparent generator, shrinking by rank.
+{- | Check a property over a transparent generator, shrinking structurally.
 
-Sampling retains the replay rank, and shrink candidates walk toward rank
-zero along the generator's rank order, so every shrink candidate is itself a
-member of the generated language: shrinking can never leave the constraints.
-List base alternatives first in layered generators so that smaller ranks mean
-smaller values. The failing rank is printed with the counterexample, so
-'unrank' replays it deterministically.
+Sampling retains the replay rank, and shrink candidates come from
+'shrinkRank': every candidate is itself a member of the generated language,
+so shrinking can never leave the constraints. Earlier alternatives shrink to
+their minimal members first, so list base alternatives first in layered
+generators. The failing rank is printed with the counterexample, so 'unrank'
+replays it deterministically.
 -}
 forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
 forAll generator prop =
@@ -230,7 +235,7 @@ forAll generator prop =
   where
     shrinkCandidates (rank, _) =
         [ (candidate, value)
-        | candidate <- QC.shrinkIntegral rank
+        | candidate <- shrinkRank generator rank
         , Right value <- [unrank generator candidate]
         ]
 

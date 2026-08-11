@@ -430,6 +430,11 @@ spec = do
               ]
                 `shouldSatisfy` and
 
+        it "produces exactly the structural shrink candidates of a product" $
+            let pairs :: Core.ECTAGen Exact (Int, Char)
+                pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
+             in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
+
         it "replays sampled ranks below the Int cardinality boundary" $
             let chunk = ECTAGen.elements [0 :: Int .. 199]
                 wide =

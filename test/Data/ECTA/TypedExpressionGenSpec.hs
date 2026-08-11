@@ -3,6 +3,7 @@
 
 module Data.ECTA.TypedExpressionGenSpec (spec) where
 
+import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
@@ -295,6 +296,12 @@ inferType (ApplyBinary function_ first second) = do
         | firstType == expected && secondType == expected = Just expected
         | otherwise = Nothing
 
+-- | Number of application layers in an expression.
+expressionDepth :: Expression -> Int
+expressionDepth (ApplyBinary _ first second) =
+    1 + max (expressionDepth first) (expressionDepth second)
+expressionDepth _ = 0
+
 -- | Check the generated annotation against independent inference.
 isWellTyped :: TypedExpression -> Bool
 isWellTyped typed =
@@ -404,6 +411,21 @@ spec =
         it "counts the depth-at-most-four language without enumerating it" $
             ECTAGen.cardinality (ECTAGen.ungroup $ upToDepthByType 4)
                 `shouldBe` Right (upToDepthCount 4)
+
+        it "shrinks any failing expression to the minimal application" $ do
+            let generator = ECTAGen.ungroup $ upToDepthByType 2
+                minimal =
+                    TypedExpression TInt $
+                        ApplyBinary Const (IntLiteral 0) (IntLiteral 0)
+            result <-
+                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False} $
+                    QC.withNumTests 300 $
+                        ECTAGen.forAll generator $ \typed ->
+                            expressionDepth (expression typed) == 0
+            case result of
+                QC.Failure{QC.failingTestCase = [shown]} ->
+                    shown `shouldSatisfy` (show minimal `isSuffixOf`)
+                _ -> expectationFailure "expected the depth property to fail"
 
         it "samples only well-typed depth-at-most-four expressions" $
             QC.withNumTests 1000 $
