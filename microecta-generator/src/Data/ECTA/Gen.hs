@@ -19,8 +19,8 @@ module Data.ECTA.Gen (
     fromIndexed,
     fromBackend,
     fromECTA,
-    mu,
-    muGrouped,
+    recur,
+    recurGrouped,
     upToSize,
     isRecursive,
     elements,
@@ -235,7 +235,7 @@ The argument receives the generator being defined and returns its body, so
 a language can refer to itself:
 
 @
-tree = ECTAGen.mu $ \\self ->
+tree = ECTAGen.recur $ \\self ->
     ECTAGen.frequency
         [ (1, Leaf '<$>' ECTAGen.elements [0 .. 3])
         , (1, Branch '<$>' self '<*>' self)
@@ -254,8 +254,8 @@ And a recursive language is uniform over each size class, so 'frequency'
 alternatives around a recursive occurrence must carry equal weights; use
 the size bound, not weights, to control how large members get.
 -}
-mu :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
-mu build = Cyclic result
+recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
+recur build = Cyclic result
   where
     -- The body is built three times against three placeholders: once to tie
     -- the counts, once to learn whether it is well formed, and once inside
@@ -266,7 +266,7 @@ mu build = Cyclic result
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
             bodyOf (Cyclic $ Right $ Recursive EmptyNode self Nothing)
-    emptyIndex = SizeIndex [] $ \_ _ -> error "mu: no members"
+    emptyIndex = SizeIndex [] $ \_ _ -> error "recur: no members"
 
     automaton = createMu $ \self ->
         either (const EmptyNode) recursiveSupport $
@@ -302,7 +302,7 @@ refer to itself — which is what a recursively typed expression language
 needs:
 
 @
-expressions = ECTAGen.muGrouped $ \self ->
+expressions = ECTAGen.recurGrouped $ \self ->
     ECTAGen.frequencies
         [ (1, atomsByType)
         , (1, ECTAGen.apply (compile '<$>' functionsBySignature) (self ':&' self ':&' 'ANil'))
@@ -324,15 +324,15 @@ joined edges are not reduced, since propagating constraints through a
 recursive node is not sound.
 
 'ungroup' and 'atKey' are the exits into an ordinary recursive generator.
-The rules of 'mu' apply here too: the recursion must be guarded by an
+The rules of 'recur' apply here too: the recursion must be guarded by an
 'apply', and 'frequencies' alternatives around a recursive occurrence must
 carry equal weights.
 -}
-muGrouped ::
+recurGrouped ::
     (Ord key) =>
     (Grouped gen key a -> Grouped gen key a) ->
     Grouped gen key a
-muGrouped build = CyclicGrouped result
+recurGrouped build = CyclicGrouped result
   where
     bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
 

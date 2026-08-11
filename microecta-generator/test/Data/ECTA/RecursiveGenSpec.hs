@@ -26,7 +26,7 @@ data Tree = Leaf Int | Branch Tree Tree
     deriving (Eq, Ord, Show)
 
 trees :: ECTAGen Tree
-trees = ECTAGen.mu $ \self ->
+trees = ECTAGen.recur $ \self ->
     ECTAGen.frequency
         [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
         , (1, Branch <$> self <*> self)
@@ -119,7 +119,7 @@ spec = do
 
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
-                    ECTAGen.mu $ \self ->
+                    ECTAGen.recur $ \self ->
                         ECTAGen.frequency
                             [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
                             , (3, Branch <$> self <*> self)

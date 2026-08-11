@@ -149,12 +149,12 @@ coverage = ECTAGen.countBy authenticatedUser authentication
 
 ## Recursive languages
 
-`mu` builds a generator from its own language, so a language can be
+`recur` builds a generator from its own language, so a language can be
 unbounded rather than unrolled layer by layer:
 
 ```haskell
 tree :: ECTAGen Tree
-tree = ECTAGen.mu $ \self ->
+tree = ECTAGen.recur $ \self ->
     ECTAGen.frequency
         [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
         , (1, Branch <$> self <*> self)
@@ -186,12 +186,12 @@ ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
 `pmf`, `countBy`) is not available on a recursive language; bound it first,
 or keep that layer finite.
 
-`muGrouped` does the same for the grouped layer, which is where recursion
+`recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:
 
 ```haskell
 expressions :: Grouped Type TypedExpression
-expressions = ECTAGen.muGrouped $ \self ->
+expressions = ECTAGen.recurGrouped $ \self ->
     ECTAGen.frequencies
         [ (1, atomsByType)
         , (1, applicationGen self)

@@ -33,8 +33,8 @@ module Data.ECTA.Gen.QuickCheck (
     countBy,
     pmf,
     fromECTA,
-    mu,
-    muGrouped,
+    recur,
+    recurGrouped,
     upToSize,
     fromGen,
     toGen,
@@ -130,8 +130,8 @@ drawing uniformly from the members of at most that size; 'upToSize' bounds
 it explicitly. Recursion must be guarded by '<*>', and 'frequency'
 alternatives around a recursive occurrence must carry equal weights.
 -}
-mu :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
-mu = ECTA.mu
+recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
+recur = ECTA.recur
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -141,8 +141,8 @@ constraints; 'ungroup' and 'atKey' are the exits into an ordinary recursive
 generator. Recursion must be guarded by 'apply', and 'frequencies'
 alternatives around a recursive occurrence must carry equal weights.
 -}
-muGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
-muGrouped = ECTA.muGrouped
+recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
+recurGrouped = ECTA.recurGrouped
 
 {- | Bound a generator to the members of size at most the given bound.
 

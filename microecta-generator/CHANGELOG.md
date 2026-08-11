@@ -47,7 +47,7 @@
   QuickCheck adapter: QuickCheck-style blocks for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
   for monadic shapes.
-* Add `mu`, which builds a generator from its own language. A recursive
+* Add `recur`, which builds a generator from its own language. A recursive
   generator stands for the whole unbounded language: size classes counted by
   FEAT-style convolution instead of a cardinality, size-major ranks, and a
   `Mu` node for a support. `upToSize` bounds it to an ordinary finite
@@ -62,13 +62,13 @@
 * Add `fromECTA`, which reads an existing automaton as a generator of the
   terms it accepts. Nodes become choices, edges become products under a
   size-one symbol, and interning ties `Mu` nodes into the same recursive
-  size index `mu` uses, so a recursive automaton generates uniformly by
+  size index `recur` uses, so a recursive automaton generates uniformly by
   size with the automaton itself as the support. The generated values are
   the accepted terms, so a bounded one supports `pmf`, `countBy`, and
   `groupBy`. Automata whose edges carry equality constraints are rejected
   with `CannotCountConstrainedEdges`: a constrained edge's count is the size
   of an intersection rather than a product of its children's counts.
-* Add `muGrouped`, recursion for the grouped layer, where a language refers
+* Add `recurGrouped`, recursion for the grouped layer, where a language refers
   to itself through `apply` and the automaton carries equality constraints
   inside its own cycle. The key set is solved by a monotone fixpoint before
   the languages are tied over it, and all keys share one `Mu` node whose

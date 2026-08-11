@@ -231,7 +231,7 @@ types share one recursive automaton whose cycle carries the application
 layer's equality constraints.
 -}
 recursiveExpressions :: Grouped Type TypedExpression
-recursiveExpressions = ECTAGen.muGrouped $ \self ->
+recursiveExpressions = ECTAGen.recurGrouped $ \self ->
     ECTAGen.frequencies
         [ (1, atomsByType)
         , (1, applicationGen self)
