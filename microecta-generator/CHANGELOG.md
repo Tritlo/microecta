@@ -68,3 +68,14 @@
   `groupBy`. Automata whose edges carry equality constraints are rejected
   with `CannotCountConstrainedEdges`: a constrained edge's count is the size
   of an intersection rather than a product of its children's counts.
+* Add `muGrouped`, recursion for the grouped layer, where a language refers
+  to itself through `apply` and the automaton carries equality constraints
+  inside its own cycle. The key set is solved by a monotone fixpoint before
+  the languages are tied over it, and all keys share one `Mu` node whose
+  edges carry their key as a first child: an occurrence at one key is that
+  node under an edge holding the key's label, with an equality constraint
+  tying the two. `ungroup` and `atKey` are the exits into an ordinary
+  recursive generator. The typed-expression language written this way holds
+  40 equality constraints in one `Mu` over 139 nodes, and two unfoldings
+  accept exactly the 106 members the counting layer reports for size at most
+  three.

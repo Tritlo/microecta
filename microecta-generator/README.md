@@ -186,6 +186,38 @@ ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
 `pmf`, `countBy`) is not available on a recursive language; bound it first,
 or keep that layer finite.
 
+`muGrouped` does the same for the grouped layer, which is where recursion
+and equality constraints meet in one cycle:
+
+```haskell
+expressions :: Grouped Type TypedExpression
+expressions = ECTAGen.muGrouped $ \self ->
+    ECTAGen.frequencies
+        [ (1, atomsByType)
+        , (1, applicationGen self)
+        ]
+
+anyExpression = ECTAGen.ungroup expressions
+intExpression = ECTAGen.atKey TInt expressions
+```
+
+Which keys the family has is part of the fixpoint, so it is solved first —
+from the empty family upward, adding the result keys of operations whose
+argument keys are already present — and the languages are tied over that
+settled set. All the keys share one `Mu` node whose edges carry their key as
+a first child; an occurrence at one key is that node under an edge holding
+the key's label, with an equality constraint tying the two. A recursive
+family is therefore one recursive automaton whose cycle carries the keyed
+joins' equality constraints, which is the shape only an ECTA can hold.
+
+For the language above that automaton has 139 nodes and 40 equality
+constraints, and unfolding it twice accepts exactly the 106 expressions the
+counting layer reports for size at most three — the same 106 a hand-unrolled
+depth-one generator produces. `ungroup` and `atKey` are the exits back to an
+ordinary recursive generator, so bounding, sampling, replay, and shrinking
+all work as above. `sizes` has no cardinality to report for a recursive
+family; use `countAtSize` on `atKey`.
+
 `fromECTA` goes the other way: it reads an existing automaton as a generator
 of the terms it accepts, counting them by size — the number of term nodes —
 with the automaton itself as the support.

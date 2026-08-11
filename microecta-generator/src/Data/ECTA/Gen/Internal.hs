@@ -28,7 +28,13 @@ import Data.ECTA.Gen.Internal.Decoder (
     RankDecoder (..),
     compilePlan,
  )
-import Data.ECTA.Gen.Internal.Size (SizeIndex, sizeClasses)
+import Data.ECTA.Gen.Internal.Size (
+    SizeIndex,
+    choiceIndex,
+    productIndex,
+    sizeClasses,
+    sizeIndex,
+ )
 import Data.ECTA.Gen.Sig (Sig (..))
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
@@ -234,41 +240,54 @@ bucketFromOutcomes outcomes = do
 
     selectValue = outcomeValue . Sequence.index conditional . fromInteger
 
--- | Bucket maps of every argument family, threaded through the operation type.
-data ArgMaps (argKeys :: [Type]) operation result where
-    MapsNil :: ArgMaps '[] result result
+{- | Group maps of every argument family, threaded through the operation type.
+
+The group payload is a parameter: finite argument families carry a
+'KeyedBucket', recursive ones a 'Recursive', and everything that only walks
+the chain is written once for both.
+-}
+data ArgMaps f (argKeys :: [Type]) operation result where
+    MapsNil :: ArgMaps f '[] result result
     MapsCons ::
         (Ord argKey) =>
-        Map.Map argKey (KeyedBucket arg) ->
-        ArgMaps argKeys operation result ->
-        ArgMaps (argKey ': argKeys) (arg -> operation) result
+        Map.Map argKey (f arg) ->
+        ArgMaps f argKeys operation result ->
+        ArgMaps f (argKey ': argKeys) (arg -> operation) result
 
 -- | The matched group of every argument family, in signature order.
-data ArgStatics operation result where
-    StaticsNil :: ArgStatics result result
-    StaticsCons ::
-        Static arg ->
-        ArgStatics operation result ->
-        ArgStatics (arg -> operation) result
+data ArgChain f operation result where
+    ChainNil :: ArgChain f result result
+    ChainCons ::
+        f arg ->
+        ArgChain f operation result ->
+        ArgChain f (arg -> operation) result
 
--- | Find the argument group for every signature key, with the product of their masses.
+-- | The matched finite group of every argument family, in signature order.
+type ArgStatics = ArgChain Static
+
+-- | Find the argument group for every signature key.
 lookupArgs ::
     Sig argKeys resultKey ->
-    ArgMaps argKeys operation result ->
-    Maybe (Rational, ArgStatics operation result)
-lookupArgs (key :-> _) (MapsCons buckets MapsNil) = do
-    bucket <- Map.lookup key buckets
-    Just
-        ( keyedBucketMass bucket
-        , StaticsCons (keyedBucketStatic bucket) StaticsNil
-        )
-lookupArgs (key :* rest) (MapsCons buckets restMaps) = do
-    bucket <- Map.lookup key buckets
-    (mass, statics) <- lookupArgs rest restMaps
-    Just
-        ( keyedBucketMass bucket * mass
-        , StaticsCons (keyedBucketStatic bucket) statics
-        )
+    ArgMaps f argKeys operation result ->
+    Maybe (ArgChain f operation result)
+lookupArgs (key :-> _) (MapsCons groups MapsNil) = do
+    group <- Map.lookup key groups
+    Just $ ChainCons group ChainNil
+lookupArgs (key :* rest) (MapsCons groups restMaps) = do
+    group <- Map.lookup key groups
+    chain <- lookupArgs rest restMaps
+    Just $ ChainCons group chain
+
+-- | Replace every group in a chain, keeping its shape.
+mapChain :: (forall x. f x -> g x) -> ArgChain f operation result -> ArgChain g operation result
+mapChain _ ChainNil = ChainNil
+mapChain transform (ChainCons group rest) =
+    ChainCons (transform group) (mapChain transform rest)
+
+-- | The product of the matched groups' probability masses.
+chainMass :: ArgChain KeyedBucket operation result -> Rational
+chainMass ChainNil = 1
+chainMass (ChainCons bucket rest) = keyedBucketMass bucket * chainMass rest
 
 -- | Map the values of a static language.
 mapStatic :: (a -> b) -> Static a -> Static b
@@ -723,29 +742,9 @@ joinNBucketStatic componentIndex operation arguments =
         [ Term (argKeySymbol componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
-    keyNodes = map singletonNode keyTerms
-    operationNode =
-        Node
-            [ Edge
-                centerKeyedSymbol
-                (keyNodes <> [staticSupport operation])
-            ]
-    argumentNodes =
-        [ Node [Edge argKeyedSymbol [argKeyNode, argSupport]]
-        | (argKeyNode, argSupport) <- zip keyNodes (chainSupports arguments)
-        ]
     joined =
         reducePartially $
-            Node
-                [ mkEdge
-                    joinNSymbol
-                    (operationNode : argumentNodes)
-                    ( mkEqConstraints
-                        [ [path [0, position], path [position + 1, 0]]
-                        | position <- [0 .. chainLength arguments - 1]
-                        ]
-                    )
-                ]
+            joinNode componentIndex (staticSupport operation) (chainSupports arguments)
     operationOutcomes = staticOutcomes operation
     argumentsCardinality = chainCardinality arguments
     totalOutcomes = outcomeCardinality operationOutcomes * argumentsCardinality
@@ -774,26 +773,129 @@ joinNBucketStatic componentIndex operation arguments =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
 
+{- | One joined edge: the operation group, one group per argument, and one
+equality constraint per argument tying each argument to the operation's key
+at that position.
+-}
+joinNode :: Int -> Node -> [Node] -> Node
+joinNode componentIndex operationSupport argumentSupports =
+    Node
+        [ mkEdge
+            joinNSymbol
+            (operationNode : argumentNodes)
+            ( mkEqConstraints
+                [ [path [0, position], path [position + 1, 0]]
+                | position <- [0 .. length argumentSupports - 1]
+                ]
+            )
+        ]
+  where
+    keyNodes =
+        [ singletonNode $ Term (argKeySymbol componentIndex position) []
+        | position <- [0 .. length argumentSupports - 1]
+        ]
+    operationNode =
+        Node [Edge centerKeyedSymbol (keyNodes <> [operationSupport])]
+    argumentNodes =
+        [ Node [Edge argKeyedSymbol [argKeyNode, argumentSupport]]
+        | (argKeyNode, argumentSupport) <- zip keyNodes argumentSupports
+        ]
+
+{- | Restrict a recursive family to one key.
+
+A recursive family is one @Mu@ whose edges carry their key as a first child,
+so an occurrence at one key is the family under an edge holding that key's
+label, with a constraint equating the two. The discrimination is the
+automaton's own, which is what lets the whole family share one binder.
+-}
+restrictToKey :: Int -> Node -> Node
+restrictToKey position family =
+    Node
+        [ mkEdge
+            keyRestrictSymbol
+            [keyNode position, family]
+            (mkEqConstraints [[path [0], path [1, 0]]])
+        ]
+
+-- | One recursive family node: one key-labelled edge per key, in key order.
+familyNode :: [(Int, Node)] -> Node
+familyNode keyed =
+    Node [Edge familySymbol [keyNode position, body] | (position, body) <- keyed]
+
+{- | One joined component of a recursive keyed application.
+
+Sizes and rank order match the finite join: the operation is one choice and
+the arguments follow it left to right. The joined edge is not reduced, since
+propagating constraints through a recursive node is not sound.
+-}
+recursiveJoin ::
+    Int ->
+    Static operation ->
+    ArgChain Recursive operation result ->
+    Recursive result
+recursiveJoin componentIndex operation arguments =
+    Recursive
+        (joinNode componentIndex (staticSupport operation) (recursiveSupports arguments))
+        ( recursiveChainIndex
+            (sizeIndex $ outcomePlan $ staticOutcomes operation)
+            arguments
+        )
+        Nothing
+
+-- | The support of every matched recursive argument group, in order.
+recursiveSupports :: ArgChain Recursive operation result -> [Node]
+recursiveSupports ChainNil = []
+recursiveSupports (ChainCons recursive rest) =
+    recursiveSupport recursive : recursiveSupports rest
+
+-- | Consume the argument groups into the operation, left to right.
+recursiveChainIndex ::
+    SizeIndex operation ->
+    ArgChain Recursive operation result ->
+    SizeIndex result
+recursiveChainIndex index ChainNil = index
+recursiveChainIndex index (ChainCons recursive rest) =
+    recursiveChainIndex (productIndex index $ recursiveIndex recursive) rest
+
+{- | Merge recursive groups sharing a key into one alternative each.
+
+Alternatives keep their order, as they do in the finite merge, so ranks stay
+deterministic.
+-}
+mergeRecursiveGroups :: [Recursive a] -> Maybe (Recursive a)
+mergeRecursiveGroups [] = Nothing
+mergeRecursiveGroups [only] = Just only
+mergeRecursiveGroups alternatives =
+    Just $
+        Recursive
+            ( Node
+                [ Edge (frequencySymbol index) [recursiveSupport alternative]
+                | (index, alternative) <- zip [0 ..] alternatives
+                ]
+            )
+            (choiceIndex $ map recursiveIndex alternatives)
+            Nothing
+
 -- | Number of arguments in the chain.
 chainLength :: ArgStatics operation result -> Int
-chainLength StaticsNil = 0
-chainLength (StaticsCons _ rest) = 1 + chainLength rest
+chainLength ChainNil = 0
+chainLength (ChainCons _ rest) = 1 + chainLength rest
 
 -- | ECTA support of every argument group, in order.
 chainSupports :: ArgStatics operation result -> [Node]
-chainSupports StaticsNil = []
-chainSupports (StaticsCons static rest) = staticSupport static : chainSupports rest
+chainSupports ChainNil = []
+chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
 
 -- | Product of the argument group cardinalities.
 chainCardinality :: ArgStatics operation result -> Integer
-chainCardinality StaticsNil = 1
-chainCardinality (StaticsCons static rest) =
+chainCardinality ChainNil = 1
+chainCardinality (ChainCons static rest) =
     outcomeCardinality (staticOutcomes static) * chainCardinality rest
 
 -- | Product of the argument uniform masses, when all are uniform.
 chainUniformMass :: ArgStatics operation result -> Maybe Rational
-chainUniformMass StaticsNil = Just 1
-chainUniformMass (StaticsCons static rest) =
+chainUniformMass ChainNil = Just 1
+chainUniformMass (ChainCons static rest) =
     (*)
         <$> outcomeUniformMass (staticOutcomes static)
         <*> chainUniformMass rest
@@ -804,8 +906,8 @@ The composed rank is @operationRank@ most significant, then argument ranks
 left to right, matching 'chainDecoder'.
 -}
 chainSampler :: Sampler operation -> ArgStatics operation result -> Sampler result
-chainSampler sampler StaticsNil = sampler
-chainSampler sampler (StaticsCons static rest) =
+chainSampler sampler ChainNil = sampler
+chainSampler sampler (ChainCons static rest) =
     chainSampler
         ( productSampler
             (outcomeCardinality $ staticOutcomes static)
@@ -816,8 +918,8 @@ chainSampler sampler (StaticsCons static rest) =
 
 -- | Mirror 'chainSampler' as plan structure, one product per argument.
 chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
-chainPlan plan StaticsNil = plan
-chainPlan plan (StaticsCons static rest) =
+chainPlan plan ChainNil = plan
+chainPlan plan (ChainCons static rest) =
     chainPlan
         ( PlanAp
             (outcomeCardinality $ staticOutcomes static)
@@ -828,11 +930,11 @@ chainPlan plan (StaticsCons static rest) =
 
 -- | Build a rank decoder once, capturing every suffix cardinality.
 chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
-chainDecoder StaticsNil = \value _ -> value
-chainDecoder (StaticsCons static StaticsNil) =
+chainDecoder ChainNil = \value _ -> value
+chainDecoder (ChainCons static ChainNil) =
     let valueAt = outcomeValueAt $ staticOutcomes static
      in \operation index -> operation $ valueAt index
-chainDecoder (StaticsCons first (StaticsCons second StaticsNil)) =
+chainDecoder (ChainCons first (ChainCons second ChainNil)) =
     let firstValueAt = outcomeValueAt $ staticOutcomes first
         secondOutcomes = staticOutcomes second
         secondCardinality = outcomeCardinality secondOutcomes
@@ -840,7 +942,7 @@ chainDecoder (StaticsCons first (StaticsCons second StaticsNil)) =
      in \operation index ->
             let (firstIndex, secondIndex) = index `quotRem` secondCardinality
              in operation (firstValueAt firstIndex) (secondValueAt secondIndex)
-chainDecoder (StaticsCons static rest) =
+chainDecoder (ChainCons static rest) =
     let decodeRest = chainDecoder rest
         suffixCardinality = chainCardinality rest
         valueAt = outcomeValueAt $ staticOutcomes static
@@ -855,8 +957,8 @@ selectChain ::
     [Term] ->
     Integer ->
     Either ECTAGenError ([Term], Rational, result)
-selectChain value StaticsNil _ _ = Right ([], 1, value)
-selectChain partial (StaticsCons static rest) (keyTerm : keyTerms) index = do
+selectChain value ChainNil _ _ = Right ([], 1, value)
+selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
     (terms, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
@@ -865,7 +967,7 @@ selectChain partial (StaticsCons static rest) (keyTerm : keyTerms) index = do
         , outcomeMass outcome * mass
         , value
         )
-selectChain _ (StaticsCons _ _) [] _ = error "selectChain: missing key terms"
+selectChain _ (ChainCons _ _) [] _ = error "selectChain: missing key terms"
 
 -- | Sample one outcome sequence by its masses.
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
@@ -1074,7 +1176,7 @@ atIndex label index values
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.
 -}
-pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol :: Symbol
+pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol, familySymbol, keyRestrictSymbol :: Symbol
 pureSymbol = "$ecta-gen/pure"
 applySymbol = "$ecta-gen/apply"
 joinSymbol = "$ecta-gen/join"
@@ -1083,6 +1185,8 @@ leftKeyedSymbol = "$ecta-gen/left-keyed"
 rightKeyedSymbol = "$ecta-gen/right-keyed"
 joinNSymbol = "$ecta-gen/join-n"
 argKeyedSymbol = "$ecta-gen/arg-keyed"
+familySymbol = "$ecta-gen/family"
+keyRestrictSymbol = "$ecta-gen/at-key"
 
 -- | Leaf symbol carrying one stable source index.
 indexedSymbol :: Integer -> Symbol

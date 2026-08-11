@@ -20,6 +20,7 @@ module Data.ECTA.Gen (
     fromBackend,
     fromECTA,
     mu,
+    muGrouped,
     upToSize,
     isRecursive,
     elements,
@@ -81,8 +82,32 @@ during a join, matching key values determine which groups receive equal internal
 labels on constrained ECTA paths. Each key group retains compact ECTA support
 and indexed selection without storing all outcomes.
 -}
-newtype Grouped (gen :: Type -> Type) key a
-    = Grouped (Either ECTAGenError (Map.Map key (KeyedBucket a)))
+data Grouped (gen :: Type -> Type) key a
+    = Grouped !(Either ECTAGenError (Map.Map key (KeyedBucket a)))
+    | -- | A recursive family: one language per key, all sharing one @Mu@.
+      CyclicGrouped !(Either ECTAGenError (Map.Map key (Recursive a)))
+
+{- | View a grouped generator as a recursive family, one language per key.
+
+A finite family is a recursive one that happens to stop, so this is how the
+recursive builders accept either.
+-}
+recursiveGroups ::
+    Grouped gen key a ->
+    Either ECTAGenError (Map.Map key (Recursive a))
+recursiveGroups (CyclicGrouped result) = result
+recursiveGroups (Grouped result) = fmap (fmap ofBucket) result
+  where
+    ofBucket bucket =
+        Recursive
+            (staticSupport $ keyedBucketStatic bucket)
+            (sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
+            Nothing
+
+-- | Whether a grouped generator stands for a recursive family.
+isRecursiveGrouped :: Grouped gen key a -> Bool
+isRecursiveGrouped (CyclicGrouped _) = True
+isRecursiveGrouped _ = False
 
 {- | Argument families for 'apply', one per signature component, in order.
 
@@ -149,6 +174,14 @@ instance Functor (Grouped gen key) where
             KeyedBucket
                 (keyedBucketMass bucket)
                 (mapStatic transform $ keyedBucketStatic bucket)
+    fmap transform (CyclicGrouped result) =
+        CyclicGrouped $ fmap (fmap mapGroup) result
+      where
+        mapGroup group =
+            Recursive
+                (recursiveSupport group)
+                (mapIndex transform $ recursiveIndex group)
+                Nothing
 
 instance (Functor gen) => Functor (ECTAGen gen) where
     fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
@@ -262,6 +295,93 @@ fromECTA node =
         index <- automatonIndex node
         pure $ Recursive node index $ Just id
 
+{- | Build a recursive grouped family from its own languages.
+
+The argument receives the family being defined, so a keyed language can
+refer to itself — which is what a recursively typed expression language
+needs:
+
+@
+expressions = ECTAGen.muGrouped $ \self ->
+    ECTAGen.frequencies
+        [ (1, atomsByType)
+        , (1, ECTAGen.apply (compile '<$>' functionsBySignature) (self ':&' self ':&' 'ANil'))
+        ]
+@
+
+Which keys the family has is itself part of the fixpoint, so it is solved
+first, from the empty family upward: each pass adds the result keys of the
+operations whose argument keys are already present, and the set can only
+grow, so it converges in at most one pass per key. The languages are then
+tied lazily over that fixed set.
+
+All the keys share one @Mu@ node, whose edges carry their key as a first
+child. An occurrence at one key is that node under an edge holding the
+key's label, with an equality constraint tying the two — so a recursive
+family is one recursive automaton whose cycle carries equality constraints,
+and the keyed joins inside it keep the constraints they always had. The
+joined edges are not reduced, since propagating constraints through a
+recursive node is not sound.
+
+'ungroup' and 'atKey' are the exits into an ordinary recursive generator.
+The rules of 'mu' apply here too: the recursion must be guarded by an
+'apply', and 'frequencies' alternatives around a recursive occurrence must
+carry equal weights.
+-}
+muGrouped ::
+    (Ord key) =>
+    (Grouped gen key a -> Grouped gen key a) ->
+    Grouped gen key a
+muGrouped build = CyclicGrouped result
+  where
+    bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
+
+    -- The key set, from the empty family upward: monotone, so the first
+    -- pass that adds nothing is the fixpoint.
+    keySet = converge Map.empty
+    converge current =
+        let reached =
+                either (const Map.empty) (fmap $ const ()) $
+                    bodyGroups $
+                        fmap (const emptyGroup) current
+            grown = Map.union current reached
+         in if Map.keys grown == Map.keys current then current else converge grown
+    keys = Map.keys keySet
+    positions = Map.fromList $ zip keys [0 ..]
+    positionOf key = Map.findWithDefault 0 key positions
+    emptyGroup = Recursive EmptyNode (choiceIndex []) Nothing
+
+    -- The languages, tied over the settled key set. Supports are irrelevant
+    -- here and are filled in against the family node below.
+    indexPlaceholders =
+        Map.fromList [(key, Recursive EmptyNode (indexAt key) Nothing) | key <- keys]
+    tiedIndexes =
+        either (const Map.empty) (fmap recursiveIndex) $ bodyGroups indexPlaceholders
+    indexAt key = Map.findWithDefault (choiceIndex []) key tiedIndexes
+
+    -- One node for the whole family: one key-labelled edge per key, and
+    -- every occurrence inside restricted to its own key by a constraint.
+    family = createMu $ \self ->
+        let bodies = either (const Map.empty) id $ bodyGroups $ occurrences self
+         in familyNode
+                [ (positionOf key, maybe EmptyNode recursiveSupport $ Map.lookup key bodies)
+                | key <- keys
+                ]
+    occurrences self =
+        Map.fromList
+            [ (key, Recursive (restrictToKey (positionOf key) self) (indexAt key) Nothing)
+            | key <- keys
+            ]
+
+    result = do
+        bodies <- bodyGroups indexPlaceholders
+        pure $
+            Map.fromList
+                [ (key, Recursive (restrictToKey (positionOf key) family) (indexAt key) Nothing)
+                | key <- keys
+                , Map.member key bodies
+                ]
+
 {- | Bound a generator to the members of size at most the given bound.
 
 Size is the number of source choices in a member. A recursive generator
@@ -316,6 +436,17 @@ When several old keys map to one new key, their compact supports are merged and
 their probability masses are preserved.
 -}
 regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped gen oldKey a -> Grouped gen newKey a
+regroupBy regroup (CyclicGrouped result) =
+    CyclicGrouped $ do
+        groups <- result
+        pure $
+            Map.mapMaybe mergeRecursiveGroups $
+                Map.foldlWithKey'
+                    ( \regrouped oldKey group ->
+                        Map.insertWith (flip (<>)) (regroup oldKey) [group] regrouped
+                    )
+                    Map.empty
+                    groups
 regroupBy _ (Grouped (Left err)) = Grouped $ Left err
 regroupBy regroup (Grouped (Right buckets)) =
     Grouped $ traverse mergeBucketGroup grouped
@@ -334,6 +465,14 @@ regroupBy regroup (Grouped (Right buckets)) =
 
 -- | Map group values with access to their retained key.
 mapWithKey :: (key -> a -> b) -> Grouped gen key a -> Grouped gen key b
+mapWithKey transform (CyclicGrouped result) =
+    CyclicGrouped $ fmap (Map.mapWithKey mapGroup) result
+  where
+    mapGroup key group =
+        Recursive
+            (recursiveSupport group)
+            (mapIndex (transform key) $ recursiveIndex group)
+            Nothing
 mapWithKey transform (Grouped result) =
     Grouped $ fmap (Map.mapWithKey mapBucket) result
   where
@@ -344,6 +483,7 @@ mapWithKey transform (Grouped result) =
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)
+sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
 
@@ -352,6 +492,10 @@ sizes (Grouped result) =
 A missing key produces 'EmptyGenerator'.
 -}
 atKey :: (Ord key) => key -> Grouped gen key a -> ECTAGen gen a
+atKey key (CyclicGrouped result) =
+    Cyclic $ do
+        groups <- result
+        maybe (Left EmptyGenerator) Right $ Map.lookup key groups
 atKey _ (Grouped (Left err)) = Transparent $ Left err
 atKey key (Grouped (Right buckets)) =
     Transparent $
@@ -375,7 +519,11 @@ apply ::
     Grouped gen (Sig argKeys resultKey) operation ->
     Args gen argKeys operation result ->
     Grouped gen resultKey result
+apply operations arguments
+    | isRecursiveGrouped operations = Grouped $ Left UnboundedGenerator
+    | anyRecursiveArgument arguments = applyRecursive operations arguments
 apply (Grouped (Left err)) _ = Grouped $ Left err
+apply (CyclicGrouped _) _ = Grouped $ Left UnboundedGenerator
 apply (Grouped (Right operations)) arguments = Grouped $ do
     argumentMaps <- argsMaps arguments
     let matchingBuckets =
@@ -383,7 +531,8 @@ apply (Grouped (Right operations)) arguments = Grouped $ do
             | (componentIndex, (signature, operationBucket)) <-
                 zip [0 :: Int ..] $ Map.toAscList operations
             , let resultKey = sigResult signature
-            , Just (mass, argumentBuckets) <- [lookupArgs signature argumentMaps]
+            , Just argumentBuckets <- [lookupArgs signature argumentMaps]
+            , let mass = chainMass argumentBuckets
             ]
     components <- traverse buildComponent matchingBuckets
     mergeComponentsByKey components
@@ -393,16 +542,70 @@ apply (Grouped (Right operations)) arguments = Grouped $ do
             joinNBucketStatic
                 componentIndex
                 (keyedBucketStatic operationBucket)
-                argumentBuckets
+                (mapChain keyedBucketStatic argumentBuckets)
         pure
             ( resultKey
             , keyedBucketMass operationBucket * argumentsMass
             , joined
             )
 
-argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps argKeys operation result)
+argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
+argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
+
+{- | Apply an operation family to argument families of which at least one is
+recursive.
+
+The operation family stays finite — its signatures are what decide which
+components exist — and each component becomes one joined edge over the
+argument families' recursive supports, counted as the operation choice
+followed by its arguments. Ranks and sizes match the finite join.
+-}
+applyRecursive ::
+    (Ord resultKey) =>
+    Grouped gen (Sig argKeys resultKey) operation ->
+    Args gen argKeys operation result ->
+    Grouped gen resultKey result
+applyRecursive (Grouped (Left err)) _ = CyclicGrouped $ Left err
+applyRecursive (CyclicGrouped _) _ = CyclicGrouped $ Left UnboundedGenerator
+applyRecursive (Grouped (Right operations)) arguments =
+    CyclicGrouped $ do
+        argumentMaps <- argsRecursiveMaps arguments
+        let components =
+                [ (sigResult signature, recursiveJoin componentIndex operationStatic argumentGroups)
+                | (componentIndex, (signature, operationBucket)) <-
+                    zip [0 ..] $ Map.toAscList operations
+                , let operationStatic = keyedBucketStatic operationBucket
+                , Just argumentGroups <- [lookupArgs signature argumentMaps]
+                ]
+        -- No matching component is an empty family, not an error: while the
+        -- key set of a recursive family is still being solved, every
+        -- application starts out with nothing to match.
+        Right $ mergeByKey components
+
+-- | The recursive view of every argument family, in signature order.
+argsRecursiveMaps ::
+    Args gen argKeys operation result ->
+    Either ECTAGenError (ArgMaps Recursive argKeys operation result)
+argsRecursiveMaps ANil = Right MapsNil
+argsRecursiveMaps (family :& rest) =
+    MapsCons <$> recursiveGroups family <*> argsRecursiveMaps rest
+
+-- | Whether any argument family is recursive.
+anyRecursiveArgument :: Args gen argKeys operation result -> Bool
+anyRecursiveArgument ANil = False
+anyRecursiveArgument (family :& rest) =
+    isRecursiveGrouped family || anyRecursiveArgument rest
+
+-- | Collect keyed recursive languages into one alternative per key, in order.
+mergeByKey :: (Ord key) => [(key, Recursive a)] -> Map.Map key (Recursive a)
+mergeByKey keyed =
+    Map.mapMaybe mergeRecursiveGroups $
+        foldl'
+            (\groups (key, group) -> Map.insertWith (flip (<>)) key [group] groups)
+            Map.empty
+            keyed
 
 {- | Choose among grouped generators with positive relative weights,
 group by group.
@@ -421,6 +624,14 @@ frequencies alternatives
     | Just badWeight <- firstNonPositive alternatives =
         Grouped $ Left $ NonPositiveWeight badWeight
     | Just err <- firstError alternatives = Grouped $ Left err
+    | any (isRecursiveGrouped . snd) alternatives =
+        CyclicGrouped $
+            if sameWeights
+                then
+                    mergeByKey
+                        . concatMap Map.toAscList
+                        <$> traverse (recursiveGroups . snd) alternatives
+                else Left WeightedRecursiveAlternatives
     | otherwise = Grouped $ traverse mergeBucketGroup grouped
   where
     totalWeight = sum $ map fst alternatives
@@ -436,7 +647,12 @@ frequencies alternatives
       where
         go [] = Nothing
         go ((_, Grouped (Left err)) : _) = Just err
+        go ((_, CyclicGrouped (Left err)) : _) = Just err
         go (_ : rest) = go rest
+
+    sameWeights = case map fst alternatives of
+        [] -> True
+        firstWeight : rest -> all (== firstWeight) rest
 
     grouped =
         foldl'
@@ -463,6 +679,10 @@ frequencies alternatives
 
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
+ungroup (CyclicGrouped result) =
+    Cyclic $ do
+        groups <- result
+        maybe (Left EmptyGenerator) Right $ mergeRecursiveGroups $ Map.elems groups
 ungroup (Grouped (Left err)) = Transparent $ Left err
 ungroup (Grouped (Right buckets)) =
     Transparent $ mergeKeyedBuckets buckets

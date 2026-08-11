@@ -34,6 +34,7 @@ module Data.ECTA.Gen.QuickCheck (
     pmf,
     fromECTA,
     mu,
+    muGrouped,
     upToSize,
     fromGen,
     toGen,
@@ -131,6 +132,17 @@ alternatives around a recursive occurrence must carry equal weights.
 -}
 mu :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 mu = ECTA.mu
+
+{- | Build a recursive grouped family from its own languages.
+
+The key set is solved first, then the languages are tied over it. All keys
+share one @Mu@ node whose cycle carries the keyed joins' equality
+constraints; 'ungroup' and 'atKey' are the exits into an ordinary recursive
+generator. Recursion must be guarded by 'apply', and 'frequencies'
+alternatives around a recursive occurrence must carry equal weights.
+-}
+muGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
+muGrouped = ECTA.muGrouped
 
 {- | Bound a generator to the members of size at most the given bound.
 
