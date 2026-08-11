@@ -19,8 +19,10 @@ module Data.ECTA.Gen.QuickCheck (
     atKey,
     apply,
     frequencies,
+    oneofGrouped,
     ungroup,
     frequency,
+    oneof,
     On (..),
     match,
     support,
@@ -195,6 +197,14 @@ group by group.
 frequencies :: (Ord key) => [(Integer, Grouped key a)] -> Grouped key a
 frequencies = ECTA.frequencies
 
+{- | Choose uniformly among grouped generators, group by group.
+
+'frequencies' with equal weights, which is the only shape a recursive
+family admits.
+-}
+oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
+oneofGrouped = ECTA.oneofGrouped
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped key a -> ECTAGen a
 ungroup = ECTA.ungroup
@@ -202,6 +212,15 @@ ungroup = ECTA.ungroup
 -- | Choose one generator with the supplied positive relative weight.
 frequency :: [(Integer, ECTAGen a)] -> ECTAGen a
 frequency = ECTA.frequency
+
+{- | Choose uniformly among generators.
+
+Every alternative is equally likely, whatever the size of its language. In
+a recursive definition this is the shape to reach for: weights around a
+recursive occurrence are rejected.
+-}
+oneof :: [ECTAGen a] -> ECTAGen a
+oneof = ECTA.oneof
 
 -- | Generate two values whose projected keys agree.
 match ::

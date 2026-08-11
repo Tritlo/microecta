@@ -155,9 +155,9 @@ unbounded rather than unrolled layer by layer:
 ```haskell
 tree :: ECTAGen Tree
 tree = ECTAGen.recur $ \self ->
-    ECTAGen.frequency
-        [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
-        , (1, Branch <$> self <*> self)
+    ECTAGen.oneof
+        [ Leaf <$> ECTAGen.elements [0 .. 2]
+        , Branch <$> self <*> self
         ]
 ```
 
@@ -178,13 +178,15 @@ by walking whole size classes below the failing member.
 
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
-has no smallest member and counting it diverges. And a recursive language is
-uniform over each size class, so `frequency` alternatives around a recursive
-occurrence must carry equal weights — the size bound, not the weights,
-controls how large members get. Unequal weights are rejected rather than
-ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
-`pmf`, `countBy`) is not available on a recursive language; bound it first,
-or keep that layer finite.
+has no smallest member — an unguarded definition is rejected with
+`UnguardedRecursion` rather than left to hang. And a recursive language is
+uniform over each size class, so alternatives around a recursive occurrence
+must carry equal weights; `oneof` is the combinator that already reads that
+way, and the size bound, not the weights, is what controls how large
+members get. `frequency` with unequal weights is rejected rather than
+ignored. Inspection that needs one ECTA term per member (`groupBy`,
+`match`, `pmf`, `countBy`) is not available on a recursive language; bound
+it first, or keep that layer finite.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:
@@ -192,10 +194,7 @@ and equality constraints meet in one cycle:
 ```haskell
 expressions :: Grouped Type TypedExpression
 expressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.frequencies
-        [ (1, atomsByType)
-        , (1, applicationGen self)
-        ]
+    ECTAGen.oneofGrouped [atomsByType, applicationGen self]
 
 anyExpression = ECTAGen.ungroup expressions
 intExpression = ECTAGen.atKey TInt expressions

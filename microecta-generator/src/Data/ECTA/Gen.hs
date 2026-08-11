@@ -31,8 +31,10 @@ module Data.ECTA.Gen (
     atKey,
     apply,
     frequencies,
+    oneofGrouped,
     ungroup,
     frequency,
+    oneof,
     On (..),
     match,
     support,
@@ -63,10 +65,12 @@ import Data.ECTA.Gen.Internal.Shrink (
     smallerPlanMembers,
  )
 import Data.ECTA.Gen.Internal.Size (
-    SizeIndex (SizeIndex, sizeClassCounts, sizeClassSelect),
+    SizeIndex (sizeClassCounts, sizeClassSelect),
     choiceIndex,
     fixIndex,
+    isUnguarded,
     mapIndex,
+    probeIndex,
     productIndex,
     sizeClassOf,
     sizeIndex,
@@ -249,10 +253,12 @@ QuickCheck adapter does that automatically from the size parameter.
 
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has
-no smallest member and counting it diverges, exactly as @let x = x@ does.
-And a recursive language is uniform over each size class, so 'frequency'
-alternatives around a recursive occurrence must carry equal weights; use
-the size bound, not weights, to control how large members get.
+no smallest member; an unguarded definition is rejected with
+'UnguardedRecursion' rather than left to diverge. And a recursive language
+is uniform over each size class, so 'frequency' alternatives around a
+recursive occurrence must carry equal weights; 'oneof' is the combinator
+that already reads that way, and the size bound, not the weights, is what
+controls how large members get.
 -}
 recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
 recur build = Cyclic result
@@ -266,15 +272,23 @@ recur build = Cyclic result
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
             bodyOf (Cyclic $ Right $ Recursive EmptyNode self Nothing)
-    emptyIndex = SizeIndex [] $ \_ _ -> error "recur: no members"
+    emptyIndex = choiceIndex []
 
     automaton = createMu $ \self ->
         either (const EmptyNode) recursiveSupport $
             bodyOf (Cyclic $ Right $ Recursive self tied Nothing)
 
+    -- Built against a probe rather than the knot: reading whether the
+    -- occurrence is guarded must not count anything, or an unguarded
+    -- definition would hang here instead of being reported.
+    probed = bodyOf (Cyclic $ Right $ Recursive EmptyNode probeIndex Nothing)
+
     result = do
         _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied Nothing)
-        pure $ Recursive automaton tied Nothing
+        body <- probed
+        if isUnguarded (recursiveIndex body)
+            then Left UnguardedRecursion
+            else pure $ Recursive automaton tied Nothing
 
 {- | Read an ECTA as a generator of the terms it accepts.
 
@@ -325,8 +339,8 @@ recursive node is not sound.
 
 'ungroup' and 'atKey' are the exits into an ordinary recursive generator.
 The rules of 'recur' apply here too: the recursion must be guarded by an
-'apply', and 'frequencies' alternatives around a recursive occurrence must
-carry equal weights.
+'apply', and alternatives around a recursive occurrence must carry equal
+weights, which is what 'oneofGrouped' gives without asking for them.
 -}
 recurGrouped ::
     (Ord key) =>
@@ -373,8 +387,14 @@ recurGrouped build = CyclicGrouped result
             | key <- keys
             ]
 
+    probed = bodyGroups $ Map.fromList [(key, Recursive EmptyNode probeIndex Nothing) | key <- keys]
+
     result = do
         bodies <- bodyGroups indexPlaceholders
+        probedBodies <- probed
+        if any (isUnguarded . recursiveIndex) probedBodies
+            then Left UnguardedRecursion
+            else Right ()
         pure $
             Map.fromList
                 [ (key, Recursive (restrictToKey (positionOf key) family) (indexAt key) Nothing)
@@ -677,6 +697,14 @@ frequencies alternatives
             Map.empty
             [(weight, buckets) | (weight, Grouped (Right buckets)) <- alternatives]
 
+{- | Choose uniformly among grouped generators, group by group.
+
+'frequencies' with equal weights, which is the only shape a recursive
+family admits.
+-}
+oneofGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
+oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alternatives]
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
 ungroup (CyclicGrouped result) =
@@ -738,6 +766,16 @@ frequency alternatives
     sameWeights = case map fst alternatives of
         [] -> True
         firstWeight : rest -> all (== firstWeight) rest
+
+{- | Choose uniformly among generators.
+
+Every alternative is equally likely, whatever the size of its language, as
+in QuickCheck's own @oneof@. In a recursive definition this is the shape to
+reach for: weights around a recursive occurrence are rejected, because such
+a language is uniform over each size class instead.
+-}
+oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
+oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
 
 -- | Generate two values whose projected keys agree.
 match ::

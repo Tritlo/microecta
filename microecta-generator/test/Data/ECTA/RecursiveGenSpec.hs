@@ -27,9 +27,9 @@ data Tree = Leaf Int | Branch Tree Tree
 
 trees :: ECTAGen Tree
 trees = ECTAGen.recur $ \self ->
-    ECTAGen.frequency
-        [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
-        , (1, Branch <$> self <*> self)
+    ECTAGen.oneof
+        [ Leaf <$> ECTAGen.elements [0 .. 2]
+        , Branch <$> self <*> self
         ]
 
 -- | The size of a tree member: its number of source choices.
@@ -126,6 +126,14 @@ spec = do
                             ]
              in ECTAGen.cardinality (ECTAGen.upToSize 2 weighted)
                     `shouldBe` Left WeightedRecursiveAlternatives
+
+        it "rejects a recursion that never passes through an application" $ do
+            let unguarded = ECTAGen.recur $ \self ->
+                    ECTAGen.oneof [Leaf <$> ECTAGen.elements [0 .. 2], self]
+                mapped = ECTAGen.recur (fmap id)
+            ECTAGen.countAtSize unguarded 1 `shouldBe` Left UnguardedRecursion
+            ECTAGen.countAtSize (mapped :: ECTAGen Tree) 1
+                `shouldBe` Left UnguardedRecursion
 
         it "shrinks a failing member to the smallest of its size" $ do
             let containsOne (Leaf value) = value == 1

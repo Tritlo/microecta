@@ -95,6 +95,10 @@ data ECTAGenError
       CannotCountConstrainedEdges
     | -- | An automaton has free recursive variables, so it is not a language.
       OpenAutomaton
+    | {- | A recursive definition reaches itself without passing through an
+      application, so it has no smallest member and no size to count.
+      -}
+      UnguardedRecursion
     deriving (Eq, Show)
 
 -- | One term, its normalized probability mass, and its decoded value.

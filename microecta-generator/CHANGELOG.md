@@ -55,7 +55,8 @@
   parameter, drawing uniformly from the members of at most that size.
   Bounding preserves ranks, so a counterexample replays under any bound.
   Finite generators keep their mixed-radix ranks and compiled decoder
-  unchanged. Recursion must be guarded by `<*>`, `frequency` alternatives
+  unchanged. Recursion must be guarded by `<*>` — an unguarded definition is
+  rejected with `UnguardedRecursion` rather than left to hang — alternatives
   around a recursive occurrence must carry equal weights, and inspection
   that needs one term per member (`groupBy`, `match`, `pmf`, `countBy`)
   reports an error on a recursive language.
@@ -79,3 +80,7 @@
   40 equality constraints in one `Mu` over 139 nodes, and two unfoldings
   accept exactly the 106 members the counting layer reports for size at most
   three.
+* Add `oneof` and `oneofGrouped`, uniform choice among generators and among
+  grouped generators. They are `frequency` and `frequencies` with equal
+  weights, which is the only shape a recursive definition admits, so a
+  recursive generator reads without weights it cannot use.

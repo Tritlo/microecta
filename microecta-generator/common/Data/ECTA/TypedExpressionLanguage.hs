@@ -232,10 +232,7 @@ layer's equality constraints.
 -}
 recursiveExpressions :: Grouped Type TypedExpression
 recursiveExpressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.frequencies
-        [ (1, atomsByType)
-        , (1, applicationGen self)
-        ]
+    ECTAGen.oneofGrouped [atomsByType, applicationGen self]
 
 -- | Erase the ground instantiation after constructing a typed expression.
 compileApplication ::
