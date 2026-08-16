@@ -13,6 +13,7 @@ import Data.ECTA (
     createMu,
     getAllTerms,
     mkEdge,
+    nodeCount,
     nodeRepresents,
     numNestedMu,
  )
@@ -167,6 +168,51 @@ spec = do
                         sort [term | rank <- [0 .. total - 1], Right term <- [ECTAGen.unrank generator rank]]
                             `shouldBe` sort (getAllTerms finiteAutomaton)
                     Left err -> expectationFailure $ show err
+
+        it "treats every term of a finite automaton as one atomic choice" $ do
+            let structured = ECTAGen.fromECTA finiteAutomaton
+                atomic = ECTAGen.atomic structured
+                ranks = [0 .. 3]
+            ECTAGen.cardinality atomic `shouldBe` Right 4
+            traverse (ECTAGen.unrank atomic) ranks
+                `shouldBe` traverse (ECTAGen.unrank structured) ranks
+            fmap sort (traverse (ECTAGen.unrank atomic) ranks)
+                `shouldBe` Right (sort $ getAllTerms finiteAutomaton)
+            map (ECTAGen.sizeOfRank atomic) ranks
+                `shouldBe` replicate 4 (Just 1)
+            fmap (== finiteAutomaton) (ECTAGen.support atomic)
+                `shouldBe` Right True
+
+        it "keeps a large atomic automaton compact" $ do
+            let bit = Node [Edge "zero" [], Edge "one" []]
+                compact = Node [Edge "command" (replicate 40 bit)]
+                atomic = ECTAGen.atomic $ ECTAGen.fromECTA compact
+            ECTAGen.cardinality atomic `shouldBe` Right (2 ^ (40 :: Int))
+            ECTAGen.sizeOfRank atomic (2 ^ (40 :: Int) - 1)
+                `shouldBe` Just 1
+            fmap nodeCount (ECTAGen.support atomic) `shouldBe` Right 2
+
+        it "makes recursive size count complete atomic commands" $ do
+            let commands = ECTAGen.atomic $ ECTAGen.fromECTA finiteAutomaton
+                traces = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ (: []) <$> commands
+                        , (:) <$> commands <*> rest
+                        ]
+            traverse (ECTAGen.countAtSize traces) [1 .. 3]
+                `shouldBe` Right [4, 16, 64]
+
+        it "requires a recursive or opaque language to cross a finite boundary" $ do
+            let recursive = ECTAGen.fromECTA typeAutomaton
+                bounded = ECTAGen.atomic $ ECTAGen.upToSize 2 recursive
+                opaque = ECTAGen.atomic $ ECTAGen.fromGen (pure True)
+            ECTAGen.cardinality (ECTAGen.atomic recursive)
+                `shouldBe` Left UnboundedGenerator
+            ECTAGen.cardinality bounded `shouldBe` Right 2
+            map (ECTAGen.sizeOfRank bounded) [0, 1]
+                `shouldBe` replicate 2 (Just 1)
+            ECTAGen.cardinality opaque
+                `shouldBe` Left CannotInspectOpaqueGenerator
 
         it "counts the size classes of a recursive automaton" $
             traverse (ECTAGen.countAtSize $ ECTAGen.fromECTA typeAutomaton) [1 .. 5]

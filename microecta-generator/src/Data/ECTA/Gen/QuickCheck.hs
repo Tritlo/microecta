@@ -36,6 +36,7 @@ module Data.ECTA.Gen.QuickCheck (
     ungroup,
 
     -- * Recursion
+    atomic,
     recur,
     recurGrouped,
     upToSize,
@@ -142,6 +143,16 @@ whose edges carry equality constraints are rejected.
 -}
 fromECTA :: Node -> ECTAGen Term
 fromECTA = ECTA.fromECTA
+
+{- | Treat every member of a finite generator as one atomic source choice.
+
+An already finite generator keeps its support, cardinality, ranks, values,
+and distribution. An acyclic automaton read with 'fromECTA' closes its whole
+finite language without enumerating it or taking an inner QuickCheck-size
+prefix. Bound a recursive language with 'upToSize' before making it atomic.
+-}
+atomic :: ECTAGen a -> ECTAGen a
+atomic = ECTA.atomic
 
 {- | Build a recursive generator from its own language.
 

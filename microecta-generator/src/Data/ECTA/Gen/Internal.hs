@@ -423,6 +423,21 @@ mapStatic transform static =
         (staticSupport static)
         (mapOutcomeIndex transform $ staticOutcomes static)
 
+-- | Make every outcome of a finite language contribute one unit of size.
+atomicStatic :: Static a -> Static a
+atomicStatic static =
+    static
+        { staticOutcomes =
+            outcomes
+                { outcomePlan =
+                    PlanSelect
+                        (outcomeCardinality outcomes)
+                        (outcomeValueAt outcomes)
+                }
+        }
+  where
+    outcomes = staticOutcomes static
+
 -- | The one-outcome language of a single value.
 pureStatic :: a -> Static a
 pureStatic value =

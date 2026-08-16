@@ -176,6 +176,31 @@ members of size at most `n` hold the same ranks under every bound — so a
 counterexample found at one size replays at any other, and `forAll` shrinks
 by walking whole size classes below the failing member.
 
+`atomic` treats every member of a finite generator as one source choice. This
+sets a domain-sized boundary inside a recursive language. For example, an
+acyclic command FTA can retain its compact support and rank decoder while each
+complete command, rather than each node in its term, contributes one unit to a
+trace's size:
+
+```haskell
+command = decodeCommand <$> ECTAGen.atomic (ECTAGen.fromECTA commandFTA)
+
+nonEmptyTrace = ECTAGen.recur $ \rest ->
+  ECTAGen.oneof
+    [ (: []) <$> command
+    , (:) <$> command <*> rest
+    ]
+```
+
+This does not enumerate the FTA or add one support edge per command. It keeps
+the accepted language, compact support, ranks, and decoder. The whole acyclic
+FTA becomes the finite command source, so QuickCheck's size acts on the outer
+trace instead of taking a second prefix inside each command. For an already
+finite generator, its cardinality and distribution also stay unchanged. Only
+the size and structural-shrinking boundary changes. A recursive input has
+infinitely many members, so bound it with `upToSize` before making it atomic.
+Opaque generators have no size structure and cannot be made atomic.
+
 The self-reference has to go through `recur`. A generator that names itself
 directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
 value: building it never finishes, and the failure is a hang rather than

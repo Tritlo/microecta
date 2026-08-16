@@ -69,6 +69,14 @@
   `groupBy`. Automata whose edges carry equality constraints are rejected
   with `CannotCountConstrainedEdges`: a constrained edge's count is the size
   of an intersection rather than a product of its children's counts.
+* Add `atomic`, which treats every member of a finite transparent generator as
+  one source choice while preserving its compact support, ranks, and decoder.
+  Already finite inputs also keep their cardinality and distribution. An
+  acyclic FTA read with `fromECTA` closes its whole finite language without
+  enumerating its terms, so QuickCheck size can count complete commands in an
+  outer recursion instead of taking an inner term-node prefix. Recursive
+  inputs must cross an `upToSize` boundary first, and opaque inputs are
+  rejected.
 * Add `recurGrouped`, recursion for the grouped layer, where a language refers
   to itself through `apply` and the automaton carries equality constraints
   inside its own cycle. The key set is solved by a monotone fixpoint before

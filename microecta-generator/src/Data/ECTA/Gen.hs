@@ -42,6 +42,7 @@ module Data.ECTA.Gen (
     ungroup,
 
     -- * Recursion
+    atomic,
     recur,
     recurGrouped,
     upToSize,
@@ -69,7 +70,7 @@ module Data.ECTA.Gen (
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu)
+import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Automaton (automatonIndex)
 import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
@@ -247,6 +248,28 @@ fromIndexed indexed
 -- | Embed an opaque backend generator.
 fromBackend :: (Functor gen) => gen a -> ECTAGen gen a
 fromBackend generated = Opaque $ Right <$> generated
+
+{- | Treat every member of a finite generator as one atomic source choice.
+
+An already finite generator keeps its support, cardinality, ranks, values,
+and distribution. Only size changes: every complete member has size one when
+it is used inside 'recur'. An acyclic automaton read with 'fromECTA' closes
+its whole finite language without enumerating its terms, rather than taking
+an inner prefix from the QuickCheck size. Bound a recursive language with
+'upToSize' before making it atomic. Opaque generators have no size structure
+to change.
+-}
+atomic :: ECTAGen gen a -> ECTAGen gen a
+atomic (Transparent result) = Transparent $ atomicStatic <$> result
+atomic (Cyclic result) =
+    Transparent $ do
+        recursive <- result
+        if numNestedMu (recursiveSupport recursive) == 0
+            -- No Mu means the size vector ends. This consumes that whole
+            -- finite vector without asking the caller for its largest size.
+            then atomicStatic <$> boundedStatic maxBound recursive
+            else Left UnboundedGenerator
+atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
 {- | Build a recursive generator from its own language.
 
