@@ -38,6 +38,15 @@ projections, so discovering its groups requires enumerating the input ranks;
 conditioning three or more generators is the grouped layer's job (`groupBy`
 and `apply`).
 
+`relate leftKey rightKey relation left right` admits every pair for which the
+projected keys satisfy `relation`. The relation is an ordinary Haskell
+function such as `canRead Admin Public = True`; it may be asymmetric and the
+two key types may differ. A transparent join evaluates it once per live key
+pair, then counts, ranks, and samples the accepted group products directly.
+An opaque input uses rejection filtering. `match` remains the shorter and
+faster operation for equality because it intersects the two key maps without
+testing their Cartesian product.
+
 `Grouped key a` is the explicit grouping-preserving path for nested or very
 large languages. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
@@ -140,6 +149,17 @@ joined =
 ```
 
 ```haskell
+canRead :: Role -> Classification -> Bool
+canRead Admin _ = True
+canRead Member Public = True
+canRead _ _ = False
+
+authorized :: ECTAGen (User, File)
+authorized =
+  ECTAGen.relate roleOf classification canRead users files
+```
+
+```haskell
 replay :: Either ECTAGenError Authentication
 replay = ECTAGen.unrank authentication 42
 
@@ -216,9 +236,9 @@ uniform over each size class, so alternatives around a recursive occurrence
 must carry equal weights; `oneof` is the combinator that already reads that
 way, and the size bound, not the weights, is what controls how large
 members get. `frequency` with unequal weights is rejected rather than
-ignored. Inspection that needs one ECTA term per member (`groupBy`,
-`match`, `pmf`, `countBy`) is not available on a recursive language; bound
-it first, or keep that layer finite.
+ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
+`relate`, `pmf`, `countBy`) is not available on a recursive language. Bound it
+first, or keep that layer finite.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:

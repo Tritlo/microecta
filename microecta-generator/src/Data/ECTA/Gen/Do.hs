@@ -171,14 +171,14 @@ type NotApplicativeMessage =
         ':$$: 'Text "    qualified do-notation needs it alongside QualifiedDo."
         ':$$: 'Text "  * A later generator uses a value generated earlier."
         ':$$: 'Text "    ECTA generators are applicative, so choices are"
-        ':$$: 'Text "    independent: relate values with match or apply, or"
-        ':$$: 'Text "    embed a monadic QuickCheck Gen with"
+        ':$$: 'Text "    independent. Use match, relate, or apply, or embed"
+        ':$$: 'Text "    a monadic QuickCheck Gen with"
         ':$$: 'Text "    fromGen (that region becomes opaque)."
 
 type CannotFailMessage =
     'Text "This pattern can fail, and an ECTA generator cannot"
         ':$$: 'Text "discard outcomes. Bind a total pattern and condition"
-        ':$$: 'Text "values with match instead."
+        ':$$: 'Text "values with match or relate instead."
 
 -- | Rejected at compile time: ECTA generators have no bind.
 (>>=) :: (Unsatisfiable NotApplicativeMessage) => generator -> continuation -> result

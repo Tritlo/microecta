@@ -27,6 +27,7 @@ module Data.ECTA.Gen (
     oneof,
     On (..),
     match,
+    relate,
 
     -- * The grouped layer
     Sig (..),
@@ -860,6 +861,35 @@ match condition left right =
             matches (Right (leftValue, rightValue)) =
                 leftKey leftValue == rightKey rightValue
          in Opaque $ filterGen matches generatedPairs
+
+{- | Generate two values whose projected keys satisfy a relation.
+
+For finite inspectable inputs, the relation is evaluated once per live key
+pair. The accepted group products are counted and sampled directly without
+rejection. The key types may differ, and the relation need not be symmetric.
+The relation must be total for every live key pair. An opaque input uses
+backend rejection filtering instead.
+-}
+relate ::
+    (GenBackend gen, Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> Bool) ->
+    ECTAGen gen left ->
+    ECTAGen gen right ->
+    ECTAGen gen (left, right)
+relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
+relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
+relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
+relate _ _ _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
+relate leftKey rightKey relation (Transparent (Right left)) (Transparent (Right right)) =
+    Transparent $ relateStatic leftKey rightKey relation left right
+relate leftKey rightKey relation left right =
+    let generatedPairs = liftA2 (liftA2 (,)) (lower left) (lower right)
+        related (Left _) = True
+        related (Right (leftValue, rightValue)) =
+            relation (leftKey leftValue) (rightKey rightValue)
+     in Opaque $ filterGen related generatedPairs
 
 {- | Return the ECTA support of an inspectable generator.
 

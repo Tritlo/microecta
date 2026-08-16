@@ -23,6 +23,11 @@
   `On` value such as `authenticatedUser :==: fileOwner`, conjoinable with
   `:&&:`, replacing the positional `matchOn`. The three-way `matchOn3` is
   gone; star-shaped conditioning belongs to the keyed layer (`apply`).
+* Add `relate`, which conditions two flat generators with a Boolean relation
+  over their projected keys. Transparent inputs evaluate the predicate once
+  per live key pair and retain exact counts, ranks, probability masses, and
+  direct sampling without rejection. `match` keeps its map-intersection fast
+  path for equality.
 * Add `frequencies`, the per-group weighted choice among grouped generators,
   so alternated layers such as depth-bounded languages stay grouped.
 * Compile transparent uniform sampling: every outcome index now retains a

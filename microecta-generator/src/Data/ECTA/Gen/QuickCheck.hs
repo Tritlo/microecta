@@ -21,6 +21,7 @@ module Data.ECTA.Gen.QuickCheck (
     oneof,
     On (..),
     match,
+    relate,
 
     -- * The grouped layer
     Sig (..),
@@ -264,6 +265,21 @@ match ::
     ECTAGen right ->
     ECTAGen (left, right)
 match = ECTA.match
+
+{- | Generate two values whose projected keys satisfy a relation.
+
+Finite transparent inputs are conditioned without rejection. An opaque input
+uses QuickCheck rejection filtering.
+-}
+relate ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> Bool) ->
+    ECTAGen left ->
+    ECTAGen right ->
+    ECTAGen (left, right)
+relate = ECTA.relate
 
 -- | Return the ECTA support of a fully transparent generator.
 support :: ECTAGen a -> Either ECTAGenError Node

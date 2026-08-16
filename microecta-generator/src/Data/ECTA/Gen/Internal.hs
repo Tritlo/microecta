@@ -123,7 +123,8 @@ explain EmptyGenerator =
     guidance
         [ "The language has no members."
         , "Common causes: elements or fromIndexed over an empty list, a"
-        , "match or apply whose keys never agree, or a size bound below one."
+        , "match, relate, or apply whose keys never agree, or a size bound"
+        , "below one."
         ]
 explain (NonPositiveWeight weight) =
     guidance
@@ -162,14 +163,15 @@ explain UnboundedGenerator =
         , "is recursive: it has a count per size class rather than a"
         , "cardinality."
         , "Fix: bound it with upToSize first. Grouping and mass inspection"
-        , "(groupBy, match, pmf, countBy) additionally need one ECTA term per"
-        , "member, which only a language read with fromECTA retains."
+        , "(groupBy, match, relate, pmf, countBy) additionally need one ECTA"
+        , "term per member, which only a language read with fromECTA retains."
         ]
 explain CannotInspectRecursiveGenerator =
     guidance
         [ "The members of this language carry no ECTA term. A recursive"
         , "generator retains its automaton instead of a term per member, and a"
-        , "term per member is what groupBy, match, pmf, and countBy read."
+        , "term per member is what groupBy, match, relate, pmf, and countBy"
+        , "read."
         , "Fix: keep the layer that needs terms finite, or read the language"
         , "from an automaton with fromECTA, whose members are terms."
         ]
@@ -245,7 +247,7 @@ seqPlan outcomes =
         (toInteger $ Sequence.length outcomes)
         (outcomeValue . Sequence.index outcomes . fromInteger)
 
--- | One equality-key bucket used to count and unrank a conditioned product.
+-- | One compatible key-pair bucket used to count and unrank a conditioned product.
 data JoinGroup left right = JoinGroup
     { joinGroupIndex :: !Int
     , joinGroupLeft :: !(Seq (Outcome left))
@@ -618,7 +620,38 @@ joinStatic leftKey rightKey left right = do
                 (,)
                 (groupOutcomes leftEntries)
                 (groupOutcomes rightEntries)
-    if Map.null shared
+    joinGroupedStatic left right $ map snd $ Map.toAscList shared
+
+-- | Join two languages on a relation between their projected keys.
+relateStatic ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> Bool) ->
+    Static left ->
+    Static right ->
+    Either ECTAGenError (Static (left, right))
+relateStatic leftKey rightKey relation left right = do
+    leftEntries <- keyedOutcomes leftKey left
+    rightEntries <- keyedOutcomes rightKey right
+    let leftGroups = groupOutcomes leftEntries
+        rightGroups = groupOutcomes rightEntries
+        related =
+            [ (leftOutcomes, rightOutcomes)
+            | (leftGroupKey, leftOutcomes) <- Map.toAscList leftGroups
+            , (rightGroupKey, rightOutcomes) <- Map.toAscList rightGroups
+            , relation leftGroupKey rightGroupKey
+            ]
+    joinGroupedStatic left right related
+
+-- | Compile selected group products with one equality witness per product.
+joinGroupedStatic ::
+    Static left ->
+    Static right ->
+    [([Outcome left], [Outcome right])] ->
+    Either ECTAGenError (Static (left, right))
+joinGroupedStatic left right related =
+    if null related
         then Left EmptyGenerator
         else
             let groups =
@@ -626,8 +659,8 @@ joinStatic leftKey rightKey left right = do
                         keyIndex
                         (Sequence.fromList leftOutcomes)
                         (Sequence.fromList rightOutcomes)
-                    | (keyIndex, (_, (leftOutcomes, rightOutcomes))) <-
-                        zip [0 :: Int ..] $ Map.toAscList shared
+                    | (keyIndex, (leftOutcomes, rightOutcomes)) <-
+                        zip [0 :: Int ..] related
                     ]
                 leftNode =
                     Node

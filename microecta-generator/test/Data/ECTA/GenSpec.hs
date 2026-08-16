@@ -36,6 +36,20 @@ data FilesystemFixture = FilesystemFixture
     }
     deriving (Eq, Ord, Show)
 
+-- | Access roles used by the independent relation reference language.
+data Role = Admin | Member
+    deriving (Eq, Ord, Show)
+
+-- | Resource classes used by the independent relation reference language.
+data Classification = Public | Secret
+    deriving (Eq, Ord, Show)
+
+-- | The permission relation exercised by 'relatedAccess'.
+canRead :: Role -> Classification -> Bool
+canRead Admin _ = True
+canRead Member Public = True
+canRead Member Secret = False
+
 -- | A finite exact backend used to verify rank-sampling probabilities.
 newtype Exact a = Exact {runExact :: [(Rational, a)]}
 
@@ -106,6 +120,26 @@ matchedFixture =
         (authenticatedUser :==: fileOwner)
         authenticationFixture
         filesystemFixture
+
+-- | Access pairs generated through the relation under test.
+relatedAccess :: ECTAGen ((Role, String), (Classification, String))
+relatedAccess =
+    ECTAGen.relate
+        fst
+        fst
+        canRead
+        (ECTAGen.elements [(Admin, "Ada"), (Admin, "Alex"), (Member, "Morgan")])
+        (ECTAGen.elements [(Public, "guide"), (Secret, "keys")])
+
+-- | Independently listed accepted pairs and their conditioned mass.
+expectedAccessPmf :: [(((Role, String), (Classification, String)), Rational)]
+expectedAccessPmf =
+    [ (((Admin, "Ada"), (Public, "guide")), 1 % 5)
+    , (((Admin, "Ada"), (Secret, "keys")), 1 % 5)
+    , (((Admin, "Alex"), (Public, "guide")), 1 % 5)
+    , (((Admin, "Alex"), (Secret, "keys")), 1 % 5)
+    , (((Member, "Morgan"), (Public, "guide")), 1 % 5)
+    ]
 
 -- Ordinary QuickCheck can compose the same fixtures by retrying.
 rejectionFixture :: QC.Gen (AuthenticationFixture, FilesystemFixture)
@@ -188,6 +222,25 @@ spec = do
         it "retains only matching keys with the conditioned product PMF" $
             ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
 
+        it "relates different key types against the declared predicate" $ do
+            ECTAGen.cardinality relatedAccess `shouldBe` Right 5
+            ECTAGen.pmf relatedAccess `shouldBe` Right expectedAccessPmf
+
+        it "preserves and conditions source weights across related groups" $
+            ECTAGen.pmf
+                ( ECTAGen.relate
+                    id
+                    id
+                    canRead
+                    (ECTAGen.frequency [(3, ECTAGen.elements [Admin]), (1, ECTAGen.elements [Member])])
+                    (ECTAGen.elements [Public, Secret])
+                )
+                `shouldBe` Right
+                    [ ((Admin, Public), 3 % 7)
+                    , ((Admin, Secret), 3 % 7)
+                    , ((Member, Public), 1 % 7)
+                    ]
+
         it "matches the prototype's exact fixture and rejection counts" $ do
             fmap length (ECTAGen.pmf authenticationFixture) `shouldBe` Right 8
             fmap length (ECTAGen.pmf filesystemFixture) `shouldBe` Right 12
@@ -216,6 +269,22 @@ spec = do
                     (ECTAGen.elements [Bob])
                 )
                 `shouldBe` Left ECTAGen.EmptyGenerator
+
+        it "reports a relation with no accepted live keys" $
+            ECTAGen.pmf
+                ( ECTAGen.relate
+                    id
+                    id
+                    (\_ _ -> False)
+                    (ECTAGen.elements [Admin])
+                    (ECTAGen.elements [Public])
+                )
+                `shouldBe` Left ECTAGen.EmptyGenerator
+
+        it "represents a relation with an ECTA equality witness" $
+            case ECTAGen.support relatedAccess of
+                Right (Node [edge]) -> edgeEcs edge `shouldNotBe` EmptyConstraints
+                result -> expectationFailure $ "unexpected relation support: " <> show result
 
         it "matches authentication and ownership through ECTA" $
             propMatchedAuthenticationCanRead
@@ -366,6 +435,20 @@ spec = do
              in QC.property
                     ( QC.forAll (ECTAGen.toGen opaqueJoin) $ \(left, right) ->
                         left QC.=== right
+                    )
+
+        it "allows an opaque source to participate in a relation" $
+            let opaque = ECTAGen.fromGen $ QC.elements [Admin, Member]
+                related =
+                    ECTAGen.relate
+                        id
+                        id
+                        canRead
+                        opaque
+                        (ECTAGen.elements [Secret])
+             in QC.property
+                    ( QC.forAll (ECTAGen.toGen related) $ \pair ->
+                        pair QC.=== (Admin, Secret)
                     )
 
     describe "compiled rank decoding" $ do
