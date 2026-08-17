@@ -44,6 +44,10 @@ data Role = Admin | Member
 data Classification = Public | Secret
     deriving (Eq, Ord, Show)
 
+-- | Keys used to test a caller-declared group independently of its values.
+data UserFamily = DeclaredUsers | OtherUsers
+    deriving (Eq, Ord, Show)
+
 -- | The permission relation exercised by 'relatedAccess'.
 canRead :: Role -> Classification -> Bool
 canRead Admin _ = True
@@ -450,6 +454,43 @@ spec = do
                     ( QC.forAll (ECTAGen.toGen related) $ \pair ->
                         pair QC.=== (Admin, Secret)
                     )
+
+    describe "declared groups" $ do
+        it "preserves a finite source's support, ranks, and distribution" $ do
+            let source =
+                    ECTAGen.frequency
+                        [ (3, ECTAGen.elements [Alice])
+                        , (1, ECTAGen.elements [Bob, Carol])
+                        ]
+                family = ECTAGen.keyed DeclaredUsers source
+                selected = ECTAGen.atKey DeclaredUsers family
+            ECTAGen.sizes family
+                `shouldBe` Right (Map.singleton DeclaredUsers 3)
+            ECTAGen.support selected `shouldBe` ECTAGen.support source
+            traverse (ECTAGen.unrank selected) [0 .. 2]
+                `shouldBe` traverse (ECTAGen.unrank source) [0 .. 2]
+            ECTAGen.pmf selected `shouldBe` ECTAGen.pmf source
+            ECTAGen.pmf (ECTAGen.atKey OtherUsers family)
+                `shouldBe` Left ECTAGen.EmptyGenerator
+
+        it "combines declared languages with the grouped choice weights" $ do
+            let family =
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed DeclaredUsers $ ECTAGen.elements [Alice, Bob]
+                        , ECTAGen.keyed OtherUsers $ ECTAGen.elements [Carol]
+                        ]
+            ECTAGen.sizes family
+                `shouldBe` Right (Map.fromList [(DeclaredUsers, 2), (OtherUsers, 1)])
+            ECTAGen.pmf (ECTAGen.ungroup family)
+                `shouldBe` Right [(Alice, 1 % 4), (Bob, 1 % 4), (Carol, 1 % 2)]
+
+        it "preserves construction failures and rejects opaque sources" $ do
+            let empty = ECTAGen.elements [] :: ECTAGen UserId
+                opaque = ECTAGen.fromGen $ pure Alice
+            ECTAGen.sizes (ECTAGen.keyed DeclaredUsers empty)
+                `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.sizes (ECTAGen.keyed DeclaredUsers opaque)
+                `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
 
     describe "compiled rank decoding" $ do
         it "decodes every rank of a mapped source" $

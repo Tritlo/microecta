@@ -27,6 +27,7 @@ module Data.ECTA.Gen.QuickCheck (
     Sig (..),
     sigResult,
     Args (..),
+    keyed,
     groupBy,
     regroupBy,
     mapWithKey,
@@ -189,6 +190,14 @@ counterexample found under one bound replays under any other.
 -}
 upToSize :: Int -> ECTAGen a -> ECTAGen a
 upToSize = ECTA.upToSize
+
+{- | Declare that every member of an inspectable generator has one key.
+
+This preserves finite or recursive support without enumerating members.
+Opaque generators cannot enter the grouped layer.
+-}
+keyed :: key -> ECTAGen a -> Grouped key a
+keyed = ECTA.keyed
 
 {- | Classify a transparent generator's outcomes by a projected key.
 

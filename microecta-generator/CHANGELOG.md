@@ -13,6 +13,9 @@
 * Add partition-preserving grouped generators (`Grouped`, built with `groupBy`
   from any transparent generator) so repeated joins compose compact ECTA
   supports and exact rank indices without enumerating prior layers.
+* Add `keyed`, which declares one key for every member of an inspectable finite
+  or recursive generator. It enters the grouped layer without enumerating the
+  language and preserves the existing support, ranks, and distribution.
 * Generalize keyed operation application to any arity: a `Sig` is written
   like a many-sorted operation signature (`leftKey :* rightKey :-> resultKey`),
   and

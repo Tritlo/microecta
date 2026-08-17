@@ -52,8 +52,11 @@ large languages. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
 key values receive equal internal labels on constrained ECTA paths. `groupBy`
 classifies any transparent generator's outcomes (enumerating them once), and
-grouped generators support ordinary `fmap` (and `mapWithKey` when the value
-should absorb its key). `regroupBy` changes the
+`keyed key generator` declares that every member already has one known key.
+`keyed` does not enumerate members, so it also accepts a recursive transparent
+generator. The caller is responsible for declaring the right key. Grouped
+generators support ordinary `fmap` (and `mapWithKey` when the value should
+absorb its key). `regroupBy` changes the
 classification without enumerating values, `sizes` returns the stored
 cardinality of every group, and `atKey` selects one group as an ordinary
 conditional generator. An operation of any arity is classified by a `Sig`,
@@ -69,6 +72,16 @@ group by group, so alternated layers (for example expressions of depth at
 most n) stay grouped. `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
+
+```haskell
+commandsByKind = ECTAGen.oneofGrouped
+  [ ECTAGen.keyed Read readCommands
+  , ECTAGen.keyed Write writeCommands
+  ]
+```
+
+Here each command language keeps its existing compact support. Only the two
+declared keys are stored.
 
 ```haskell
 functionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance

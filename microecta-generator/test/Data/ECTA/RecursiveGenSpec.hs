@@ -83,6 +83,20 @@ spec = do
                 `shouldBe` Right [3, 9, 54, 405, 3402]
             ECTAGen.cardinality trees `shouldBe` Left UnboundedGenerator
 
+        it "declares one key for an unbounded language without enumerating it" $ do
+            let family = ECTAGen.keyed True trees
+                selected = ECTAGen.atKey True family
+            ECTAGen.sizes (ECTAGen.groupBy leaves trees)
+                `shouldBe` Left UnboundedGenerator
+            ECTAGen.sizes family `shouldBe` Left UnboundedGenerator
+            traverse (ECTAGen.countAtSize selected) [1 .. 5]
+                `shouldBe` Right [3, 9, 54, 405, 3402]
+            traverse (ECTAGen.unrank selected) [0 .. 50]
+                `shouldBe` traverse (ECTAGen.unrank trees) [0 .. 50]
+            fmap numNestedMu (ECTAGen.support selected) `shouldBe` Right 1
+            ECTAGen.countAtSize (ECTAGen.atKey False family) 1
+                `shouldBe` Left EmptyGenerator
+
         it "bounds the language to its members of at most one size" $ do
             ECTAGen.cardinality boundedTrees `shouldBe` Right boundedTreeCount
             ECTAGen.unrank boundedTrees boundedTreeCount

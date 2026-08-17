@@ -165,6 +165,8 @@ explain UnboundedGenerator =
         , "Fix: bound it with upToSize first. Grouping and mass inspection"
         , "(groupBy, match, relate, pmf, countBy) additionally need one ECTA"
         , "term per member, which only a language read with fromECTA retains."
+        , "If every member has one known key, keyed enters the grouped layer"
+        , "without inspecting members."
         ]
 explain CannotInspectRecursiveGenerator =
     guidance
@@ -174,6 +176,7 @@ explain CannotInspectRecursiveGenerator =
         , "read."
         , "Fix: keep the layer that needs terms finite, or read the language"
         , "from an automaton with fromECTA, whose members are terms."
+        , "If every member has one known key, use keyed instead of groupBy."
         ]
 explain WeightedRecursiveAlternatives =
     guidance

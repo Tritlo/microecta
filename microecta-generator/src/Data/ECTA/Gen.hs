@@ -33,6 +33,7 @@ module Data.ECTA.Gen (
     Sig (..),
     sigResult,
     Args (..),
+    keyed,
     groupBy,
     regroupBy,
     mapWithKey,
@@ -486,6 +487,20 @@ elements values =
             (toInteger $ length values)
             (\index -> atIndex "elements" index values)
 
+{- | Declare that every member of an inspectable generator has one key.
+
+This enters the grouped layer without enumerating members. It preserves a
+finite or recursive generator's support, ranks, and distribution unchanged.
+Use 'groupBy' when the key must be computed from each member. Opaque generators
+cannot be keyed because they have no inspectable support or rank index.
+-}
+keyed :: key -> ECTAGen gen a -> Grouped gen key a
+keyed key (Transparent result) =
+    Grouped $ fmap (Map.singleton key . KeyedBucket 1) result
+keyed key (Cyclic result) =
+    CyclicGrouped $ fmap (Map.singleton key) result
+keyed _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
+
 {- | Classify a transparent generator's outcomes by a projected key.
 
 This is the boundary from flat to grouped generation: any transparent
@@ -683,12 +698,12 @@ anyRecursiveArgument (family :& rest) =
 
 -- | Collect keyed recursive languages into one alternative per key, in order.
 mergeByKey :: (Ord key) => [(key, Recursive a)] -> Map.Map key (Recursive a)
-mergeByKey keyed =
+mergeByKey entries =
     Map.mapMaybe mergeRecursiveGroups $
         foldl'
             (\groups (key, group) -> Map.insertWith (flip (<>)) key [group] groups)
             Map.empty
-            keyed
+            entries
 
 {- | Choose among grouped generators with positive relative weights,
 group by group.
