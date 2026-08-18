@@ -4,8 +4,9 @@
 
 Finite languages are represented as a 'Static': an ECTA support paired with
 an 'OutcomeIndex' that counts, selects, decodes, and samples outcomes by
-rank. This module holds the builders, joins, group buckets, samplers, and
-symbols; the public generator types and combinators live in "Data.ECTA.Gen".
+rank. This module holds the builders, joins, group buckets, and symbols. The
+sampling engine lives in "Data.ECTA.Gen.Internal.Sampler". The public generator
+types and combinators live in "Data.ECTA.Gen".
 -}
 module Data.ECTA.Gen.Internal where
 
@@ -29,8 +30,9 @@ import Data.ECTA.Gen.Internal.Decoder (
     RankDecoder (..),
     compilePlan,
  )
+import Data.ECTA.Gen.Internal.Sampler
 import Data.ECTA.Gen.Internal.Size (
-    SizeIndex,
+    SizeIndex (sizeClassCounts),
     choiceIndex,
     productIndex,
     sizeClasses,
@@ -49,27 +51,6 @@ data Indexed a = Indexed
     -- ^ Number of selectable values.
     , indexedSelect :: Integer -> a
     -- ^ Decode one valid index.
-    }
-
--- | Backend operations needed only when sampling or crossing an opaque region.
-class (Applicative gen) => GenBackend gen where
-    -- | Select an integer in @[0, bound)@.
-    selectInteger :: Integer -> gen Integer
-
-    -- | Select a machine 'Int' in @[0, bound)@.
-    selectInt :: Int -> gen Int
-    selectInt bound = fromInteger <$> selectInteger (toInteger bound)
-
-    -- | Select one backend generator with a positive relative weight.
-    frequencyGen :: [(Integer, gen a)] -> gen a
-
-    -- | Retry until the generated value satisfies a predicate.
-    filterGen :: (a -> Bool) -> gen a -> gen a
-
--- | Backend-independent plans for sampling a value, with or without its rank.
-data Sampler a = Sampler
-    { runValueSampler :: forall gen. (GenBackend gen) => gen a
-    , runRankSampler :: forall gen. (GenBackend gen) => gen (Integer, a)
     }
 
 {- | Failure while constructing, inspecting, or sampling a generator.
@@ -94,8 +75,9 @@ data ECTAGenError
       language, which retains its automaton rather than its members.
       -}
       CannotInspectRecursiveGenerator
-    | {- | Alternatives around a recursive occurrence carried unequal
-      weights, and a recursive language is uniform over each size class.
+    | {- | Alternatives that choose recursive structure carried unequal
+      weights. Only finite choices closed by @atomic@ retain weights inside
+      recursion.
       -}
       WeightedRecursiveAlternatives
     | -- | The operation family of an application is recursive.
@@ -180,11 +162,12 @@ explain CannotInspectRecursiveGenerator =
         ]
 explain WeightedRecursiveAlternatives =
     guidance
-        [ "Alternatives around a recursive occurrence carry different weights."
-        , "A recursive language is uniform over each of its size classes, so"
-        , "there is no room for relative weights inside one."
-        , "Fix: use oneof, or oneofGrouped in a grouped family, and control how"
-        , "large members get with the size bound rather than with weights."
+        [ "Alternatives that choose recursive structure carry different weights."
+        , "Recursive structure is counted by size, so those weights cannot"
+        , "also decide how deep the language recurses."
+        , "Fix: use oneof, or oneofGrouped in a grouped family, and control"
+        , "size with the bound. Put weighted finite choices behind atomic when"
+        , "one complete choice should retain its distribution inside recursion."
         ]
 explain RecursiveOperationFamily =
     guidance
@@ -259,8 +242,19 @@ data JoinGroup left right = JoinGroup
 
 -- | One transparent ECTA with a matching indexed outcome language.
 data Static a = Static
-    { staticSupport :: !Node
+    { staticSupport :: Node
+    {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
+    use the outcome index without forcing this field. A support observer or
+    a constrained join builds it when needed.
+    -}
     , staticOutcomes :: !(OutcomeIndex a)
+    , staticAtomic :: !Bool
+    {- ^ Whether an explicit atomic boundary closes this finite language.
+
+    Ordinary finite weights do not control recursive structure. 'atomicStatic'
+    sets this marker so 'recursiveFromStatic' can preserve them as one source
+    choice. The sampler itself already lives in 'staticOutcomes'.
+    -}
     }
 
 {- | One recursive ECTA and the size-stratified language it accepts.
@@ -271,8 +265,19 @@ cardinality, and ranks are size-major, so bounding the language with
 'boundedStatic' keeps every rank it already had.
 -}
 data Recursive a = Recursive
-    { recursiveSupport :: !Node
+    { recursiveSupport :: Node
+    {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
+    interpret the same recursive declaration without forcing this field.
+    A support observer builds it once when needed.
+    -}
     , recursiveIndex :: SizeIndex a
+    , recursiveSampling :: SampleIndex a
+    -- ^ A valid sampler at every size, tied through the recursive knot.
+    , recursiveWeighted :: !Bool
+    {- ^ Whether any reachable atom is non-uniform. This is read from the
+    non-knot body, so bounded lowering can choose the sampler without forcing
+    a Boolean fixpoint. 'False' permits uniform rank selection instead.
+    -}
     , recursiveTerm :: Maybe (a -> Term)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
@@ -281,13 +286,35 @@ data Recursive a = Recursive
     -}
     }
 
+-- | View a finite language as one size-stratified recursive component.
+recursiveFromStatic :: Static a -> Recursive a
+recursiveFromStatic static =
+    Recursive
+        (staticSupport static)
+        index
+        sampling
+        weighted
+        Nothing
+  where
+    outcomes = staticOutcomes static
+    index = sizeIndex $ outcomePlan outcomes
+    (sampling, weighted)
+        | staticAtomic static =
+            ( atomicSampleIndex $ outcomeSampler outcomes
+            , case outcomeUniformMass outcomes of
+                Nothing -> True
+                Just _ -> False
+            )
+        | otherwise = (uniformSampleIndex index, False)
+
 {- | Bound a recursive language to its members of size at most the bound.
 
-The result is an ordinary finite language: uniform over exactly those
-members, with the same size-major ranks the recursive language gives them,
-so a rank replays through either. The support stays the recursive
-automaton — a size bound restricts the rank space, not the set of terms the
-automaton accepts.
+The result is an ordinary finite language with the same size-major ranks the
+recursive language gives its members, so a rank replays through either. Size
+classes retain their count-based probability. Finite choices closed with
+'atomicStatic' retain their own distribution inside each class. The support
+stays the recursive automaton — a size bound restricts the rank space, not the
+set of terms the automaton accepts.
 
 Members carry a retained 'Term' only when the values are the accepted terms
 themselves, as they are for an automaton read with @fromECTA@; otherwise
@@ -304,12 +331,13 @@ boundedStatic bound recursive
                 (recursiveSupport recursive)
                 ( OutcomeIndex
                     totalOutcomes
-                    (Just $ 1 / fromInteger totalOutcomes)
+                    uniformMass
                     select
                     selectValue
-                    (uniformSampler totalOutcomes selectValue)
+                    sampler
                     plan
                 )
+                False
   where
     select index = case recursiveTerm recursive of
         Nothing -> Left CannotInspectRecursiveGenerator
@@ -321,6 +349,13 @@ boundedStatic bound recursive
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
     totalOutcomes = sum [count | (_, count, _) <- classes]
+    uniformMass
+        | recursiveWeighted recursive = Nothing
+        | otherwise = Just $ 1 / fromInteger totalOutcomes
+    sampler
+        | recursiveWeighted recursive =
+            boundedSampler classes $ recursiveSampling recursive
+        | otherwise = uniformSampler totalOutcomes selectValue
 
     selectValue = go classes
       where
@@ -338,9 +373,89 @@ data KeyedBucket a = KeyedBucket
     , keyedBucketStatic :: !(Static a)
     }
 
+{- | One recursive language conditioned on a retained key.
+
+The mass is unnormalized. Across all sibling keys it sums to the structural
+member count at that size. This keeps language counts separate from sampler
+probabilities while allowing keys to be merged without losing either.
+-}
+data KeyedRecursive a = KeyedRecursive
+    { keyedRecursiveLanguage :: !(Recursive a)
+    , keyedRecursiveMasses :: MassIndex
+    , keyedRecursiveMassWeighted :: !Bool
+    }
+
+-- | A memoized unnormalized mass for every positive structural size.
+newtype MassIndex = MassIndex [Rational]
+
+-- | Read one size, returning zero outside the positive size classes.
+massAtSize :: MassIndex -> Int -> Rational
+massAtSize _ size | size < 1 = 0
+massAtSize (MassIndex masses) size = masses !! (size - 1)
+
+-- | Read one recursive group's mass at a size.
+keyedRecursiveMassAtSize :: KeyedRecursive a -> Int -> Rational
+keyedRecursiveMassAtSize recursive = massAtSize $ keyedRecursiveMasses recursive
+
+-- | A language with no members at any size.
+emptyMassIndex :: MassIndex
+emptyMassIndex = MassIndex $ repeat 0
+
+-- | Structural counts interpreted as unnormalized uniform mass.
+countMassIndex :: SizeIndex a -> MassIndex
+countMassIndex index =
+    MassIndex $ map fromInteger (sizeClassCounts index) <> repeat 0
+
+-- | One finite atom's complete mass at size one.
+atomicMassIndex :: Rational -> MassIndex
+atomicMassIndex mass = MassIndex $ mass : repeat 0
+
+-- | Add alternative masses pointwise.
+sumMassIndexes :: [MassIndex] -> MassIndex
+sumMassIndexes indexes =
+    MassIndex
+        [ sum [massAtSize index size | index <- indexes]
+        | size <- [1 ..]
+        ]
+
+-- | Turn every finite key bucket into one size-indexed recursive group.
+keyedRecursiveFromBuckets :: Map.Map key (KeyedBucket a) -> Map.Map key (KeyedRecursive a)
+keyedRecursiveFromBuckets buckets = fmap fromBucket buckets
+  where
+    totalCount =
+        sum
+            [ outcomeCardinality $ staticOutcomes $ keyedBucketStatic bucket
+            | bucket <- Map.elems buckets
+            ]
+
+    fromBucket bucket =
+        KeyedRecursive
+            recursive
+            masses
+            massWeighted
+      where
+        static = keyedBucketStatic bucket
+        recursive = recursiveFromStatic static
+        bucketCount = outcomeCardinality $ staticOutcomes static
+        masses
+            | staticAtomic static =
+                atomicMassIndex $ fromInteger totalCount * keyedBucketMass bucket
+            | otherwise = countMassIndex $ recursiveIndex recursive
+        massWeighted =
+            staticAtomic static
+                && fromInteger totalCount * keyedBucketMass bucket /= fromInteger bucketCount
+
+-- | Put a complete recursive language under one key.
+keyedRecursive :: Recursive a -> KeyedRecursive a
+keyedRecursive recursive =
+    KeyedRecursive
+        recursive
+        (countMassIndex $ recursiveIndex recursive)
+        False
+
 -- | Build one retained group from its outcomes, in rank order.
-bucketFromOutcomes :: [Outcome a] -> Either ECTAGenError (KeyedBucket a)
-bucketFromOutcomes outcomes = do
+bucketFromOutcomes :: Bool -> [Outcome a] -> Either ECTAGenError (KeyedBucket a)
+bucketFromOutcomes retainAtomic outcomes = do
     sampler <- sequenceSampler conditional
     pure $
         KeyedBucket bucketMass $
@@ -354,6 +469,7 @@ bucketFromOutcomes outcomes = do
                     sampler
                     (PlanSelect totalOutcomes selectValue)
                 )
+                retainAtomic
   where
     bucketMass = sum $ map outcomeMass outcomes
     conditional =
@@ -427,6 +543,7 @@ mapStatic transform static =
     Static
         (staticSupport static)
         (mapOutcomeIndex transform $ staticOutcomes static)
+        (staticAtomic static)
 
 -- | Make every outcome of a finite language contribute one unit of size.
 atomicStatic :: Static a -> Static a
@@ -438,10 +555,16 @@ atomicStatic static =
                     PlanSelect
                         (outcomeCardinality outcomes)
                         (outcomeValueAt outcomes)
+                , outcomeSampler = retainedSampler
                 }
+        , staticAtomic = True
         }
   where
     outcomes = staticOutcomes static
+    retainedSampler =
+        case compiledWeightedSampler outcomes of
+            Just sampler -> sampler
+            Nothing -> outcomeSampler outcomes
 
 -- | The one-outcome language of a single value.
 pureStatic :: a -> Static a
@@ -459,6 +582,7 @@ pureStatic value =
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
         )
+        False
 
 -- | The language of one finite indexed source.
 indexedStatic :: Indexed a -> Static a
@@ -473,6 +597,7 @@ indexedStatic indexed =
             (uniformSampler totalOutcomes $ indexedSelect indexed)
             (PlanSelect totalOutcomes $ indexedSelect indexed)
         )
+        False
   where
     totalOutcomes = indexedCardinality indexed
     select index = do
@@ -509,6 +634,7 @@ applyStatic functions values =
                 (outcomePlan valueOutcomes)
             )
         )
+        False
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
@@ -559,6 +685,7 @@ frequencyStatic alternatives =
                 ]
             )
         )
+        False
   where
     totalWeight = sum $ map fst alternatives
     numbered = zip [0 :: Int ..] alternatives
@@ -695,7 +822,7 @@ joinGroupedStatic left right related =
                             ]
              in if joined == EmptyNode
                     then Left EmptyGenerator
-                    else Static joined <$> joinOutcomeIndex left right groups
+                    else (\outcomes -> Static joined outcomes False) <$> joinOutcomeIndex left right groups
 
 -- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
@@ -852,16 +979,6 @@ offsetJoinGroups = go 0
     go offset (group : remaining) =
         (offset, group) : go (offset + joinGroupCardinality group) remaining
 
--- | Merge all groups of a grouped generator into one weighted language.
-mergeKeyedBuckets :: Map.Map key (KeyedBucket a) -> Either ECTAGenError (Static a)
-mergeKeyedBuckets buckets = do
-    weightedBuckets <-
-        integerOutcomes
-            [ (keyedBucketMass bucket, keyedBucketStatic bucket)
-            | bucket <- Map.elems buckets
-            ]
-    pure $ frequencyStatic weightedBuckets
-
 -- | Merge weighted static languages into one group.
 mergeBucketGroup :: [(Rational, Static a)] -> Either ECTAGenError (KeyedBucket a)
 mergeBucketGroup alternatives = do
@@ -921,6 +1038,7 @@ joinNBucketStatic componentIndex operation arguments =
                         rankSampler
                         (chainPlan (outcomePlan operationOutcomes) arguments)
                     )
+                    False
   where
     keyTerms =
         [ Term (argKeySymbol componentIndex position) []
@@ -1014,51 +1132,154 @@ propagating constraints through a recursive node is not sound.
 -}
 recursiveJoin ::
     Int ->
-    Static operation ->
-    ArgChain Recursive operation result ->
-    Recursive result
+    KeyedRecursive operation ->
+    ArgChain KeyedRecursive operation result ->
+    KeyedRecursive result
 recursiveJoin componentIndex operation arguments =
-    Recursive
-        (joinNode componentIndex (staticSupport operation) (recursiveSupports arguments))
-        ( recursiveChainIndex
-            (sizeIndex $ outcomePlan $ staticOutcomes operation)
-            arguments
+    KeyedRecursive
+        ( Recursive
+            (joinNode componentIndex (recursiveSupport operationRecursive) (recursiveSupports arguments))
+            joinedIndex
+            joinedSampling
+            joinedWeighted
+            Nothing
         )
-        Nothing
+        joinedMasses
+        joinedMassWeighted
+  where
+    operationRecursive = keyedRecursiveLanguage operation
+    operationIndex = recursiveIndex operationRecursive
+    joinedIndex = recursiveChainIndex operationIndex arguments
+    joinedMasses =
+        recursiveChainMass
+            (keyedRecursiveMasses operation)
+            arguments
+    joinedSampling =
+        recursiveChainSampling
+            operationIndex
+            (keyedRecursiveMasses operation)
+            (recursiveSampling operationRecursive)
+            arguments
+    joinedWeighted =
+        recursiveWeighted operationRecursive
+            || recursiveChainWeighted arguments
+            || joinedMassWeighted
+    joinedMassWeighted =
+        keyedRecursiveMassWeighted operation
+            || recursiveChainMassWeighted arguments
 
 -- | The support of every matched recursive argument group, in order.
-recursiveSupports :: ArgChain Recursive operation result -> [Node]
+recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node]
 recursiveSupports ChainNil = []
 recursiveSupports (ChainCons recursive rest) =
-    recursiveSupport recursive : recursiveSupports rest
+    recursiveSupport (keyedRecursiveLanguage recursive) : recursiveSupports rest
 
 -- | Consume the argument groups into the operation, left to right.
 recursiveChainIndex ::
     SizeIndex operation ->
-    ArgChain Recursive operation result ->
+    ArgChain KeyedRecursive operation result ->
     SizeIndex result
 recursiveChainIndex index ChainNil = index
 recursiveChainIndex index (ChainCons recursive rest) =
-    recursiveChainIndex (productIndex index $ recursiveIndex recursive) rest
+    recursiveChainIndex
+        (productIndex index $ recursiveIndex $ keyedRecursiveLanguage recursive)
+        rest
+
+-- | Multiply group masses through an applicative chain.
+recursiveChainMass ::
+    MassIndex ->
+    ArgChain KeyedRecursive operation result ->
+    MassIndex
+recursiveChainMass mass ChainNil = mass
+recursiveChainMass mass (ChainCons recursive rest) =
+    recursiveChainMass
+        (productMassIndex mass $ keyedRecursiveMasses recursive)
+        rest
+
+-- | Convolve two positive-size mass series.
+productMassIndex :: MassIndex -> MassIndex -> MassIndex
+productMassIndex left right =
+    MassIndex
+        [ sum
+            [ massAtSize left leftSize * massAtSize right (size - leftSize)
+            | leftSize <- [1 .. size - 1]
+            ]
+        | size <- [1 ..]
+        ]
+
+-- | Consume recursive argument samplers in the same product order as ranks.
+recursiveChainSampling ::
+    SizeIndex operation ->
+    MassIndex ->
+    SampleIndex operation ->
+    ArgChain KeyedRecursive operation result ->
+    SampleIndex result
+recursiveChainSampling _ _ sampling ChainNil = sampling
+recursiveChainSampling index mass sampling (ChainCons recursive rest) =
+    recursiveChainSampling nextIndex nextMass nextSampling rest
+  where
+    recursive' = keyedRecursiveLanguage recursive
+    nextIndex = productIndex index $ recursiveIndex recursive'
+    nextMass = productMassIndex mass $ keyedRecursiveMasses recursive
+    nextSampling =
+        productMassSampleIndex
+            index
+            (massAtSize mass)
+            sampling
+            (recursiveIndex recursive')
+            (keyedRecursiveMassAtSize recursive)
+            (recursiveSampling recursive')
+
+-- | Whether any recursive argument contains a weighted atomic choice.
+recursiveChainWeighted :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainWeighted ChainNil = False
+recursiveChainWeighted (ChainCons recursive rest) =
+    recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
+
+-- | Whether a recursive argument's key mass differs from structural counts.
+recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainMassWeighted ChainNil = False
+recursiveChainMassWeighted (ChainCons recursive rest) =
+    keyedRecursiveMassWeighted recursive || recursiveChainMassWeighted rest
 
 {- | Merge recursive groups sharing a key into one alternative each.
 
 Alternatives keep their order, as they do in the finite merge, so ranks stay
 deterministic.
 -}
-mergeRecursiveGroups :: [Recursive a] -> Maybe (Recursive a)
+mergeRecursiveGroups :: [KeyedRecursive a] -> Maybe (KeyedRecursive a)
 mergeRecursiveGroups [] = Nothing
 mergeRecursiveGroups [only] = Just only
 mergeRecursiveGroups alternatives =
     Just $
-        Recursive
-            ( Node
-                [ Edge (frequencySymbol index) [recursiveSupport alternative]
-                | (index, alternative) <- zip [0 ..] alternatives
-                ]
+        KeyedRecursive
+            ( Recursive
+                ( Node
+                    [ Edge (frequencySymbol branchIndex) [recursiveSupport $ keyedRecursiveLanguage alternative]
+                    | (branchIndex, alternative) <- zip [0 ..] alternatives
+                    ]
+                )
+                index
+                (choiceMassSampleIndex indexedSamplers)
+                weighted
+                Nothing
             )
-            (choiceIndex $ map recursiveIndex alternatives)
-            Nothing
+            masses
+            massWeighted
+  where
+    index = choiceIndex $ map (recursiveIndex . keyedRecursiveLanguage) alternatives
+    masses = sumMassIndexes $ map keyedRecursiveMasses alternatives
+    massWeighted = any keyedRecursiveMassWeighted alternatives
+    weighted =
+        massWeighted
+            || any (recursiveWeighted . keyedRecursiveLanguage) alternatives
+    indexedSamplers =
+        [ ( recursiveIndex $ keyedRecursiveLanguage alternative
+          , keyedRecursiveMassAtSize alternative
+          , recursiveSampling $ keyedRecursiveLanguage alternative
+          )
+        | alternative <- alternatives
+        ]
 
 -- | Number of arguments in the chain.
 chainLength :: ArgStatics operation result -> Int
@@ -1227,26 +1448,28 @@ compiledDecoder :: OutcomeIndex a -> RankDecoder a
 compiledDecoder outcomes =
     compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
 
--- | Sample uniformly with one integer selection.
-uniformSampler :: Integer -> (Integer -> a) -> Sampler a
-uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
-uniformSampler totalOutcomes valueAt =
-    Sampler
-        (valueAt <$> selectInteger totalOutcomes)
-        ((\index -> (index, valueAt index)) <$> selectInteger totalOutcomes)
+-- | Largest non-uniform language compiled to one exact ticket selection.
+weightedCompilationBound :: Integer
+weightedCompilationBound = 32768
 
--- | Sample a product, composing ranks in mixed radix.
-productSampler :: Integer -> Sampler (a -> b) -> Sampler a -> Sampler b
-productSampler rightCardinality leftSampler rightSampler =
-    Sampler
-        (runValueSampler leftSampler <*> runValueSampler rightSampler)
-        ( liftA2
-            ( \(leftIndex, partial) (rightIndex, value) ->
-                (leftIndex * rightCardinality + rightIndex, partial value)
-            )
-            (runRankSampler leftSampler)
-            (runRankSampler rightSampler)
-        )
+-- | Compile a small non-uniform language without aggregating equal values.
+compiledWeightedSampler :: OutcomeIndex a -> Maybe (Sampler a)
+compiledWeightedSampler outcomes
+    | Just _ <- outcomeUniformMass outcomes = Nothing
+    | outcomeCardinality outcomes > weightedCompilationBound = Nothing
+    | otherwise = do
+        enumerated <- either (const Nothing) Just $ enumerateOutcomeIndex outcomes
+        weighted <-
+            either (const Nothing) Just $
+                integerOutcomes
+                    [ (outcomeMass outcome, (rank, outcomeValue outcome))
+                    | (rank, outcome) <- zip [0 ..] enumerated
+                    ]
+        (bound, decode) <- compileWeighted weighted
+        pure $
+            Sampler
+                (snd . decode <$> selectInt bound)
+                (decode <$> selectInt bound)
 
 -- | Sample weighted alternatives with rank offsets.
 frequencySampler :: [(Integer, Static a)] -> Sampler a
@@ -1285,12 +1508,7 @@ mapOutcomeIndex transform outcomes =
         (outcomeUniformMass outcomes)
         (\index -> mapOutcome transform <$> outcomeSelect outcomes index)
         (transform . outcomeValueAt outcomes)
-        ( Sampler
-            (transform <$> runValueSampler (outcomeSampler outcomes))
-            ( (\(rank, value) -> (rank, transform value))
-                <$> runRankSampler (outcomeSampler outcomes)
-            )
-        )
+        (mapSampler transform $ outcomeSampler outcomes)
         (PlanMap transform $ outcomePlan outcomes)
 
 -- | Map the value of one outcome.
@@ -1351,20 +1569,6 @@ integerOutcomes outcomes =
                     zip
                         (map (`div` commonFactor) unscaled)
                         (map snd outcomes)
-
--- | Index into a list, failing loudly outside it.
-atIndex :: String -> Integer -> [a] -> a
-atIndex label index values
-    | index < 0 =
-        error $
-            "microecta-generator bug in Data.ECTA.Gen.Internal.atIndex: negative index in "
-                <> label
-    | otherwise = case drop (fromInteger index) values of
-        value : _ -> value
-        [] ->
-            error $
-                "microecta-generator bug in Data.ECTA.Gen.Internal.atIndex: index out of range in "
-                    <> label
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.

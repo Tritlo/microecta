@@ -133,11 +133,40 @@ argument, or a fallible pattern.
 
 Every transparent generator samples compositionally by rank, including exact
 non-uniform `frequency` and conditioned joins; sampling never materializes the
-final Cartesian product. `cardinality` and `unrank` expose deterministic replay,
-while `countBy` reports exact coverage of ranked outcomes. Both `countBy` and
-`pmf` enumerate every rank because their projections or complete result values
-are not retained groups. The `Grouped` path avoids that work when a caller
-supplies the reusable classification structure up front.
+final Cartesian product. `cardinality` and `unrank` expose deterministic
+replay, while `countBy` reports exact coverage of ranked outcomes. A retained
+`Grouped` key is also a symbolic observation. `countsAtSize` reports how many
+members reach each key. `massesAtSize` reports the exact key distribution used
+by sampling that size. Declared atomic weights can therefore produce equal
+counts and unequal masses. Recursive groups memoize both size series, so these
+queries do not enumerate traces. ECTA support is demand-driven: counts, masses,
+replay, and sampling do not build it unless `support` or a constrained join
+needs it.
+
+`smallest (atKey key family)` returns a globally smallest witness for one
+observation. An unreachable key returns `Right Nothing`. A temporal observation
+such as "failure state reached" belongs in the recursive key as a sticky state
+bit; it is not recovered later by filtering complete traces.
+
+`pmfAtSize` asks the more general value-level distribution question. It
+interprets the same size-indexed sampler used by lowering, including weighted
+atomic choices, but may enumerate products before equal results are aggregated.
+The generic `countBy`, `pmf`, and `pmfAtSize` observers are therefore best for
+finite or small result languages. Retain a reusable classification with
+`Grouped` when the observation is part of a recursive language.
+
+```haskell
+failure = ECTAGen.atKey FailureReached tracesByOutcome
+
+shortestFailure = ECTAGen.smallest failure
+outcomeCounts = ECTAGen.countsAtSize tracesByOutcome 41
+outcomeProbabilities = ECTAGen.massesAtSize tracesByOutcome 41
+samples = ECTAGen.toGen (ECTAGen.ungroup tracesByOutcome)
+```
+
+`AtSize` means structural source choices, not list length. In this example the
+empty trace contributes one choice, so size 41 represents forty commands.
+
 `Data.ECTA.Gen.QuickCheck` exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
 property and shrinks to the smallest failing member: candidates first search
@@ -203,8 +232,9 @@ finite automaton for infinitely many terms.
 
 `upToSize n` bounds the language back to an ordinary finite generator over
 the members of size at most `n`, and `toGen` and `forAll` apply it from
-QuickCheck's size parameter, so a recursive generator samples uniformly from
-the members of at most the current size. Bounding preserves ranks — the
+QuickCheck's size parameter. Size classes and structural alternatives are
+selected from their member counts; weighted finite choices closed with
+`atomic` retain their declared PMF inside the selected size. Bounding preserves ranks — the
 members of size at most `n` hold the same ranks under every bound — so a
 counterexample found at one size replays at any other, and `forAll` shrinks
 by walking whole size classes below the failing member.
@@ -244,14 +274,15 @@ body stays a finite generator, cardinality and inspection included.
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
-`UnguardedRecursion` rather than left to hang. And a recursive language is
-uniform over each size class, so alternatives around a recursive occurrence
-must carry equal weights; `oneof` is the combinator that already reads that
-way, and the size bound, not the weights, is what controls how large
-members get. `frequency` with unequal weights is rejected rather than
-ignored. Inspection that needs one ECTA term per member (`groupBy`, `match`,
-`relate`, `pmf`, `countBy`) is not available on a recursive language. Bound it
-first, or keep that layer finite.
+`UnguardedRecursion` rather than left to hang. Structural alternatives around a
+recursive occurrence must carry equal weights; `oneof` is the combinator that
+already reads that way, and the size bound controls how large members get.
+`frequency` with unequal recursive-branch weights is rejected rather than
+ignored. A weighted finite choice may still enter through `atomic`, retaining
+its own distribution inside every recursive size. Inspection that needs one
+ECTA term per member (`groupBy`, `match`, `relate`, `pmf`, `countBy`) is not
+available on an unbounded language; use the exact-size observers, bound it, or
+keep that layer finite.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:

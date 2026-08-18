@@ -4,6 +4,8 @@
 module Data.ECTA.RecursiveGenSpec (spec) where
 
 import Data.List (nub, sort)
+import qualified Data.Map.Strict as Map
+import Data.Ratio ((%))
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
@@ -24,6 +26,9 @@ import Data.ECTA.Term (Term)
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
+    deriving (Eq, Ord, Show)
+
+data Coin = Heads | Tails
     deriving (Eq, Ord, Show)
 
 trees :: ECTAGen Tree
@@ -96,6 +101,50 @@ spec = do
             fmap numNestedMu (ECTAGen.support selected) `shouldBe` Right 1
             ECTAGen.countAtSize (ECTAGen.atKey False family) 1
                 `shouldBe` Left EmptyGenerator
+            ECTAGen.smallest selected `shouldBe` Right (Just $ Leaf 0)
+            ECTAGen.smallest (ECTAGen.atKey False family) `shouldBe` Right Nothing
+
+        it "reports exact retained-key masses at one recursive size" $ do
+            let oneLeafTree = ECTAGen.recur $ \self ->
+                    ECTAGen.oneof
+                        [ Leaf <$> ECTAGen.elements [0]
+                        , Branch <$> self <*> self
+                        ]
+                family :: ECTAGen.Grouped String Tree
+                family =
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed "three leaves" trees
+                        , ECTAGen.keyed "one leaf" oneLeafTree
+                        ]
+            ECTAGen.massesAtSize family 0 `shouldBe` Right mempty
+            ECTAGen.countsAtSize family 1
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ ("one leaf", 1)
+                        , ("three leaves", 3)
+                        ]
+                    )
+            ECTAGen.massesAtSize family 1
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ ("one leaf", 1 % 4)
+                        , ("three leaves", 3 % 4)
+                        ]
+                    )
+            ECTAGen.massesAtSize family 2
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ ("one leaf", 1 % 10)
+                        , ("three leaves", 9 % 10)
+                        ]
+                    )
+            ECTAGen.countsAtSize family 2
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ ("one leaf", 1)
+                        , ("three leaves", 9)
+                        ]
+                    )
 
         it "bounds the language to its members of at most one size" $ do
             ECTAGen.cardinality boundedTrees `shouldBe` Right boundedTreeCount
@@ -131,6 +180,24 @@ spec = do
             QC.withNumTests 200 $
                 QC.forAll (QC.resize 4 $ ECTAGen.toGen trees) $ \member ->
                     QC.counterexample (show member) $ QC.property $ leaves member <= 4
+
+        it "reports the exact atomic distribution inside one recursive size" $ do
+            let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
+                words_ = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ (: []) <$> coin
+                        , (:) <$> coin <*> rest
+                        ]
+            ECTAGen.pmfAtSize words_ 0 `shouldBe` Right []
+            ECTAGen.pmfAtSize words_ 2
+                `shouldBe` Right
+                    [ ([Heads, Heads], 81 % 100)
+                    , ([Heads, Tails], 9 % 100)
+                    , ([Tails, Heads], 9 % 100)
+                    , ([Tails, Tails], 1 % 100)
+                    ]
+            ECTAGen.pmfAtSize (length <$> words_) 2
+                `shouldBe` Right [(2, 1)]
 
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =

@@ -54,9 +54,13 @@ module Data.ECTA.Gen (
     support,
     cardinality,
     sizes,
+    countsAtSize,
+    massesAtSize,
     countAtSize,
     countBy,
     pmf,
+    pmfAtSize,
+    smallest,
     unrank,
     sizeOfRank,
     smallerMembers,
@@ -69,6 +73,7 @@ module Data.ECTA.Gen (
     lowerUniformWithRank,
 ) where
 
+import qualified Data.Array as Array
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
@@ -76,10 +81,12 @@ import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Automaton (automatonIndex)
 import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
+import Data.ECTA.Gen.Internal.Sampler
 import Data.ECTA.Gen.Internal.Shrink (
     planMemberSize,
     shrinkPlanRank,
     smallerPlanMembers,
+    smallestPlanRank,
  )
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect),
@@ -90,7 +97,6 @@ import Data.ECTA.Gen.Internal.Size (
     probeIndex,
     productIndex,
     sizeClassOf,
-    sizeIndex,
     usesOccurrence,
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
@@ -107,7 +113,7 @@ and indexed selection without storing all outcomes.
 data Grouped (gen :: Type -> Type) key a
     = Grouped !(Either ECTAGenError (Map.Map key (KeyedBucket a)))
     | -- | A recursive family: one language per key, all sharing one @Mu@.
-      CyclicGrouped !(Either ECTAGenError (Map.Map key (Recursive a)))
+      CyclicGrouped !(Either ECTAGenError (Map.Map key (KeyedRecursive a)))
 
 {- | View a grouped generator as a recursive family, one language per key.
 
@@ -116,15 +122,9 @@ recursive builders accept either.
 -}
 recursiveGroups ::
     Grouped gen key a ->
-    Either ECTAGenError (Map.Map key (Recursive a))
+    Either ECTAGenError (Map.Map key (KeyedRecursive a))
 recursiveGroups (CyclicGrouped result) = result
-recursiveGroups (Grouped result) = fmap (fmap ofBucket) result
-  where
-    ofBucket bucket =
-        Recursive
-            (staticSupport $ keyedBucketStatic bucket)
-            (sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
-            Nothing
+recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
 
 -- | Whether a grouped generator stands for a recursive family.
 isRecursiveGrouped :: Grouped gen key a -> Bool
@@ -173,13 +173,7 @@ A finite generator is a recursive language that happens to stop: its plan
 already counts by size, and its support is already its automaton.
 -}
 recursiveView :: ECTAGen gen a -> Either ECTAGenError (Recursive a)
-recursiveView (Transparent result) = do
-    static <- result
-    pure $
-        Recursive
-            (staticSupport static)
-            (sizeIndex $ outcomePlan $ staticOutcomes static)
-            Nothing
+recursiveView (Transparent result) = recursiveFromStatic <$> result
 recursiveView (Cyclic result) = result
 recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -200,10 +194,18 @@ instance Functor (Grouped gen key) where
         CyclicGrouped $ fmap (fmap mapGroup) result
       where
         mapGroup group =
-            Recursive
-                (recursiveSupport group)
-                (mapIndex transform $ recursiveIndex group)
-                Nothing
+            KeyedRecursive
+                ( Recursive
+                    (recursiveSupport recursive)
+                    (mapIndex transform $ recursiveIndex recursive)
+                    (mapSampleIndex transform $ recursiveSampling recursive)
+                    (recursiveWeighted recursive)
+                    Nothing
+                )
+                (keyedRecursiveMasses group)
+                (keyedRecursiveMassWeighted group)
+          where
+            recursive = keyedRecursiveLanguage group
 
 instance (Functor gen) => Functor (ECTAGen gen) where
     fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
@@ -213,6 +215,8 @@ instance (Functor gen) => Functor (ECTAGen gen) where
             Recursive
                 (recursiveSupport recursive)
                 (mapIndex transform $ recursiveIndex recursive)
+                (mapSampleIndex transform $ recursiveSampling recursive)
+                (recursiveWeighted recursive)
                 Nothing
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
@@ -237,6 +241,13 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
                             ]
                         )
                         (productIndex (recursiveIndex left) (recursiveIndex right))
+                        ( productSampleIndex
+                            (recursiveIndex left)
+                            (recursiveSampling left)
+                            (recursiveIndex right)
+                            (recursiveSampling right)
+                        )
+                        (recursiveWeighted left || recursiveWeighted right)
                         Nothing
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
@@ -255,7 +266,10 @@ fromBackend generated = Opaque $ Right <$> generated
 
 An already finite generator keeps its support, cardinality, ranks, values,
 and distribution. Only size changes: every complete member has size one when
-it is used inside 'recur'. An acyclic automaton read with 'fromECTA' closes
+it is used inside 'recur'. Its finite distribution is also used when sampling
+that recursive language. Put 'atomic' around the complete finite choice that
+enters recursion; a finite composition outside the boundary is a new choice
+and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating its terms, rather than taking
 an inner prefix from the QuickCheck size. Bound a recursive language with
 'upToSize' before making it atomic. Opaque generators have no size structure
@@ -301,13 +315,14 @@ is returned as it is: a finite body stays a finite generator, with the
 cardinality and the inspection that come with it.
 
 Two rules apply inside the knot. The recursion must be guarded — every
-occurrence of the argument under at least one '<*>' — or the language has
-no smallest member; an unguarded definition is rejected with
-'UnguardedRecursion' rather than left to diverge. And a recursive language
-is uniform over each size class, so 'frequency' alternatives around a
-recursive occurrence must carry equal weights; 'oneof' is the combinator
-that already reads that way, and the size bound, not the weights, is what
-controls how large members get.
+occurrence of the argument under at least one '<*>' — or the language has no
+smallest member; an unguarded definition is rejected with
+'UnguardedRecursion' rather than left to diverge. Recursive structure is
+chosen from its counted size classes, so 'frequency' alternatives around a
+recursive occurrence must carry equal weights; 'oneof' is the combinator that
+already reads that way, and the size bound controls how large members get. A
+weighted finite choice closed with 'atomic' keeps its distribution inside
+each recursive size class without changing counts, sizes, or ranks.
 -}
 recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
 recur build
@@ -318,34 +333,50 @@ recur build
         probeBody
     | otherwise = Cyclic result
   where
-    -- The body is built three times against three placeholders: once to tie
-    -- the counts, once to learn whether it is well formed, and once inside
-    -- 'createMu' where the recursive node is in scope. Each is one pass over
-    -- the generator definition, not over its language.
-    bodyOf placeholder = recursiveView $ build placeholder
+    -- The body is built against placeholders to tie counts and sampling, to
+    -- check its shape, and to create the recursive support. Each build is one
+    -- pass over the definition, not over its language.
+    bodyOf recursiveArgument = recursiveView $ build recursiveArgument
+
+    placeholder node index sampling =
+        Recursive node index sampling False Nothing
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
-            bodyOf (Cyclic $ Right $ Recursive EmptyNode self Nothing)
+            bodyOf (Cyclic $ Right $ placeholder EmptyNode self emptySampleIndex)
     emptyIndex = choiceIndex []
+
+    tiedSampling = fixSampleIndex $ \self ->
+        either (const emptySampleIndex) recursiveSampling $
+            bodyOf (Cyclic $ Right $ placeholder EmptyNode tied self)
 
     automaton = createMu $ \self ->
         either (const EmptyNode) recursiveSupport $
-            bodyOf (Cyclic $ Right $ Recursive self tied Nothing)
+            bodyOf (Cyclic $ Right $ placeholder self tied tiedSampling)
 
     -- Built against a probe rather than the knot: reading whether the
     -- occurrence is used, and whether it is guarded, must not count
     -- anything, or an unguarded definition would hang here instead of being
     -- reported.
-    probeBody = build $ Cyclic $ Right $ Recursive EmptyNode probeIndex Nothing
+    probeBody =
+        build $
+            Cyclic $
+                Right $
+                    placeholder EmptyNode probeIndex emptySampleIndex
     probed = recursiveView probeBody
 
     result = do
-        _ <- bodyOf (Cyclic $ Right $ Recursive EmptyNode tied Nothing)
         body <- probed
         if isUnguarded (recursiveIndex body)
             then Left UnguardedRecursion
-            else pure $ Recursive automaton tied Nothing
+            else
+                pure $
+                    Recursive
+                        automaton
+                        tied
+                        tiedSampling
+                        (recursiveWeighted body)
+                        Nothing
 
 {- | Read an ECTA as a generator of the terms it accepts.
 
@@ -364,7 +395,7 @@ fromECTA :: Node -> ECTAGen gen Term
 fromECTA node =
     Cyclic $ do
         index <- automatonIndex node
-        pure $ Recursive node index $ Just id
+        pure $ Recursive node index (uniformSampleIndex index) False $ Just id
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -405,7 +436,7 @@ recurGrouped ::
     Grouped gen key a
 recurGrouped build
     | Right groups <- recursiveGroups probeBody
-    , not $ any (usesOccurrence . recursiveIndex) groups =
+    , not $ any (usesOccurrence . recursiveIndex . keyedRecursiveLanguage) groups =
         probeBody
     | otherwise = CyclicGrouped result
   where
@@ -424,42 +455,115 @@ recurGrouped build
     keys = Map.keys keySet
     positions = Map.fromList $ zip keys [0 ..]
     positionOf key = Map.findWithDefault 0 key positions
-    emptyGroup = Recursive EmptyNode (choiceIndex []) Nothing
+    placeholder node index sampling masses =
+        KeyedRecursive
+            (Recursive node index sampling False Nothing)
+            masses
+            False
+    noMass = emptyMassIndex
+    emptyGroup = placeholder EmptyNode (choiceIndex []) emptySampleIndex noMass
 
     -- The languages, tied over the settled key set. Supports are irrelevant
     -- here and are filled in against the family node below.
     indexPlaceholders =
-        Map.fromList [(key, Recursive EmptyNode (indexAt key) Nothing) | key <- keys]
+        Map.fromList
+            [ (key, placeholder EmptyNode (indexAt key) emptySampleIndex noMass)
+            | key <- keys
+            ]
     tiedIndexes =
-        either (const Map.empty) (fmap recursiveIndex) $ bodyGroups indexPlaceholders
+        either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
+            bodyGroups indexPlaceholders
     indexAt key = Map.findWithDefault (choiceIndex []) key tiedIndexes
+
+    -- Key masses form a guarded knot beside counts. Across all keys they sum
+    -- to the structural member count at each size.
+    massPlaceholders =
+        Map.fromList
+            [ (key, placeholder EmptyNode (indexAt key) emptySampleIndex $ massAt key)
+            | key <- keys
+            ]
+    tiedMasses =
+        either (const Map.empty) (fmap keyedRecursiveMasses) $
+            bodyGroups massPlaceholders
+    massAt key = Map.findWithDefault noMass key tiedMasses
+
+    -- Sampling follows counts and masses through the same mutually recursive
+    -- family. Products only ask occurrences for smaller sizes.
+    samplingPlaceholders =
+        Map.fromList
+            [ ( key
+              , placeholder
+                    EmptyNode
+                    (indexAt key)
+                    (samplingAt key)
+                    (massAt key)
+              )
+            | key <- keys
+            ]
+    tiedSamplings =
+        either (const Map.empty) (fmap $ recursiveSampling . keyedRecursiveLanguage) $
+            bodyGroups samplingPlaceholders
+    samplingAt key = Map.findWithDefault emptySampleIndex key tiedSamplings
 
     -- One node for the whole family: one key-labelled edge per key, and
     -- every occurrence inside restricted to its own key by a constraint.
     family = createMu $ \self ->
         let bodies = either (const Map.empty) id $ bodyGroups $ occurrences self
          in familyNode
-                [ (positionOf key, maybe EmptyNode recursiveSupport $ Map.lookup key bodies)
+                [ ( positionOf key
+                  , maybe
+                        EmptyNode
+                        (recursiveSupport . keyedRecursiveLanguage)
+                        (Map.lookup key bodies)
+                  )
                 | key <- keys
                 ]
     occurrences self =
         Map.fromList
-            [ (key, Recursive (restrictToKey (positionOf key) self) (indexAt key) Nothing)
+            [ ( key
+              , placeholder
+                    (restrictToKey (positionOf key) self)
+                    (indexAt key)
+                    (samplingAt key)
+                    (massAt key)
+              )
             | key <- keys
             ]
 
-    probeBody = build $ CyclicGrouped $ Right $ Map.fromList [(key, Recursive EmptyNode probeIndex Nothing) | key <- keys]
+    probeBody =
+        build $
+            CyclicGrouped $
+                Right $
+                    Map.fromList
+                        [ (key, placeholder EmptyNode probeIndex emptySampleIndex noMass)
+                        | key <- keys
+                        ]
     probed = recursiveGroups probeBody
 
     result = do
-        bodies <- bodyGroups indexPlaceholders
+        bodies <- bodyGroups samplingPlaceholders
         probedBodies <- probed
-        if any (isUnguarded . recursiveIndex) probedBodies
+        if any (isUnguarded . recursiveIndex . keyedRecursiveLanguage) probedBodies
             then Left UnguardedRecursion
             else Right ()
+        let familyMassWeighted = any keyedRecursiveMassWeighted bodies
+            familyWeighted =
+                familyMassWeighted
+                    || any (recursiveWeighted . keyedRecursiveLanguage) bodies
         pure $
             Map.fromList
-                [ (key, Recursive (restrictToKey (positionOf key) family) (indexAt key) Nothing)
+                [ ( key
+                  , KeyedRecursive
+                        ( Recursive
+                            (restrictToKey (positionOf key) family)
+                            (indexAt key)
+                            (samplingAt key)
+                            familyWeighted
+                            Nothing
+                        )
+                        (massAt key)
+                        familyMassWeighted
+                  )
                 | key <- keys
                 , Map.member key bodies
                 ]
@@ -467,9 +571,11 @@ recurGrouped build
 {- | Bound a generator to the members of size at most the given bound.
 
 Size is the number of source choices in a member. A recursive generator
-becomes an ordinary finite one, uniform over exactly those members and
-keeping the ranks it already had, so a rank found under one bound replays
-under any larger bound and through the unbounded generator itself.
+becomes an ordinary finite one and keeps the ranks it already had, so a rank
+found under one bound replays under any larger bound and through the unbounded
+generator itself. Size classes keep their count-based probability. Weighted
+finite choices closed with 'atomic' keep their own distribution inside those
+classes.
 
 This bounds recursion; it does not filter a finite language. A generator
 that is not recursive is returned unchanged, members larger than the bound
@@ -484,8 +590,11 @@ elements :: [a] -> ECTAGen gen a
 elements values =
     fromIndexed $
         Indexed
-            (toInteger $ length values)
-            (\index -> atIndex "elements" index values)
+            (toInteger total)
+            ((indexed Array.!) . fromInteger)
+  where
+    total = length values
+    indexed = Array.listArray (0, total - 1) values
 
 {- | Declare that every member of an inspectable generator has one key.
 
@@ -498,7 +607,7 @@ keyed :: key -> ECTAGen gen a -> Grouped gen key a
 keyed key (Transparent result) =
     Grouped $ fmap (Map.singleton key . KeyedBucket 1) result
 keyed key (Cyclic result) =
-    CyclicGrouped $ fmap (Map.singleton key) result
+    CyclicGrouped $ fmap (Map.singleton key . keyedRecursive) result
 keyed _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
 {- | Classify a transparent generator's outcomes by a projected key.
@@ -514,7 +623,7 @@ groupBy _ (Transparent (Left err)) = Grouped $ Left err
 groupBy key (Transparent (Right static)) =
     Grouped $ do
         outcomes <- enumerateOutcomeIndex $ staticOutcomes static
-        traverse bucketFromOutcomes $
+        traverse (bucketFromOutcomes $ staticAtomic static) $
             foldl'
                 ( \buckets outcome ->
                     Map.insertWith
@@ -567,10 +676,18 @@ mapWithKey transform (CyclicGrouped result) =
     CyclicGrouped $ fmap (Map.mapWithKey mapGroup) result
   where
     mapGroup key group =
-        Recursive
-            (recursiveSupport group)
-            (mapIndex (transform key) $ recursiveIndex group)
-            Nothing
+        KeyedRecursive
+            ( Recursive
+                (recursiveSupport recursive)
+                (mapIndex (transform key) $ recursiveIndex recursive)
+                (mapSampleIndex (transform key) $ recursiveSampling recursive)
+                (recursiveWeighted recursive)
+                Nothing
+            )
+            (keyedRecursiveMasses group)
+            (keyedRecursiveMassWeighted group)
+      where
+        recursive = keyedRecursiveLanguage group
 mapWithKey transform (Grouped result) =
     Grouped $ fmap (Map.mapWithKey mapBucket) result
   where
@@ -585,6 +702,90 @@ sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
 
+{- | Return the exact number of retained members in every live key at one
+structural size.
+
+Counts describe the language, not the sampler. A declared atomic distribution
+can therefore give two keys equal counts and unequal probability masses.
+-}
+countsAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Integer)
+countsAtSize (CyclicGrouped result) size = do
+    groups <- result
+    if size < 1
+        then pure Map.empty
+        else
+            pure $
+                Map.filter (> 0) $
+                    fmap
+                        ( \group ->
+                            Size.countAtSize
+                                (recursiveIndex $ keyedRecursiveLanguage group)
+                                size
+                        )
+                        groups
+countsAtSize (Grouped result) size = do
+    buckets <- result
+    if size < 1
+        then pure Map.empty
+        else
+            pure $
+                Map.filter (> 0) $
+                    fmap
+                        ( \bucket ->
+                            Size.countAtSize
+                                (Size.sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
+                                size
+                        )
+                        buckets
+
+{- | Return the exact distribution of retained keys conditional on one
+structural size.
+
+This is the distribution used by sampling that exact size. Weighted atomic
+choices retain both their between-key and within-key distributions. Recursive
+families memoize each key's mass series. A query extends that recurrence to the
+requested size without enumerating members, then normalizes one mass per key.
+A finite family may enumerate group outcomes to condition their stored masses
+on size. A size with no members returns an empty map.
+-}
+massesAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Rational)
+massesAtSize (CyclicGrouped result) size = do
+    groups <- result
+    if size < 1
+        then pure Map.empty
+        else do
+            let positive = Map.filter (> 0) $ fmap (\group -> keyedRecursiveMassAtSize group size) groups
+                total = sum positive
+            pure $
+                if total <= 0
+                    then Map.empty
+                    else fmap (/ total) positive
+massesAtSize (Grouped result) size = do
+    buckets <- result
+    if size < 1
+        then pure Map.empty
+        else do
+            masses <- traverse bucketMassAtSize buckets
+            let positive = Map.filter (> 0) masses
+                total = sum positive
+            pure $
+                if total <= 0
+                    then Map.empty
+                    else fmap (/ total) positive
+  where
+    bucketMassAtSize bucket = do
+        let static = keyedBucketStatic bucket
+            outcomes = staticOutcomes static
+            plan = outcomePlan outcomes
+        enumerated <- enumerateOutcomeIndex outcomes
+        pure $
+            keyedBucketMass bucket
+                * sum
+                    [ outcomeMass outcome
+                    | (rank, outcome) <- zip [0 ..] enumerated
+                    , planMemberSize plan rank == size
+                    ]
+
 {- | Select one retained group as an ordinary conditional generator.
 
 A missing key produces 'EmptyGenerator'.
@@ -593,7 +794,10 @@ atKey :: (Ord key) => key -> Grouped gen key a -> ECTAGen gen a
 atKey key (CyclicGrouped result) =
     Cyclic $ do
         groups <- result
-        maybe (Left EmptyGenerator) Right $ Map.lookup key groups
+        maybe
+            (Left EmptyGenerator)
+            (Right . keyedRecursiveLanguage)
+            (Map.lookup key groups)
 atKey _ (Grouped (Left err)) = Transparent $ Left err
 atKey key (Grouped (Right buckets)) =
     Transparent $
@@ -670,11 +874,11 @@ applyRecursive (CyclicGrouped _) _ = CyclicGrouped $ Left RecursiveOperationFami
 applyRecursive (Grouped (Right operations)) arguments =
     CyclicGrouped $ do
         argumentMaps <- argsRecursiveMaps arguments
+        let operationGroups = keyedRecursiveFromBuckets operations
         let components =
-                [ (sigResult signature, recursiveJoin componentIndex operationStatic argumentGroups)
-                | (componentIndex, (signature, operationBucket)) <-
-                    zip [0 ..] $ Map.toAscList operations
-                , let operationStatic = keyedBucketStatic operationBucket
+                [ (sigResult signature, recursiveJoin componentIndex operationGroup argumentGroups)
+                | (componentIndex, (signature, operationGroup)) <-
+                    zip [0 ..] $ Map.toAscList operationGroups
                 , Just argumentGroups <- [lookupArgs signature argumentMaps]
                 ]
         -- No matching component is an empty family, not an error: while the
@@ -685,7 +889,7 @@ applyRecursive (Grouped (Right operations)) arguments =
 -- | The recursive view of every argument family, in signature order.
 argsRecursiveMaps ::
     Args gen argKeys operation result ->
-    Either ECTAGenError (ArgMaps Recursive argKeys operation result)
+    Either ECTAGenError (ArgMaps KeyedRecursive argKeys operation result)
 argsRecursiveMaps ANil = Right MapsNil
 argsRecursiveMaps (family :& rest) =
     MapsCons <$> recursiveGroups family <*> argsRecursiveMaps rest
@@ -697,7 +901,7 @@ anyRecursiveArgument (family :& rest) =
     isRecursiveGrouped family || anyRecursiveArgument rest
 
 -- | Collect keyed recursive languages into one alternative per key, in order.
-mergeByKey :: (Ord key) => [(key, Recursive a)] -> Map.Map key (Recursive a)
+mergeByKey :: (Ord key) => [(key, KeyedRecursive a)] -> Map.Map key (KeyedRecursive a)
 mergeByKey entries =
     Map.mapMaybe mergeRecursiveGroups $
         foldl'
@@ -719,12 +923,12 @@ frequencies ::
     Grouped gen key a
 frequencies [] = Grouped $ Left EmptyGenerator
 frequencies alternatives
-    | Just badWeight <- firstNonPositive alternatives =
+    | Just badWeight <- firstNonPositiveWeight alternatives =
         Grouped $ Left $ NonPositiveWeight badWeight
     | Just err <- firstError alternatives = Grouped $ Left err
     | any (isRecursiveGrouped . snd) alternatives =
         CyclicGrouped $
-            if sameWeights
+            if allWeightsEqual alternatives
                 then
                     mergeByKey
                         . concatMap Map.toAscList
@@ -734,23 +938,12 @@ frequencies alternatives
   where
     totalWeight = sum $ map fst alternatives
 
-    firstNonPositive = go
-      where
-        go [] = Nothing
-        go ((weight, _) : rest)
-            | weight <= 0 = Just weight
-            | otherwise = go rest
-
     firstError = go
       where
         go [] = Nothing
         go ((_, Grouped (Left err)) : _) = Just err
         go ((_, CyclicGrouped (Left err)) : _) = Just err
         go (_ : rest) = go rest
-
-    sameWeights = case map fst alternatives of
-        [] -> True
-        firstWeight : rest -> all (== firstWeight) rest
 
     grouped =
         foldl'
@@ -785,13 +978,22 @@ oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alter
 
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
-ungroup (CyclicGrouped result) =
-    Cyclic $ do
-        groups <- result
-        maybe (Left EmptyGenerator) Right $ mergeRecursiveGroups $ Map.elems groups
-ungroup (Grouped (Left err)) = Transparent $ Left err
-ungroup (Grouped (Right buckets)) =
-    Transparent $ mergeKeyedBuckets buckets
+ungroup = atKey () . regroupBy (const ())
+
+-- | Find the first invalid alternative weight.
+firstNonPositiveWeight :: [(Integer, a)] -> Maybe Integer
+firstNonPositiveWeight = go
+  where
+    go [] = Nothing
+    go ((weight, _) : rest)
+        | weight <= 0 = Just weight
+        | otherwise = go rest
+
+-- | Whether every alternative carries the same weight.
+allWeightsEqual :: [(Integer, a)] -> Bool
+allWeightsEqual [] = True
+allWeightsEqual ((firstWeight, _) : rest) =
+    all ((== firstWeight) . fst) rest
 
 -- | Choose one generator with the supplied positive relative weight.
 frequency ::
@@ -800,7 +1002,7 @@ frequency ::
     ECTAGen gen a
 frequency [] = Transparent $ Left EmptyGenerator
 frequency alternatives
-    | Just badWeight <- firstNonPositive alternatives =
+    | Just badWeight <- firstNonPositiveWeight alternatives =
         Transparent $ Left $ NonPositiveWeight badWeight
     | Just err <- firstError alternatives = Transparent $ Left err
     | Just staticAlternatives <- traverse getStatic alternatives =
@@ -808,7 +1010,7 @@ frequency alternatives
     | any (isRecursive . snd) alternatives =
         Cyclic $ do
             views <- traverse (recursiveView . snd) alternatives
-            if sameWeights
+            if allWeightsEqual alternatives
                 then
                     pure $
                         Recursive
@@ -818,6 +1020,12 @@ frequency alternatives
                                 ]
                             )
                             (choiceIndex $ map recursiveIndex views)
+                            ( choiceSampleIndex
+                                [ (recursiveIndex view, recursiveSampling view)
+                                | view <- views
+                                ]
+                            )
+                            (any recursiveWeighted views)
                             Nothing
                 else Left WeightedRecursiveAlternatives
     | otherwise =
@@ -825,13 +1033,6 @@ frequency alternatives
             frequencyGen
                 [(weight, lower generator) | (weight, generator) <- alternatives]
   where
-    firstNonPositive = go
-      where
-        go [] = Nothing
-        go ((weight, _) : rest)
-            | weight <= 0 = Just weight
-            | otherwise = go rest
-
     firstError = go
       where
         go [] = Nothing
@@ -841,16 +1042,14 @@ frequency alternatives
     getStatic (weight, Transparent (Right static)) = Just (weight, static)
     getStatic _ = Nothing
 
-    sameWeights = case map fst alternatives of
-        [] -> True
-        firstWeight : rest -> all (== firstWeight) rest
-
 {- | Choose uniformly among generators.
 
 Every alternative is equally likely, whatever the size of its language, as
 in QuickCheck's own @oneof@. In a recursive definition this is the shape to
 reach for: weights around a recursive occurrence are rejected, because such
-a language is uniform over each size class instead.
+a language uses structural counts for global size selection and rank offsets.
+A finite choice closed with 'atomic' can still retain its own sampler mass
+within the selected size.
 -}
 oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
@@ -961,6 +1160,28 @@ unrank (Cyclic result) index = do
                         sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
+{- | Return the first member in structural size and rank order.
+
+For recursive generators this is a globally smallest member. 'Nothing' means
+the language is empty; other construction or inspection failures stay explicit.
+-}
+smallest :: ECTAGen gen a -> Either ECTAGenError (Maybe a)
+smallest (Transparent result) =
+    case result of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right static ->
+            case smallestPlanRank $ outcomePlan $ staticOutcomes static of
+                Nothing -> Right Nothing
+                Just rank -> Right $ Just $ outcomeValueAt (staticOutcomes static) rank
+smallest generator@(Cyclic _) =
+    case unrank generator 0 of
+        Left EmptyGenerator -> Right Nothing
+        Left (SelectionOutOfRange 0 0) -> Right Nothing
+        Left err -> Left err
+        Right value -> Right $ Just value
+smallest (Opaque _) = Left CannotInspectOpaqueGenerator
+
 {- | Structural shrink candidates for one rank of a transparent generator.
 
 Candidates decode to values from the same language: earlier alternatives at
@@ -1041,6 +1262,46 @@ pmf (Transparent result) = do
             Map.fromListWith (+) [(value, mass) | (mass, value) <- outcomes]
 pmf (Cyclic _) = Left UnboundedGenerator
 pmf (Opaque _) = Left CannotInspectOpaqueGenerator
+
+{- | Aggregate the exact result distribution conditional on one structural
+size.
+
+For a recursive generator this interprets its size-indexed sampler, so a
+weighted finite choice closed with 'atomic' retains its declared probability.
+For a finite generator it conditions the retained outcome masses on the
+requested size. A size with no members returns an empty distribution.
+
+This enumerates every result in the selected size class before equal results
+are aggregated. A language can therefore be cheap to count and too large for
+this observer. Use 'countAtSize' for cardinality, or 'massesAtSize' when a
+retained-key distribution answers the question.
+-}
+pmfAtSize :: (Ord a) => ECTAGen gen a -> Int -> Either ECTAGenError [(a, Rational)]
+pmfAtSize (Transparent result) size = do
+    static <- result
+    if size < 1
+        then Right []
+        else do
+            outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+            let plan = outcomePlan $ staticOutcomes static
+                selected =
+                    [ (outcomeMass outcome, outcomeValue outcome)
+                    | (rank, outcome) <- zip [0 ..] outcomes
+                    , planMemberSize plan rank == size
+                    ]
+            if null selected
+                then Right []
+                else do
+                    normalized <- normalize selected
+                    pure $
+                        Map.toAscList $
+                            Map.fromListWith (+) [(value, mass) | (mass, value) <- normalized]
+pmfAtSize (Cyclic result) size = do
+    recursive <- result
+    if Size.countAtSize (recursiveIndex recursive) size <= 0
+        then Right []
+        else Right $ exactPmfAtSize (recursiveSampling recursive) size
+pmfAtSize (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 -- | Lower to the backend, preserving construction and decoding errors.
 lower :: (GenBackend gen) => ECTAGen gen a -> gen (Either ECTAGenError a)

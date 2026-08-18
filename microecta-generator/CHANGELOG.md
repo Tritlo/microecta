@@ -10,6 +10,17 @@
 * Expose deterministic rank replay and exact coverage counts, sample weighted
   transparent generators compositionally, and support direct three-way joins
   with two ECTA equality constraints.
+* Add a two-tier exact-size oracle. `countsAtSize` reports how a grouped
+  language's structural witnesses divide among retained keys; `massesAtSize`
+  reports the actual sampler distribution, which may differ under weighted
+  atomic choices. `pmfAtSize` aggregates arbitrary values by interpreting one
+  size-class sampler, and `smallest` returns the first structural witness.
+  Recursive grouped sampling now carries key masses through choices, products,
+  regrouping, and `apply` instead of silently reverting to count weights.
+* Build ECTA support only when `support` or a constrained join needs it.
+  Counting, masses, and sampling use their own retained indexes. Store
+  `elements` in a boxed array so `groupBy` can enumerate ranks without repeated
+  list walks.
 * Add partition-preserving grouped generators (`Grouped`, built with `groupBy`
   from any transparent generator) so repeated joins compose compact ECTA
   supports and exact rank indices without enumerating prior layers.
@@ -40,9 +51,17 @@
   arithmetic whenever the cardinality fits and `Integer` otherwise, with
   strict argument binding at every compiled application. Rank order, masses,
   supports, and inspection are unchanged; non-uniform and opaque generators
-  keep the previous sampling path. The typed-expression benchmark moves from
-  0.56x-1.39x of a handwritten QuickCheck generator to 1.31x-2.12x at depths
-  one through four.
+  keep the previous sampling path. The typed-expression benchmark reaches
+  3.79x--9.39x of its handwritten QuickCheck comparator at depths one through
+  four.
+* Compile non-uniform finite generators closed by `atomic` when they have at
+  most 32,768 ranks and their smallest equivalent integer ticket space fits an
+  `Int`. Ranks with the same ticket width share one payload array. Sampling
+  binary-searches the distinct widths, then indexes the selected payload to
+  recover the original structural rank and value. Other generators retain the
+  compositional exact sampler. Recursive value sampling also avoids calculating
+  replay ranks that `toGen` discards. Exact recursive tests preserve a declared
+  9:1 atomic distribution while leaving structural ranks unchanged.
 * Add `mapWithKey` for grouped generators, and `forAll` and `sized` to the
   QuickCheck adapter: `forAll` shrinks to the smallest failing member by
   first searching every structurally smaller member in size order
@@ -60,7 +79,9 @@
   FEAT-style convolution instead of a cardinality, size-major ranks, and a
   `Mu` node for a support. `upToSize` bounds it to an ordinary finite
   generator, and `toGen` and `forAll` do that from QuickCheck's size
-  parameter, drawing uniformly from the members of at most that size.
+  parameter. Size classes and structural alternatives are selected from member
+  counts; weighted finite choices closed with `atomic` retain their declared
+  PMF inside the selected size.
   Bounding preserves ranks, so a counterexample replays under any bound.
   Finite generators keep their mixed-radix ranks and compiled decoder
   unchanged. Recursion must be guarded by `<*>` — an unguarded definition is
@@ -84,7 +105,9 @@
   enumerating its terms, so QuickCheck size can count complete commands in an
   outer recursion instead of taking an inner term-node prefix. Recursive
   inputs must cross an `upToSize` boundary first, and opaque inputs are
-  rejected.
+  rejected. An atomic finite language now also retains its sampler when used
+  inside `recur` or `recurGrouped`. Counts, sizes, rank order, replay, and
+  shrinking remain structural; only the probability of those ranks changes.
 * Add `recurGrouped`, recursion for the grouped layer, where a language refers
   to itself through `apply` and the automaton carries equality constraints
   inside its own cycle. The key set is solved by a monotone fixpoint before

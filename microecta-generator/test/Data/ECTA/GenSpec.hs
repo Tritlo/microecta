@@ -48,6 +48,10 @@ data Classification = Public | Secret
 data UserFamily = DeclaredUsers | OtherUsers
     deriving (Eq, Ord, Show)
 
+-- | States used to check weighted operation keys inside recursive grouping.
+data CoinPhase = Initial | SawHeads | SawTails | Unreachable
+    deriving (Eq, Ord, Show)
+
 -- | The permission relation exercised by 'relatedAccess'.
 canRead :: Role -> Classification -> Bool
 canRead Admin _ = True
@@ -91,6 +95,19 @@ instance Core.GenBackend Exact where
       where
         accepted = filter (predicate . snd) outcomes
         acceptedMass = sum $ map fst accepted
+
+-- | Aggregate exact ticket multiplicities by their sampled result.
+aggregateRights :: (Ord a) => [(Rational, Either e a)] -> [(Rational, a)]
+aggregateRights outcomes =
+    [ (mass, value)
+    | (value, mass) <-
+        Map.toAscList $
+            Map.fromListWith
+                (+)
+                [ (value, mass)
+                | (mass, Right value) <- outcomes
+                ]
+    ]
 
 -- | All users shared by the independently authored fixture generators.
 allUsers :: [UserId]
@@ -416,6 +433,15 @@ spec = do
             ECTAGen.unrank users 3
                 `shouldBe` Left (ECTAGen.SelectionOutOfRange 3 3)
 
+        it "finds a finite structural minimum beyond rank zero" $ do
+            let larger = (,) <$> ECTAGen.elements [0 :: Int] <*> ECTAGen.elements [0 :: Int]
+                smaller = ECTAGen.elements [(1, 1)]
+                generator = ECTAGen.oneof [larger, smaller]
+            ECTAGen.unrank generator 0 `shouldBe` Right (0, 0)
+            ECTAGen.sizeOfRank generator 0 `shouldBe` Just 2
+            ECTAGen.sizeOfRank generator 1 `shouldBe` Just 1
+            ECTAGen.smallest generator `shouldBe` Right (Just (1, 1))
+
         it "returns a sampled rank that deterministically replays its value" $
             QC.property $
                 QC.forAll (ECTAGen.toGenWithRank matchedFixture) $ \(rank, value) ->
@@ -472,6 +498,8 @@ spec = do
             ECTAGen.pmf selected `shouldBe` ECTAGen.pmf source
             ECTAGen.pmf (ECTAGen.atKey OtherUsers family)
                 `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.smallest (ECTAGen.atKey OtherUsers family)
+                `shouldBe` Right Nothing
 
         it "combines declared languages with the grouped choice weights" $ do
             let family =
@@ -489,8 +517,157 @@ spec = do
                 opaque = ECTAGen.fromGen $ pure Alice
             ECTAGen.sizes (ECTAGen.keyed DeclaredUsers empty)
                 `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.smallest empty `shouldBe` Right Nothing
+            ECTAGen.countsAtSize (ECTAGen.keyed DeclaredUsers empty) (-1)
+                `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.massesAtSize (ECTAGen.keyed DeclaredUsers empty) (-1)
+                `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.pmfAtSize empty (-1)
+                `shouldBe` Left ECTAGen.EmptyGenerator
             ECTAGen.sizes (ECTAGen.keyed DeclaredUsers opaque)
                 `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
+            ECTAGen.smallest opaque
+                `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
+            ECTAGen.pmfAtSize opaque (-1)
+                `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
+
+        it "reports finite retained-key masses conditional on size" $ do
+            let family =
+                    ECTAGen.frequencies
+                        [ (3, ECTAGen.keyed DeclaredUsers $ pure Alice)
+                        , (1, ECTAGen.keyed OtherUsers $ pure Bob)
+                        ]
+            ECTAGen.massesAtSize family 0 `shouldBe` Right mempty
+            ECTAGen.countsAtSize family 1
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ (DeclaredUsers, 1)
+                        , (OtherUsers, 1)
+                        ]
+                    )
+            ECTAGen.massesAtSize family 1
+                `shouldBe` Right
+                    ( Map.fromList
+                        [ (DeclaredUsers, 3 % 4)
+                        , (OtherUsers, 1 % 4)
+                        ]
+                    )
+            ECTAGen.massesAtSize family 2 `shouldBe` Right mempty
+
+    describe "recursive sampling" $ do
+        it "preserves an atomic finite distribution and its stable ranks" $ do
+            let coin :: Core.ECTAGen Exact Bool
+                coin =
+                    Core.atomic $
+                        Core.frequency
+                            [ (3, Core.elements [True])
+                            , (1, Core.elements [False])
+                            ]
+                traces =
+                    Core.recur $ \rest ->
+                        Core.oneof
+                            [ (: []) <$> coin
+                            , (:) <$> coin <*> rest
+                            ]
+                bounded = Core.upToSize 2 traces
+            let sampled = runExact $ Core.lowerWithRank bounded
+            [() | (_, Left _) <- sampled] `shouldBe` []
+            aggregateRights sampled
+                `shouldBe` [ (1 % 4, (0, [True]))
+                           , (1 % 12, (1, [False]))
+                           , (3 % 8, (2, [True, True]))
+                           , (1 % 8, (3, [True, False]))
+                           , (1 % 8, (4, [False, True]))
+                           , (1 % 24, (5, [False, False]))
+                           ]
+            traverse (Core.unrank bounded) [0 .. 5]
+                `shouldBe` Right
+                    [ [True]
+                    , [False]
+                    , [True, True]
+                    , [True, False]
+                    , [False, True]
+                    , [False, False]
+                    ]
+
+        it "keeps finite weights out of recursion without an atomic boundary" $ do
+            let coin :: Core.ECTAGen Exact Bool
+                coin =
+                    Core.frequency
+                        [ (3, Core.elements [True])
+                        , (1, Core.elements [False])
+                        ]
+                traces =
+                    Core.recur $ \rest ->
+                        Core.oneof
+                            [ (: []) <$> coin
+                            , (:) <$> coin <*> rest
+                            ]
+            map fst (runExact $ Core.lowerWithRank $ Core.upToSize 2 traces)
+                `shouldBe` replicate 6 (1 % 6)
+
+        it "preserves atomic distributions through recurGrouped and apply" $ do
+            let atoms =
+                    Core.keyed () $
+                        Core.atomic $
+                            Core.frequency
+                                [ (3, Core.elements ["H"])
+                                , (1, Core.elements ["T"])
+                                ]
+                operators =
+                    Core.keyed (() :-> ()) $
+                        Core.elements [("x" <>)]
+                family =
+                    Core.recurGrouped $ \self ->
+                        Core.oneofGrouped
+                            [ atoms
+                            , Core.apply operators (self :& ANil)
+                            ]
+                bounded = Core.upToSize 2 $ Core.atKey () family
+            let sampled = runExact $ Core.lowerWithRank bounded
+            [() | (_, Left _) <- sampled] `shouldBe` []
+            aggregateRights sampled
+                `shouldBe` [ (3 % 8, (0, "H"))
+                           , (1 % 8, (1, "T"))
+                           , (3 % 8, (2, "xH"))
+                           , (1 % 8, (3, "xT"))
+                           ]
+
+        it "keeps atomic mass between recursive operation keys" $ do
+            let operations =
+                    snd
+                        <$> Core.groupBy
+                            fst
+                            ( Core.atomic $
+                                Core.frequency
+                                    [ (9, pure (Initial :-> SawHeads, (True :)))
+                                    , (1, pure (Initial :-> SawTails, (False :)))
+                                    ]
+                            )
+                family :: Core.Grouped Exact CoinPhase [Bool]
+                family =
+                    Core.recurGrouped $ \self ->
+                        Core.oneofGrouped
+                            [ Core.keyed Initial $ pure []
+                            , Core.apply operations (self :& ANil)
+                            ]
+                traces = Core.ungroup family
+            Core.countsAtSize family 2
+                `shouldBe` Right
+                    (Map.fromList [(SawHeads, 1), (SawTails, 1)])
+            Core.massesAtSize family 2
+                `shouldBe` Right
+                    (Map.fromList [(SawHeads, 9 % 10), (SawTails, 1 % 10)])
+            (sum <$> Core.countsAtSize family 2)
+                `shouldBe` Core.countAtSize traces 2
+            (sum <$> Core.massesAtSize family 2)
+                `shouldBe` Right 1
+            Core.pmfAtSize traces 2
+                `shouldBe` Right [([False], 1 % 10), ([True], 9 % 10)]
+            Core.smallest (Core.atKey SawHeads family)
+                `shouldBe` Right (Just [True])
+            Core.smallest (Core.atKey Unreachable family)
+                `shouldBe` Right Nothing
 
     describe "compiled rank decoding" $ do
         it "decodes every rank of a mapped source" $

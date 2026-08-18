@@ -47,9 +47,13 @@ module Data.ECTA.Gen.QuickCheck (
     support,
     cardinality,
     sizes,
+    countsAtSize,
+    massesAtSize,
     countAtSize,
     countBy,
     pmf,
+    pmfAtSize,
+    smallest,
     unrank,
     sizeOfRank,
     smallerMembers,
@@ -149,9 +153,13 @@ fromECTA = ECTA.fromECTA
 {- | Treat every member of a finite generator as one atomic source choice.
 
 An already finite generator keeps its support, cardinality, ranks, values,
-and distribution. An acyclic automaton read with 'fromECTA' closes its whole
-finite language without enumerating it or taking an inner QuickCheck-size
-prefix. Bound a recursive language with 'upToSize' before making it atomic.
+and distribution. That distribution is retained when the atom is used inside
+'recur' or 'recurGrouped'. Put 'atomic' around the complete finite choice that
+enters recursion; a finite composition outside the boundary is a new choice
+and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
+its whole finite language without enumerating it or taking an inner
+QuickCheck-size prefix. Bound a recursive language with 'upToSize' before
+making it atomic.
 -}
 atomic :: ECTAGen a -> ECTAGen a
 atomic = ECTA.atomic
@@ -159,11 +167,12 @@ atomic = ECTA.atomic
 {- | Build a recursive generator from its own language.
 
 The argument receives the generator being defined, so a language can refer
-to itself. 'toGen' and 'forAll' bound it by QuickCheck's size parameter,
-drawing uniformly from the members of at most that size; 'upToSize' bounds
-it explicitly. Recursion must be guarded by '<*>', and alternatives around
-a recursive occurrence must carry equal weights, which is what 'oneof'
-gives without asking for them.
+to itself. 'toGen' and 'forAll' bound it by QuickCheck's size parameter;
+'upToSize' bounds it explicitly. Recursive structure follows the counted size
+classes. Finite choices closed with 'atomic' retain their distribution inside
+each class. Recursion must be guarded by '<*>', and alternatives around a
+recursive occurrence must carry equal weights, which is what 'oneof' gives
+without asking for them.
 
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
@@ -218,6 +227,17 @@ mapWithKey = ECTA.mapWithKey
 -- | Return the exact cardinality of each retained group.
 sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
 sizes = ECTA.sizes
+
+{- | Return exact retained-key counts at one structural size.
+
+Counts describe the language, not the sampling distribution.
+-}
+countsAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map key Integer)
+countsAtSize = ECTA.countsAtSize
+
+-- | Return the exact retained-key sampling distribution at one structural size.
+massesAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map key Rational)
+massesAtSize = ECTA.massesAtSize
 
 -- | Select one retained group as an ordinary conditional generator.
 atKey :: (Ord key) => key -> Grouped key a -> ECTAGen a
@@ -302,6 +322,10 @@ cardinality = ECTA.cardinality
 countAtSize :: ECTAGen a -> Int -> Either ECTAGenError Integer
 countAtSize = ECTA.countAtSize
 
+-- | Return the first member in structural size and rank order, or 'Nothing' if empty.
+smallest :: ECTAGen a -> Either ECTAGenError (Maybe a)
+smallest = ECTA.smallest
+
 -- | Decode one stable rank from a transparent generator.
 unrank :: ECTAGen a -> Integer -> Either ECTAGenError a
 unrank = ECTA.unrank
@@ -327,6 +351,14 @@ countBy = ECTA.countBy
 -- | Aggregate the exact PMF of a fully transparent generator.
 pmf :: (Ord a) => ECTAGen a -> Either ECTAGenError [(a, Rational)]
 pmf = ECTA.pmf
+
+{- | Aggregate the exact result distribution conditional on one structural size.
+
+This enumerates the selected size class. Use 'countAtSize' for cardinality, or
+'massesAtSize' when a retained-key distribution answers the question.
+-}
+pmfAtSize :: (Ord a) => ECTAGen a -> Int -> Either ECTAGenError [(a, Rational)]
+pmfAtSize = ECTA.pmfAtSize
 
 -- | Embed an ordinary QuickCheck generator as an opaque region.
 fromGen :: QC.Gen a -> ECTAGen a

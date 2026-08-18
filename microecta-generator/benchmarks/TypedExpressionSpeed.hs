@@ -20,9 +20,8 @@ order changed, not that sampling got faster.
 -}
 module Main (main) where
 
-import Data.List (foldl')
 import System.CPUTime (getCPUTime)
-import System.Random (split)
+import System.Random (splitGen)
 import Text.Printf (printf)
 
 import qualified Test.QuickCheck.Gen as QC
@@ -92,5 +91,5 @@ measure tally generator = do
     root = QC.mkQCGen 20260811
 
     step (accumulator, generated) _ =
-        let (drawn, next) = split generated
+        let (drawn, next) = splitGen generated
          in (accumulator + tally (QC.unGen generator drawn 30), next)

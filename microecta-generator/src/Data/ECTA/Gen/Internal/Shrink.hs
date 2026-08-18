@@ -24,6 +24,7 @@ normalized form.
 -}
 module Data.ECTA.Gen.Internal.Shrink (
     shrinkPlanRank,
+    smallestPlanRank,
     planMemberSize,
     smallerPlanMembers,
 ) where
@@ -34,6 +35,49 @@ import Data.ECTA.Gen.Internal.Size (
     countAtSize,
     sizeIndex,
  )
+
+{- | The rank of a structurally smallest member, preferring the earlier stable
+rank when several members have the same size.
+
+This walks the plan, not its values. In particular, an earlier choice branch
+may contain only larger members than a later branch, so rank zero is not a
+general finite minimum.
+-}
+smallestPlanRank :: Plan a -> Maybe Integer
+smallestPlanRank = fmap snd . minimumMember
+  where
+    minimumMember :: Plan b -> Maybe (Int, Integer)
+    minimumMember (PlanSelect cardinality _) =
+        if cardinality > 0 then Just (1, 0) else Nothing
+    minimumMember (PlanMap _ plan) = minimumMember plan
+    minimumMember (PlanChoice branches) =
+        minimumChoice 0 branches
+      where
+        minimumChoice _ [] = Nothing
+        minimumChoice offset ((cardinality, branch) : rest) =
+            choose
+                (fmap (fmap (+ offset)) $ minimumMember branch)
+                (minimumChoice (offset + cardinality) rest)
+    minimumMember (PlanAp rightCardinality functions arguments) = do
+        (functionSize, functionRank) <- minimumMember functions
+        (argumentSize, argumentRank) <- minimumMember arguments
+        pure
+            ( functionSize + argumentSize
+            , functionRank * rightCardinality + argumentRank
+            )
+    minimumMember (PlanSized classes) = minimumClass 0 classes
+      where
+        minimumClass _ [] = Nothing
+        minimumClass offset ((size, count, _) : rest) =
+            choose
+                (if count > 0 then Just (size, offset) else Nothing)
+                (minimumClass (offset + count) rest)
+
+    choose Nothing right = right
+    choose left Nothing = left
+    choose left@(Just first) right@(Just second)
+        | first <= second = left
+        | otherwise = right
 
 {- | Shrink candidates for one rank, guided by the plan structure.
 
