@@ -52,8 +52,8 @@
   strict argument binding at every compiled application. Rank order, masses,
   supports, and inspection are unchanged; non-uniform and opaque generators
   keep the previous sampling path. The typed-expression benchmark reaches
-  3.79x--9.39x of its handwritten QuickCheck comparator at depths one through
-  four.
+  3.80x--9.64x the handwritten QuickCheck throughput at depths one through four
+  in the current five-run medians.
 * Compile non-uniform finite generators closed by `atomic` when they have at
   most 32,768 ranks and their smallest equivalent integer ticket space fits an
   `Int`. Ranks with the same ticket width share one payload array. Sampling
