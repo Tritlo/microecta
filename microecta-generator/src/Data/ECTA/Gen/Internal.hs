@@ -222,7 +222,11 @@ data OutcomeIndex a = OutcomeIndex
     , outcomeUniformMass :: !(Maybe Rational)
     , outcomeSelect :: Integer -> Either ECTAGenError (Outcome a)
     , outcomeValueAt :: Integer -> a
-    , outcomeSampler :: !(Sampler a)
+    , outcomeSampler :: Sampler a
+    {- ^ The compositional sampler is demand-driven. Uniform lowering uses the
+    compiled rank plan instead, while weighted and atomic paths force this
+    fallback once when they need it.
+    -}
     , outcomePlan :: Plan a
     }
 
