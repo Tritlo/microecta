@@ -140,8 +140,8 @@ members reach each key. `massesAtSize` reports the exact key distribution used
 by sampling that size. Declared atomic weights can therefore produce equal
 counts and unequal masses. Recursive groups memoize both size series, so these
 queries do not enumerate traces. ECTA support is demand-driven: counts, masses,
-replay, and sampling do not build it unless `support` or a constrained join
-needs it.
+replay, sampling, and constrained joins retain it as a lazy thunk. `support`
+forces the complete symbolic representation.
 
 `smallest (atKey key family)` returns a globally smallest witness for one
 observation. An unreachable key returns `Right Nothing`. A temporal observation
@@ -343,6 +343,13 @@ children's counts; an automaton carrying them is rejected with
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
+
+`pool n native` bridges a large or infinite QuickCheck source into this finite
+world. Its outer `Gen` samples `n` values once and returns an `ECTAGen` whose
+ranks are those draws. The result supports exact inspection and constrained
+joins. Repeated draws remain repeated ranks and therefore retain their
+empirical weight. Reuse the returned generator when two choices must range over
+the same frozen universe.
 
 Every failure is an `ECTAGenError`. The derived `Show` names the case, and
 `explain` says what it means and which combinator resolves it; sampling a

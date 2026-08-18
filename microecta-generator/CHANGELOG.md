@@ -5,6 +5,9 @@
 * Add indexed applicative generators represented by ECTA terms, conditioned
   joins backed by ECTA equality constraints, and QuickCheck integration with
   an explicit opaque `fromGen` boundary.
+* Add `pool`, which samples an ordinary QuickCheck generator once and freezes
+  its draws as a finite transparent ECTA generator. Repeated draws remain
+  repeated ranks, so the pool retains their empirical weight.
 * Count and unrank uniform transparent generator languages without
   materializing applicative or joined Cartesian products.
 * Expose deterministic rank replay and exact coverage counts, sample weighted
@@ -17,7 +20,9 @@
   size-class sampler, and `smallest` returns the first structural witness.
   Recursive grouped sampling now carries key masses through choices, products,
   regrouping, and `apply` instead of silently reverting to count weights.
-* Build ECTA support only when `support` or a constrained join needs it.
+* Build ECTA support only when `support` needs it. Finite joins retain support
+  reduction as a lazy thunk once their live outcome groups prove non-emptiness.
+  Recursive grouped application retains its support thunk too.
   Counting, masses, and sampling use their own retained indexes. Store
   `elements` in a boxed array so `groupBy` can enumerate ranks without repeated
   list walks.

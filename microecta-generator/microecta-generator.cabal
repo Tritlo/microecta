@@ -130,3 +130,22 @@ benchmark typed-expression-speed
     base >=4.13 && <5,
     microecta-generator,
     random >=1.2 && <1.4,
+
+benchmark pool-experiment
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: PoolExperiment.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+
+  other-modules: Data.ECTA.TypedExpressionLanguage
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.13 && <5,
+    containers >=0.7 && <0.8,
+    microecta-generator,
+    random >=1.2 && <1.4,

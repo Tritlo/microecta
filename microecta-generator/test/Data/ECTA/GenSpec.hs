@@ -7,6 +7,8 @@ import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
+import qualified Test.QuickCheck.Gen as QCGen
+import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (Node (Node))
 import qualified Data.ECTA.Gen as Core
@@ -416,6 +418,40 @@ spec = do
                         index -> error $ "unexpected index: " <> show index
                 )
                 `shouldBe` Right [(Alice, 1 % 3), (Bob, 1 % 3), (Carol, 1 % 3)]
+
+        it "freezes native draws as transparent ranks, including duplicates" $ do
+            let native = QC.chooseInteger (0, 3)
+                seed = QCRandom.mkQCGen 20260818
+                expected = QCGen.unGen (QC.vectorOf 8 native) seed 30
+                pooled = QCGen.unGen (ECTAGen.pool 8 native) seed 30
+            ECTAGen.cardinality pooled `shouldBe` Right 8
+            traverse (ECTAGen.unrank pooled) [0 .. 7] `shouldBe` Right expected
+            ECTAGen.countBy id pooled
+                `shouldBe` Right (Map.fromListWith (+) [(value, 1) | value <- expected])
+
+        it "uses one frozen pool on both sides of a constrained join" $ do
+            let native = QC.chooseInteger (0, 3)
+                seed = QCRandom.mkQCGen 20260818
+                values = QCGen.unGen (QC.vectorOf 8 native) seed 30
+                pooled = QCGen.unGen (ECTAGen.pool 8 native) seed 30
+                equalPairs = ECTAGen.match (id :==: id) pooled pooled
+                accepted = [(left, right) | left <- values, right <- values, left == right]
+                acceptedCount = toInteger $ length accepted
+                pooledExpectedPmf =
+                    Map.toAscList $
+                        fmap (% acceptedCount) $
+                            Map.fromListWith (+) [(pair, 1) | pair <- accepted]
+            ECTAGen.cardinality equalPairs `shouldBe` Right acceptedCount
+            ECTAGen.pmf equalPairs `shouldBe` Right pooledExpectedPmf
+
+        it "turns a non-positive pool size into an empty generator" $ do
+            let freeze sampleCount =
+                    QCGen.unGen
+                        (ECTAGen.pool sampleCount (pure Alice))
+                        (QCRandom.mkQCGen 20260818)
+                        30
+            ECTAGen.cardinality (freeze 0) `shouldBe` Left ECTAGen.EmptyGenerator
+            ECTAGen.cardinality (freeze (-1)) `shouldBe` Left ECTAGen.EmptyGenerator
 
         it "reuses one indexed choice through fmap" $
             ECTAGen.pmf

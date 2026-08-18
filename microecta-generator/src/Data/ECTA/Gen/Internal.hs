@@ -21,7 +21,7 @@ import qualified Data.Text as Text
 
 import Data.ECTA (
     Edge (Edge),
-    Node (EmptyNode, Node),
+    Node (Node),
     mkEdge,
     reducePartially,
  )
@@ -244,8 +244,8 @@ data JoinGroup left right = JoinGroup
 data Static a = Static
     { staticSupport :: Node
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
-    use the outcome index without forcing this field. A support observer or
-    a constrained join builds it when needed.
+    use the outcome index without forcing this field. A support observer builds
+    it when needed; finite combinators retain their support work as a thunk.
     -}
     , staticOutcomes :: !(OutcomeIndex a)
     , staticAtomic :: !Bool
@@ -820,9 +820,11 @@ joinGroupedStatic left right related =
                                 [leftNode, rightNode]
                                 (mkEqConstraints [[path [0, 0], path [1, 0]]])
                             ]
-             in if joined == EmptyNode
-                    then Left EmptyGenerator
-                    else (\outcomes -> Static joined outcomes False) <$> joinOutcomeIndex left right groups
+             in -- Every group came from two non-empty outcome buckets. Keep
+                -- support reduction lazy; the outcome index already proves
+                -- that the joined language is non-empty.
+                (\outcomes -> Static joined outcomes False)
+                    <$> joinOutcomeIndex left right groups
 
 -- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
@@ -1024,21 +1026,20 @@ joinNBucketStatic ::
     ArgStatics operation result ->
     Either ECTAGenError (Static result)
 joinNBucketStatic componentIndex operation arguments =
-    if joined == EmptyNode
-        then Left EmptyGenerator
-        else
-            Right $
-                Static
-                    joined
-                    ( OutcomeIndex
-                        totalOutcomes
-                        uniformMass
-                        select
-                        selectValue
-                        rankSampler
-                        (chainPlan (outcomePlan operationOutcomes) arguments)
-                    )
-                    False
+    -- Signature lookup supplies one non-empty bucket per component. The
+    -- outcome product proves non-emptiness without forcing support reduction.
+    Right $
+        Static
+            joined
+            ( OutcomeIndex
+                totalOutcomes
+                uniformMass
+                select
+                selectValue
+                rankSampler
+                (chainPlan (outcomePlan operationOutcomes) arguments)
+            )
+            False
   where
     keyTerms =
         [ Term (argKeySymbol componentIndex position) []

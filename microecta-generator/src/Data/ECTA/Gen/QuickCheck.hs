@@ -13,6 +13,7 @@ module Data.ECTA.Gen.QuickCheck (
     Indexed (..),
     fromIndexed,
     elements,
+    pool,
     fromECTA,
     fromGen,
 
@@ -140,6 +141,18 @@ fromIndexed = ECTA.fromIndexed
 -- | Choose uniformly from a finite non-empty list.
 elements :: [a] -> ECTAGen a
 elements = ECTA.elements
+
+{- | Sample a finite pool from an ordinary QuickCheck generator.
+
+The outer 'QC.Gen' draws the pool once. The resulting 'ECTAGen' is finite and
+transparent, so it supports exact inspection, matching, relations, replay, and
+ECTA-aware shrinking. Repeated draws remain repeated ranks and retain the
+native generator's empirical weight. A non-positive pool size produces an
+empty generator.
+-}
+pool :: Int -> QC.Gen a -> QC.Gen (ECTAGen a)
+pool sampleCount native =
+    elements <$> QC.vectorOf (max 0 sampleCount) native
 
 {- | Read an ECTA as a generator of the terms it accepts.
 
