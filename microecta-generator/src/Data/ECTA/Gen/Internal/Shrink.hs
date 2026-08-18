@@ -68,7 +68,7 @@ smallestPlanRank = fmap snd . minimumMember
     minimumMember (PlanSized classes) = minimumClass 0 classes
       where
         minimumClass _ [] = Nothing
-        minimumClass offset ((size, count, _) : rest) =
+        minimumClass offset ((size, count, _, _) : rest) =
             choose
                 (if count > 0 then Just (size, offset) else Nothing)
                 (minimumClass (offset + count) rest)
@@ -157,7 +157,7 @@ planMemberSize (PlanSized classes) rank = go 0 classes
         error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Shrink.planMemberSize: \
             \rank outside the plan"
-    go offset ((size, count, _) : rest)
+    go offset ((size, count, _, _) : rest)
         | rank < offset + count = size
         | otherwise = go (offset + count) rest
 

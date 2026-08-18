@@ -10,7 +10,7 @@
   repeated ranks, so the pool retains their empirical weight.
 * Rework the typed-expression reference language around integer and Boolean
   literals, unary `Not`, binary functions, and ternary `IfExpression`. Its
-  independent depth-two reference checks all 67,482 generated expressions.
+  independent depth-two reference checks all 27,054 generated expressions.
 * Count and unrank uniform transparent generator languages without
   materializing applicative or joined Cartesian products.
 * Expose deterministic rank replay and exact coverage counts, sample weighted
@@ -55,14 +55,13 @@
 * Compile transparent uniform sampling: every outcome index now retains a
   symbolic decode plan (choices, mixed-radix products, maps) that lowering
   normalizes — maps pushed into leaves, nested choices spliced flat, small
-  leaves tabulated — and compiles to one flat decoder, on machine `Int`
-  arithmetic whenever the cardinality fits and `Integer` otherwise, with
-  strict argument binding at every compiled application. Rank order, masses,
-  supports, and inspection are unchanged; non-uniform and opaque generators
-  keep the previous sampling path. The revised unary, binary, and ternary
-  typed-expression benchmark reaches 3.76x, 6.11x, 9.48x, and 8.84x the
-  handwritten QuickCheck throughput at depths one through four in five-run
-  medians.
+  leaves tabulated — and compiles one flat decoder, narrowing each branch,
+  product component, and counted size class to machine `Int` arithmetic when
+  its local cardinality fits. Larger roots retain `Integer`; public replay
+  ranks, masses, supports, and inspection are unchanged. Local narrowing
+  improved the five-run depth-four typed-expression median by 13.5%, and the
+  counted-size path improved bounded recursive sampling by 9.6%–20.2% at the
+  measured size bounds.
 * Compile non-uniform finite generators closed by `atomic` when they have at
   most 32,768 ranks and their smallest equivalent integer ticket space fits an
   `Int`. Ranks with the same ticket width share one payload array. Sampling

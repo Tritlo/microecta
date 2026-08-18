@@ -67,8 +67,7 @@ data Type = TInt | TBool
 
 -- | Polymorphic and monomorphic binary functions available to expressions.
 data Function
-    = Const
-    | Equal
+    = Equal
     | Add
     | Multiply
     | Or
@@ -120,13 +119,9 @@ allTypes = [minBound .. maxBound]
 -- | Every valid ground instantiation of the available functions.
 binaryFunctionInstances :: [BinaryFunctionInstance]
 binaryFunctionInstances =
-    [ BinaryFunctionInstance Const first second first
-    | first <- allTypes
-    , second <- allTypes
+    [ BinaryFunctionInstance Equal argument argument TBool
+    | argument <- allTypes
     ]
-        <> [ BinaryFunctionInstance Equal argument argument TBool
-           | argument <- allTypes
-           ]
         <> [ BinaryFunctionInstance function_ TInt TInt TInt
            | function_ <- [Add, Multiply]
            ]

@@ -110,7 +110,10 @@ instance ECTA.GenBackend QuickCheckBackend where
         let ordered = sortOn (Down . fst) alternatives
             (total, cumulative) = mapAccumL accumulateWeight 0 ordered
          in QuickCheckBackend $ do
-                selected <- QC.chooseInteger (0, total - 1)
+                selected <-
+                    if total <= toInteger (maxBound :: Int)
+                        then toInteger <$> QC.chooseInt (0, fromInteger total - 1)
+                        else QC.chooseInteger (0, total - 1)
                 pick selected cumulative
       where
         accumulateWeight total (weight, generated) =

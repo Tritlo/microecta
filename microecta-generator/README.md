@@ -323,7 +323,7 @@ the key's label, with an equality constraint tying the two. A recursive
 family is therefore one recursive automaton whose cycle carries the keyed
 joins' equality constraints, which is the shape only an ECTA can hold.
 
-For the language above, unfolding that automaton twice accepts exactly the 62
+For the language above, unfolding that automaton twice accepts exactly the 46
 expressions produced by the hand-unrolled depth-one generator. This includes
 unary `Not`, the binary functions, and ternary `IfExpression`. `ungroup` and
 `atKey` are the exits back to an ordinary recursive generator, so bounding,

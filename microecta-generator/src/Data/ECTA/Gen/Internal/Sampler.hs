@@ -132,9 +132,16 @@ mapSampler transform sampler =
             <$> runRankSampler sampler
         )
 
--- | Sample uniformly with one integer selection.
+-- | Sample uniformly with one selection, using a machine 'Int' when it fits.
 uniformSampler :: Integer -> (Integer -> a) -> Sampler a
 uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
+uniformSampler totalOutcomes valueAt
+    | totalOutcomes <= toInteger (maxBound :: Int) =
+        let bound = fromInteger totalOutcomes
+            valueAtInt = valueAt . toInteger
+         in Sampler
+                (valueAtInt <$> selectInt bound)
+                ((\index -> (toInteger index, valueAtInt index)) <$> selectInt bound)
 uniformSampler totalOutcomes valueAt =
     Sampler
         (valueAt <$> selectInteger totalOutcomes)
@@ -372,14 +379,14 @@ fixSampleIndex build = sampling
 
 -- | Sample one bounded size class, then recover its global size-major rank.
 boundedSampler ::
-    [(Int, Integer, Integer -> a)] ->
+    [(Int, Integer, Integer -> a, Int -> a)] ->
     SampleIndex a ->
     Sampler a
 boundedSampler classes sampling =
     Sampler
         ( chooseWeighted
             [ (count, runValueAtSize sampling size)
-            | (size, count, _) <- classes
+            | (size, count, _, _) <- classes
             ]
         )
         ( chooseWeighted
@@ -392,7 +399,7 @@ boundedSampler classes sampling =
         )
   where
     offsetClasses _ [] = []
-    offsetClasses offset ((size, count, _) : rest) =
+    offsetClasses offset ((size, count, _, _) : rest) =
         (size, count, offset) : offsetClasses (offset + count) rest
 
 -- | Avoid a random branch selection when only one branch is live.

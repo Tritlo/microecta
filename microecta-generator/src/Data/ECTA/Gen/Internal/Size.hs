@@ -48,6 +48,10 @@ data SizeIndex a = SizeIndex
     -- ^ Members per size, for ascending sizes from one.
     , sizeClassSelect :: Int -> Integer -> (Integer, a)
     -- ^ Rank and value of one member of one size class.
+    , sizeClassValueInt :: Int -> Int -> a
+    {- ^ Value of one member using machine arithmetic. Called only when the
+    requested size class fits in 'Int'.
+    -}
     , unguardedOccurrence :: Bool
     {- ^ Whether a 'probeIndex' can be reached without passing through a
     product. Counting such an index would consult its own size, so a
@@ -72,6 +76,10 @@ probeIndex =
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
             \a probe counts no size classes; only its two flags are read"
+        )
+        ( error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            \a probe decodes no members; only its two flags are read"
         )
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
@@ -127,9 +135,13 @@ for one position in that class.
 This is the bridge back to a finite language: a recursive index bounded this
 way becomes an ordinary 'PlanSized' plan whose ranks are size-major.
 -}
-sizeClasses :: Int -> SizeIndex a -> [(Int, Integer, Integer -> a)]
+sizeClasses :: Int -> SizeIndex a -> [(Int, Integer, Integer -> a, Int -> a)]
 sizeClasses bound index =
-    [ (size, count, snd . sizeClassSelect index size)
+    [ ( size
+      , count
+      , snd . sizeClassSelect index size
+      , sizeClassValueInt index size
+      )
     | (size, count) <- zip [1 ..] (take bound (sizeClassCounts index))
     , count > 0
     ]
@@ -137,7 +149,7 @@ sizeClasses bound index =
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanSelect cardinality' decode) =
-    SizeIndex [cardinality'] select False False
+    SizeIndex [cardinality'] select selectInt False False
   where
     select 1 position = (position, decode position)
     select size _ =
@@ -145,9 +157,15 @@ sizeIndex (PlanSelect cardinality' decode) =
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
             \a leaf has no members of size "
                 <> show size
+    selectInt 1 position = decode $ toInteger position
+    selectInt size _ =
+        error $
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \a leaf has no members of size "
+                <> show size
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
-    SizeIndex counts select False False
+    SizeIndex counts select selectInt False False
   where
     entries = offsetBranches 0 branches
     offsetBranches _ [] = []
@@ -159,8 +177,11 @@ sizeIndex (PlanChoice branches) =
         let (offset, inner, rebased) = partAt size entries position
             (rank, value) = sizeClassSelect inner size rebased
          in (offset + rank, value)
+    selectInt size position =
+        let (inner, rebased) = partAtInt size (map snd entries) position
+         in sizeClassValueInt inner size rebased
 sizeIndex (PlanAp radix planF planX) =
-    SizeIndex counts select False False
+    SizeIndex counts select selectInt False False
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
@@ -172,17 +193,30 @@ sizeIndex (PlanAp radix planF planX) =
             (functionRank, function) = sizeClassSelect indexF functionSize functionPosition
             (argumentRank, argument) = sizeClassSelect indexX argumentSize argumentPosition
          in (functionRank * radix + argumentRank, function argument)
+    selectInt size position =
+        let (functionSize, functionPosition, argumentSize, argumentPosition) =
+                productSplitInt indexF indexX size position
+            function = sizeClassValueInt indexF functionSize functionPosition
+            argument = sizeClassValueInt indexX argumentSize argumentPosition
+         in function argument
 sizeIndex (PlanSized classes) =
-    SizeIndex counts select False False
+    SizeIndex counts select selectInt False False
   where
     counts = classCounts classes
     offsets = offsetClasses 0 classes
     offsetClasses _ [] = []
-    offsetClasses offset ((size, count, decode) : rest) =
-        (size, offset, count, decode) : offsetClasses (offset + count) rest
+    offsetClasses offset ((size, count, decode, decodeInt) : rest) =
+        (size, offset, count, decode, decodeInt) : offsetClasses (offset + count) rest
 
-    select size position = case [entry | entry@(size', _, _, _) <- offsets, size' == size] of
-        (_, offset, _, decode) : _ -> (offset + position, decode position)
+    select size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
+        (_, offset, _, decode, _) : _ -> (offset + position, decode position)
+        [] ->
+            error $
+                "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+                \no size class of size "
+                    <> show size
+    selectInt size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
+        (_, _, _, _, decodeInt) : _ -> decodeInt position
         [] ->
             error $
                 "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
@@ -192,10 +226,18 @@ sizeIndex (PlanSized classes) =
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [1] select False False
+    SizeIndex [1] select selectInt False False
   where
     select 1 0 = (0, value)
     select size position =
+        error $
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.constantIndex: \
+            \no member at size "
+                <> show size
+                <> " position "
+                <> show position
+    selectInt 1 0 = value
+    selectInt size position =
         error $
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.constantIndex: \
             \no member at size "
@@ -209,12 +251,14 @@ mapIndex transform index =
     SizeIndex
         (sizeClassCounts index)
         select
+        selectInt
         (unguardedOccurrence index)
         (usedOccurrence index)
   where
     select size position =
         let (rank, value) = sizeClassSelect index size position
          in (rank, transform value)
+    selectInt size = transform . sizeClassValueInt index size
 
 {- | The product of two indexes, ranked size-major.
 
@@ -228,6 +272,7 @@ productIndex indexF indexX =
     SizeIndex
         counts
         select
+        selectInt
         False
         (usedOccurrence indexF || usedOccurrence indexX)
   where
@@ -240,6 +285,12 @@ productIndex indexF indexX =
             (_, function) = sizeClassSelect indexF functionSize functionPosition
             (_, argument) = sizeClassSelect indexX argumentSize argumentPosition
          in (rankAt ranks size position, function argument)
+    selectInt size position =
+        let (functionSize, functionPosition, argumentSize, argumentPosition) =
+                productSplitInt indexF indexX size position
+            function = sizeClassValueInt indexF functionSize functionPosition
+            argument = sizeClassValueInt indexX argumentSize argumentPosition
+         in function argument
 
 {- | Ordered alternatives, ranked size-major.
 
@@ -251,6 +302,7 @@ choiceIndex branches =
     SizeIndex
         counts
         select
+        selectInt
         (any unguardedOccurrence branches)
         (any usedOccurrence branches)
   where
@@ -262,6 +314,9 @@ choiceIndex branches =
         let (_, inner, rebased) = partAt size entries position
             (_, value) = sizeClassSelect inner size rebased
          in (rankAt ranks size position, value)
+    selectInt size position =
+        let (inner, rebased) = partAtInt size branches position
+         in sizeClassValueInt inner size rebased
 
 {- | Tie a recursive index: the body is built from the index being defined.
 
@@ -297,11 +352,11 @@ productCounts indexF indexX =
     0 : mulPoly (sizeClassCounts indexF) (sizeClassCounts indexX)
 
 -- | Size counts of an already stratified language.
-classCounts :: [(Int, Integer, Integer -> a)] -> [Integer]
+classCounts :: [(Int, Integer, Integer -> a, Int -> a)] -> [Integer]
 classCounts classes = go 1 classes
   where
     go _ [] = []
-    go size all'@((classSize, count, _) : rest)
+    go size all'@((classSize, count, _, _) : rest)
         | size < classSize = 0 : go (size + 1) all'
         | otherwise = count : go (size + 1) rest
 
@@ -320,6 +375,20 @@ partAt size = go
         | otherwise = go rest (position - count)
       where
         count = countAtSize inner size
+
+-- | The branch holding one machine-sized position in a size class.
+partAtInt :: Int -> [SizeIndex a] -> Int -> (SizeIndex a, Int)
+partAtInt size = go
+  where
+    go [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \position outside the size class"
+    go (inner : rest) position
+        | position < count = (inner, position)
+        | otherwise = go rest (position - count)
+      where
+        count = fromInteger $ countAtSize inner size
 
 {- | The split of a product size class holding one position, as the size and
 position of each side.
@@ -344,6 +413,29 @@ productSplit indexF indexX size = go [1 .. size - 1]
       where
         argumentCount = countAtSize indexX (size - functionSize)
         block = countAtSize indexF functionSize * argumentCount
+
+-- | Split one machine-sized product position without widening its arithmetic.
+productSplitInt ::
+    SizeIndex (a -> b) ->
+    SizeIndex a ->
+    Int ->
+    Int ->
+    (Int, Int, Int, Int)
+productSplitInt indexF indexX size = go [1 .. size - 1]
+  where
+    go [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
+            \position outside the product size class"
+    go (functionSize : rest) position
+        | position < block =
+            let (functionPosition, argumentPosition) = position `quotRem` argumentCount
+             in (functionSize, functionPosition, size - functionSize, argumentPosition)
+        | otherwise = go rest (position - block)
+      where
+        argumentCount = fromInteger $ countAtSize indexX (size - functionSize)
+        functionCount = fromInteger $ countAtSize indexF functionSize
+        block = functionCount * argumentCount
 
 -- | Add two size-count vectors, keeping the longer tail.
 addPoly :: [Integer] -> [Integer] -> [Integer]

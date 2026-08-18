@@ -348,7 +348,7 @@ boundedStatic bound recursive
 
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
-    totalOutcomes = sum [count | (_, count, _) <- classes]
+    totalOutcomes = sum [count | (_, count, _, _) <- classes]
     uniformMass
         | recursiveWeighted recursive = Nothing
         | otherwise = Just $ 1 / fromInteger totalOutcomes
@@ -363,7 +363,7 @@ boundedStatic bound recursive
             error
                 "microecta-generator bug in Data.ECTA.Gen.Internal.boundedStatic: \
                 \rank outside the bounded language"
-        go ((_, count, decode) : rest) index
+        go ((_, count, decode, _) : rest) index
             | index < count = decode index
             | otherwise = go rest (index - count)
 
