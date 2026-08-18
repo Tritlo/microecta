@@ -36,7 +36,7 @@ module Data.ECTA.TypedExpressionLanguage (
     functionsBySignature,
     conditionalsBySignature,
     atomsByType,
-    notApplicationGen,
+    unaryApplicationGen,
     binaryApplicationGen,
     conditionalApplicationGen,
     applicationGen,
@@ -207,8 +207,8 @@ atomsByType :: Grouped Type TypedExpression
 atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 
 -- | Add one unary application layer.
-notApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-notApplicationGen children = ECTAGen.do
+unaryApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+unaryApplicationGen children = ECTAGen.do
     build <- notFunctionsBySignature
     value <- children
     ECTAGen.pure (build value)
@@ -249,7 +249,7 @@ applicationGen children =
         Left _ -> ECTAGen.oneofGrouped alternatives
   where
     alternatives =
-        [ notApplicationGen children
+        [ unaryApplicationGen children
         , binaryApplicationGen children
         , conditionalApplicationGen children
         ]

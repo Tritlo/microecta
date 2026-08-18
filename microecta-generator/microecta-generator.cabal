@@ -121,7 +121,6 @@ benchmark typed-expression-speed
     common
 
   ghc-options:
-    -O2
     -rtsopts
 
   other-modules: Data.ECTA.TypedExpressionLanguage
