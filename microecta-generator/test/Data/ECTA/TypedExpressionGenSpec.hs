@@ -16,13 +16,14 @@ import Data.ECTA.TypedExpressionLanguage
 inferType :: Expression -> Maybe Type
 inferType (IntLiteral _) = Just TInt
 inferType (BoolLiteral _) = Just TBool
-inferType (CharLiteral _) = Just TChar
+inferType (Not value) = do
+    valueType <- inferType value
+    if valueType == TBool then Just TBool else Nothing
 inferType (ApplyBinary function_ first second) = do
     firstType <- inferType first
     secondType <- inferType second
     case function_ of
         Const -> Just firstType
-        FlipConst -> Just secondType
         Equal
             | firstType == secondType -> Just TBool
             | otherwise -> Nothing
@@ -34,11 +35,21 @@ inferType (ApplyBinary function_ first second) = do
     homogeneous expected firstType secondType
         | firstType == expected && secondType == expected = Just expected
         | otherwise = Nothing
+inferType (IfExpression condition ifTrue ifFalse) = do
+    conditionType <- inferType condition
+    trueType <- inferType ifTrue
+    falseType <- inferType ifFalse
+    if conditionType == TBool && trueType == falseType
+        then Just trueType
+        else Nothing
 
 -- | Number of application layers in an expression.
 expressionDepth :: Expression -> Int
+expressionDepth (Not value) = 1 + expressionDepth value
 expressionDepth (ApplyBinary _ first second) =
     1 + max (expressionDepth first) (expressionDepth second)
+expressionDepth (IfExpression condition ifTrue ifFalse) =
+    1 + maximum [expressionDepth condition, expressionDepth ifTrue, expressionDepth ifFalse]
 expressionDepth _ = 0
 
 -- | Check the generated annotation against independent inference.
@@ -46,65 +57,119 @@ isWellTyped :: TypedExpression -> Bool
 isWellTyped typed =
     inferType (expression typed) == Just (expressionType typed)
 
--- | Find a joined edge that retains both argument equality constraints.
-hasTwoArgumentConstraints :: Node -> Bool
-hasTwoArgumentConstraints node = any edgeMatches $ nodeEdges node
+-- | Find a joined edge that retains the requested argument constraints.
+hasArgumentConstraints :: Int -> Node -> Bool
+hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
   where
     edgeMatches edge =
-        length (unsafeGetEclasses $ edgeEcs edge) == 2
-            || any hasTwoArgumentConstraints (edgeChildren edge)
+        length (unsafeGetEclasses $ edgeEcs edge) == count
+            || any (hasArgumentConstraints count) (edgeChildren edge)
+
+-- | Independently enumerate the exact-depth reference language.
+referenceExpressions :: Int -> Type -> [Expression]
+referenceExpressions 0 TInt = [IntLiteral 0, IntLiteral 1]
+referenceExpressions 0 TBool = [BoolLiteral False, BoolLiteral True]
+referenceExpressions depth TInt =
+    [ ApplyBinary Const first second
+    | first <- integers
+    , second <- integers <> booleans
+    ]
+        <> [ ApplyBinary function_ first second
+           | function_ <- [Add, Multiply]
+           , first <- integers
+           , second <- integers
+           ]
+        <> [ IfExpression condition ifTrue ifFalse
+           | condition <- booleans
+           , ifTrue <- integers
+           , ifFalse <- integers
+           ]
+  where
+    integers = referenceExpressions (depth - 1) TInt
+    booleans = referenceExpressions (depth - 1) TBool
+referenceExpressions depth TBool =
+    [Not value | value <- booleans]
+        <> [ ApplyBinary Const first second
+           | first <- booleans
+           , second <- integers <> booleans
+           ]
+        <> [ ApplyBinary Equal first second
+           | values <- [integers, booleans]
+           , first <- values
+           , second <- values
+           ]
+        <> [ ApplyBinary function_ first second
+           | function_ <- [Or, And]
+           , first <- booleans
+           , second <- booleans
+           ]
+        <> [ IfExpression condition ifTrue ifFalse
+           | condition <- booleans
+           , ifTrue <- booleans
+           , ifFalse <- booleans
+           ]
+  where
+    integers = referenceExpressions (depth - 1) TInt
+    booleans = referenceExpressions (depth - 1) TBool
 
 -- | Exercise the same generators and invariants as the prototype executable.
 spec :: Spec
 spec =
     describe "typed expression generation" $ do
-        it "matches the exact uniform 29,456-expression depth-two language" $ do
+        it "matches the independent uniform 67,482-expression depth-two language" $ do
             let depthTwoCount = sum $ map (expressionCount 2) allTypes
                 expectedMass = 1 / fromIntegral depthTwoCount
                 depthTwoGenerator = expressionGenAtDepth 2
-            depthTwoCount `shouldBe` 29456
+                expectedLanguage =
+                    Set.fromList
+                        [ TypedExpression result value
+                        | result <- allTypes
+                        , value <- referenceExpressions 2 result
+                        ]
+            depthTwoCount `shouldBe` 67482
             case ECTAGen.pmf depthTwoGenerator of
                 Left err -> expectationFailure $ show err
                 Right outcomes -> do
                     toInteger (length outcomes) `shouldBe` depthTwoCount
                     all ((== expectedMass) . snd) outcomes `shouldBe` True
+                    Set.fromList (map fst outcomes) `shouldBe` expectedLanguage
             case ECTAGen.support depthTwoGenerator of
                 Left err -> expectationFailure $ show err
-                Right node -> length (getAllTerms node) `shouldBe` 29456
+                Right node -> length (getAllTerms node) `shouldBe` 67482
 
-        it "represents both argument constraints in one ECTA edge" $
+        it "represents unary, binary, and ternary dependencies in ECTA edges" $
             case ECTAGen.support (expressionGenAtDepth 1) of
-                Right node -> hasTwoArgumentConstraints node `shouldBe` True
+                Right node ->
+                    map (`hasArgumentConstraints` node) [1, 2, 3]
+                        `shouldBe` [True, True, True]
                 Left err -> expectationFailure $ show err
 
         it "counts the exact depth-three language without enumerating it" $
             ECTAGen.cardinality (expressionGenAtDepth 3)
-                `shouldBe` Right 2760555776
+                `shouldBe` Right 115512218596578
 
         it "constructs the exact depth-four language from compact groups" $ do
             let depthFourCount = sum $ map (expressionCount 4) allTypes
-            depthFourCount `shouldBe` 26679325111164403712
+            depthFourCount
+                `shouldBe` 858249006412648850898429671908047368055066
             ECTAGen.cardinality (expressionGenAtDepth 4)
                 `shouldBe` Right depthFourCount
 
         it "retains the exact depth-four result-type groups" $ do
-            let intCount = 4356154180428103680
-                boolCount = 20761924256729464832
-                charCount = 1561246674006835200
+            let intCount = 46024447425199375286078532919911917419200
+                boolCount = 812224558987449475612351138988135450635866
+                total = intCount + boolCount
                 boundaries =
                     [ (0, TInt)
                     , (intCount - 1, TInt)
                     , (intCount, TBool)
-                    , (intCount + boolCount - 1, TBool)
-                    , (intCount + boolCount, TChar)
-                    , (26679325111164403712 - 1, TChar)
+                    , (total - 1, TBool)
                     ]
             ECTAGen.sizes (depthByType 4)
                 `shouldBe` Right
                     ( Map.fromList
                         [ (TInt, intCount)
                         , (TBool, boolCount)
-                        , (TChar, charCount)
                         ]
                     )
             traverse
@@ -113,7 +178,7 @@ spec =
                 `shouldBe` Right (map snd boundaries)
 
         it "unranks representative depth-four expressions" $ do
-            let total = 26679325111164403712
+            let total = 858249006412648850898429671908047368055066
             traverse
                 (ECTAGen.unrank $ expressionGenAtDepth 4)
                 [0, total `div` 2, total - 1]
@@ -123,22 +188,20 @@ spec =
             ECTAGen.countBy expressionType (expressionGenAtDepth 1)
                 `shouldBe` Right
                     ( Map.fromList
-                        [ (TInt, 32)
-                        , (TBool, 44)
-                        , (TChar, 24)
+                        [ (TInt, 24)
+                        , (TBool, 34)
                         ]
                     )
 
         it "builds the uniform depth-at-most-two language with frequencies" $ do
             let expectedMass = 1 / fromIntegral (upToDepthCount 2)
                 generator = ECTAGen.ungroup $ upToDepthByType 2
-            upToDepthCount 2 `shouldBe` 32970
+            upToDepthCount 2 `shouldBe` 80792
             ECTAGen.sizes (upToDepthByType 2)
                 `shouldBe` Right
                     ( Map.fromList
-                        [ (TInt, 9522)
-                        , (TBool, 17934)
-                        , (TChar, 5514)
+                        [ (TInt, 27302)
+                        , (TBool, 53490)
                         ]
                     )
             case ECTAGen.pmf generator of
@@ -154,8 +217,8 @@ spec =
         it "shrinks any failing expression to the minimal application" $ do
             let generator = ECTAGen.ungroup $ upToDepthByType 2
                 minimal =
-                    TypedExpression TInt $
-                        ApplyBinary Const (IntLiteral 0) (IntLiteral 0)
+                    TypedExpression TBool $
+                        Not (BoolLiteral False)
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False} $
                     QC.withNumTests 300 $
@@ -170,8 +233,15 @@ spec =
             let generator = ECTAGen.ungroup $ upToDepthByType 2
                 containsAdd (ApplyBinary function_ first second) =
                     function_ == Add || containsAdd first || containsAdd second
+                containsAdd (Not value) = containsAdd value
+                containsAdd (IfExpression condition ifTrue ifFalse) =
+                    any containsAdd [condition, ifTrue, ifFalse]
                 containsAdd _ = False
+                nodes :: Expression -> Int
+                nodes (Not value) = 1 + nodes value
                 nodes (ApplyBinary _ first second) = 1 + nodes first + nodes second
+                nodes (IfExpression condition ifTrue ifFalse) =
+                    1 + nodes condition + nodes ifTrue + nodes ifFalse
                 nodes _ = 1
                 failing typed =
                     containsAdd (expression typed)
@@ -195,43 +265,37 @@ spec =
                         Left err -> expectationFailure $ show err
                 _ -> expectationFailure "expected the property to fail"
 
-        it "counts the recursive family by size, matching the depth counts" $ do
+        it "counts the recursive family by structural size" $ do
             let flat = ECTAGen.ungroup recursiveExpressions
-            traverse (ECTAGen.countAtSize flat) [1 .. 3]
+            traverse (ECTAGen.countAtSize flat) [1 .. 4]
                 `shouldBe` Right
-                    [ sum (map (expressionCount 0) allTypes)
-                    , 0
-                    , sum (map (expressionCount 1) allTypes)
-                    ]
+                    [4, 2, 42, 82]
             traverse
-                (\result -> ECTAGen.countAtSize (ECTAGen.atKey result recursiveExpressions) 3)
+                ( \result ->
+                    traverse
+                        (ECTAGen.countAtSize $ ECTAGen.atKey result recursiveExpressions)
+                        [1 .. 4]
+                )
                 allTypes
-                `shouldBe` Right (map (expressionCount 1) allTypes)
+                `shouldBe` Right [[2, 0, 16, 12], [2, 2, 26, 70]]
 
-        it "generates the depth-at-most-one language at size at most three" $ do
-            let bounded = ECTAGen.upToSize 3 $ ECTAGen.ungroup recursiveExpressions
+        it "generates exactly the first four finite size classes" $ do
+            let bounded = ECTAGen.upToSize 4 $ ECTAGen.ungroup recursiveExpressions
                 members generator = case ECTAGen.cardinality generator of
                     Right total ->
-                        Right $
-                            Set.fromList
-                                [ member
-                                | rank <- [0 .. total - 1]
-                                , Right member <- [ECTAGen.unrank generator rank]
-                                ]
+                        traverse (ECTAGen.unrank generator) [0 .. total - 1]
                     Left err -> Left err
-            ECTAGen.cardinality bounded `shouldBe` Right 106
-            members bounded `shouldBe` members (ECTAGen.ungroup $ upToDepthByType 1)
+            ECTAGen.cardinality bounded `shouldBe` Right 130
+            members bounded `shouldSatisfy` either (const False) (all isWellTyped)
 
         it "retains one recursive automaton whose cycle carries the constraints" $
             case ECTAGen.support (ECTAGen.ungroup recursiveExpressions) of
                 Left err -> expectationFailure $ show err
                 Right node -> do
                     numNestedMu node `shouldBe` 1
-                    hasTwoArgumentConstraints node `shouldBe` True
                     -- Unfolding the recursion twice admits the atoms and one
-                    -- application layer, and nothing ill-typed: the same 106
-                    -- members the size classes count.
-                    length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 106
+                    -- application layer, and nothing ill-typed: 62 members.
+                    length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 62
 
         it "keeps every recursive group at its own result type" $
             traverse
@@ -245,7 +309,7 @@ spec =
                             )
                 )
                 allTypes
-                `shouldBe` Right [True, True, True]
+                `shouldBe` Right [True, True]
 
         it "samples only well-typed expressions from the recursive family" $
             QC.withNumTests 500 $

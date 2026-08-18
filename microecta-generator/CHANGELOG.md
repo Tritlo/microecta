@@ -8,6 +8,9 @@
 * Add `pool`, which samples an ordinary QuickCheck generator once and freezes
   its draws as a finite transparent ECTA generator. Repeated draws remain
   repeated ranks, so the pool retains their empirical weight.
+* Rework the typed-expression reference language around integer and Boolean
+  literals, unary `Not`, binary functions, and ternary `IfExpression`. Its
+  independent depth-two reference checks all 67,482 generated expressions.
 * Count and unrank uniform transparent generator languages without
   materializing applicative or joined Cartesian products.
 * Expose deterministic rank replay and exact coverage counts, sample weighted
@@ -56,9 +59,10 @@
   arithmetic whenever the cardinality fits and `Integer` otherwise, with
   strict argument binding at every compiled application. Rank order, masses,
   supports, and inspection are unchanged; non-uniform and opaque generators
-  keep the previous sampling path. The typed-expression benchmark reaches
-  3.80x--9.64x the handwritten QuickCheck throughput at depths one through four
-  in the current five-run medians.
+  keep the previous sampling path. The revised unary, binary, and ternary
+  typed-expression benchmark reaches 3.76x, 6.11x, 9.48x, and 8.84x the
+  handwritten QuickCheck throughput at depths one through four in five-run
+  medians.
 * Compile non-uniform finite generators closed by `atomic` when they have at
   most 32,768 ranks and their smallest equivalent integer ticket space fits an
   `Int`. Ranks with the same ticket width share one payload array. Sampling
@@ -120,10 +124,9 @@
   edges carry their key as a first child: an occurrence at one key is that
   node under an edge holding the key's label, with an equality constraint
   tying the two. `ungroup` and `atKey` are the exits into an ordinary
-  recursive generator. The typed-expression language written this way holds
-  40 equality constraints in one `Mu` over 139 nodes, and two unfoldings
-  accept exactly the 106 members the counting layer reports for size at most
-  three.
+  recursive generator. The typed-expression language writes unary, binary,
+  and ternary applications inside one `Mu`; two unfoldings accept the same 62
+  members as the hand-unrolled depth-one generator.
 * Add `oneof` and `oneofGrouped`, uniform choice among generators and among
   grouped generators. They are `frequency` and `frequencies` with equal
   weights, which is the only shape a recursive definition admits, so a

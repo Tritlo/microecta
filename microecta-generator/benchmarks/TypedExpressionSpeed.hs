@@ -14,9 +14,9 @@ second row, so the ECTA-to-handwritten ratio moves with the cost of a draw
 in the QuickCheck and random versions in use — compare the columns across
 engine changes on one machine, not against ratios recorded elsewhere.
 
-Each run prints a checksum. It is stable for a fixed rank order and
-generator, so a changed checksum means the sampled language or its rank
-order changed, not that sampling got faster.
+Each run prints a result-type checksum. It is a smoke check over the sampled
+stream, not a proof that the complete language or rank order is unchanged. The
+artifact's independent exhaustive verifier checks language equality.
 -}
 module Main (main) where
 
@@ -74,9 +74,10 @@ main = do
 
 {- | Draw 'sampleCount' values and report samples per second with a checksum.
 
-The checksum folds every sample, so no draw is left unevaluated, and the
-generator is built once outside the loop: what is timed is sampling, not
-construction.
+The checksum folds every sample, so no draw is left unevaluated. The generator
+value is supplied once, but first-use lowering or decoder compilation may occur
+after the timer starts. One million draws amortize that setup; the benchmark
+does not report it separately.
 -}
 measure :: (a -> Int) -> QC.Gen a -> IO (Double, Int)
 measure tally generator = do

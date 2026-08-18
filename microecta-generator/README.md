@@ -93,15 +93,32 @@ signature function =
 atomsByType :: Grouped Type TypedExpression
 atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 
-applicationGen children =
-  ECTAGen.apply (compile <$> functionsBySignature) (children :& children :& ANil)
+notFunctions :: Grouped (Sig '[Type] Type) (TypedExpression -> TypedExpression)
+notFunctions =
+  compileNot <$ ECTAGen.keyed (TBool :-> TBool) (ECTAGen.elements [()])
 
-depthFour = applicationGen depthThree
+conditionalFunctions =
+  compileConditional
+    <$> ECTAGen.groupBy
+      (\result -> TBool :* result :* result :-> result)
+      (ECTAGen.elements allTypes)
 
-upToDepth 0 = atomsByType
-upToDepth n = ECTAGen.frequencies
-  [(1, atomsByType), (3, applicationGen (upToDepth (n - 1)))]
+binaryLayer children =
+  ECTAGen.apply
+    (compileApplication <$> functionsBySignature)
+    (children :& children :& ANil)
+
+conditionalLayer children =
+  ECTAGen.apply
+    conditionalFunctions
+    (children :& children :& children :& ANil)
 ```
+
+The typed-expression example combines unary `Not`, binary functions, and
+ternary `IfExpression`. Its finite layers weight those three alternatives by
+their exact cardinalities, so every expression remains equally likely. Its
+recursive layer uses equal structural alternatives, as recursive declarations
+require.
 
 Both layers also support qualified do-notation through `Data.ECTA.Gen.Do`,
 which `Data.ECTA.Gen.QuickCheck` re-exports. Enable `QualifiedDo` together
@@ -120,11 +137,12 @@ authentication = ECTAGen.do
   method <- ECTAGen.elements [Password, Token]
   ECTAGen.pure (Authentication user method)
 
-applicationGen children = ECTAGen.do
-  op <- functionsBySignature
-  x <- children
-  y <- children
-  ECTAGen.pure (compile op x y)
+conditionalLayer children = ECTAGen.do
+  build <- conditionalFunctions
+  condition <- children
+  ifTrue <- children
+  ifFalse <- children
+  ECTAGen.pure (build condition ifTrue ifFalse)
 ```
 
 Impossible shapes fail at compile time with an explanation: a statement using
@@ -305,13 +323,12 @@ the key's label, with an equality constraint tying the two. A recursive
 family is therefore one recursive automaton whose cycle carries the keyed
 joins' equality constraints, which is the shape only an ECTA can hold.
 
-For the language above that automaton has 139 nodes and 40 equality
-constraints, and unfolding it twice accepts exactly the 106 expressions the
-counting layer reports for size at most three — the same 106 a hand-unrolled
-depth-one generator produces. `ungroup` and `atKey` are the exits back to an
-ordinary recursive generator, so bounding, sampling, replay, and shrinking
-all work as above. `sizes` has no cardinality to report for a recursive
-family; use `countAtSize` on `atKey`.
+For the language above, unfolding that automaton twice accepts exactly the 62
+expressions produced by the hand-unrolled depth-one generator. This includes
+unary `Not`, the binary functions, and ternary `IfExpression`. `ungroup` and
+`atKey` are the exits back to an ordinary recursive generator, so bounding,
+sampling, replay, and shrinking all work as above. `sizes` has no cardinality
+to report for a recursive family; use `countAtSize` on `atKey`.
 
 `fromECTA` goes the other way: it reads an existing automaton as a generator
 of the terms it accepts, counting them by size — the number of term nodes —

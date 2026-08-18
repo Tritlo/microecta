@@ -21,8 +21,8 @@ import qualified Test.QuickCheck.Random as QCRandom
 import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, On (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.TypedExpressionLanguage (
-    Expression (BoolLiteral, CharLiteral, IntLiteral),
-    Type (TBool, TChar, TInt),
+    Expression (BoolLiteral, IntLiteral),
+    Type (TBool, TInt),
     TypedExpression (TypedExpression),
     applicationGen,
  )
@@ -78,11 +78,6 @@ pooledAtoms integers =
             ECTAGen.elements
                 [ TypedExpression TBool $ BoolLiteral False
                 , TypedExpression TBool $ BoolLiteral True
-                ]
-        , ECTAGen.keyed TChar $
-            ECTAGen.elements
-                [ TypedExpression TChar $ CharLiteral 'a'
-                , TypedExpression TChar $ CharLiteral 'z'
                 ]
         ]
 

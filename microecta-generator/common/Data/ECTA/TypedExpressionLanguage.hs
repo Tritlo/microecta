@@ -4,10 +4,10 @@
 {- | A small well-typed expression language, shared by the specs and the
 sampling benchmark.
 
-Expressions are binary applications over ground-typed literals. Every layer
-is grouped by result type, so an application layer matches each function
-signature with the child groups of the right types instead of generating
-three values and rejecting ill-typed combinations. The handwritten
+Expressions use unary, binary, and ternary applications over integer and
+Boolean literals. Every layer is grouped by result type, so an application
+matches each operation signature with child groups of the right types instead
+of generating values and rejecting ill-typed combinations. The handwritten
 QuickCheck generators mirror the same exact distribution and serve as the
 comparison baseline.
 -}
@@ -18,16 +18,27 @@ module Data.ECTA.TypedExpressionLanguage (
     BinaryFunctionInstance (..),
     Expression (..),
     TypedExpression (..),
+    NotSignature,
     FunctionSignature,
+    ConditionalSignature,
     allTypes,
     binaryFunctionInstances,
     atoms,
+    notSignature,
     functionSignature,
+    conditionalSignature,
+    compileNot,
     compileApplication,
+    compileConditional,
 
     -- * Generators
+    notFunctionsBySignature,
     functionsBySignature,
+    conditionalsBySignature,
     atomsByType,
+    notApplicationGen,
+    binaryApplicationGen,
+    conditionalApplicationGen,
     applicationGen,
     depthByType,
     expressionGenAtDepth,
@@ -51,13 +62,12 @@ import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 
 -- | Ground types in the expression language.
-data Type = TInt | TBool | TChar
+data Type = TInt | TBool
     deriving (Bounded, Enum, Eq, Ord, Show)
 
 -- | Polymorphic and monomorphic binary functions available to expressions.
 data Function
     = Const
-    | FlipConst
     | Equal
     | Add
     | Multiply
@@ -78,8 +88,9 @@ data BinaryFunctionInstance = BinaryFunctionInstance
 data Expression
     = IntLiteral !Int
     | BoolLiteral !Bool
-    | CharLiteral !Char
+    | Not !Expression
     | ApplyBinary !Function !Expression !Expression
+    | IfExpression !Expression !Expression !Expression
     deriving (Eq, Ord, Show)
 
 -- | An expression paired with its inferred ground type.
@@ -89,12 +100,18 @@ data TypedExpression = TypedExpression
     }
     deriving (Eq, Ord, Show)
 
-{- | The dependency information needed to apply one function.
+-- | The dependency information needed to apply 'Not'.
+type NotSignature = ECTAGen.Sig '[Type] Type
+
+{- | The dependency information needed to apply one binary function.
 
 The first two types select child result-type groups whose paths are equated; the
 third is retained as the completed application's result-type key.
 -}
 type FunctionSignature = ECTAGen.Sig '[Type, Type] Type
+
+-- | The dependency information needed to build an 'IfExpression'.
+type ConditionalSignature = ECTAGen.Sig '[Type, Type, Type] Type
 
 -- | All ground types.
 allTypes :: [Type]
@@ -107,10 +124,6 @@ binaryFunctionInstances =
     | first <- allTypes
     , second <- allTypes
     ]
-        <> [ BinaryFunctionInstance FlipConst first second second
-           | first <- allTypes
-           , second <- allTypes
-           ]
         <> [ BinaryFunctionInstance Equal argument argument TBool
            | argument <- allTypes
            ]
@@ -128,9 +141,11 @@ atoms =
     , TypedExpression TInt (IntLiteral 1)
     , TypedExpression TBool (BoolLiteral False)
     , TypedExpression TBool (BoolLiteral True)
-    , TypedExpression TChar (CharLiteral 'a')
-    , TypedExpression TChar (CharLiteral 'z')
     ]
+
+-- | The complete ground signature of 'Not'.
+notSignature :: NotSignature
+notSignature = TBool :-> TBool
 
 -- | Extract the complete ground signature of a function instance.
 functionSignature :: BinaryFunctionInstance -> FunctionSignature
@@ -138,6 +153,33 @@ functionSignature instance_ =
     firstArgumentType instance_
         :* secondArgumentType instance_
         :-> binaryResultType instance_
+
+-- | The ground signature of one conditional result type.
+conditionalSignature :: Type -> ConditionalSignature
+conditionalSignature result =
+    TBool :* result :* result :-> result
+
+-- | Build one well-typed unary expression.
+compileNot :: TypedExpression -> TypedExpression
+compileNot value =
+    TypedExpression TBool $ Not $ expression value
+
+-- | Build one well-typed ternary conditional expression.
+compileConditional ::
+    Type -> TypedExpression -> TypedExpression -> TypedExpression -> TypedExpression
+compileConditional result condition ifTrue ifFalse =
+    TypedExpression result $
+        IfExpression
+            (expression condition)
+            (expression ifTrue)
+            (expression ifFalse)
+
+-- | The unary operation grouped by its ground signature.
+notFunctionsBySignature ::
+    Grouped NotSignature (TypedExpression -> TypedExpression)
+notFunctionsBySignature =
+    compileNot
+        <$ ECTAGen.keyed notSignature (ECTAGen.elements [()])
 
 {- | Function instances grouped by their complete ground signature.
 
@@ -151,6 +193,15 @@ functionsBySignature :: Grouped FunctionSignature BinaryFunctionInstance
 functionsBySignature =
     ECTAGen.groupBy functionSignature (ECTAGen.elements binaryFunctionInstances)
 
+-- | One conditional builder per possible branch and result type.
+conditionalsBySignature ::
+    Grouped
+        ConditionalSignature
+        (TypedExpression -> TypedExpression -> TypedExpression -> TypedExpression)
+conditionalsBySignature =
+    compileConditional
+        <$> ECTAGen.groupBy conditionalSignature (ECTAGen.elements allTypes)
+
 {- | Literals grouped by their ground type.
 
 Each projected @Type@ classifies literals into a group. Those keys let later
@@ -160,27 +211,54 @@ enumerating or inspecting every expression.
 atomsByType :: Grouped Type TypedExpression
 atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
 
+-- | Add one unary application layer.
+notApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+notApplicationGen children = ECTAGen.do
+    build <- notFunctionsBySignature
+    value <- children
+    ECTAGen.pure (build value)
+
+-- | Add one binary application layer.
+binaryApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+binaryApplicationGen children = ECTAGen.do
+    operation <- functionsBySignature
+    left <- children
+    right <- children
+    ECTAGen.pure (compileApplication operation left right)
+
+-- | Add one ternary conditional layer.
+conditionalApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+conditionalApplicationGen children = ECTAGen.do
+    build <- conditionalsBySignature
+    condition <- children
+    ifTrue <- children
+    ifFalse <- children
+    ECTAGen.pure (build condition ifTrue ifFalse)
+
 {- | Add one application layer and retain its result type for the next layer.
 
-The qualified do-block builds exactly one 'ECTAGen.apply' join: the first
-bind chooses the operation family and the remaining binds choose its
-arguments. Each function signature reads as
-@leftArgumentType ':*' rightArgumentType ':->' resultType@. The
-join matches the two signature keys with the two child result-type groups,
-equates their paths, takes their compact Cartesian product, and retains
-@resultType@ as the application's key.
-The dependency is therefore enforced structurally rather than by generating
-three arbitrary values and rejecting ill-typed combinations.
+The three qualified do-blocks build one 'ECTAGen.apply' join apiece. Their
+signatures carry one, two, or three argument keys. Each join matches those keys
+with the corresponding child result-type groups and retains the operation's
+result key. Finite branches are weighted by their cardinalities, so every
+expression in the combined exact-depth language remains equally likely. A
+recursive family uses equal structural alternatives instead.
 
 Keeping the result group is what lets the operation compose recursively at the
 next depth.
 -}
 applicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-applicationGen children = ECTAGen.do
-    operation <- functionsBySignature
-    left <- children
-    right <- children
-    ECTAGen.pure (compileApplication operation left right)
+applicationGen children =
+    case traverse totalCardinality alternatives of
+        Right cardinalities -> ECTAGen.frequencies $ zip cardinalities alternatives
+        Left _ -> ECTAGen.oneofGrouped alternatives
+  where
+    alternatives =
+        [ notApplicationGen children
+        , binaryApplicationGen children
+        , conditionalApplicationGen children
+        ]
+    totalCardinality = fmap sum . ECTAGen.sizes
 
 {- | Exact-depth expressions grouped by result type.
 
@@ -224,11 +302,11 @@ upToDepthByType depth =
 
 {- | Every well-typed expression, as one recursive family.
 
-The same application layer as 'upToDepthByType', but referring to itself
-instead of to a hand-unrolled tower: no depth bound, no hand-computed
-weights, and members counted by size rather than by depth. All three result
-types share one recursive automaton whose cycle carries the application
-layer's equality constraints.
+The same application forms as 'upToDepthByType', but referring to themselves
+instead of to a hand-unrolled tower: no depth bound, no hand-computed weights,
+and members counted by size rather than by depth. Both result types share one
+recursive automaton whose cycle carries the application layers' equality
+constraints.
 -}
 recursiveExpressions :: Grouped Type TypedExpression
 recursiveExpressions = ECTAGen.recurGrouped $ \self ->
@@ -247,12 +325,7 @@ expressionCount :: Int -> Type -> Integer
 expressionCount 0 result =
     toInteger $ length $ filter ((== result) . expressionType) atoms
 expressionCount depth result =
-    sum
-        [ expressionCount childDepth (firstArgumentType instance_)
-            * expressionCount childDepth (secondArgumentType instance_)
-        | instance_ <- binaryFunctionInstances
-        , binaryResultType instance_ == result
-        ]
+    applicationCount (expressionCount childDepth) result
   where
     childDepth = depth - 1
 
@@ -261,14 +334,27 @@ expressionCountUpTo :: Int -> Type -> Integer
 expressionCountUpTo 0 result = expressionCount 0 result
 expressionCountUpTo depth result =
     expressionCount 0 result
-        + sum
-            [ expressionCountUpTo childDepth (firstArgumentType instance_)
-                * expressionCountUpTo childDepth (secondArgumentType instance_)
+        + applicationCount (expressionCountUpTo childDepth) result
+  where
+    childDepth = depth - 1
+
+-- | Count every unary, binary, and conditional application for one result.
+applicationCount :: (Type -> Integer) -> Type -> Integer
+applicationCount childCount result =
+    notCount + binaryCount + conditionalCount
+  where
+    notCount
+        | result == TBool = childCount TBool
+        | otherwise = 0
+    binaryCount =
+        sum
+            [ childCount (firstArgumentType instance_)
+                * childCount (secondArgumentType instance_)
             | instance_ <- binaryFunctionInstances
             , binaryResultType instance_ == result
             ]
-  where
-    childDepth = depth - 1
+    conditionalCount =
+        childCount TBool * childCount result * childCount result
 
 -- | Number of expressions of depth at most the bound across all result types.
 upToDepthCount :: Int -> Integer
@@ -282,9 +368,19 @@ handwrittenExpressionOfType :: Int -> Type -> QC.Gen TypedExpression
 handwrittenExpressionOfType 0 result =
     QC.elements $ filter ((== result) . expressionType) atoms
 handwrittenExpressionOfType depth result =
-    frequencyInteger
-        [ ( expressionCount childDepth (firstArgumentType instance_)
-                * expressionCount childDepth (secondArgumentType instance_)
+    frequencyInteger $ notAlternatives <> binaryAlternatives <> conditionalAlternatives
+  where
+    childDepth = depth - 1
+    count = expressionCount childDepth
+    notAlternatives =
+        [ ( count TBool
+          , compileNot <$> handwrittenExpressionOfType childDepth TBool
+          )
+        | result == TBool
+        ]
+    binaryAlternatives =
+        [ ( count (firstArgumentType instance_)
+                * count (secondArgumentType instance_)
           , do
                 first <-
                     handwrittenExpressionOfType
@@ -299,8 +395,16 @@ handwrittenExpressionOfType depth result =
         | instance_ <- binaryFunctionInstances
         , binaryResultType instance_ == result
         ]
-  where
-    childDepth = depth - 1
+    conditionalAlternatives =
+        [
+            ( count TBool * count result * count result
+            , do
+                condition <- handwrittenExpressionOfType childDepth TBool
+                ifTrue <- handwrittenExpressionOfType childDepth result
+                ifFalse <- handwrittenExpressionOfType childDepth result
+                pure $ compileConditional result condition ifTrue ifFalse
+            )
+        ]
 
 -- | Generate uniformly from all well-typed expressions at one exact depth.
 handwrittenExpressionGen :: Int -> QC.Gen TypedExpression
@@ -310,13 +414,24 @@ handwrittenExpressionGen depth =
         | result <- allTypes
         ]
 
--- | Preserve exact relative weights while fitting QuickCheck's Int interface.
+-- | Preserve exact relative weights, using an Integer draw when needed.
 frequencyInteger :: [(Integer, QC.Gen a)] -> QC.Gen a
 frequencyInteger [] = error "frequencyInteger: empty alternatives"
-frequencyInteger alternatives =
-    QC.frequency
-        [ (fromInteger $ weight `div` commonFactor, generator)
-        | (weight, generator) <- alternatives
-        ]
+frequencyInteger alternatives
+    | totalWeight <= toInteger (maxBound :: Int) =
+        QC.frequency
+            [ (fromInteger weight, generator)
+            | (weight, generator) <- reduced
+            ]
+    | otherwise = do
+        selected <- QC.chooseInteger (1, totalWeight)
+        pick selected reduced
   where
     commonFactor = foldl' gcd 0 $ map fst alternatives
+    reduced = [(weight `div` commonFactor, generator) | (weight, generator) <- alternatives]
+    totalWeight = sum $ map fst reduced
+
+    pick _ [] = error "frequencyInteger: selected past the alternatives"
+    pick selected ((weight, generator) : remaining)
+        | selected <= weight = generator
+        | otherwise = pick (selected - weight) remaining
