@@ -124,7 +124,7 @@
   node under an edge holding the key's label, with an equality constraint
   tying the two. `ungroup` and `atKey` are the exits into an ordinary
   recursive generator. The typed-expression language writes unary, binary,
-  and ternary applications inside one `Mu`; two unfoldings accept the same 62
+  and ternary applications inside one `Mu`; two unfoldings accept the same 46
   members as the hand-unrolled depth-one generator.
 * Add `oneof` and `oneofGrouped`, uniform choice among generators and among
   grouped generators. They are `frequency` and `frequencies` with equal

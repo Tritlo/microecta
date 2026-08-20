@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 {- | Indexed generators whose transparent regions are represented as ECTAs.
 
 An indexed source stores a finite cardinality and a function from indices to
@@ -1136,7 +1134,7 @@ countAtSize :: ECTAGen gen a -> Int -> Either ECTAGenError Integer
 countAtSize generator size =
     flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
 
-{- | Decode one stable rank from a transparent generator.
+{- | Decode one stable rank from an inspectable generator.
 
 Ranks are stable while the generator definition and the ordering of its finite
 sources remain unchanged.
@@ -1252,7 +1250,7 @@ countBy key (Transparent result) = do
 countBy _ (Cyclic _) = Left UnboundedGenerator
 countBy _ (Opaque _) = Left CannotInspectOpaqueGenerator
 
--- | Aggregate the exact probability mass of every transparent result.
+-- | Aggregate the exact probability mass of every finite transparent result.
 pmf :: (Ord a) => ECTAGen gen a -> Either ECTAGenError [(a, Rational)]
 pmf (Transparent result) = do
     static <- result

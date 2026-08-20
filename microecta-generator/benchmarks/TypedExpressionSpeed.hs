@@ -24,8 +24,8 @@ import System.CPUTime (getCPUTime)
 import System.Random (splitGen)
 import Text.Printf (printf)
 
-import qualified Test.QuickCheck.Gen as QC
-import qualified Test.QuickCheck.Random as QC
+import qualified Test.QuickCheck.Gen as QCGen
+import qualified Test.QuickCheck.Random as QCRandom
 
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.TypedExpressionLanguage (
@@ -45,7 +45,7 @@ depths = [1 .. 4]
 main :: IO ()
 main = do
     reference "empty generator" $ pure 0
-    reference "one chooseInt" $ QC.chooseInt (0, 99)
+    reference "one chooseInt" $ QCGen.chooseInt (0, 99)
     printf "\n%5s  %14s  %14s  %8s  %21s\n" "depth" "ecta/s" "handwritten/s" "ratio" "checksum"
     mapM_ row depths
   where
@@ -79,7 +79,7 @@ value is supplied once, but first-use lowering or decoder compilation may occur
 after the timer starts. One million draws amortize that setup; the benchmark
 does not report it separately.
 -}
-measure :: (a -> Int) -> QC.Gen a -> IO (Double, Int)
+measure :: (a -> Int) -> QCGen.Gen a -> IO (Double, Int)
 measure tally generator = do
     start <- getCPUTime
     let checksum = fst $ foldl' step (0, root) [1 .. sampleCount]
@@ -89,8 +89,8 @@ measure tally generator = do
   where
     -- One fixed root seed, split per draw the way QuickCheck drives a
     -- property: deterministic across runs and cheap next to a draw.
-    root = QC.mkQCGen 20260811
+    root = QCRandom.mkQCGen 20260811
 
     step (accumulator, generated) _ =
         let (drawn, next) = splitGen generated
-         in (accumulator + tally (QC.unGen generator drawn 30), next)
+         in (accumulator + tally (QCGen.unGen generator drawn 30), next)

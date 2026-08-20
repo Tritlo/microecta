@@ -252,10 +252,11 @@ finite automaton for infinitely many terms.
 the members of size at most `n`, and `toGen` and `forAll` apply it from
 QuickCheck's size parameter. Size classes and structural alternatives are
 selected from their member counts; weighted finite choices closed with
-`atomic` retain their declared PMF inside the selected size. Bounding preserves ranks — the
-members of size at most `n` hold the same ranks under every bound — so a
-counterexample found at one size replays at any other, and `forAll` shrinks
-by walking whole size classes below the failing member.
+`atomic` retain their declared PMF inside the selected size. Bounding preserves
+ranks: the members of size at most `n` hold the same ranks under every bound
+large enough to contain them. A counterexample therefore replays under any
+larger bound, and `forAll` shrinks by walking whole size classes below the
+failing member.
 
 `atomic` treats every member of a finite generator as one source choice. This
 sets a domain-sized boundary inside a recursive language. For example, an
@@ -399,16 +400,18 @@ structure explicit.
 - `Data.ECTA.Gen.QuickCheck` provides the ordinary QuickCheck-facing API,
   including `fromGen`, `toGen`, `forAll`, and `sized`.
 - `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Automaton`,
-  `Data.ECTA.Gen.Internal.Decoder`, `Data.ECTA.Gen.Internal.Shrink`, and
-  `Data.ECTA.Gen.Internal.Size` implement static languages, joins, reading
-  an automaton, compiled rank decoding, structural shrinking, and
-  size-stratified counting. They are not exposed.
+  `Data.ECTA.Gen.Internal.Decoder`, `Data.ECTA.Gen.Internal.Sampler`,
+  `Data.ECTA.Gen.Internal.Shrink`, and `Data.ECTA.Gen.Internal.Size` implement
+  static languages, joins, reading an automaton, compiled rank decoding,
+  exact sampling, structural shrinking, and size-stratified counting. They are
+  not exposed.
 
 ## Dependency surface
 
-The package depends directly on `microecta`, `QuickCheck`, `containers`,
-and `text`. The dependency direction is one-way: `microecta` does not depend
-on this package or on QuickCheck.
+The library depends directly on `microecta`, `QuickCheck`, `array`,
+`containers`, and `text`; the benchmarks additionally use `random`. The
+dependency direction is one-way: `microecta` does not depend on this package
+or on QuickCheck.
 
 ## Build
 

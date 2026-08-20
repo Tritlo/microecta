@@ -2,7 +2,7 @@
 
 A language's members split into size classes, where size is the number of
 source choices in a member: an atom has size one, and an application adds
-the sizes of its operation and argument choices. A 'SizeIndex' counts every
+the sizes of its operation and argument choices. A t'SizeIndex' counts every
 class by FEAT-style convolution — a product of size @s@ splits into an
 operation of size @a@ and arguments of size @s - a@ — and indexes into one
 directly, returning the member's rank alongside its value.

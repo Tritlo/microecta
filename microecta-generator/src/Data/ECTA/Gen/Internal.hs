@@ -2,8 +2,8 @@
 
 {- | The transparent-generator engine behind "Data.ECTA.Gen".
 
-Finite languages are represented as a 'Static': an ECTA support paired with
-an 'OutcomeIndex' that counts, selects, decodes, and samples outcomes by
+Finite languages are represented as a t'Static': an ECTA support paired with
+an t'OutcomeIndex' that counts, selects, decodes, and samples outcomes by
 rank. This module holds the builders, joins, group buckets, and symbols. The
 sampling engine lives in "Data.ECTA.Gen.Internal.Sampler". The public generator
 types and combinators live in "Data.ECTA.Gen".
@@ -320,7 +320,7 @@ classes retain their count-based probability. Finite choices closed with
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
-Members carry a retained 'Term' only when the values are the accepted terms
+Members carry a retained t'Term' only when the values are the accepted terms
 themselves, as they are for an automaton read with @fromECTA@; otherwise
 inspection through 'outcomeSelect' reports
 'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
@@ -495,7 +495,7 @@ bucketFromOutcomes retainAtomic outcomes = do
 {- | Group maps of every argument family, threaded through the operation type.
 
 The group payload is a parameter: finite argument families carry a
-'KeyedBucket', recursive ones a 'Recursive', and everything that only walks
+@KeyedBucket@, recursive ones a t'Recursive', and everything that only walks
 the chain is written once for both.
 -}
 data ArgMaps f (argKeys :: [Type]) operation result where
@@ -841,7 +841,7 @@ keyedOutcomes key static =
 
 -- | Group enumerated outcomes by key.
 groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
-groupOutcomes = Map.fromListWith (<>) . map (fmap pure)
+groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
 
 -- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::

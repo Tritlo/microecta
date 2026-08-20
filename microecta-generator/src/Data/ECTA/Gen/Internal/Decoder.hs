@@ -139,7 +139,7 @@ compileRank (PlanSelect cardinality' decode)
                 listArray
                     (0, size - 1)
                     [decode (toInteger index) | index <- [0 .. size - 1]]
-         in unsafeAt table . fromIntegral
+         in unsafeAt table
     | otherwise = decode . toInteger
 compileRank (PlanMap transform plan) =
     let decode = compileRank plan

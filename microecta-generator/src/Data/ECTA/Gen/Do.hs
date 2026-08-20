@@ -21,7 +21,7 @@ authentication = ECTAGen.do
 @
 
 Statements must be independent: the block builds the same applicative product
-as '<*>' composition, so a later generator cannot use an earlier bound value.
+as @<*>@ composition, so a later generator cannot use an earlier bound value.
 The final statement must be written with a /qualified/ @pure@ or @return@;
 GHC does not recognize the unqualified names inside a qualified block.
 
@@ -51,7 +51,7 @@ module Data.ECTA.Gen.Do (
 ) where
 
 import Data.Kind (Type)
-import Prelude (Functor, Ord)
+import Prelude (Ord)
 import qualified Prelude
 
 #if MIN_VERSION_base(4,19,0)
@@ -67,8 +67,8 @@ import Data.ECTA.Gen (
     apply,
  )
 
--- | Map with the 'Functor' instance of either generator layer.
-fmap :: (Functor f) => (a -> b) -> f a -> f b
+-- | Map with the 'Prelude.Functor' instance of either generator layer.
+fmap :: (Prelude.Functor f) => (a -> b) -> f a -> f b
 fmap = Prelude.fmap
 
 {- | Lift one value into a flat generator.

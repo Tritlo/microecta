@@ -242,8 +242,11 @@ decodesEveryRankExactly generator =
 spec :: Spec
 spec = do
     describe "ECTAGen joins" $ do
-        it "retains only matching keys with the conditioned product PMF" $
+        it "retains matching keys in key and source order with the conditioned product PMF" $ do
             ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
+            let ranks = [0 .. toInteger (length expectedPmf) - 1]
+            traverse (ECTAGen.unrank matchedFixture) ranks
+                `shouldBe` Right (map fst expectedPmf)
 
         it "relates different key types against the declared predicate" $ do
             ECTAGen.cardinality relatedAccess `shouldBe` Right 5

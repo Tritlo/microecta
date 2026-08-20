@@ -211,7 +211,7 @@ recurGrouped = ECTA.recurGrouped
 {- | Bound a generator to the members of size at most the given bound.
 
 Size is the number of source choices in a member. Ranks are unchanged, so a
-counterexample found under one bound replays under any other.
+counterexample found under one bound replays under any larger bound.
 -}
 upToSize :: Int -> ECTAGen a -> ECTAGen a
 upToSize = ECTA.upToSize
@@ -326,7 +326,7 @@ relate ::
     ECTAGen (left, right)
 relate = ECTA.relate
 
--- | Return the ECTA support of a fully transparent generator.
+-- | Return the ECTA support of an inspectable generator.
 support :: ECTAGen a -> Either ECTAGenError Node
 support = ECTA.support
 
@@ -342,7 +342,7 @@ countAtSize = ECTA.countAtSize
 smallest :: ECTAGen a -> Either ECTAGenError (Maybe a)
 smallest = ECTA.smallest
 
--- | Decode one stable rank from a transparent generator.
+-- | Decode one stable rank from an inspectable generator.
 unrank :: ECTAGen a -> Integer -> Either ECTAGenError a
 unrank = ECTA.unrank
 
@@ -364,7 +364,7 @@ sizeOfRank = ECTA.sizeOfRank
 countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either ECTAGenError (Map key Integer)
 countBy = ECTA.countBy
 
--- | Aggregate the exact PMF of a fully transparent generator.
+-- | Aggregate the exact PMF of a finite transparent generator.
 pmf :: (Ord a) => ECTAGen a -> Either ECTAGenError [(a, Rational)]
 pmf = ECTA.pmf
 
@@ -380,17 +380,29 @@ pmfAtSize = ECTA.pmfAtSize
 fromGen :: QC.Gen a -> ECTAGen a
 fromGen = ECTA.fromBackend . QuickCheckBackend
 
--- | Sample while retaining structured generator errors.
+{- | Sample a non-recursive generator while retaining structured generator errors.
+
+Unlike 'toGen', this does not bound a recursive generator from QuickCheck's
+size parameter; apply 'upToSize' explicitly first.
+-}
 toGenEither :: ECTAGen a -> QC.Gen (Either ECTAGenError a)
 toGenEither generator = case ECTA.lower generator of
     QuickCheckBackend generated -> generated
 
--- | Sample a transparent generator while retaining its stable rank and errors.
+{- | Sample a finite transparent generator while retaining its stable rank and
+errors.
+
+Unlike 'toGenWithRank', this does not bound a recursive generator from
+QuickCheck's size parameter; apply 'upToSize' explicitly first.
+-}
 toGenWithRankEither :: ECTAGen a -> QC.Gen (Either ECTAGenError (Integer, a))
 toGenWithRankEither generator = case ECTA.lowerWithRank generator of
     QuickCheckBackend generated -> generated
 
--- | Sample through the generator type expected by QuickCheck.
+{- | Sample through the generator type expected by QuickCheck.
+
+Recursive generators are bounded by QuickCheck's size parameter.
+-}
 toGen :: ECTAGen a -> QC.Gen a
 toGen generator
     | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
@@ -399,7 +411,10 @@ toGen generator
   where
     bounded = [toGen (ECTA.upToSize (max 1 size) generator) | size <- [0 ..]]
 
--- | Sample a transparent generator together with its stable replay rank.
+{- | Sample an inspectable generator together with its stable replay rank.
+
+Recursive generators are bounded by QuickCheck's size parameter.
+-}
 toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
 toGenWithRank generator
     | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
