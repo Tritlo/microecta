@@ -62,10 +62,12 @@ randPath :: [Node] -> Gen Path
 randPath [] = return EmptyPath
 randPath ns = do
     i <- chooseInt (0, length ns - 1)
-    let Node es = ns !! i
-    ns' <- edgeChildren <$> elements es
-    b <- arbitrary
-    if b then return (path [i]) else ConsPath i <$> randPath ns'
+    case ns !! i of
+        Node es -> do
+            ns' <- edgeChildren <$> elements es
+            b <- arbitrary
+            if b then return (path [i]) else ConsPath i <$> randPath ns'
+        _ -> error "randPath: generated child is not an ordinary node"
 
 instance Arbitrary Edge where
     arbitrary =

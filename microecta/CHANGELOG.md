@@ -2,6 +2,11 @@
 
 ## 0.1.1.0 - Unreleased
 
+* Make contradictory equality constraints safe to pretty-print, replace
+  partial test and enumeration paths with explicit cases, and enable strict
+  warnings on GHC 9.12 and 9.14.
+* Correct the `equivalence` lower bound to 0.4.1, the first release exporting
+  the `classes` operation used by the library.
 * `createMu` drops a recursive node whose variable does not occur in its
   body, so `Mu $ \r1 -> Mu $ \_r2 -> Node [Edge "f" [r1]]` is the same node
   as `Mu $ \r1 -> Node [Edge "f" [r1]]`. `intersect` already avoided

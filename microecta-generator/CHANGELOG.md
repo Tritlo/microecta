@@ -2,6 +2,14 @@
 
 ## 0.1.0.0 - Unreleased
 
+* Reject negative ranks and guarded recursion without a finite base instead of
+  scanning an infinite size stream. Track each language's first live size so
+  QuickCheck size zero works for recursive languages whose smallest member is
+  larger than one, including generators read from recursive automata.
+* Make grouped recursion solve the least live size across mutually recursive
+  keys, retain source-rank order through one shared grouping implementation,
+  and add direct regressions for conjunctions, weighted rank replay, invalid
+  frequencies, and machine-boundary indices.
 * Add indexed applicative generators represented by ECTA terms, conditioned
   joins backed by ECTA equality constraints, and QuickCheck integration with
   an explicit opaque `fromGen` boundary.

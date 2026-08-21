@@ -3,11 +3,17 @@
 -- | Recursive generators and generators read from an existing automaton.
 module Data.ECTA.RecursiveGenSpec (spec) where
 
-import Data.List (nub, sort)
+import Control.Exception (evaluate)
+import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
+import qualified Data.Set as Set
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
+import qualified Test.QuickCheck.Gen as QCGen
+import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (
     Edge (Edge),
@@ -19,7 +25,7 @@ import Data.ECTA (
     nodeRepresents,
     numNestedMu,
  )
-import Data.ECTA.Gen.QuickCheck (ECTAGen, ECTAGenError (..))
+import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Term)
@@ -170,14 +176,18 @@ spec = do
                            ]
 
         it "decodes every rank of the bounded language to a distinct member" $
-            length (nub [ECTAGen.unrank trees rank | rank <- [0 .. boundedTreeCount - 1]])
-                `shouldBe` fromInteger boundedTreeCount
+            traverse (ECTAGen.unrank trees) [0 .. boundedTreeCount - 1]
+                `shouldSatisfy` either (const False) ((== fromInteger boundedTreeCount) . Set.size . Set.fromList)
+
+        it "rejects negative recursive ranks without scanning the language" $ do
+            result <- timeout 1000000 $ evaluate $ ECTAGen.unrank trees (-1)
+            result `shouldBe` Just (Left $ NegativeRank (-1))
 
         it "supports the language with one recursive automaton" $
             fmap numNestedMu (ECTAGen.support trees) `shouldBe` Right 1
 
-        it "samples within the size parameter" $
-            QC.withNumTests 200 $
+        modifyMaxSuccess (const 200) $
+            it "samples within the size parameter" $
                 QC.forAll (QC.resize 4 $ ECTAGen.toGen trees) $ \member ->
                     QC.counterexample (show member) $ QC.property $ leaves member <= 4
 
@@ -217,6 +227,35 @@ spec = do
             ECTAGen.countAtSize (mapped :: ECTAGen Tree) 1
                 `shouldBe` Left UnguardedRecursion
 
+        it "reports a guarded recursion with no base as empty" $ do
+            let empty = ECTAGen.recur $ \self -> pure id <*> self
+            smallestResult <- timeout 1000000 $ evaluate $ ECTAGen.smallest (empty :: ECTAGen Tree)
+            unrankResult <- timeout 1000000 $ evaluate $ ECTAGen.unrank (empty :: ECTAGen Tree) 0
+            smallestResult `shouldBe` Just (Right Nothing)
+            unrankResult `shouldBe` Just (Left EmptyGenerator)
+
+        it "reports a guarded grouped recursion with no base as empty" $ do
+            let operations = ECTAGen.keyed (() :-> ()) $ pure id
+                family :: ECTAGen.Grouped () ()
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.apply operations (self :& ANil)
+            result <- timeout 1000000 $ evaluate $ ECTAGen.smallest $ ECTAGen.ungroup family
+            result `shouldBe` Just (Right Nothing)
+
+        it "starts QuickCheck at the first live recursive size" $ do
+            let minimumTwo = ECTAGen.recur $ \self ->
+                    ECTAGen.oneof
+                        [ (\_ _ -> Leaf 0) <$> ECTAGen.elements [()] <*> ECTAGen.elements [()]
+                        , Branch <$> self <*> self
+                        ]
+                sampled =
+                    QCGen.unGen
+                        (ECTAGen.toGen minimumTwo)
+                        (QCRandom.mkQCGen 20260821)
+                        0
+            ECTAGen.minimumSize minimumTwo `shouldBe` Right (Just 2)
+            sampled `shouldBe` Leaf 0
+
         it "hands back a body that never uses the argument" $ do
             let notRecursive = ECTAGen.recur $ \_self -> Leaf <$> ECTAGen.elements [0 .. 2]
             ECTAGen.cardinality notRecursive `shouldBe` Right 3
@@ -228,9 +267,8 @@ spec = do
                 containsOne (Branch left right) = containsOne left || containsOne right
                 failing member = leaves member >= 3 && containsOne member
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSize = 6} $
-                    QC.withNumTests 500 $
-                        ECTAGen.forAll trees (not . failing)
+                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSize = 6, QC.maxSuccess = 500} $
+                    ECTAGen.forAll trees (not . failing)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
                     let rank = read (takeWhile (/= ':') (drop 5 shown)) :: Integer
@@ -299,8 +337,8 @@ spec = do
             traverse (ECTAGen.countAtSize $ ECTAGen.fromECTA typeAutomaton) [1 .. 5]
                 `shouldBe` Right [1, 1, 2, 4, 9]
 
-        it "samples only terms the automaton accepts" $
-            QC.withNumTests 200 $
+        modifyMaxSuccess (const 200) $
+            it "samples only terms the automaton accepts" $
                 QC.forAll (QC.resize 6 $ ECTAGen.toGen $ ECTAGen.fromECTA typeAutomaton) $
                     \term -> QC.counterexample (show term) $ QC.property $ nodeRepresents typeAutomaton term
 
@@ -309,6 +347,18 @@ spec = do
             fmap (map fst) (ECTAGen.pmf bounded)
                 `shouldSatisfy` either (const False) ((== 2) . length)
             fmap sum (ECTAGen.countBy termSymbol bounded) `shouldBe` Right 2
+
+        it "keeps aggregate inspection behind a finite recursive bound" $
+            ECTAGen.pmf boundedTrees `shouldBe` Left CannotInspectRecursiveGenerator
+
+        it "reports a recursive automaton without finite terms as empty" $ do
+            let emptyAutomaton = createMu $ \self -> Node [Edge "loop" [self]]
+                generator = ECTAGen.fromECTA emptyAutomaton
+            smallestResult <- timeout 1000000 $ evaluate $ ECTAGen.smallest generator
+            unrankResult <- timeout 1000000 $ evaluate $ ECTAGen.unrank generator 0
+            ECTAGen.minimumSize generator `shouldBe` Right Nothing
+            smallestResult `shouldBe` Just (Right Nothing)
+            unrankResult `shouldBe` Just (Left $ SelectionOutOfRange 0 0)
 
         it "rejects an automaton whose edges carry equality constraints" $
             ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromECTA constrainedAutomaton)

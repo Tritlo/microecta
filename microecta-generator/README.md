@@ -16,7 +16,7 @@ build-depends: microecta-generator
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
-import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
+import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 ```
 
 ## Generator API
@@ -198,7 +198,7 @@ across samples), so layered generators can scale with the size parameter.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
-import Data.ECTA.Gen.QuickCheck qualified as ECTAGen
+import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 
 joined :: ECTAGen (Authentication, Filesystem)
 joined =

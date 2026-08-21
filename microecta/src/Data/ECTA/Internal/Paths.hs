@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 {- | Representations of paths in an FTA, data structures for
   equality constraints over paths, algorithms for saturating these constraints
@@ -414,7 +415,7 @@ completedSubsumptionOrdering pec1 pec2
 data EqConstraints
     = EqConstraints
         { getEclasses :: [PathEClass]
-        -- ^ Must be sorted
+        -- ^ Must be sorted. This selector is partial for 'EqContradiction'.
         }
     | EqContradiction
     deriving (Eq, Ord, Show)
@@ -426,13 +427,16 @@ instance Hashable EqConstraints where
         salt `hashWithSalt` (1 :: Int)
 
 instance Pretty EqConstraints where
-    pretty ecs = "{" <> (Text.intercalate "," $ map pretty (getEclasses ecs)) <> "}"
+    pretty EqContradiction = "{contradiction}"
+    pretty (EqConstraints eclasses) =
+        "{" <> (Text.intercalate "," $ map pretty eclasses) <> "}"
 
 --------- Destructors and patterns
 
 -- | Unsafe. Internal use only
 ecsGetPaths :: EqConstraints -> [[Path]]
-ecsGetPaths = map unPathEClass . getEclasses
+ecsGetPaths EqContradiction = error "ecsGetPaths: Illegal argument 'EqContradiction'"
+ecsGetPaths (EqConstraints eclasses) = map unPathEClass eclasses
 
 pattern EmptyConstraints :: EqConstraints
 pattern EmptyConstraints = EqConstraints []
@@ -440,7 +444,7 @@ pattern EmptyConstraints = EqConstraints []
 -- | Extract equality classes, failing on 'EqContradiction'.
 unsafeGetEclasses :: EqConstraints -> [PathEClass]
 unsafeGetEclasses EqContradiction = error "unsafeGetEclasses: Illegal argument 'EqContradiction'"
-unsafeGetEclasses ecs = getEclasses ecs
+unsafeGetEclasses (EqConstraints eclasses) = eclasses
 
 -- | Construct constraints without congruence closure or contradiction checks.
 rawMkEqConstraints :: [[Path]] -> EqConstraints
@@ -535,7 +539,7 @@ they no longer constrain anything after the descent.
 eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
 eqConstraintsDescend EmptyConstraints _ = EmptyConstraints
-eqConstraintsDescend ecs i = case mapMaybe (`pathEClassDescendNontrivial` i) (getEclasses ecs) of
+eqConstraintsDescend (EqConstraints sourceEclasses) i = case mapMaybe (`pathEClassDescendNontrivial` i) sourceEclasses of
     [] -> EmptyConstraints
     [eclass] -> EqConstraints [eclass]
     eclasses -> EqConstraints $ sort eclasses

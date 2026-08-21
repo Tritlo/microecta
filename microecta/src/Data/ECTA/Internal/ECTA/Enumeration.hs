@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 {- | Nondeterministic enumeration for ECTAs.
 
@@ -301,7 +302,11 @@ getUVarValue uv = do
 
 -- | Look up the fragment for an already-enumerated UVar.
 getTermFragForUVar :: UVar -> EnumerateM TermFragment
-getTermFragForUVar uv = termFragment <$> getUVarValue uv
+getTermFragForUVar uv = do
+    value <- getUVarValue uv
+    case value of
+        UVarEnumerated fragment -> return fragment
+        _ -> error "getTermFragForUVar: UVar has not been enumerated"
 
 setUVarValue :: Int -> UVarValue -> EnumerateM ()
 setUVarValue idx val =
@@ -337,7 +342,7 @@ assimilateUvarVal uvTarg uvSrc
             UVarEliminated -> return () -- Happens from duplicate constraints
             _ -> do
                 let v = intersectUVarValue srcVal targVal
-                guard (contents v /= Just EmptyNode)
+                guard $ not $ hasEmptyContents v
                 setUVarValue (uvarToInt uvTarg) v
                 setUVarValue (uvarToInt uvSrc) UVarEliminated
 
@@ -348,7 +353,12 @@ mergeNodeIntoUVarVal uv n scs = do
     let idx = uvarToInt uv'
     modifyUVarValue idx (intersectUVarValue (UVarUnenumerated (Just n) scs))
     newValues <- gets _uvarValues
-    guard (contents (Sequence.index newValues idx) /= Just EmptyNode)
+    guard $ not $ hasEmptyContents $ Sequence.index newValues idx
+
+-- | Whether an unenumerated variable has already reduced to the empty node.
+hasEmptyContents :: UVarValue -> Bool
+hasEmptyContents (UVarUnenumerated (Just EmptyNode) _) = True
+hasEmptyContents _ = False
 
 ---------------------
 -------- Variant maintainer

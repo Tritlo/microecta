@@ -19,7 +19,7 @@ import Data.Text (Text)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Human-readable name for a memo table.
-data MemoCacheTag
+newtype MemoCacheTag
     = -- | Name a table for debugging and nested-table derivation.
       NameTag Text
     deriving (Eq, Ord, Show)
@@ -30,7 +30,7 @@ instance Hashable MemoCacheTag where
 mkInnerTag :: MemoCacheTag -> MemoCacheTag
 mkInnerTag (NameTag t) = NameTag (t <> "-inner")
 
-memoIO :: forall a b. (Eq a, Hashable a) => MemoCacheTag -> (a -> b) -> IO (a -> IO b)
+memoIO :: forall a b. (Hashable a) => MemoCacheTag -> (a -> b) -> IO (a -> IO b)
 memoIO _ f = do
     ht :: HT.CuckooHashTable a b <- HT.new
     let f' x = do
@@ -44,11 +44,11 @@ memoIO _ f = do
     return f'
 
 -- | Memoize a pure unary function in a process-global mutable hash table.
-memo :: (Eq a, Hashable a) => MemoCacheTag -> (a -> b) -> (a -> b)
+memo :: (Hashable a) => MemoCacheTag -> (a -> b) -> (a -> b)
 memo tag f =
     let f' = unsafePerformIO (memoIO tag f)
      in \x -> unsafePerformIO (f' x)
 
 -- | Memoize a pure binary function as nested unary memo tables.
-memo2 :: (Eq a, Hashable a, Eq b, Hashable b) => MemoCacheTag -> (a -> b -> c) -> a -> b -> c
+memo2 :: (Hashable a, Hashable b) => MemoCacheTag -> (a -> b -> c) -> a -> b -> c
 memo2 tag f = memo tag (memo (mkInnerTag tag) . f)

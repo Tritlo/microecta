@@ -67,6 +67,8 @@ data ECTAGenError
       CannotInspectOpaqueGenerator
     | -- | A rank fell outside a language of the given cardinality.
       SelectionOutOfRange !Integer !Integer
+    | -- | Ranks start at zero, so a negative rank cannot select a member.
+      NegativeRank !Integer
     | {- | Something needing a finite language met a recursive one, which has
       size classes rather than a cardinality.
       -}
@@ -139,6 +141,12 @@ explain (SelectionOutOfRange rank total)
             , "countAtSize reports one size class, and upToSize fixes the"
             , "language a rank has to fall inside."
             ]
+explain (NegativeRank rank) =
+    guidance
+        [ "Rank " <> show rank <> " is negative, but ranks start at zero."
+        , "Fix: use a rank returned by toGenWithRank or forAll, or pass a"
+        , "non-negative rank to unrank."
+        ]
 explain UnboundedGenerator =
     guidance
         [ "This needs a language with finitely many members, but the generator"
@@ -1541,7 +1549,8 @@ commonValue _ = Nothing
 -- | Reject a rank outside the language.
 checkIndex :: Integer -> Integer -> Either ECTAGenError ()
 checkIndex totalOutcomes index
-    | index < 0 || index >= totalOutcomes =
+    | index < 0 = Left $ NegativeRank index
+    | index >= totalOutcomes =
         Left $ SelectionOutOfRange index totalOutcomes
     | otherwise = Right ()
 

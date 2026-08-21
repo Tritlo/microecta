@@ -192,14 +192,13 @@ spec = do
                  in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
         it "reducing a single constraint is idempotent 2" $
-            property $ \e1 e2 ->
-                let maybeE' = intersectEdge e1 e2
-                 in (maybeE' /= Nothing) ==>
-                        let Just e' = maybeE'
-                            ns = edgeChildren e'
-                            ecs = edgeEcs e'
-                            ns' = reduceEqConstraints ecs EmptyConstraints ns
-                         in ns' == reduceEqConstraints ecs EmptyConstraints ns'
+            let intersectingEdge =
+                    arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
+             in forAll intersectingEdge $ \e' ->
+                    let ns = edgeChildren e'
+                        ecs = edgeEcs e'
+                        ns' = reduceEqConstraints ecs EmptyConstraints ns
+                     in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
         --   TODO (6/29/21): Need a better way to visualize the type nodes. Cannot figure out why this fails.
         --   Reversing the order that eclasses are processed seems to make no difference.
@@ -213,13 +212,17 @@ spec = do
 
         -- TODO: I've become less convinced this can actually be done in one pass. But this test passes.
         it "leaf reduction means, for everything at a path, there is something matching at the other paths" $
-            property $ \e ->
-                let e' = reduceEdgeIntersection EmptyConstraints e
-                    ns = edgeChildren e'
-                 in (e' /= emptyEdge && edgeEcs e' /= EmptyConstraints) ==>
-                        and
+            let liveConstrainedEdge =
+                    arbitrary `suchThatMap` \edge ->
+                        let reduced = reduceEdgeIntersection EmptyConstraints edge
+                         in if reduced /= emptyEdge && edgeEcs reduced /= EmptyConstraints
+                                then Just reduced
+                                else Nothing
+             in forAll liveConstrainedEdge $ \edge ->
+                    let ns = edgeChildren edge
+                     in and
                             [ intersect n1 n2 /= EmptyNode
-                            | ec <- unsafeGetEclasses (edgeEcs e')
+                            | ec <- unsafeGetEclasses (edgeEcs edge)
                             , p1 <- unPathEClass ec
                             , p2 <- unPathEClass ec
                             , n1 <- getAllAtPath p1 ns

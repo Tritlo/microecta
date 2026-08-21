@@ -4,6 +4,7 @@ import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
@@ -211,10 +212,9 @@ spec =
                     TypedExpression TBool $
                         Not (BoolLiteral False)
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False} $
-                    QC.withNumTests 300 $
-                        ECTAGen.forAll generator $ \typed ->
-                            expressionDepth (expression typed) == 0
+                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 300} $
+                    ECTAGen.forAll generator $ \typed ->
+                        expressionDepth (expression typed) == 0
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
                     shown `shouldSatisfy` (show minimal `isSuffixOf`)
@@ -242,10 +242,9 @@ spec =
                         minimum [nodes (expression typed) | (typed, _) <- outcomes, failing typed]
                     Left err -> error $ show err
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False} $
-                    QC.withNumTests 500 $
-                        ECTAGen.forAll generator $ \typed ->
-                            not (failing typed)
+                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 500} $
+                    ECTAGen.forAll generator $ \typed ->
+                        not (failing typed)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} -> do
                     let rank = read (takeWhile (/= ':') (drop 5 shown)) :: Integer
@@ -288,36 +287,33 @@ spec =
                     -- application layer, and nothing ill-typed: 46 members.
                     length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 46
 
-        it "keeps every recursive group at its own result type" $
-            traverse
-                ( \result ->
+        it "keeps every recursive group at its own result type" $ do
+            let groupHasType result = do
                     let bounded = ECTAGen.upToSize 5 $ ECTAGen.atKey result recursiveExpressions
-                     in fmap
-                            (all (== result))
-                            ( traverse
-                                (fmap expressionType . ECTAGen.unrank bounded)
-                                [0 .. either (const 0) id (ECTAGen.cardinality bounded) - 1]
-                            )
-                )
-                allTypes
-                `shouldBe` Right [True, True]
+                    total <- ECTAGen.cardinality bounded
+                    generatedTypes <-
+                        traverse
+                            (fmap expressionType . ECTAGen.unrank bounded)
+                            [0 .. total - 1]
+                    pure $ all (== result) generatedTypes
+            traverse groupHasType allTypes `shouldBe` Right [True, True]
 
-        it "samples only well-typed expressions from the recursive family" $
-            QC.withNumTests 500 $
+        modifyMaxSuccess (const 500) $
+            it "samples only well-typed expressions from the recursive family" $
                 QC.forAll (QC.resize 7 $ ECTAGen.toGen $ ECTAGen.ungroup recursiveExpressions) $
                     \typed -> QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
-        it "samples only well-typed depth-at-most-four expressions" $
-            QC.withNumTests 1000 $
+        modifyMaxSuccess (const 1000) $
+            it "samples only well-typed depth-at-most-four expressions" $
                 QC.forAll (ECTAGen.toGen $ ECTAGen.ungroup $ upToDepthByType 4) $ \typed ->
                     QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
-        it "samples only well-typed depth-four expressions through ECTA" $
-            QC.withNumTests 1000 $
+        modifyMaxSuccess (const 1000) $
+            it "samples only well-typed depth-four expressions through ECTA" $
                 QC.forAll (ECTAGen.toGen $ expressionGenAtDepth 4) $ \typed ->
                     QC.counterexample (show typed) $ QC.property $ isWellTyped typed
 
-        it "samples only well-typed depth-four expressions through handwritten sharing" $
-            QC.withNumTests 1000 $
+        modifyMaxSuccess (const 1000) $
+            it "samples only well-typed depth-four expressions through handwritten sharing" $
                 QC.forAll (handwrittenExpressionGen 4) $ \typed ->
                     QC.counterexample (show typed) $ QC.property $ isWellTyped typed

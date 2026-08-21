@@ -33,6 +33,7 @@ import Data.ECTA.Gen.Internal.Size (
     constantIndex,
     mapIndex,
     productIndex,
+    withMinimumMemberSize,
  )
 
 {- | Count and index the terms an automaton accepts, by size.
@@ -61,12 +62,38 @@ automatonIndex root
     -- One lazy entry per reachable identity, referring to each other: a
     -- recursive automaton becomes a recursive index with no extra work.
     table = Map.fromList [(nodeIdentity node, nodeIndex node) | node <- reachable]
-    nodeIndex node = choiceIndex $ map edgeIndex $ nodeEdges node
+    nodeIndex node =
+        withMinimumMemberSize
+            (Map.lookup (nodeIdentity node) minimumSizes)
+            (choiceIndex $ map edgeIndex $ nodeEdges node)
 
     indexOf node = case nodeEdges node of
         [] -> emptyIndex
         _ -> Map.findWithDefault emptyIndex (nodeIdentity node) table
     emptyIndex = choiceIndex []
+
+    -- Solve the shortest accepted term independently of the lazy count knot.
+    -- Starting with no productive nodes and adding known minima is the least
+    -- fixed point, so a cycle without a base remains 'Nothing'.
+    minimumSizes = convergeMinimums Map.empty
+    convergeMinimums current =
+        let next = foldr addMinimum current reachable
+         in if next == current then current else convergeMinimums next
+      where
+        addMinimum node known = case nodeMinimum known node of
+            Nothing -> known
+            Just size -> Map.insertWith min (nodeIdentity node) size known
+
+    nodeMinimum known node = minimumOf $ map (edgeMinimum known) $ nodeEdges node
+    edgeMinimum known edge =
+        (1 +) . sum
+            <$> traverse
+                (\child -> Map.lookup (nodeIdentity child) known)
+                (edgeChildren edge)
+
+    minimumOf sizes = case [size | Just size <- sizes] of
+        [] -> Nothing
+        liveSizes -> Just $ minimum liveSizes
 
     -- The symbol contributes the one choice that makes a term node count
     -- toward size; children are consumed left to right into its arguments.

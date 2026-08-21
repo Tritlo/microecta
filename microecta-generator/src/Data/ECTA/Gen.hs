@@ -55,6 +55,7 @@ module Data.ECTA.Gen (
     countsAtSize,
     massesAtSize,
     countAtSize,
+    minimumSize,
     countBy,
     pmf,
     pmfAtSize,
@@ -92,10 +93,13 @@ import Data.ECTA.Gen.Internal.Size (
     fixIndex,
     isUnguarded,
     mapIndex,
+    minimumMemberSize,
     probeIndex,
+    probeIndexWithMinimum,
     productIndex,
     sizeClassOf,
     usesOccurrence,
+    withMinimumMemberSize,
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
@@ -315,7 +319,9 @@ cardinality and the inspection that come with it.
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has no
 smallest member; an unguarded definition is rejected with
-'UnguardedRecursion' rather than left to diverge. Recursive structure is
+'UnguardedRecursion' rather than left to diverge. A recursive language also
+needs a finite base member; a guarded cycle with no base is an 'EmptyGenerator'.
+Recursive structure is
 chosen from its counted size classes, so 'frequency' alternatives around a
 recursive occurrence must carry equal weights; 'oneof' is the combinator that
 already reads that way, and the size bound controls how large members get. A
@@ -365,9 +371,10 @@ recur build
 
     result = do
         body <- probed
-        if isUnguarded (recursiveIndex body)
-            then Left UnguardedRecursion
-            else
+        case (isUnguarded $ recursiveIndex body, minimumMemberSize $ recursiveIndex body) of
+            (True, _) -> Left UnguardedRecursion
+            (_, Nothing) -> Left EmptyGenerator
+            _ ->
                 pure $
                     Recursive
                         automaton
@@ -415,6 +422,10 @@ operations whose argument keys are already present, and the set can only
 grow, so it converges in at most one pass per key. The languages are then
 tied lazily over that fixed set.
 
+The reachable key set must be finite. For example,
+@oneofGrouped [keyed 0 atom, regroupBy succ self]@ adds another key on every
+pass and therefore cannot converge.
+
 All the keys share one @Mu@ node, whose edges carry their key as a first
 child. An occurrence at one key is that node under an edge holding the
 key's label, with an equality constraint tying the two — so a recursive
@@ -425,8 +436,9 @@ recursive node is not sound.
 
 'ungroup' and 'atKey' are the exits into an ordinary recursive generator.
 The rules of 'recur' apply here too: the recursion must be guarded by an
-'apply', and alternatives around a recursive occurrence must carry equal
-weights, which is what 'oneofGrouped' gives without asking for them.
+'apply', every live key must eventually reach a finite base member, and
+alternatives around a recursive occurrence must carry equal weights, which is
+what 'oneofGrouped' gives without asking for them.
 -}
 recurGrouped ::
     (Ord key) =>
@@ -468,10 +480,36 @@ recurGrouped build
             [ (key, placeholder EmptyNode (indexAt key) emptySampleIndex noMass)
             | key <- keys
             ]
-    tiedIndexes =
+    rawIndexes =
         either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
             bodyGroups indexPlaceholders
-    indexAt key = Map.findWithDefault (choiceIndex []) key tiedIndexes
+    rawIndexAt key = Map.findWithDefault (choiceIndex []) key rawIndexes
+    indexAt key =
+        withMinimumMemberSize
+            (Map.lookup key minimumSizes)
+            (rawIndexAt key)
+
+    -- A key is live when its body can close using finite branches or keys
+    -- already known to be live. Repeating this over the settled finite key set
+    -- gives the least minimum for every mutually recursive language.
+    minimumSizes = convergeMinimums Map.empty
+    convergeMinimums current =
+        let reached =
+                either (const Map.empty) (Map.mapMaybe minimumOfGroup) $
+                    bodyGroups $
+                        Map.fromList
+                            [ ( key
+                              , placeholder
+                                    EmptyNode
+                                    (probeIndexWithMinimum $ Map.lookup key current)
+                                    emptySampleIndex
+                                    noMass
+                              )
+                            | key <- keys
+                            ]
+            grown = Map.unionWith min current reached
+         in if grown == current then current else convergeMinimums grown
+    minimumOfGroup = minimumMemberSize . recursiveIndex . keyedRecursiveLanguage
 
     -- Key masses form a guarded knot beside counts. Across all keys they sum
     -- to the structural member count at each size.
@@ -544,6 +582,9 @@ recurGrouped build
         if any (isUnguarded . recursiveIndex . keyedRecursiveLanguage) probedBodies
             then Left UnguardedRecursion
             else Right ()
+        if Map.null minimumSizes
+            then Left EmptyGenerator
+            else Right ()
         let familyMassWeighted = any keyedRecursiveMassWeighted bodies
             familyWeighted =
                 familyMassWeighted
@@ -564,6 +605,7 @@ recurGrouped build
                   )
                 | key <- keys
                 , Map.member key bodies
+                , Map.member key minimumSizes
                 ]
 
 {- | Bound a generator to the members of size at most the given bound.
@@ -622,16 +664,10 @@ groupBy key (Transparent (Right static)) =
     Grouped $ do
         outcomes <- enumerateOutcomeIndex $ staticOutcomes static
         traverse (bucketFromOutcomes $ staticAtomic static) $
-            foldl'
-                ( \buckets outcome ->
-                    Map.insertWith
-                        (flip (<>))
-                        (key $ outcomeValue outcome)
-                        [outcome]
-                        buckets
-                )
-                Map.empty
-                outcomes
+            groupOutcomes
+                [ (key $ outcomeValue outcome, outcome)
+                | outcome <- outcomes
+                ]
 groupBy _ (Cyclic _) = Grouped $ Left UnboundedGenerator
 groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
@@ -1134,12 +1170,24 @@ countAtSize :: ECTAGen gen a -> Int -> Either ECTAGenError Integer
 countAtSize generator size =
     flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
 
+{- | The smallest structural size in an inspectable language.
+
+Size is the number of source choices in a member. 'Nothing' means the language
+is empty. Opaque generators cannot be inspected.
+-}
+minimumSize :: ECTAGen gen a -> Either ECTAGenError (Maybe Int)
+minimumSize generator = case recursiveView generator of
+    Left EmptyGenerator -> Right Nothing
+    Left err -> Left err
+    Right recursive -> Right $ minimumMemberSize $ recursiveIndex recursive
+
 {- | Decode one stable rank from an inspectable generator.
 
 Ranks are stable while the generator definition and the ordering of its finite
 sources remain unchanged.
 -}
 unrank :: ECTAGen gen a -> Integer -> Either ECTAGenError a
+unrank _ index | index < 0 = Left $ NegativeRank index
 unrank (Transparent result) index = do
     static <- result
     let outcomes = staticOutcomes static
@@ -1148,10 +1196,11 @@ unrank (Transparent result) index = do
 unrank (Cyclic result) index = do
     recursive <- result
     let recursiveIndex' = recursiveIndex recursive
-    case sizeClassOf recursiveIndex' index of
-        Just (size, position) ->
+    case (minimumMemberSize recursiveIndex', sizeClassOf recursiveIndex' index) of
+        (Nothing, _) -> Left $ SelectionOutOfRange index 0
+        (_, Just (size, position)) ->
             pure $ snd $ sizeClassSelect recursiveIndex' size position
-        Nothing ->
+        (_, Nothing) ->
             Left $
                 SelectionOutOfRange index $
                     sum $

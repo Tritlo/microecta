@@ -588,12 +588,12 @@ for performance considerations.
 -}
 createMu :: (Node -> Node) -> Node
 createMu = dropRedundantMu . createMuDontCleanup
-    where
-        dropRedundantMu :: Node -> Node
-        dropRedundantMu node@(InternedMu mu)
-            | RecInt (internedMuId mu) `Set.notMember` freeVars (internedMuBody mu) = internedMuBody mu
-            | otherwise = node
-        dropRedundantMu node = node
+  where
+    dropRedundantMu :: Node -> Node
+    dropRedundantMu node@(InternedMu mu)
+        | RecInt (internedMuId mu) `Set.notMember` freeVars (internedMuBody mu) = internedMuBody mu
+        | otherwise = node
+    dropRedundantMu node = node
 
 {- | Construct a recursive node, keeping it even when its variable is unused.
 

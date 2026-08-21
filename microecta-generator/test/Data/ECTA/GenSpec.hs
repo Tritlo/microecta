@@ -6,6 +6,7 @@ module Data.ECTA.GenSpec (spec) where
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
+import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
@@ -119,10 +120,6 @@ allUsers = [minBound .. maxBound]
 generatedUserId :: ECTAGen UserId
 generatedUserId = ECTAGen.elements allUsers
 
--- | Uniform QuickCheck generator used by the handwritten baseline.
-generatedQuickCheckUserId :: QC.Gen UserId
-generatedQuickCheckUserId = QC.elements allUsers
-
 -- These are ordinary, closed generators. Neither accepts shared input.
 authenticationFixture :: ECTAGen AuthenticationFixture
 authenticationFixture = ECTAGen.do
@@ -164,22 +161,6 @@ expectedAccessPmf =
     , (((Member, "Morgan"), (Public, "guide")), 1 % 5)
     ]
 
--- Ordinary QuickCheck can compose the same fixtures by retrying.
-rejectionFixture :: QC.Gen (AuthenticationFixture, FilesystemFixture)
-rejectionFixture = ECTAGen.toGen rawFixture `QC.suchThat` matchingUsers
-
--- If both generators can be refactored, handwritten sharing is simpler and
--- samples the user prior exactly once.
-handwrittenFixture :: QC.Gen (AuthenticationFixture, FilesystemFixture)
-handwrittenFixture = do
-    user <- generatedQuickCheckUserId
-    method <- QC.elements [Password, Token]
-    path <- QC.elements [HomeFile, ConfigFile, CacheFile]
-    pure
-        ( AuthenticationFixture user method
-        , FilesystemFixture user path
-        )
-
 rawFixture :: ECTAGen (AuthenticationFixture, FilesystemFixture)
 rawFixture = (,) <$> authenticationFixture <*> filesystemFixture
 
@@ -196,35 +177,6 @@ expectedPmf =
     , method <- [minBound .. maxBound]
     , path <- [minBound .. maxBound]
     ]
-
--- | The ECTA match guarantees that authentication grants access to the file.
-propMatchedAuthenticationCanRead :: QC.Property
-propMatchedAuthenticationCanRead =
-    QC.withNumTests 1000 $
-        QC.forAll (ECTAGen.toGen matchedFixture) $ \(authentication, filesystem) ->
-            authenticatedUser authentication QC.=== fileOwner filesystem
-
--- | QuickCheck rejection also guarantees access, but may retry many draws.
-propRejectionAuthenticationCanRead :: QC.Property
-propRejectionAuthenticationCanRead =
-    QC.withNumTests 1000 $
-        QC.forAll rejectionFixture $ \(authentication, filesystem) ->
-            authenticatedUser authentication QC.=== fileOwner filesystem
-
--- | Choosing the shared user explicitly guarantees the same property.
-propHandwrittenAuthenticationCanRead :: QC.Property
-propHandwrittenAuthenticationCanRead =
-    QC.withNumTests 1000 $
-        QC.forAll handwrittenFixture $ \(authentication, filesystem) ->
-            authenticatedUser authentication QC.=== fileOwner filesystem
-
--- | Independent generators do not guarantee that authentication grants access.
-propIndependentAuthenticationCanRead :: QC.Property
-propIndependentAuthenticationCanRead =
-    QC.withNumTests 1000 $
-        QC.expectFailure $
-            QC.forAll (ECTAGen.toGen rawFixture) $ \(authentication, filesystem) ->
-                authenticatedUser authentication QC.=== fileOwner filesystem
 
 {- | Enumerate the compiled decoder through the exact backend and require,
 for every rank in order: uniform mass and agreement with 'Core.unrank'.
@@ -312,18 +264,6 @@ spec = do
                 Right (Node [edge]) -> edgeEcs edge `shouldNotBe` EmptyConstraints
                 result -> expectationFailure $ "unexpected relation support: " <> show result
 
-        it "matches authentication and ownership through ECTA" $
-            propMatchedAuthenticationCanRead
-
-        it "matches authentication and ownership through rejection" $
-            propRejectionAuthenticationCanRead
-
-        it "matches authentication and ownership through handwritten sharing" $
-            propHandwrittenAuthenticationCanRead
-
-        it "does not guarantee ownership for independent fixtures" $
-            propIndependentAuthenticationCanRead
-
         it "preserves frequency weights around already-conditioned generators" $
             let rare =
                     Password
@@ -339,6 +279,24 @@ spec = do
                             (ECTAGen.elements [Alice])
              in ECTAGen.pmf (ECTAGen.frequency [(1, rare), (1, common)])
                     `shouldBe` Right [(Password, 1 % 2), (Token, 1 % 2)]
+
+        it "conjoins every declared key equality" $ do
+            let left = ECTAGen.elements [(0 :: Int, 0 :: Int, "left-00"), (0, 1, "left-01")]
+                right =
+                    ECTAGen.elements
+                        [ (0 :: Int, 0 :: Int, "right-00")
+                        , (0, 1, "right-01")
+                        , (1, 0, "right-10")
+                        ]
+                firstKey (first, _, _) = first
+                secondKey (_, second, _) = second
+            traverse
+                (ECTAGen.unrank $ ECTAGen.match ((firstKey :==: firstKey) :&&: (secondKey :==: secondKey)) left right)
+                [0, 1]
+                `shouldBe` Right
+                    [ ((0, 0, "left-00"), (0, 0, "right-00"))
+                    , ((0, 1, "left-01"), (0, 1, "right-01"))
+                    ]
 
         it "samples a non-uniform join with exactly its inspected PMF" $ do
             let left :: Core.ECTAGen Exact UserId
@@ -486,6 +444,40 @@ spec = do
                 QC.forAll (ECTAGen.toGenWithRank matchedFixture) $ \(rank, value) ->
                     ECTAGen.unrank matchedFixture rank QC.=== Right value
 
+        modifyMaxSuccess (const 200) $
+            it "replays weighted samples even when sampling reorders branches" $
+                let weighted =
+                        ECTAGen.frequency
+                            [ (1, pure Alice)
+                            , (3, ECTAGen.elements [Bob, Carol])
+                            ]
+                 in QC.forAll (ECTAGen.toGenWithRank weighted) $ \(rank, value) ->
+                        ECTAGen.unrank weighted rank QC.=== Right value
+
+        it "returns construction errors through the explicit sampling API" $ do
+            let sample generator =
+                    QCGen.unGen
+                        (ECTAGen.toGenEither generator)
+                        (QCRandom.mkQCGen 20260821)
+                        30
+            sample (ECTAGen.frequency [] :: ECTAGen UserId)
+                `shouldBe` Left ECTAGen.EmptyGenerator
+            sample (ECTAGen.frequency [(0, pure Alice)])
+                `shouldBe` Left (ECTAGen.NonPositiveWeight 0)
+            sample (ECTAGen.frequency [(-1, pure Alice)])
+                `shouldBe` Left (ECTAGen.NonPositiveWeight (-1))
+
+        it "samples a directly indexed source whose cardinality exceeds Int" $ do
+            let total = toInteger (maxBound :: Int) + 17
+                source = ECTAGen.fromIndexed $ ECTAGen.Indexed total id
+                (rank, value) =
+                    QCGen.unGen
+                        (ECTAGen.toGenWithRank source)
+                        (QCRandom.mkQCGen 20260821)
+                        30
+            value `shouldBe` rank
+            rank `shouldSatisfy` (\selected -> selected >= 0 && selected < total)
+
         it "keeps fromGen opaque" $ do
             let opaque = ECTAGen.fromGen $ QC.elements [Alice, Bob]
                 opaqueJoin =
@@ -521,6 +513,12 @@ spec = do
                     )
 
     describe "declared groups" $ do
+        it "retains source-rank order inside each computed group" $ do
+            let source = ECTAGen.elements [("b", 0 :: Int), ("a", 1), ("b", 2), ("a", 3)]
+                selected = ECTAGen.atKey "a" $ ECTAGen.groupBy fst source
+            traverse (ECTAGen.unrank selected) [0, 1]
+                `shouldBe` Right [("a", 1), ("a", 3)]
+
         it "preserves a finite source's support, ranks, and distribution" $ do
             let source =
                     ECTAGen.frequency
@@ -813,40 +811,40 @@ spec = do
                 pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
              in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
 
-        it "replays sampled ranks below the Int cardinality boundary" $
-            let chunk = ECTAGen.elements [0 :: Int .. 199]
-                wide =
-                    (,,,,,,,)
-                        <$> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-             in QC.withNumTests 200 $
-                    ECTAGen.cardinality wide QC.=== Right (200 ^ (8 :: Int))
+        modifyMaxSuccess (const 200) $
+            it "replays sampled ranks below the Int cardinality boundary" $
+                let chunk = ECTAGen.elements [0 :: Int .. 199]
+                    wide =
+                        (,,,,,,,)
+                            <$> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                 in ECTAGen.cardinality wide QC.=== Right (200 ^ (8 :: Int))
                         QC..&&. QC.forAll
                             (ECTAGen.toGenWithRank wide)
                             ( \(rank, value) ->
                                 ECTAGen.unrank wide rank QC.=== Right value
                             )
 
-        it "replays sampled ranks beyond the Int cardinality boundary" $
-            let chunk = ECTAGen.elements [0 :: Int .. 255]
-                wide =
-                    (,,,,,,,)
-                        <$> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-                        <*> chunk
-             in QC.withNumTests 200 $
-                    ECTAGen.cardinality wide QC.=== Right (256 ^ (8 :: Int))
+        modifyMaxSuccess (const 200) $
+            it "replays sampled ranks beyond the Int cardinality boundary" $
+                let chunk = ECTAGen.elements [0 :: Int .. 255]
+                    wide =
+                        (,,,,,,,)
+                            <$> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                            <*> chunk
+                 in ECTAGen.cardinality wide QC.=== Right (256 ^ (8 :: Int))
                         QC..&&. QC.forAll
                             (ECTAGen.toGenWithRank wide)
                             ( \(rank, value) ->

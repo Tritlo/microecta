@@ -160,7 +160,7 @@ guarantees about traversal order.
 crush :: forall m. (Monoid m) => (Node -> m) -> Node -> m
 crush f = \n -> evalState (go n) Set.empty
   where
-    go :: (Monoid m) => Node -> State (Set Id) m
+    go :: Node -> State (Set Id) m
     go EmptyNode = return mempty
     go (Rec _) = return mempty
     go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
@@ -347,9 +347,9 @@ dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
 -- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
 dropConstraints :: Node -> Node
 dropConstraints = mapNodes dropNodeConstraints
-    where
-        dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
-        dropNodeConstraints n = n
+  where
+    dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
+    dropNodeConstraints n = n
 
 ------------
 ------ Intersect

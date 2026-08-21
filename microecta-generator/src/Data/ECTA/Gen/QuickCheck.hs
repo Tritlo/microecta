@@ -51,6 +51,7 @@ module Data.ECTA.Gen.QuickCheck (
     countsAtSize,
     massesAtSize,
     countAtSize,
+    minimumSize,
     countBy,
     pmf,
     pmfAtSize,
@@ -188,7 +189,8 @@ to itself. 'toGen' and 'forAll' bound it by QuickCheck's size parameter;
 classes. Finite choices closed with 'atomic' retain their distribution inside
 each class. Recursion must be guarded by '<*>', and alternatives around a
 recursive occurrence must carry equal weights, which is what 'oneof' gives
-without asking for them.
+without asking for them. A guarded cycle still needs a finite base member;
+otherwise it is an empty generator.
 
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
@@ -204,6 +206,10 @@ share one @Mu@ node whose cycle carries the keyed joins' equality
 constraints; 'ungroup' and 'atKey' are the exits into an ordinary recursive
 generator. Recursion must be guarded by 'apply', and 'frequencies'
 alternatives around a recursive occurrence must carry equal weights.
+The generated language may be infinite, but it must use only finitely many
+distinct keys. 'recurGrouped' discovers those keys before tying the recursive
+languages, so a definition that creates a fresh key on every pass cannot
+finish construction.
 -}
 recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
 recurGrouped = ECTA.recurGrouped
@@ -338,6 +344,10 @@ cardinality = ECTA.cardinality
 countAtSize :: ECTAGen a -> Int -> Either ECTAGenError Integer
 countAtSize = ECTA.countAtSize
 
+-- | The smallest structural size in an inspectable language.
+minimumSize :: ECTAGen a -> Either ECTAGenError (Maybe Int)
+minimumSize = ECTA.minimumSize
+
 -- | Return the first member in structural size and rank order, or 'Nothing' if empty.
 smallest :: ECTAGen a -> Either ECTAGenError (Maybe a)
 smallest = ECTA.smallest
@@ -409,7 +419,8 @@ toGen generator
     | Just (QuickCheckBackend direct) <- ECTA.lowerUniform generator = direct
     | otherwise = either (raise "toGen") id <$> toGenEither generator
   where
-    bounded = [toGen (ECTA.upToSize (max 1 size) generator) | size <- [0 ..]]
+    bounded = [toGen (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
+    firstSize = either (raise "toGen") (maybe 1 id) $ ECTA.minimumSize generator
 
 {- | Sample an inspectable generator together with its stable replay rank.
 
@@ -421,7 +432,8 @@ toGenWithRank generator
     | Just (QuickCheckBackend direct) <- ECTA.lowerUniformWithRank generator = direct
     | otherwise = either (raise "toGenWithRank") id <$> toGenWithRankEither generator
   where
-    bounded = [toGenWithRank (ECTA.upToSize (max 1 size) generator) | size <- [0 ..]]
+    bounded = [toGenWithRank (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
+    firstSize = either (raise "toGenWithRank") (maybe 1 id) $ ECTA.minimumSize generator
 
 {- | Fail a sample with the error's own guidance.
 

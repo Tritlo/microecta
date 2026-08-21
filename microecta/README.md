@@ -132,6 +132,12 @@ The core still uses the original hash-consing, memoization, union-find,
 recursive-node, and path/equality-constraint machinery. Those are the hard parts
 of ECTA and are intentionally kept.
 
+Construct ECTAs and run ECTA operations from one thread. The process-global
+hash-consing and memo tables are deliberately small and fast, but they are not
+synchronized for concurrent mutation. Once a value has been constructed,
+ordinary pure reads are safe; do not concurrently build nodes or force new
+memoized operations.
+
 The old dense `PathTrie` representation compiled poorly at `-O2` under a
 512M compiler memory cap. `microecta` uses a sparse `PathTrie` with a compact
 single-child fast path. In the current benchmark suite this preserves the

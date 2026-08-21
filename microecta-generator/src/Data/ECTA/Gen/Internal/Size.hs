@@ -22,19 +22,20 @@ through products, and a product needs one choice from each side, so
 counting size @s@ only ever consults sizes below it.
 -}
 module Data.ECTA.Gen.Internal.Size (
-    SizeIndex (sizeClassCounts, sizeClassSelect),
+    SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
     probeIndex,
+    probeIndexWithMinimum,
     isUnguarded,
     usesOccurrence,
     sizeIndex,
     countAtSize,
-    countUpToSize,
     sizeClassOf,
     constantIndex,
     mapIndex,
     productIndex,
     choiceIndex,
     fixIndex,
+    withMinimumMemberSize,
     sizeClasses,
 ) where
 
@@ -52,6 +53,8 @@ data SizeIndex a = SizeIndex
     {- ^ Value of one member using machine arithmetic. Called only when the
     requested size class fits in 'Int'.
     -}
+    , minimumMemberSize :: Maybe Int
+    -- ^ Smallest live size, or 'Nothing' when no finite member is known.
     , unguardedOccurrence :: Bool
     {- ^ Whether a 'probeIndex' can be reached without passing through a
     product. Counting such an index would consult its own size, so a
@@ -66,25 +69,34 @@ data SizeIndex a = SizeIndex
 {- | A stand-in for a recursive occurrence, used to check that a recursive
 definition is guarded before it is tied.
 
-Only its 'unguardedOccurrence' is ever read: building a language around a
-probe answers whether the recursion passes through a product without
-counting anything.
+Only its metadata is ever read: building a language around a probe answers
+whether the recursion passes through a product and whether it can close to a
+finite member, without counting anything.
 -}
 probeIndex :: SizeIndex a
-probeIndex =
+probeIndex = probeIndexWithMinimum Nothing
+
+{- | A recursive-occurrence probe with an assumed minimum.
+
+Grouped recursion uses this to solve the least live size of mutually
+recursive keys without forcing their count knots.
+-}
+probeIndexWithMinimum :: Maybe Int -> SizeIndex a
+probeIndexWithMinimum minimumSize' =
     SizeIndex
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
-            \a probe counts no size classes; only its two flags are read"
+            \a probe counts no size classes; only its metadata is read"
         )
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
-            \a probe decodes no members; only its two flags are read"
+            \a probe decodes no members; only its metadata is read"
         )
         ( error
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
-            \a probe decodes no members; only its two flags are read"
+            \a probe decodes no members; only its metadata is read"
         )
+        minimumSize'
         True
         True
 
@@ -108,10 +120,6 @@ countAtSize index size
     | otherwise = case drop (size - 1) (sizeClassCounts index) of
         count : _ -> count
         [] -> 0
-
--- | The number of members of size at most the bound.
-countUpToSize :: SizeIndex a -> Int -> Integer
-countUpToSize index bound = sum $ take bound $ sizeClassCounts index
 
 {- | The size class holding one rank, with the rank rebased into it.
 
@@ -149,8 +157,11 @@ sizeClasses bound index =
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanSelect cardinality' decode) =
-    SizeIndex [cardinality'] select selectInt False False
+    SizeIndex [cardinality'] select selectInt minimumSize' False False
   where
+    minimumSize'
+        | cardinality' > 0 = Just 1
+        | otherwise = Nothing
     select 1 position = (position, decode position)
     select size _ =
         error $
@@ -165,13 +176,14 @@ sizeIndex (PlanSelect cardinality' decode) =
                 <> show size
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
-    SizeIndex counts select selectInt False False
+    SizeIndex counts select selectInt minimumSize' False False
   where
     entries = offsetBranches 0 branches
     offsetBranches _ [] = []
     offsetBranches offset ((branchCardinality, branch) : rest) =
         (offset, sizeIndex branch) : offsetBranches (offset + branchCardinality) rest
     counts = foldr (addPoly . sizeClassCounts . snd) [] entries
+    minimumSize' = minimumOf $ map (minimumMemberSize . snd) entries
 
     select size position =
         let (offset, inner, rebased) = partAt size entries position
@@ -181,11 +193,12 @@ sizeIndex (PlanChoice branches) =
         let (inner, rebased) = partAtInt size (map snd entries) position
          in sizeClassValueInt inner size rebased
 sizeIndex (PlanAp radix planF planX) =
-    SizeIndex counts select selectInt False False
+    SizeIndex counts select selectInt minimumSize' False False
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
     counts = productCounts indexF indexX
+    minimumSize' = (+) <$> minimumMemberSize indexF <*> minimumMemberSize indexX
 
     select size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
@@ -200,9 +213,12 @@ sizeIndex (PlanAp radix planF planX) =
             argument = sizeClassValueInt indexX argumentSize argumentPosition
          in function argument
 sizeIndex (PlanSized classes) =
-    SizeIndex counts select selectInt False False
+    SizeIndex counts select selectInt minimumSize' False False
   where
     counts = classCounts classes
+    minimumSize' = case [size | (size, count, _, _) <- classes, count > 0] of
+        [] -> Nothing
+        liveSizes -> Just $ minimum liveSizes
     offsets = offsetClasses 0 classes
     offsetClasses _ [] = []
     offsetClasses offset ((size, count, decode, decodeInt) : rest) =
@@ -226,7 +242,7 @@ sizeIndex (PlanSized classes) =
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [1] select selectInt False False
+    SizeIndex [1] select selectInt (Just 1) False False
   where
     select 1 0 = (0, value)
     select size position =
@@ -252,6 +268,7 @@ mapIndex transform index =
         (sizeClassCounts index)
         select
         selectInt
+        (minimumMemberSize index)
         (unguardedOccurrence index)
         (usedOccurrence index)
   where
@@ -273,6 +290,7 @@ productIndex indexF indexX =
         counts
         select
         selectInt
+        ((+) <$> minimumMemberSize indexF <*> minimumMemberSize indexX)
         False
         (usedOccurrence indexF || usedOccurrence indexX)
   where
@@ -303,6 +321,7 @@ choiceIndex branches =
         counts
         select
         selectInt
+        (minimumOf $ map minimumMemberSize branches)
         (any unguardedOccurrence branches)
         (any usedOccurrence branches)
   where
@@ -328,7 +347,20 @@ diverges rather than failing.
 fixIndex :: (SizeIndex a -> SizeIndex a) -> SizeIndex a
 fixIndex build = index
   where
-    index = build index
+    index = withMinimumMemberSize closedMinimum $ build index
+    closedMinimum = minimumMemberSize $ build probeIndex
+
+-- | Replace only the cached minimum, leaving counts and decoding unchanged.
+withMinimumMemberSize :: Maybe Int -> SizeIndex a -> SizeIndex a
+withMinimumMemberSize minimumSize' index = index{minimumMemberSize = minimumSize'}
+
+-- | The least present value, ignoring absent entries.
+minimumOf :: [Maybe Int] -> Maybe Int
+minimumOf = foldr combine Nothing
+  where
+    combine Nothing current = current
+    combine current Nothing = current
+    combine (Just left) (Just right) = Just $ min left right
 
 -- | Cumulative counts: the rank the first member of each size class takes.
 sizeMajorRanks :: [Integer] -> [Integer]
