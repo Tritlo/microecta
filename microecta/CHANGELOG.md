@@ -6,6 +6,21 @@ This is a major bump rather than 0.1.1.0 because the pruning API lost members;
 see the two entries marked breaking below. Nothing that only builds ECTAs,
 reduces them, or enumerates them needs to change.
 
+* Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
+  returns, and the idiomatic way to write a recursive automaton.
+  `getAllTerms` returned `[]`, claiming the language was empty, and
+  `getAllTruncatedTerms` raised "UVar has not been enumerated". The root UVar
+  holds an unconstrained `Mu`, which is where enumeration stops, so it is never
+  expanded; both functions now truncate it exactly as they already truncated a
+  `Mu` nested under an edge. `getAllTerms` yields the marker term `Mu` and
+  `getAllTruncatedTerms` yields the hole `v0`. Their documentation now states
+  that they truncate at recursion, and points at `unfoldBounded`.
+* Remove `getTermFragForUVar`, which was partial and is now unused;
+  `rootTermFrag` replaces its one caller.
+* `EqConstraints` is no longer a record, so its derived `Show` renders
+  positionally (`EqConstraints [...]` rather than
+  `EqConstraints {getEclasses = [...]}`). It has no `Read` instance, so this
+  affects display only.
 * Fix path compression in `Data.Persistent.UnionFind`: `find` rebuilt the
   forest from the map it read before recursing, discarding every compression
   the recursive call had made, so only the first link of a chain was ever

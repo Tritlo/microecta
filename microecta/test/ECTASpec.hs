@@ -255,6 +255,24 @@ spec = do
                 mapSize (min 3) $
                     \n -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
+    describe "enumerating recursive automata" $ do
+        -- A root Mu is never expanded, so before this was fixed getAllTerms
+        -- reported the empty language and getAllTruncatedTerms raised.
+        it "a bare Mu truncates instead of reporting an empty language" $ do
+            getAllTerms intTest7 `shouldBe` [Term "Mu" []]
+            getAllTruncatedTerms intTest7 `shouldBe` [Term "v0" []]
+
+        it "a Mu under an edge truncates the same way" $
+            getAllTerms (Node [Edge "wrap" [intTest7]])
+                `shouldBe` [Term "wrap" [Term "Mu" []]]
+
+        it "unfolding first enumerates past the recursion" $
+            getAllTerms (unfoldBounded 2 intTest7)
+                `shouldMatchList` [Term "a" [], Term "f" [Term "a" []]]
+
+        it "a recursion with no base case unfolds to nothing" $
+            getAllTerms (unfoldBounded 2 infiniteFNode) `shouldBe` []
+
     describe "dropping constraints" $ do
         it "an edge keeps its symbol and children" $ do
             let dropped = dropEdgeConstraints constrainedPair

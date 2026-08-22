@@ -30,7 +30,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     assimilateUvarVal,
     mergeNodeIntoUVarVal,
     getUVarValue,
-    getTermFragForUVar,
+    rootTermFrag,
     runEnumerateM,
     enumerateNode,
     enumerateEdge,
@@ -234,13 +234,20 @@ getUVarValue uv = do
     values <- gets _uvarValues
     return $ Sequence.index values idx
 
--- | Look up the fragment for an already-enumerated UVar.
-getTermFragForUVar :: UVar -> EnumerateM TermFragment
-getTermFragForUVar uv = do
-    value <- getUVarValue uv
-    case value of
-        UVarEnumerated fragment -> return fragment
-        _ -> error "getTermFragForUVar: UVar has not been enumerated"
+{- | The fragment the root UVar holds, or the root hole itself.
+
+An automaton that is a bare 'Mu' is never expanded - an unconstrained 'Mu' is
+where enumeration stops - so its root stays a hole, exactly as a nested one
+does.
+-}
+rootTermFrag :: EnumerateM TermFragment
+rootTermFrag = do
+    value <- getUVarValue root
+    return $ case value of
+        UVarEnumerated fragment -> fragment
+        _ -> TermFragmentUVar root
+  where
+    root = intToUVar 0
 
 setUVarValue :: Int -> UVarValue -> EnumerateM ()
 setUVarValue idx val =
@@ -358,6 +365,8 @@ enumerateNode scs n =
 -- | Enumerate one edge, introducing UVars for its equality classes.
 enumerateEdge :: Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
 enumerateEdge scs e = do
+    -- With no constraints this is 'minBound', which passes the guard below,
+    -- as it should: nothing constrains how many children the edge needs.
     let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
     guard $ highestConstraintIndex < length (edgeChildren e)
 
@@ -573,22 +582,37 @@ expandTermFrag (TermFragmentUVar uv) =
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
--- | Expand an already-enumerated UVar into a concrete term.
+{- | Expand an enumerated UVar into a concrete term.
+
+A UVar holding an unconstrained 'Mu' was never expanded, and truncates to the
+same @Mu@ marker 'expandTermFrag' gives a nested one. Any other unenumerated
+state is not reachable once enumeration reports itself finished, and drops the
+branch rather than guessing.
+-}
 expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do
-    UVarEnumerated t <- getUVarValue uv
-    expandTermFrag t
+    value <- getUVarValue uv
+    case value of
+        UVarEnumerated fragment -> expandTermFrag fragment
+        UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
+        _ -> mzero
 
 ---------------------
 -------- Full enumeration
 ---------------------
 
--- | Enumerate terms, replacing recursive holes with a truncation marker.
+{- | Enumerate terms, rendering every hole as a variable-like leaf.
+
+Where 'getAllTerms' writes the marker term @Mu@ at a recursive hole, this
+writes @vN@ for the hole with id @N@ - including when the whole automaton is a
+bare 'Mu', which is one hole and nothing else. Useful for seeing the shape a
+partial enumeration reached rather than the terms themselves.
+-}
 getAllTruncatedTerms :: Node -> [Term]
 getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
-        getTermFragForUVar (intToUVar 0)
+        rootTermFrag
 
 {- | Enumerate terms while letting an oracle prune branches.
 
@@ -666,6 +690,17 @@ enumPruneWith a order oracle = do
     finished <- enumerateFully' a order oracle
     if finished then expandUVar (intToUVar 0) else mzero
 
--- | Enumerate all complete terms represented by an ECTA.
+{- | Enumerate the terms an ECTA accepts, truncating at recursion.
+
+Enumeration stops at an unconstrained 'Mu', which appears in the result as the
+marker term @Mu@ rather than being unfolded. Every term of a finite automaton
+is therefore enumerated, but a recursive one yields only terms in which each
+recursive position is that marker - and an automaton that is /itself/ a bare
+'Mu', as @createMu@ returns, yields exactly @[Mu]@.
+
+To see past the recursion, unfold it first with 'unfoldBounded', or read the
+automaton with @microecta-generator@'s @fromECTA@, which counts and enumerates
+a recursive language by size.
+-}
 getAllTerms :: Node -> [Term]
 getAllTerms = getAllTermsPrune () (\_ _ _ -> return (False, ()))

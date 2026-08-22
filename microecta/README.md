@@ -50,7 +50,9 @@ Useful operations:
 - `nodeRepresentsTemplate` checks whether a node could produce a term matching
   a template, where the symbol `<v>` is a wildcard and missing template
   children are unconstrained.
-- `getAllTerms` and `getAllTermsPrune` enumerate accepted terms.
+- `getAllTerms` and `getAllTermsPrune` enumerate accepted terms. Both stop at
+  an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
+  `unfoldBounded` first to see past the recursion.
 
 ## Pruning API
 
