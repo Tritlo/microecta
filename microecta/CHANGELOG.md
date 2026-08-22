@@ -78,6 +78,12 @@ reduces them, or enumerates them needs to change.
   `Data.Interned.Extended.HashTableBased`, rather than only in the README, and
   refresh the benchmark baseline in the README to what the suite currently
   measures.
+* `memo2` keys one table by the argument pair instead of nesting two unary
+  tables. The nested form allocated a fresh hash table for every distinct first
+  argument -- about a kilobyte each before storing an entry -- which a heap
+  profile showed dominating a constraint-heavy run. On 64k distinct first
+  arguments that is 167 MB against 68 MB now, with the core benchmark within
+  noise on time and 0.1% up on allocation.
 * Document what the hash-consing and memo tables cost. They never evict, so
   retained memory grows with the number of *distinct* nodes, edges and symbols
   ever constructed -- and not at all with the work done over values that
