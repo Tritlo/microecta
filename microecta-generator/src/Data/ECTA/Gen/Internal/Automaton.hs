@@ -21,9 +21,12 @@ module Data.ECTA.Gen.Internal.Automaton (automatonIndex) where
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.ECTA (Node, edgeChildren, edgeSymbol, nodeEdges)
-import Data.ECTA.Internal.ECTA.Type (Edge, edgeEcs, freeVars, nodeIdentity)
-import Data.ECTA.Paths (constraintsAreContradictory, unsafeGetEclasses)
+import Data.ECTA (Edge, Node, edgeChildren, edgeSymbol, nodeEdges)
+
+-- 'edgeEcs' is public from microecta 0.1.1.0 on, but reading it from the
+-- internal module keeps this package's lower bound at 0.1.0.0.
+import Data.ECTA.Internal.ECTA.Type (edgeEcs, freeVars, nodeIdentity)
+import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import Data.ECTA.Term (Term (Term))
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
@@ -108,8 +111,6 @@ automatonIndex root
 
 -- | Whether an edge carries equality constraints.
 constrained :: Edge -> Bool
-constrained edge =
-    constraintsAreContradictory constraints
-        || not (null $ unsafeGetEclasses constraints)
-  where
-    constraints = edgeEcs edge
+constrained edge = case edgeEcs edge of
+    EmptyConstraints -> False
+    _ -> True

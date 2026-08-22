@@ -1,11 +1,11 @@
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- | QuickCheck integration for indexed ECTA generators.
 module Data.ECTA.Gen.QuickCheck (
     -- * Generators
     ECTAGen,
     Grouped,
+    QuickCheckBackend,
     ECTAGenError (..),
     explain,
 
@@ -94,7 +94,12 @@ import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
 import Data.ECTA.Term (Term)
 
--- | The private wrapper avoids an orphan backend instance for 'QC.Gen'.
+{- | QuickCheck as the sampling backend.
+
+The wrapper exists to avoid an orphan 'ECTA.GenBackend' instance for 'QC.Gen'.
+It is abstract, but it is exported because it appears in the type of an 'Args'
+chain, which a caller may want to write a signature for.
+-}
 newtype QuickCheckBackend a = QuickCheckBackend (QC.Gen a)
     deriving newtype (Functor, Applicative)
 
@@ -491,10 +496,16 @@ forAllWithLimit limit generator prop =
       where
         smaller = take limit (smallerMembers generator rank)
         currentSize = sizeOfRank generator rank
+        -- Bounding candidates by the current size is what makes a greedy
+        -- shrink loop terminate. A candidate whose size cannot be read is out
+        -- of range and is dropped by the 'unrank' guard below anyway.
+        notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
+            (Just candidateSize, Just size) -> candidateSize <= size
+            _ -> True
         structural =
             [ (candidate, value)
             | candidate <- shrinkRank generator rank
-            , sizeOfRank generator candidate <= currentSize
+            , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
 

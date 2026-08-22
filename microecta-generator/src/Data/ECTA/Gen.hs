@@ -855,35 +855,32 @@ apply ::
     Grouped gen (Sig argKeys resultKey) operation ->
     Args gen argKeys operation result ->
     Grouped gen resultKey result
-apply operations arguments
-    | isRecursiveGrouped operations = Grouped $ Left RecursiveOperationFamily
-    | anyRecursiveArgument arguments = applyRecursive operations arguments
-apply (Grouped (Left err)) _ = Grouped $ Left err
+-- Which components an application has is decided by the operation signatures,
+-- so the operation family has to be finite; only arguments may recurse.
 apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
-apply (Grouped (Right operations)) arguments = Grouped $ do
-    argumentMaps <- argsMaps arguments
-    let matchingBuckets =
-            [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
-            | (componentIndex, (signature, operationBucket)) <-
-                zip [0 :: Int ..] $ Map.toAscList operations
-            , let resultKey = sigResult signature
-            , Just argumentBuckets <- [lookupArgs signature argumentMaps]
-            , let mass = chainMass argumentBuckets
-            ]
-    components <- traverse buildComponent matchingBuckets
-    mergeComponentsByKey components
+apply (Grouped (Left err)) _ = Grouped $ Left err
+apply (Grouped (Right operations)) arguments
+    | anyRecursiveArgument arguments = applyRecursive operations arguments
+    | otherwise = Grouped $ do
+        argumentMaps <- argsMaps arguments
+        let matchingBuckets =
+                [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
+                | (componentIndex, (signature, operationBucket)) <-
+                    zip [0 :: Int ..] $ Map.toAscList operations
+                , let resultKey = sigResult signature
+                , Just argumentBuckets <- [lookupArgs signature argumentMaps]
+                , let mass = chainMass argumentBuckets
+                ]
+        mergeComponentsByKey $ map buildComponent matchingBuckets
   where
-    buildComponent (componentIndex, resultKey, operationBucket, argumentsMass, argumentBuckets) = do
-        joined <-
-            joinNBucketStatic
-                componentIndex
-                (keyedBucketStatic operationBucket)
-                (mapChain keyedBucketStatic argumentBuckets)
-        pure
-            ( resultKey
-            , keyedBucketMass operationBucket * argumentsMass
-            , joined
-            )
+    buildComponent (componentIndex, resultKey, operationBucket, argumentsMass, argumentBuckets) =
+        ( resultKey
+        , keyedBucketMass operationBucket * argumentsMass
+        , joinNBucketStatic
+            componentIndex
+            (keyedBucketStatic operationBucket)
+            (mapChain keyedBucketStatic argumentBuckets)
+        )
 
 argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
 argsMaps ANil = Right MapsNil
@@ -900,15 +897,13 @@ followed by its arguments. Ranks and sizes match the finite join.
 -}
 applyRecursive ::
     (Ord resultKey) =>
-    Grouped gen (Sig argKeys resultKey) operation ->
+    Map.Map (Sig argKeys resultKey) (KeyedBucket operation) ->
     Args gen argKeys operation result ->
     Grouped gen resultKey result
-applyRecursive (Grouped (Left err)) _ = CyclicGrouped $ Left err
-applyRecursive (CyclicGrouped _) _ = CyclicGrouped $ Left RecursiveOperationFamily
-applyRecursive (Grouped (Right operations)) arguments =
+applyRecursive operationBuckets arguments =
     CyclicGrouped $ do
         argumentMaps <- argsRecursiveMaps arguments
-        let operationGroups = keyedRecursiveFromBuckets operations
+        let operationGroups = keyedRecursiveFromBuckets operationBuckets
         let components =
                 [ (sigResult signature, recursiveJoin componentIndex operationGroup argumentGroups)
                 | (componentIndex, (signature, operationGroup)) <-

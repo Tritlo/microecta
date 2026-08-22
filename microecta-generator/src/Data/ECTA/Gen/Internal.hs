@@ -8,13 +8,79 @@ rank. This module holds the builders, joins, group buckets, and symbols. The
 sampling engine lives in "Data.ECTA.Gen.Internal.Sampler". The public generator
 types and combinators live in "Data.ECTA.Gen".
 -}
-module Data.ECTA.Gen.Internal where
+module Data.ECTA.Gen.Internal (
+    -- * Sources and failures
+    Indexed (..),
+    ECTAGenError (..),
+    explain,
+
+    -- * Languages
+    Outcome (..),
+    OutcomeIndex (..),
+    Static (..),
+    Recursive (..),
+    MassIndex,
+    KeyedBucket (..),
+    KeyedRecursive (..),
+
+    -- * Building languages
+    pureStatic,
+    indexedStatic,
+    applyStatic,
+    frequencyStatic,
+    atomicStatic,
+    mapStatic,
+    boundedStatic,
+    recursiveFromStatic,
+    bucketFromOutcomes,
+    mergeBucketGroup,
+    mergeComponentsByKey,
+    mergeRecursiveGroups,
+    keyedRecursive,
+    keyedRecursiveFromBuckets,
+
+    -- * Joins
+    JoinGroup (..),
+    joinStatic,
+    relateStatic,
+    joinNBucketStatic,
+    recursiveJoin,
+    groupOutcomes,
+
+    -- * Argument chains
+    ArgMaps (..),
+    ArgChain (..),
+    ArgStatics,
+    lookupArgs,
+    mapChain,
+    chainMass,
+
+    -- * Masses
+    emptyMassIndex,
+    keyedRecursiveMassAtSize,
+
+    -- * Inspection and lowering
+    enumerateOutcomeIndex,
+    compileOutcomes,
+    mapOutcomeIndex,
+    sampleStatic,
+    sampleStaticWithRank,
+    compiledDecoder,
+    checkIndex,
+    normalize,
+
+    -- * Support construction
+    applySymbol,
+    familyNode,
+    frequencySymbol,
+    joinNode,
+    restrictToKey,
+) where
 
 import Data.Foldable (toList)
 import Data.Kind (Type)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
-import Data.Ratio (denominator, numerator)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
@@ -1036,22 +1102,22 @@ joinNBucketStatic ::
     Int ->
     Static operation ->
     ArgStatics operation result ->
-    Either ECTAGenError (Static result)
+    Static result
 joinNBucketStatic componentIndex operation arguments =
-    -- Signature lookup supplies one non-empty bucket per component. The
-    -- outcome product proves non-emptiness without forcing support reduction.
-    Right $
-        Static
-            joined
-            ( OutcomeIndex
-                totalOutcomes
-                uniformMass
-                select
-                selectValue
-                rankSampler
-                (chainPlan (outcomePlan operationOutcomes) arguments)
-            )
-            False
+    -- This cannot fail: signature lookup supplies one non-empty bucket per
+    -- component, so the outcome product proves non-emptiness without forcing
+    -- support reduction.
+    Static
+        joined
+        ( OutcomeIndex
+            totalOutcomes
+            uniformMass
+            select
+            selectValue
+            rankSampler
+            (chainPlan (outcomePlan operationOutcomes) arguments)
+        )
+        False
   where
     keyTerms =
         [ Term (argKeySymbol componentIndex position) []
@@ -1563,26 +1629,20 @@ normalize outcomes =
             then Left EmptyGenerator
             else Right [(mass / total, value) | (mass, value) <- outcomes]
 
--- | Convert rational masses to the smallest equivalent integer weights.
+{- | Convert rational masses to the smallest equivalent integer weights,
+rejecting a set that cannot be sampled.
+
+This is 'integerMasses' with its positivity precondition checked: a language
+with no outcomes, or one whose masses are not all positive, has nothing to
+sample.
+-}
 integerOutcomes ::
     [(Rational, a)] ->
     Either ECTAGenError [(Integer, a)]
 integerOutcomes [] = Left EmptyGenerator
-integerOutcomes outcomes =
-    let masses = map fst outcomes
-        commonDenominator = foldl lcm 1 $ map denominator masses
-        unscaled =
-            [ numerator mass * (commonDenominator `div` denominator mass)
-            | mass <- masses
-            ]
-        commonFactor = foldl gcd 0 unscaled
-     in if any (<= 0) unscaled
-            then Left EmptyGenerator
-            else
-                Right $
-                    zip
-                        (map (`div` commonFactor) unscaled)
-                        (map snd outcomes)
+integerOutcomes outcomes
+    | any ((<= 0) . fst) outcomes = Left EmptyGenerator
+    | otherwise = Right $ integerMasses outcomes
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.

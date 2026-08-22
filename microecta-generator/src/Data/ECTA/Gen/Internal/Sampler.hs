@@ -11,6 +11,7 @@ module Data.ECTA.Gen.Internal.Sampler (
     emptySampleIndex,
     exactPmfAtSize,
     fixSampleIndex,
+    integerMasses,
     mapSampleIndex,
     mapSampler,
     productMassSampleIndex,
@@ -194,41 +195,75 @@ mapSampleIndex :: (a -> b) -> SampleIndex a -> SampleIndex b
 mapSampleIndex transform sampling =
     SampleIndex $ mapSampler transform . samplerAtSize sampling
 
-{- | Sample a product at one exact size.
+{- | How to choose among weighted alternatives.
 
-Size splits keep their count-based probability. Sampling inside each side is
-delegated to that side, so an atomic sampler can remain non-uniform without
-changing product counts or positions.
+The field is rank-2 for the same reason 'Sampler' is: one plan is built once
+and then run at whatever backend the caller lowers to. It exists so that the
+count-weighted and mass-weighted variants below are one function each rather
+than two copies apiece.
 -}
-productSampleIndex ::
+newtype Choose weight = Choose
+    { runChoose :: forall gen a. (GenBackend gen) => [(weight, gen a)] -> gen a
+    }
+
+-- | Choose in proportion to structural member counts.
+byCount :: Choose Integer
+byCount = Choose chooseWeighted
+
+-- | Choose in proportion to unnormalized probability masses.
+byMass :: Choose Rational
+byMass = Choose chooseMassWeighted
+
+-- | One non-empty size split of a product.
+data ProductPart = ProductPart
+    { partBlock :: !Integer
+    -- ^ Members of the product contributed by this split.
+    , partOffset :: !Integer
+    -- ^ Position of the split's first member within the size class.
+    , partFunctionSize :: !Int
+    , partArgumentSize :: !Int
+    , partArgumentCount :: !Integer
+    -- ^ Radix for composing the two positions into one.
+    }
+
+{- | Sample a product at one exact size, choosing among the size splits with
+the supplied weights.
+
+Sampling inside each side is delegated to that side, so an atomic sampler can
+remain non-uniform without changing product counts or positions, and the
+weights choose only between splits - never within one.
+-}
+productSampleIndexBy ::
+    Choose weight ->
+    (ProductPart -> weight) ->
     SizeIndex (a -> b) ->
     SampleIndex (a -> b) ->
     SizeIndex a ->
     SampleIndex a ->
     SampleIndex b
-productSampleIndex indexF samplingF indexX samplingX =
+productSampleIndexBy choose weightOf indexF samplingF indexX samplingX =
     SampleIndex $ \size ->
         Sampler
-            ( chooseWeighted
-                [ ( block
+            ( runChoose
+                choose
+                [ ( weightOf part
                   , liftA2
                         ($)
-                        (runValueAtSize samplingF functionSize)
-                        (runValueAtSize samplingX argumentSize)
+                        (runValueAtSize samplingF $ partFunctionSize part)
+                        (runValueAtSize samplingX $ partArgumentSize part)
                   )
-                | (block, _, functionSize, argumentSize, _) <-
-                    productSampleParts indexF indexX size
+                | part <- productSampleParts indexF indexX size
                 ]
             )
-            ( chooseWeighted
-                [ ( block
+            ( runChoose
+                choose
+                [ ( weightOf part
                   , liftA2
-                        (combine offset argumentCount)
-                        (runRankAtSize samplingF functionSize)
-                        (runRankAtSize samplingX argumentSize)
+                        (combine (partOffset part) (partArgumentCount part))
+                        (runRankAtSize samplingF $ partFunctionSize part)
+                        (runRankAtSize samplingX $ partArgumentSize part)
                   )
-                | (block, offset, functionSize, argumentSize, argumentCount) <-
-                    productSampleParts indexF indexX size
+                | part <- productSampleParts indexF indexX size
                 ]
             )
   where
@@ -236,6 +271,15 @@ productSampleIndex indexF samplingF indexX samplingX =
         ( offset + functionPosition * argumentCount + argumentPosition
         , function argument
         )
+
+-- | Sample a product at one exact size, weighting splits by member count.
+productSampleIndex ::
+    SizeIndex (a -> b) ->
+    SampleIndex (a -> b) ->
+    SizeIndex a ->
+    SampleIndex a ->
+    SampleIndex b
+productSampleIndex = productSampleIndexBy byCount partBlock
 
 {- | Sample a product whose two sides are conditioned key groups.
 
@@ -251,49 +295,23 @@ productMassSampleIndex ::
     SampleIndex a ->
     SampleIndex b
 productMassSampleIndex indexF massF samplingF indexX massX samplingX =
-    SampleIndex $ \size ->
-        Sampler
-            ( chooseMassWeighted
-                [ ( massF functionSize * massX argumentSize
-                  , liftA2
-                        ($)
-                        (runValueAtSize samplingF functionSize)
-                        (runValueAtSize samplingX argumentSize)
-                  )
-                | (_, _, functionSize, argumentSize, _) <-
-                    productSampleParts indexF indexX size
-                ]
-            )
-            ( chooseMassWeighted
-                [ ( massF functionSize * massX argumentSize
-                  , liftA2
-                        (combine offset argumentCount)
-                        (runRankAtSize samplingF functionSize)
-                        (runRankAtSize samplingX argumentSize)
-                  )
-                | (_, offset, functionSize, argumentSize, argumentCount) <-
-                    productSampleParts indexF indexX size
-                ]
-            )
+    productSampleIndexBy byMass splitMass indexF samplingF indexX samplingX
   where
-    combine offset argumentCount (functionPosition, function) (argumentPosition, argument) =
-        ( offset + functionPosition * argumentCount + argumentPosition
-        , function argument
-        )
+    splitMass part = massF (partFunctionSize part) * massX (partArgumentSize part)
 
 -- | Every non-empty size split of a product, with its position offset.
 productSampleParts ::
     SizeIndex (a -> b) ->
     SizeIndex a ->
     Int ->
-    [(Integer, Integer, Int, Int, Integer)]
+    [ProductPart]
 productSampleParts indexF indexX size = go 0 [1 .. size - 1]
   where
     go _ [] = []
     go offset (functionSize : rest)
         | block <= 0 = go offset rest
         | otherwise =
-            (block, offset, functionSize, argumentSize, argumentCount)
+            ProductPart block offset functionSize argumentSize argumentCount
                 : go (offset + block) rest
       where
         argumentSize = size - functionSize
@@ -301,24 +319,55 @@ productSampleParts indexF indexX size = go 0 [1 .. size - 1]
         argumentCount = countAtSize indexX argumentSize
         block = functionCount * argumentCount
 
--- | Sample ordered alternatives at one exact size.
-choiceSampleIndex :: [(SizeIndex a, SampleIndex a)] -> SampleIndex a
-choiceSampleIndex alternatives =
+{- | Sample ordered alternatives at one exact size, choosing with the supplied
+weights.
+
+Rank offsets always come from the structural counts, whatever the weights are:
+an alternative that is skipped because its weight is zero still occupies its
+positions in the size class. The weight function is handed that count so it
+never has to recompute it.
+-}
+choiceSampleIndexBy ::
+    Choose weight ->
+    [(SizeIndex a, Integer -> Int -> Maybe weight, SampleIndex a)] ->
+    SampleIndex a
+choiceSampleIndexBy choose alternatives =
     SampleIndex $ \size ->
         Sampler
-            ( chooseWeighted
-                [ (count, runValueAtSize sampling size)
-                | (count, _, sampling) <- choiceSampleParts size alternatives
+            ( runChoose
+                choose
+                [ (weight, runValueAtSize sampling size)
+                | (weight, _, sampling) <- parts size
                 ]
             )
-            ( chooseWeighted
-                [ ( count
+            ( runChoose
+                choose
+                [ ( weight
                   , (\(position, value) -> (offset + position, value))
                         <$> runRankAtSize sampling size
                   )
-                | (count, offset, sampling) <- choiceSampleParts size alternatives
+                | (weight, offset, sampling) <- parts size
                 ]
             )
+  where
+    parts size = go 0 alternatives
+      where
+        go _ [] = []
+        go offset ((index, weightAt, sampling) : rest) =
+            case weightAt count size of
+                Just weight -> (weight, offset, sampling) : go (offset + count) rest
+                Nothing -> go (offset + count) rest
+          where
+            count = countAtSize index size
+
+-- | Sample ordered alternatives at one exact size, weighted by member count.
+choiceSampleIndex :: [(SizeIndex a, SampleIndex a)] -> SampleIndex a
+choiceSampleIndex alternatives =
+    choiceSampleIndexBy
+        byCount
+        [(index, liveCount, sampling) | (index, sampling) <- alternatives]
+  where
+    liveCount count _ = if count > 0 then Just count else Nothing
 
 {- | Sample alternatives conditioned on one retained key.
 
@@ -329,47 +378,16 @@ choiceMassSampleIndex ::
     [(SizeIndex a, Int -> Rational, SampleIndex a)] ->
     SampleIndex a
 choiceMassSampleIndex alternatives =
-    SampleIndex $ \size ->
-        Sampler
-            ( chooseMassWeighted
-                [ (mass, runValueAtSize sampling size)
-                | (mass, _, sampling) <- parts size
-                ]
-            )
-            ( chooseMassWeighted
-                [ ( mass
-                  , (\(position, value) -> (offset + position, value))
-                        <$> runRankAtSize sampling size
-                  )
-                | (mass, offset, sampling) <- parts size
-                ]
-            )
+    choiceSampleIndexBy
+        byMass
+        [(index, liveMass massAtSize, sampling) | (index, massAtSize, sampling) <- alternatives]
   where
-    parts size = go 0 alternatives
+    liveMass massAtSize count size
+        | count <= 0 = Nothing
+        | mass <= 0 = Nothing
+        | otherwise = Just mass
       where
-        go _ [] = []
-        go offset ((index, massAtSize, sampling) : rest)
-            | count <= 0 = go offset rest
-            | mass <= 0 = go (offset + count) rest
-            | otherwise =
-                (mass, offset, sampling) : go (offset + count) rest
-          where
-            count = countAtSize index size
-            mass = massAtSize size
-
--- | Every non-empty alternative at one size, with its position offset.
-choiceSampleParts ::
-    Int ->
-    [(SizeIndex a, SampleIndex a)] ->
-    [(Integer, Integer, SampleIndex a)]
-choiceSampleParts size = go 0
-  where
-    go _ [] = []
-    go offset ((index, sampling) : rest)
-        | count <= 0 = go offset rest
-        | otherwise = (count, offset, sampling) : go (offset + count) rest
-      where
-        count = countAtSize index size
+        mass = massAtSize size
 
 -- | Tie a guarded recursive sampler alongside its recursive size index.
 fixSampleIndex :: (SampleIndex a -> SampleIndex a) -> SampleIndex a
@@ -424,7 +442,11 @@ chooseMassWeighted alternatives =
                 "microecta-generator bug in Data.ECTA.Gen.Internal.chooseMassWeighted: "
                     <> "no positive mass"
 
--- | Convert positive rational masses to the smallest integer ticket space.
+{- | Convert rational masses to the smallest equivalent integer weights.
+
+Precondition: every mass is positive. That is what makes the common factor at
+least one, so the final division is well defined.
+-}
 integerMasses :: [(Rational, a)] -> [(Integer, a)]
 integerMasses outcomes =
     zip

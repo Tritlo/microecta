@@ -209,6 +209,11 @@ compileRank (PlanAp rightCardinality planF planX)
 The root still needs 'Integer' comparisons and divisions, but a product
 remainder is bounded by its argument cardinality. 'compileLocalRank' turns that
 remainder into an 'Int' before decoding the argument whenever possible.
+
+This deliberately mirrors 'compileRank' clause for clause rather than sharing
+one @Integral rank@ implementation with it: specialising the whole decoder to
+machine 'Int' is the point of this module, and a polymorphic version would box
+the arithmetic on exactly the path that is meant to be cheap.
 -}
 compileLargeRank :: Plan a -> Integer -> a
 compileLargeRank (PlanSelect cardinality' decode)
