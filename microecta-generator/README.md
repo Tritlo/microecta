@@ -298,10 +298,16 @@ recursive occurrence must carry equal weights; `oneof` is the combinator that
 already reads that way, and the size bound controls how large members get.
 `frequency` with unequal recursive-branch weights is rejected rather than
 ignored. A weighted finite choice may still enter through `atomic`, retaining
-its own distribution inside every recursive size. Inspection that needs one
-ECTA term per member (`groupBy`, `match`, `relate`, `pmf`, `countBy`) is not
-available on an unbounded language; use the exact-size observers, bound it, or
-keep that layer finite.
+its own distribution inside every recursive size.
+
+Inspection that needs one ECTA term per member (`groupBy`, `match`, `relate`,
+`pmf`, `countBy`) is not available on a language built with `recur`, bounded or
+not: a recursive generator retains its automaton rather than a term per member,
+and `upToSize` bounds the rank space without recovering those terms. Use the
+exact-size observers (`countAtSize`, `pmfAtSize`, `countsAtSize`,
+`massesAtSize`), keep that layer finite, or read the language from an automaton
+with `fromECTA`, whose members *are* terms and which therefore does keep full
+inspection once bounded.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:
