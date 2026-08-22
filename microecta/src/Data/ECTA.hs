@@ -39,6 +39,11 @@ sharing are process-global and unsynchronized, so concurrently constructing
 nodes or forcing new memoized operations can hand back structurally equal
 values that compare unequal. Reading values that already exist is ordinary
 pure code and is safe from any thread.
+
+Those tables also never evict. Memory grows with the number of distinct nodes,
+edges and symbols ever built -- not with the work done on them -- and is never
+released, so a long-lived process that keeps constructing unrelated automata
+will grow without bound. The package README quantifies this.
 -}
 module Data.ECTA (
     Edge (Edge),

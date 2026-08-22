@@ -166,10 +166,35 @@ recursive-node, and path/equality-constraint machinery. Those are the hard parts
 of ECTA and are intentionally kept.
 
 Construct ECTAs and run ECTA operations from one thread. The process-global
-hash-consing and memo tables are deliberately small and fast, but they are not
+hash-consing and memo tables are deliberately simple and fast, but they are not
 synchronized for concurrent mutation. Once a value has been constructed,
 ordinary pure reads are safe; do not concurrently build nodes or force new
 memoized operations.
+
+### Memory
+
+Those tables never evict. Retained memory is proportional to the number of
+*distinct* nodes, edges and symbols the process has ever constructed, and to
+the memoized operations run over them. It is not proportional to the amount of
+work done: repeating operations on values that already exist retains nothing
+further.
+
+Measured on the maintainer machine, holding the shape of the work fixed and
+scaling only the count:
+
+| workload | 4k iterations | 16k | 64k |
+| --- | --- | --- | --- |
+| intersect + reduce over a fixed symbol set | 92 KB | 92 KB | 92 KB |
+| building fresh nodes, no memoized operations | 2.0 MB | 6.6 MB | 20.4 MB |
+| both: fresh nodes, intersect + reduce | 3.8 MB | 17.7 MB | 72.3 MB |
+
+The first row is the case to aim for. The others grow without bound, and there
+is no way to release them: a long-running process that keeps building
+*distinct* ECTAs will grow until it runs out of memory. This is the trade
+hash-consing makes -- it is what buys O(1) equality and the memoized graph
+algorithms -- but it makes `microecta` a poor fit for a long-lived service that
+constructs unboundedly many unrelated automata. Batch work in a process that
+exits, or keep the set of distinct nodes bounded.
 
 The old dense `PathTrie` representation compiled poorly at `-O2`, to the point of
 exhausting small development machines. `microecta` uses a sparse `PathTrie` with

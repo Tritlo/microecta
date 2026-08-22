@@ -6,6 +6,12 @@ The ECTA core relies on stable global memo tables for interning and recursive
 graph operations. This module intentionally keeps that machinery tiny: each
 call to 'memo' allocates one process-global hash table through
 'unsafePerformIO'.
+
+The tables never evict, so a memoized function retains an entry for every
+distinct argument it has ever been applied to, for the lifetime of the process.
+That is what makes repeated work free, and it means memory grows with the
+number of distinct inputs rather than with the work done. See the memory
+section of the package README.
 -}
 module Data.Memoization (
     MemoCacheTag (..),

@@ -5,6 +5,10 @@ through 'unsafeDupablePerformIO', so two threads interning the same value can
 both miss, both allocate an 'Id', and produce two values that structurally
 agree but compare unequal. Intern from one thread; reading already-constructed
 values is then ordinary pure code and is safe from any thread.
+
+The cache never evicts and holds every distinct value ever interned, so it
+grows with the size of that set and is never released. See the memory section
+of the package README.
 -}
 module Data.Interned.Extended.HashTableBased (
     Id,

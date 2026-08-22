@@ -78,6 +78,13 @@ reduces them, or enumerates them needs to change.
   `Data.Interned.Extended.HashTableBased`, rather than only in the README, and
   refresh the benchmark baseline in the README to what the suite currently
   measures.
+* Document what the hash-consing and memo tables cost. They never evict, so
+  retained memory grows with the number of *distinct* nodes, edges and symbols
+  ever constructed -- and not at all with the work done over values that
+  already exist, which measures flat. The README now says so, with figures, and
+  says plainly that a long-lived process building unboundedly many unrelated
+  automata will grow until it runs out of memory. The previous wording called
+  the tables "deliberately small".
 * Make contradictory equality constraints safe to pretty-print, replace
   partial test and enumeration paths with explicit cases, and enable strict
   warnings on GHC 9.12 and 9.14.
