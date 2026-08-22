@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.1.0 - Unreleased
+## 0.2.0.0 - Unreleased
+
+This is a major bump rather than 0.1.1.0 because the pruning API lost members;
+see the two entries marked breaking below. Nothing that only builds ECTAs,
+reduces them, or enumerates them needs to change.
 
 * Fix path compression in `Data.Persistent.UnionFind`: `find` rebuilt the
   forest from the map it read before recursing, discarding every compression

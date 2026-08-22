@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: microecta
-version: 0.1.1.0
+version: 0.2.0.0
 synopsis: Small equality-constrained tree automata core
 description: A small equality-constrained tree automata core extracted from ecta.
 homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
