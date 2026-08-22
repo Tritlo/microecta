@@ -184,9 +184,9 @@ scaling only the count:
 
 | workload | 4k iterations | 16k | 64k |
 | --- | --- | --- | --- |
-| intersect + reduce over a fixed symbol set | 92 KB | 92 KB | 92 KB |
+| intersect + reduce over a fixed symbol set | 0.1 MB | 0.1 MB | 0.1 MB |
 | building fresh nodes, no memoized operations | 2.0 MB | 6.6 MB | 20.4 MB |
-| both: fresh nodes, intersect + reduce | 3.8 MB | 17.7 MB | 72.3 MB |
+| both: fresh nodes, intersect + reduce | 6.6 MB | 17.2 MB | 69.8 MB |
 
 The first row is the case to aim for. The others grow without bound, and there
 is no way to release them: a long-running process that keeps building
@@ -195,6 +195,33 @@ hash-consing makes -- it is what buys O(1) equality and the memoized graph
 algorithms -- but it makes `microecta` a poor fit for a long-lived service that
 constructs unboundedly many unrelated automata. Batch work in a process that
 exits, or keep the set of distinct nodes bounded.
+
+#### Why there is no `clearCaches`
+
+Two escape hatches were tried and rejected on measurement.
+
+Emptying the memo tables while keeping the intern cache is *safe* -- every
+memoized function here is pure, so dropping entries costs recomputation and
+nothing else -- but it recovers almost nothing. Most of what those tables hold
+is interned nodes, which the intern cache retains regardless, and the registry
+needed to find the tables is itself unbounded. Clearing every 1000 iterations
+of the third workload above moved live bytes by about 3%.
+
+Emptying the intern cache is not safe at all. Identity comes from it: two
+structurally equal nodes interned either side of a clear get different `Id`s
+and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
+`Symbol` from before the clear is still reachable, which nothing can check.
+
+The real fix is a cache that holds its entries weakly, so unreferenced nodes are
+collected and the table pruned by finalisers. That is the standard treatment --
+[Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
+(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) -- and
+[`hashcons`](https://hackage.haskell.org/package/hashcons) implements it for
+Haskell with weak pointers and stable names. `microecta` does not do this, and
+neither does the [`intern`](https://hackage.haskell.org/package/intern) package
+it depends on for symbols, whose cache is also strong and monotonic. Moving to
+weak caches is a design change rather than a patch, so it is not in this
+release.
 
 The old dense `PathTrie` representation compiled poorly at `-O2`, to the point of
 exhausting small development machines. `microecta` uses a sparse `PathTrie` with
