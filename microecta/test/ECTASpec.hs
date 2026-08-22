@@ -255,6 +255,17 @@ spec = do
                 mapSize (min 3) $
                     \n -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
+    describe "degenerate inputs" $ do
+        it "maxIndegree of a node with nothing to count is zero" $ do
+            maxIndegree EmptyNode `shouldBe` 0
+            maxIndegree (Node [Edge "a" []]) `shouldBe` 1
+            maxIndegree ex3 `shouldBe` 2
+
+        it "a non-positive unfold bound terminates" $ do
+            getAllTerms (unfoldBounded 0 intTest7) `shouldBe` []
+            getAllTerms (unfoldBounded (-1) intTest7) `shouldBe` []
+            getAllTerms (unfoldBounded (-100) intTest7) `shouldBe` []
+
     describe "enumerating recursive automata" $ do
         -- A root Mu is never expanded, so before this was fixed getAllTerms
         -- reported the empty language and getAllTruncatedTerms raised.

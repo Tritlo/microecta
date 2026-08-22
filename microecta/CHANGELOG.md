@@ -6,6 +6,12 @@ This is a major bump rather than 0.1.1.0 because the pruning API lost members;
 see the two entries marked breaking below. Nothing that only builds ECTAs,
 reduces them, or enumerates them needs to change.
 
+* Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
+  matched, so a negative count decremented without end. Zero or less now
+  unfolds nothing, which is what the bound already meant.
+* Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
+  nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
+  leaking out as if it were an answer. It returns 0.
 * Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
   returns, and the idiomatic way to write a recursive automaton.
   `getAllTerms` returned `[]`, claiming the language was empty, and

@@ -203,21 +203,27 @@ refold = memo (NameTag "refold") go
             Just y -> y
             Nothing -> x
 
--- | Unfold recursive nodes at most the given number of rounds.
+{- | Unfold recursive nodes at most the given number of rounds.
+
+A bound of zero or less unfolds nothing and replaces every 'Mu' with
+'EmptyNode', leaving only the terms that need no recursion at all. Matching
+@0@ alone would leave a negative bound counting down forever.
+-}
 unfoldBounded :: Int -> Node -> Node
-unfoldBounded 0 =
-    mapNodes
-        ( \case
-            Mu _ -> EmptyNode
-            n -> n
-        )
-unfoldBounded k =
-    unfoldBounded (k - 1)
-        . mapNodes
+unfoldBounded rounds
+    | rounds <= 0 =
+        mapNodes
             ( \case
-                n@(Mu _) -> unfoldOuterRec n
+                Mu _ -> EmptyNode
                 n -> n
             )
+    | otherwise =
+        unfoldBounded (rounds - 1)
+            . mapNodes
+                ( \case
+                    n@(Mu _) -> unfoldOuterRec n
+                    n -> n
+                )
 
 ------------
 ------ Size operations
@@ -234,9 +240,13 @@ edgeCount = getSum . crush (onNormalNodes go)
     go (Node es) = Sum (length es)
     go _ = mempty
 
--- | Maximum number of outgoing alternatives on any reachable normal node.
+{- | Maximum number of outgoing alternatives on any reachable normal node.
+
+Zero when there is no normal node to count, as for 'EmptyNode': the @Max@
+monoid's identity is @minBound@, which is not an answer anyone can use.
+-}
 maxIndegree :: Node -> Int
-maxIndegree = getMax . crush (onNormalNodes go)
+maxIndegree = max 0 . getMax . crush (onNormalNodes go)
   where
     go (Node es) = Max (length es)
     go _ = mempty
