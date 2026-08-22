@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 {- | Qualified do-notation for ECTA generators.
@@ -51,12 +50,9 @@ module Data.ECTA.Gen.Do (
 ) where
 
 import Data.Kind (Type)
+import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import Prelude (Ord)
 import qualified Prelude
-
-#if MIN_VERSION_base(4,19,0)
-import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
-#endif
 
 import Data.ECTA.Gen (
     Args (..),
@@ -160,7 +156,6 @@ instance
     Applying continue <*> argument =
         Applying (\rest -> continue (argument :& rest))
 
-#if MIN_VERSION_base(4,19,0)
 type NotApplicativeMessage =
     'Text "This qualified do-block cannot be desugared applicatively."
         ':$$: 'Text "Common causes, most likely first:"
@@ -191,28 +186,3 @@ join = unsatisfiable
 -- | Rejected at compile time: ECTA generators cannot discard outcomes.
 fail :: (Unsatisfiable CannotFailMessage) => message -> result
 fail = unsatisfiable
-#else
-
-{- | Uninhabited stub argument; its name is the pre-@base-4.19@ substitute for
-a custom type error.
--}
-data EctaGeneratorsHaveNoBind
-
--- | Uninhabited stub argument; see 'EctaGeneratorsHaveNoBind'.
-data EctaGeneratorsCannotFail
-
--- | Rejected at compile time: ECTA generators have no bind.
-(>>=) :: EctaGeneratorsHaveNoBind -> continuation -> result
-(>>=) _ _ = Prelude.error
-    "microecta-generator bug in Data.ECTA.Gen.Do.>>=: the stub argument is uninhabited"
-
--- | Rejected at compile time: ECTA generators have no bind.
-join :: EctaGeneratorsHaveNoBind -> result
-join _ = Prelude.error
-    "microecta-generator bug in Data.ECTA.Gen.Do.join: the stub argument is uninhabited"
-
--- | Rejected at compile time: ECTA generators cannot discard outcomes.
-fail :: EctaGeneratorsCannotFail -> result
-fail _ = Prelude.error
-    "microecta-generator bug in Data.ECTA.Gen.Do.fail: the stub argument is uninhabited"
-#endif

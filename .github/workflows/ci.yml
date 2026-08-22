@@ -60,6 +60,16 @@ jobs:
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
 
+      # The dense PathTrie representation used to make an -O2 build of the core
+      # exhaust small development machines. This is the regression guard for
+      # that: it fails here rather than in a downstream build, which is why the
+      # cap is not baked into the library's ghc-options.
+      - name: Guard compile-time memory of the optimized core
+        run: |
+          cabal v2-build lib:microecta \
+            --enable-optimization=2 \
+            --ghc-options='-Werror +RTS -K512M -M512M -RTS'
+
       - name: Test
         run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
 

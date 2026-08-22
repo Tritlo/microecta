@@ -421,3 +421,7 @@ From the repository root:
 cabal build microecta-generator -j1
 cabal test microecta-generator:unit-tests -j1
 ```
+
+`-j1` is a suggestion, not a requirement: optimized builds of the `microecta`
+core are memory-hungry, and one unit of parallelism keeps a whole workspace
+build inside a small machine's memory. Drop it if you have the headroom.

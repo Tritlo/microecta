@@ -138,11 +138,14 @@ synchronized for concurrent mutation. Once a value has been constructed,
 ordinary pure reads are safe; do not concurrently build nodes or force new
 memoized operations.
 
-The old dense `PathTrie` representation compiled poorly at `-O2` under a
-512M compiler memory cap. `microecta` uses a sparse `PathTrie` with a compact
-single-child fast path. In the current benchmark suite this preserves the
-important runtime shape while allowing the library and benchmark to build at
-`-O2` with the baked 512M cap.
+The old dense `PathTrie` representation compiled poorly at `-O2`, to the point of
+exhausting small development machines. `microecta` uses a sparse `PathTrie` with
+a compact single-child fast path. In the current benchmark suite this preserves
+the important runtime shape while letting the library and benchmark build at
+`-O2` inside a 512M compiler heap. CI enforces that budget so a regression fails
+there rather than in a downstream build; the cap is deliberately not baked into
+the library's `ghc-options`, where it would cap GHC for everyone who depends on
+this package.
 
 Run the benchmark suite with:
 
@@ -165,8 +168,8 @@ The suite covers the current high-risk core paths:
 - filtered term-search reduction and enumeration
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
-`+RTS -s -M512M -RTS`, is about 5.436 GB allocated, 4.29 MB maximum residency,
-and roughly 1.1-1.2s elapsed on the maintainer machine. Treat that as a
+`+RTS -s -M512M -RTS`, is about 4.76 GB allocated, 4.33 MB maximum residency,
+and roughly 0.85-0.88s elapsed on the maintainer machine. Treat that as a
 regression guard, not a portable absolute number.
 
 Use a larger first argument for longer runs:
@@ -184,11 +187,13 @@ cabal v2-build microecta -j1
 cabal v2-test microecta:unit-tests -j1
 ```
 
-The library has compiler RTS options baked in:
+`-j1` is a suggestion, not a requirement: optimized builds of the core are
+memory-hungry, and one unit of parallelism keeps a whole workspace build inside a
+small machine's memory. Drop it if you have the headroom.
 
-```text
-+RTS -K512M -M512M -RTS
+To reproduce the compile-time memory budget CI enforces:
+
+```sh
+cabal v2-build lib:microecta --enable-optimization=2 \
+  --ghc-options='+RTS -K512M -M512M -RTS'
 ```
-
-That cap is intentional: it catches compile-time memory regressions before they
-kill small development environments.

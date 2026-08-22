@@ -7,6 +7,14 @@
   the recursive call had made, so only the first link of a chain was ever
   flattened. Representatives were always correct, but repeated `find` on a deep
   chain did more work than it should have.
+* Stop baking `+RTS -K512M -M512M -RTS` into the library's `ghc-options`. The
+  cap aborted GHC itself, so a compile-time memory regression became a hard
+  build failure for anyone depending on this package, including Hackage's
+  documentation builder. CI enforces the same budget, where a regression is a
+  signal rather than someone else's broken build.
+* Raise the `base` lower bound to 4.21, matching `tested-with` and the floor
+  that `containers >=0.7` already implied. The previous 4.13 bound claimed
+  support back to GHC 8.8, which no configuration ever built.
 * Make contradictory equality constraints safe to pretty-print, replace
   partial test and enumeration paths with explicit cases, and enable strict
   warnings on GHC 9.12 and 9.14.
