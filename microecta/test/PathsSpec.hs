@@ -123,19 +123,22 @@ spec = do
                 )
                 `shouldBe` True
 
--- TODO: (6/23/21) QuickCheck generates very large lists, much larger than currently seen in actual inputs.
--- mkEqConstraints contains a very inefficient addCongruences implementation. Therefore, these run too slowly.
-{-
-describe "constraintsImply" $ do
-  modifyMaxSuccess (const 2) $
-    it "Implies removed constraints" $
-      property $ \cs1 cs2 -> length (concat cs1) < 300 && length (concat cs2) < 300
-                             ==> constraintsImply (mkEqConstraints $ cs1 ++ cs2) (mkEqConstraints cs1)
+    constraintsImplySpec
 
-  modifyMaxSuccess (const 2) $
-    it "Does not imply added constraints" $
-      property $ \cs1 cs2 -> length (concat cs1) < 300 && length (concat cs2) < 300
-                             ==> let ecs1 = mkEqConstraints $ cs1 ++ cs2
-                                     ecs2 = mkEqConstraints cs1
-                                 in ecs1 /= ecs2 ==> not (constraintsImply ecs2 ecs1)
- -}
+-- Skipped, not deleted: QuickCheck generates path lists far larger than any
+-- real input, and 'mkEqConstraints' saturates congruences quadratically in
+-- them, so these take too long to keep in the suite. Open since 2021-06-23.
+-- 'constraintsImply' is covered by the examples above instead.
+constraintsImplySpec :: Spec
+constraintsImplySpec = describe "constraintsImply" $ do
+    xit "implies removed constraints" $
+        property $ \cs1 cs2 ->
+            length (concat cs1) < 300 && length (concat cs2) < 300 ==>
+                constraintsImply (mkEqConstraints $ cs1 ++ cs2) (mkEqConstraints cs1)
+
+    xit "does not imply added constraints" $
+        property $ \cs1 cs2 ->
+            length (concat cs1) < 300 && length (concat cs2) < 300 ==>
+                let ecs1 = mkEqConstraints $ cs1 ++ cs2
+                    ecs2 = mkEqConstraints cs1
+                 in ecs1 /= ecs2 ==> not (constraintsImply ecs2 ecs1)

@@ -16,21 +16,34 @@ import Data.ECTA.Term
 
 -----------------------------------------------------------------------------------------------
 
--- Cap size at 3 whenever you will generate all denotations
-_MAX_NODE_DEPTH :: Int
-_MAX_NODE_DEPTH = 5
+{- | Depth cap for generated nodes.
+
+Enumerating every denotation of a node is exponential in its depth, so
+properties that do that should @mapSize (min 3)@ on top of this.
+-}
+maxNodeDepth :: Int
+maxNodeDepth = 5
 
 capSize :: Int -> Gen a -> Gen a
-capSize max g = sized $ \n ->
-    if n > max
+capSize cap g = sized $ \n ->
+    if n > cap
         then
-            resize max g
+            resize cap g
         else
             g
 
+{- | Arbitrary nodes are non-recursive.
+
+Nothing here produces a 'Mu', so no property below says anything about
+recursive automata. That gap is why a root 'Mu' enumerating to the empty
+language went unnoticed; those cases are covered by explicit examples in
+"ECTASpec" instead.
+-}
 instance Arbitrary Node where
-    arbitrary = capSize _MAX_NODE_DEPTH $ sized $ \_n -> do
-        k <- chooseInt (1, 3) -- TODO: Should this depend on n?
+    arbitrary = capSize maxNodeDepth $ sized $ \_n -> do
+        -- Edge arity, not the size parameter: the size drives depth, and the
+        -- branching factor is kept small so denotation counts stay tractable.
+        k <- chooseInt (1, 3)
         Node <$> replicateM k arbitrary
 
     shrink EmptyNode = []
