@@ -107,7 +107,10 @@ findWithNegSize uv = do
             | x < 0 -> return (uv, x)
             | otherwise -> do
                 (rep, size) <- findWithNegSize (UVar x)
-                put (coerce (IntMap.insert @Int) uv rep m)
+                -- Compress against the state the recursive call left behind,
+                -- not against @m@: the rest of the chain was compressed there,
+                -- and rebuilding from @m@ would discard it.
+                modify' (coerce (IntMap.insert @Int) uv rep)
                 return (rep, size)
 
 -- | Find a variable's representative and return the path-compressed forest.

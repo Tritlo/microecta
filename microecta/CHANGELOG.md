@@ -2,6 +2,11 @@
 
 ## 0.1.1.0 - Unreleased
 
+* Fix path compression in `Data.Persistent.UnionFind`: `find` rebuilt the
+  forest from the map it read before recursing, discarding every compression
+  the recursive call had made, so only the first link of a chain was ever
+  flattened. Representatives were always correct, but repeated `find` on a deep
+  chain did more work than it should have.
 * Make contradictory equality constraints safe to pretty-print, replace
   partial test and enumeration paths with explicit cases, and enable strict
   warnings on GHC 9.12 and 9.14.
