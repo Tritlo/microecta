@@ -8,8 +8,6 @@ module Data.ECTA.Internal.Paths (
     unPath,
     path,
     Pathable (..),
-    pathHeadUnsafe,
-    pathTailUnsafe,
     isSubpath,
     isStrictSubpath,
     substSubpath,
@@ -91,16 +89,6 @@ pattern ConsPath :: Int -> Path -> Path
 pattern ConsPath p ps <- Path (p : (Path -> ps))
     where
         ConsPath p (Path ps) = Path (p : ps)
-
--- | First path component. Unsafe on 'EmptyPath'.
-pathHeadUnsafe :: Path -> Int
-pathHeadUnsafe EmptyPath = error "pathHeadUnsafe: empty path"
-pathHeadUnsafe (ConsPath p _) = p
-
--- | Path without its first component. Unsafe on 'EmptyPath'.
-pathTailUnsafe :: Path -> Path
-pathTailUnsafe EmptyPath = error "pathTailUnsafe: empty path"
-pathTailUnsafe (ConsPath _ ps) = ps
 
 instance Pretty Path where
     pretty (Path ps) = Text.intercalate "." (map (Text.pack . show) ps)
@@ -256,25 +244,40 @@ instance Ord PathTrie where
     compare a@(PathTrie _) b@(PathTrieSingleChild _ _) = flipOrdering $ compare b a
     compare (PathTrie children1) (PathTrie children2) = comparePathTrieChildren children1 children2
 
--- | Precondition: No path in the input is a subpath of another
+{- | Build a trie from a set of paths.
+
+Precondition: the paths are distinct and none is a prefix of another. Either
+would put a path and the empty path in one group, which a trie has no way to
+represent, so it is reported rather than silently mis-built.
+-}
 toPathTrie :: [Path] -> PathTrie
 toPathTrie [] = EmptyPathTrie
 toPathTrie [EmptyPath] = TerminalPathTrie
 toPathTrie ps@(firstPath : _) =
-    if all (\p -> pathHeadUnsafe p == pathHeadUnsafe firstPath) ps
+    if all (\p -> headOf p == headOf firstPath) ps
         then
-            PathTrieSingleChild (pathHeadUnsafe firstPath) (toPathTrie $ map pathTailUnsafe ps)
+            PathTrieSingleChild (headOf firstPath) (toPathTrie $ map tailOf ps)
         else
             PathTrie children
   where
     groups =
-        groupBy ((==) `on` pathHeadUnsafe) $
-            sortBy (compare `on` pathHeadUnsafe) ps
+        groupBy ((==) `on` headOf) $
+            sortBy (compare `on` headOf) ps
 
     children =
-        [ (pathHeadUnsafe groupHead, toPathTrie $ map pathTailUnsafe group)
+        [ (headOf groupHead, toPathTrie $ map tailOf group)
         | group@(groupHead : _) <- groups
         ]
+
+    headOf (ConsPath i _) = i
+    headOf EmptyPath = malformed
+
+    tailOf (ConsPath _ rest) = rest
+    tailOf EmptyPath = malformed
+
+    malformed =
+        error
+            "toPathTrie: input paths must be distinct, with none a prefix of another"
 
 -- | Convert a trie back to its sorted path list.
 fromPathTrie :: PathTrie -> [Path]

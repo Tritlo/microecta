@@ -23,6 +23,10 @@ reduces them, or enumerates them needs to change.
   that they truncate at recursion, and points at `unfoldBounded`.
 * Remove `getTermFragForUVar`, which was partial and is now unused;
   `rootTermFrag` replaces its one caller.
+* `toPathTrie` reports its own precondition -- distinct paths, none a prefix of
+  another -- instead of failing inside `pathHeadUnsafe`, whose message named
+  neither the function nor the precondition. Repeated paths violate it too,
+  which the previous wording did not make clear.
 * `EqConstraints` is no longer a record, so its derived `Show` renders
   positionally (`EqConstraints [...]` rather than
   `EqConstraints {getEclasses = [...]}`). It has no `Read` instance, so this
@@ -67,8 +71,9 @@ reduces them, or enumerates them needs to change.
   deferred-check pattern above without reaching into `Data.ECTA.Internal`.
 * Breaking: drop `pathHeadUnsafe`, `pathTailUnsafe`,
   `completedSubsumptionOrdering`, and `subsumptionOrderedEclasses` from
-  `Data.ECTA.Paths`. The first three remain in `Data.ECTA.Internal.Paths`; the
-  last was unused everywhere and is gone.
+  `Data.ECTA.Paths`. `completedSubsumptionOrdering` remains in
+  `Data.ECTA.Internal.Paths`; the other three are gone entirely, the two
+  `Unsafe` ones having had `toPathTrie` as their only caller.
 * Document that ECTAs must be built from one thread, in `Data.ECTA` and in
   `Data.Interned.Extended.HashTableBased`, rather than only in the README, and
   refresh the benchmark baseline in the README to what the suite currently
