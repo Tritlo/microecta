@@ -1,7 +1,11 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE TypeFamilies #-}
+{- | Tiny hash-consing abstraction backed by mutable cuckoo hash tables.
 
--- | Tiny hash-consing abstraction backed by mutable cuckoo hash tables.
+Not thread-safe. The cache is a process-global mutable table read and written
+through 'unsafeDupablePerformIO', so two threads interning the same value can
+both miss, both allocate an 'Id', and produce two values that structurally
+agree but compare unequal. Intern from one thread; reading already-constructed
+values is then ordinary pure code and is safe from any thread.
+-}
 module Data.Interned.Extended.HashTableBased (
     Id,
     Cache (..),
@@ -18,8 +22,11 @@ import GHC.IO (unsafeDupablePerformIO)
 -- | Dense identity assigned to each interned value.
 type Id = Int
 
-{- | Tried using the BasicHashtable size function to remove need for this IORef
-(see https://github.com/gregorycollins/hashtables/pull/68), but it was slower.
+{- | The interning table for one type, plus the counter that names new entries.
+
+The counter is a separate 'IORef' rather than the table's own size: reading
+the size instead (see https://github.com/gregorycollins/hashtables/pull/68)
+was measured slower.
 -}
 data Cache t = Cache
     { fresh :: !(IORef Id)

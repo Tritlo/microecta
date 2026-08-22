@@ -22,6 +22,7 @@ import Data.Interned.Text (InternedText, internedTextId)
 
 import Data.ECTA.Paths
 import Data.Text.Extended.Pretty
+import Utility.List (adjustAt, atMay)
 
 ---------------------------------------------------------------
 -------------------------- Symbols ----------------------------
@@ -73,20 +74,6 @@ instance Pretty Term where
 ---------------------
 ------ Term ops
 ---------------------
-
-atMay :: Int -> [a] -> Maybe a
-atMay i xs
-    | i < 0 = Nothing
-    | otherwise = case drop i xs of
-        x : _ -> Just x
-        [] -> Nothing
-
-adjustAt :: Int -> (a -> a) -> [a] -> [a]
-adjustAt i f xs
-    | i < 0 = xs
-    | otherwise = case splitAt i xs of
-        (prefix, x : suffix) -> prefix ++ f x : suffix
-        _ -> xs
 
 instance Pathable Term Term where
     type Emptyable Term = Maybe Term

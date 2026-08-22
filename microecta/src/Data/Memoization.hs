@@ -18,20 +18,21 @@ import Data.Hashable (Hashable (..))
 import Data.Text (Text)
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Human-readable name for a memo table.
-newtype MemoCacheTag
-    = -- | Name a table for debugging and nested-table derivation.
-      NameTag Text
-    deriving (Eq, Ord, Show)
+{- | Name of a memo table.
 
-instance Hashable MemoCacheTag where
-    hashWithSalt salt (NameTag name) = salt `hashWithSalt` name
+The name is not stored anywhere: it labels the call site for a reader, and
+being an argument it also keeps two structurally identical 'memo' applications
+from being shared into one table.
+-}
+newtype MemoCacheTag
+    = NameTag Text
+    deriving (Eq, Ord, Show)
 
 mkInnerTag :: MemoCacheTag -> MemoCacheTag
 mkInnerTag (NameTag t) = NameTag (t <> "-inner")
 
-memoIO :: forall a b. (Hashable a) => MemoCacheTag -> (a -> b) -> IO (a -> IO b)
-memoIO _ f = do
+memoIO :: forall a b. (Hashable a) => (a -> b) -> IO (a -> IO b)
+memoIO f = do
     ht :: HT.CuckooHashTable a b <- HT.new
     let f' x = do
             v <- HT.lookup ht x
@@ -45,8 +46,8 @@ memoIO _ f = do
 
 -- | Memoize a pure unary function in a process-global mutable hash table.
 memo :: (Hashable a) => MemoCacheTag -> (a -> b) -> (a -> b)
-memo tag f =
-    let f' = unsafePerformIO (memoIO tag f)
+memo !_tag f =
+    let f' = unsafePerformIO (memoIO f)
      in \x -> unsafePerformIO (f' x)
 
 -- | Memoize a pure binary function as nested unary memo tables.

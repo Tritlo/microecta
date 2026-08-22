@@ -47,37 +47,68 @@ Useful operations:
   alternatives.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
 - `nodeRepresents` checks concrete term membership.
-- `nodeRepresentsTemplate` checks pruning-template membership; a template
-  symbol named `<v>` acts as a wildcard.
+- `nodeRepresentsTemplate` checks whether a node could produce a term matching
+  a template, where the symbol `<v>` is a wildcard and missing template
+  children are unconstrained.
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms.
 
 ## Pruning API
 
-`getAllTermsPrune` exposes partially enumerated `TermFragment`s to pruning
-oracles. `Data.ECTA` also exports `fragRepresents`, the helper used by the
-original pruning path to compare those fragments against known concrete
-`Term`s.
-
-A pruning oracle receives the caller's state, the UVar being expanded, and
-either:
+`getAllTermsPrune` lets a caller drop branches of the enumeration before they
+are explored. It calls an oracle twice around every UVar, passing the caller's
+own state, the UVar, and either:
 
 - `Right node`, before that ECTA node is expanded
 - `Left fragment`, after a `TermFragment` has been produced
 
 Return `True` to discard the current nondeterministic branch, or `False` to
-keep enumerating with the updated state.
+keep enumerating with updated state.
+
+What makes a term worth rejecting is entirely the caller's business.
+`microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
+term (unexpanded holes render as `<vN>`), and `nodeRepresentsTemplate` to ask
+whether an ECTA node could produce a term matching a template — and no opinion
+about which shapes matter.
 
 ```haskell
-prunedTerms :: [Term] -> Node -> [Term]
+-- Drop any branch whose partial term already contains a forbidden symbol.
+prunedTerms :: [Symbol] -> Node -> [Term]
 prunedTerms forbidden =
   getAllTermsPrune () $ \() _ event ->
     case event of
-      Right node ->
-        pure (any (nodeRepresentsTemplate node) forbidden, ())
+      Right _ -> pure (False, ())
       Left fragment -> do
-        represented <- fragRepresents True fragment forbidden
-        pure (represented, ())
+        partial <- expandPartialTermFrag fragment
+        pure (any (`occursIn` partial) forbidden, ())
+  where
+    occursIn s (Term s' ts) = s == s' || any (occursIn s) ts
 ```
+
+A `Right node` decision covers a whole UVar, so it removes every term under
+that hole at once; use `Left fragment` when the choice has to be made per
+branch.
+
+The oracle's state is threaded down each nondeterministic branch separately,
+which is what makes deferred checks work. When a check cannot be settled
+because the fragment still holds an unexpanded hole, park it in that state
+under the hole's `getUVarRepresentative` and settle it when the oracle is
+called with `Left fragment` for that UVar — which is guaranteed to happen
+before the branch completes.
+
+`getAllTermsPruneWith` adds a say in which hole is expanded next, so a parked
+check can be settled before the branch it will kill is enumerated:
+
+```haskell
+-- Expand a hole some parked check is waiting on, if one is available.
+resolveParkedFirst :: ExpansionOrder (IntMap [Term])
+resolveParkedFirst parked candidates =
+  listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
+```
+
+This steers order only. It cannot make a hole expandable early, and a UVar
+that is not among the candidates is ignored. For an oracle whose rejections
+are monotone — once a branch can be rejected it stays rejectable — it changes
+how much work is done, not which terms come out.
 
 For repeated reduction, downstream code usually wants:
 

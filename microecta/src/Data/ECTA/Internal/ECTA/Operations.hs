@@ -82,25 +82,12 @@ import Data.Interned.Extended.HashTableBased (Id)
 import Data.Memoization (MemoCacheTag (..), memo, memo2)
 import Utility.Fixpoint
 import Utility.HashJoin
+import Utility.List (adjustAt, atMay)
 
 ------------------------------------------------------------------------------------
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0 ..]
-
-atMay :: Int -> [a] -> Maybe a
-atMay i xs
-    | i < 0 = Nothing
-    | otherwise = case drop i xs of
-        x : _ -> Just x
-        [] -> Nothing
-
-adjustAt :: Int -> (a -> a) -> [a] -> [a]
-adjustAt i f xs
-    | i < 0 = xs
-    | otherwise = case splitAt i xs of
-        (prefix, x : suffix) -> prefix ++ f x : suffix
-        _ -> xs
 
 -----------------------
 ------ Traversal
@@ -110,9 +97,9 @@ adjustAt i f xs
 
 This is a shallow operation: for a normal @Node@ it maps over that node's
 edges, and for a 'Mu' it first unfolds the outer recursion and then maps those
-edges. It does not recursively traverse child nodes. Spectacular uses this
-shape to push environment/equality-constraint edits across every immediate
-alternative of an ECTA node without changing the node's children directly.
+edges. It does not recursively traverse child nodes. That is the shape wanted
+when pushing an edit across every immediate alternative of a node - rewriting
+symbols or equality constraints, say - without touching the node's children.
 -}
 nodeMapChildren :: (Edge -> Edge) -> Node -> Node
 nodeMapChildren _ EmptyNode = EmptyNode
@@ -270,34 +257,42 @@ edgeRepresents :: Edge -> Term -> Bool
 edgeRepresents e = \t@(Term s ts) ->
     s == edgeSymbol e
         && childrenRepresent (edgeChildren e) ts
-        && all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
+        && edgeEcsSatisfied e t
   where
     childrenRepresent [] [] = True
     childrenRepresent (n : ns) (t : ts) = nodeRepresents n t && childrenRepresent ns ts
     childrenRepresent _ _ = False
 
-    eclassSatisfied :: Term -> PathEClass -> Bool
-    eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
+{- | Whether a term agrees with itself everywhere an edge's constraints say it
+must.
+
+'unsafeGetEclasses' is safe here: 'mkEdge' collapses a contradictory
+constraint set to 'emptyEdge', so no interned edge carries 'EqContradiction'.
+-}
+edgeEcsSatisfied :: Edge -> Term -> Bool
+edgeEcsSatisfied e t = all eclassSatisfied (unsafeGetEclasses $ edgeEcs e)
+  where
+    eclassSatisfied :: PathEClass -> Bool
+    eclassSatisfied pec = allTheSame $ map (`getPath` t) $ unPathEClass pec
 
     allTheSame :: (Eq a) => [a] -> Bool
-    allTheSame =
-        \case
-            [] -> True
-            x : xs -> go x xs
+    allTheSame [] = True
+    allTheSame (x : xs) = go x xs
       where
         go !_ [] = True
-        go !x (!y : ys) = (x == y) && (go x ys)
+        go !y (!z : zs) = (y == z) && go y zs
     {-# INLINE allTheSame #-}
 
 {- | Test whether a node can represent a template term.
 
-This is the pruning-oriented variant of 'nodeRepresents', not a concrete
-membership predicate. It delegates to 'edgeRepresentsTemplate', whose template
-language treats the exact symbol @"<v>"@ as a wildcard for the edge symbol and
-checks only the template children that are present. Pruning oracles use this
-before expanding a UVar: if the current node already represents a forbidden
-rewrite/template, the whole branch can be dropped without enumerating a full
-term.
+This is the partial-term variant of 'nodeRepresents', not a concrete
+membership predicate: it asks whether some term the node accepts /could/ agree
+with the template, given that the template may leave parts unsaid. See
+'edgeRepresentsTemplate' for what a template may leave out.
+
+A pruning oracle can use it on the @Right node@ callback of
+'Data.ECTA.getAllTermsPrune' to drop a branch before any term under it is
+enumerated.
 -}
 nodeRepresentsTemplate :: Node -> Term -> Bool
 nodeRepresentsTemplate EmptyNode _ = False
@@ -307,30 +302,23 @@ nodeRepresentsTemplate _ _ = False
 
 {- | Test whether one edge can represent a template term.
 
-The term matches normally when its symbol is the edge symbol. It also matches
-when the term symbol is exactly @"<v>"@, in which case the symbol is treated
-as a wildcard. This is a prefix-style matcher: supplied template children must
-match, but omitted template children are unresolved holes.
+A template is an ordinary t'Term' with two relaxations:
+
+* the symbol @"<v>"@ matches any edge symbol, and
+* a template may list fewer children than the edge has, in which case the
+  missing ones are unconstrained.
+
+The edge's own equality constraints still have to hold on the template.
+
+@"<v>"@ is the same spelling 'Data.ECTA.expandPartialTermFrag' uses for an
+unexpanded hole, which renders as @\<vN\>@ for a hole with id @N@; a template
+drops the id to mean "any subterm here".
 -}
 edgeRepresentsTemplate :: Edge -> Term -> Bool
 edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
-    let childrenSatisfied = and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
-        consSatisfied = all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
-     in (s == edgeSymbol e && childrenSatisfied && consSatisfied)
-            || (txt == "<v>" && childrenSatisfied && consSatisfied)
-  where
-    eclassSatisfied :: Term -> PathEClass -> Bool
-    eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
-
-    allTheSame :: (Eq a) => [a] -> Bool
-    allTheSame =
-        \case
-            [] -> True
-            x : xs -> go x xs
-      where
-        go !_ [] = True
-        go !x (!y : ys) = (x == y) && (go x ys)
-    {-# INLINE allTheSame #-}
+    (s == edgeSymbol e || txt == "<v>")
+        && and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
+        && edgeEcsSatisfied e t
 
 -----------------------
 ------ Constraints
@@ -355,13 +343,11 @@ dropConstraints = mapNodes dropNodeConstraints
 ------ Intersect
 ------------
 
-{-# NOINLINE intersect #-}
-
 data RuleOutRes = Keep | RuledOutBy Edge
 
 -- | Remove edges that are subsumed by another edge with the same symbol.
 dropRedundantEdges :: [Edge] -> [Edge]
-dropRedundantEdges origEs = concatMap reduceCluster $ {- traceShow (map (\es -> (length es, edgeSymbol $ head es)) clusters, length $ concatMap reduceCluster clusters)-} clusters
+dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
     clusters = map (nubByIdSinglePass edgeId) $ clusterByHash (hash . edgeSymbol) origEs
 
@@ -416,6 +402,7 @@ intersectEdgeSameSymbol = memo2 (NameTag "intersectEdgeSameSymbol") go
 -- | Intersection of two ECTAs.
 intersect :: Node -> Node -> Node
 intersect l r = intersectOpen (emptyIntersectionDom, l, r)
+{-# NOINLINE intersect #-}
 
 ------ Intersection internals
 
@@ -524,24 +511,18 @@ intersectOpenEdge = memo (NameTag "intersectOpenEdge") (\(dom, l, r) -> onEdge d
 ------ Union
 ------------
 
--- | Union a list of ECTAs by concatenating their alternatives.
-union :: [Node] -> Node
-union ns = case foldr collect (False, []) ns of
-    (False, _) -> EmptyNode
-    (_, es) -> Node es
-  where
-    collect EmptyNode acc = acc
-    collect n (_, es) = (True, nodeEdges n ++ es)
+{- | Union a list of ECTAs by concatenating their alternatives.
 
+'EmptyNode' and 'Rec' contribute no alternatives, and the @Node@ constructor
+maps an empty alternative list back to 'EmptyNode', so the empty cases need no
+special handling.
+-}
+union :: [Node] -> Node
+union = Node . concatMap nodeEdges
+
+-- | Union the nodes a partial function produces; see 'union'.
 unionMapMaybe :: (a -> Maybe Node) -> [a] -> Node
-unionMapMaybe f xs = case foldr collect (False, []) xs of
-    (False, _) -> EmptyNode
-    (_, es) -> Node es
-  where
-    collect x acc = case f x of
-        Nothing -> acc
-        Just EmptyNode -> acc
-        Just n -> (True, nodeEdges n ++ snd acc)
+unionMapMaybe f = union . mapMaybe f
 
 ----------------------
 ------ Path operations

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 {- | Nondeterministic enumeration for ECTAs.
 
@@ -25,7 +24,6 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     uvarCounter,
     uvarRepresentative,
     uvarValues,
-    pruneDeps,
     initEnumerationState,
     EnumerateM,
     getUVarRepresentative,
@@ -34,15 +32,13 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     getUVarValue,
     getTermFragForUVar,
     runEnumerateM,
-    getPruneDepsOf,
-    getPruneDeps,
-    addPruneDep,
-    deletePruneDep,
-    fragRepresents,
     enumerateNode,
     enumerateEdge,
     ExpandableUVarResult (..),
+    ExpansionOrder,
+    noExpansionPreference,
     firstExpandableUVar,
+    nextExpandableUVar,
     enumerateOutUVar,
     enumerateOutFirstExpandableUVar,
     enumerateFully,
@@ -52,10 +48,12 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     getAllTruncatedTerms,
     getAllTerms,
     getAllTermsPrune,
+    getAllTermsPruneWith,
     enumPrune,
+    enumPruneWith,
 ) where
 
-import Control.Monad (filterM, forM_, guard, mzero, void, zipWithM)
+import Control.Monad (forM_, guard, mzero, void, zipWithM)
 import Control.Monad.State.Strict (StateT (..), gets, modify')
 import Control.Monad.Trans.Class (lift)
 import qualified Data.IntMap as IntMap
@@ -68,7 +66,6 @@ import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Paths
 import Data.ECTA.Term
-import qualified Data.IntSet as IntSet
 import Data.Persistent.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.Persistent.UnionFind as UnionFind
 import Data.Text.Extended.Pretty
@@ -129,14 +126,14 @@ descendScs i scs =
 
 -- | Enumeration status for one UVar.
 data UVarValue
-    = UVarUnenumerated
-        { contents :: !(Maybe Node)
-        -- ^ ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
-        , constraints :: !(Seq SuspendedConstraint)
-        -- ^ Constraints that should be carried while enumerating this value.
-        }
+    = -- | UVar still has an ECTA node to expand.
+      UVarUnenumerated
+        -- | ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
+        !(Maybe Node)
+        -- | Constraints that should be carried while enumerating this value.
+        !(Seq SuspendedConstraint)
     | -- | UVar has been expanded to a fragment.
-      UVarEnumerated {termFragment :: !TermFragment}
+      UVarEnumerated !TermFragment
     | -- | UVar was merged into another representative and should no longer be used.
       UVarEliminated
     deriving (Eq, Ord, Show)
@@ -165,14 +162,6 @@ data EnumerationState = EnumerationState
     -- ^ Persistent union-find for equality-constrained UVars.
     , _uvarValues :: Seq UVarValue
     -- ^ Per-UVar contents indexed by 'uvarToInt'.
-    , _pruneDeps :: !(IntMap.IntMap [Term])
-    {- ^ Pending prune checks keyed by suspended UVar id.
-
-    A pruning oracle can use this to remember rewrite/template terms that
-    could not be checked until a particular UVar is expanded. The pruned
-    enumerator prioritizes expandable UVars that have entries here and
-    rechecks the stored terms when that UVar is enumerated.
-    -}
     }
     deriving (Eq, Ord, Show)
 
@@ -188,15 +177,6 @@ uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = 
 uvarValues :: (Functor f) => (Seq UVarValue -> f (Seq UVarValue)) -> EnumerationState -> f EnumerationState
 uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
-{- | Lens for the oracle's pending prune checks.
-
-Pruning code uses this through helpers like 'getPruneDeps', 'addPruneDep', and
-'deletePruneDep'. It is exported for lower-level oracles that need direct
-access to the dependency map while composing their own enumeration actions.
--}
-pruneDeps :: (Functor f) => (IntMap.IntMap [Term] -> f (IntMap.IntMap [Term])) -> EnumerationState -> f EnumerationState
-pruneDeps = lens _pruneDeps (\s pds -> s{_pruneDeps = pds})
-
 -- | Initial state whose root UVar contains the node being enumerated.
 initEnumerationState :: Node -> EnumerationState
 initEnumerationState n =
@@ -205,7 +185,6 @@ initEnumerationState n =
             uvg
             (UnionFind.withInitialValues [uv])
             (Sequence.singleton (UVarUnenumerated (Just n) Sequence.Empty))
-            IntMap.empty
 
 ---------------------------------------------------------------------------
 ---------------------------- Enumeration monad ----------------------------
@@ -221,51 +200,6 @@ type EnumerateM = StateT EnumerationState []
 -- | Run a lower-level enumeration action from an explicit state.
 runEnumerateM :: EnumerateM a -> EnumerationState -> [(a, EnumerationState)]
 runEnumerateM = runStateT
-
--- Prune deps --
-
-{- | Return all pending prune checks.
-
-This is mainly useful inside a pruning oracle. A caller can inspect the map
-to decide whether it is currently resuming a suspended check or starting a
-fresh one from the root fragment.
--}
-getPruneDeps :: EnumerateM (IntMap.IntMap [Term])
-getPruneDeps = gets _pruneDeps
-
-{- | Return pending prune checks for a particular UVar id.
-
-The ids are the integer form of 'UVar's, via 'uvarToInt'. The enumerator uses
-this after expanding a UVar to decide whether any previously suspended terms
-should be checked against the new fragment.
--}
-getPruneDepsOf :: Int -> EnumerateM (Maybe [Term])
-getPruneDepsOf uv = do
-    pd <- gets _pruneDeps
-    return (pd IntMap.!? uv)
-
-{- | Remember one term to check when the given UVar is expanded.
-
-Oracles use this when a prune test reaches an unexpanded 'TermFragmentUVar':
-store the term that needs checking, return "not pruned" for now, and let the
-pruned enumerator revisit the check after that UVar becomes concrete.
--}
-addPruneDep :: Int -> Term -> EnumerateM ()
-addPruneDep uv rw = addPruneDeps uv [rw]
-
-addPruneDeps :: Int -> [Term] -> EnumerateM ()
-addPruneDeps uv rws =
-    modify' $ \s -> s{_pruneDeps = IntMap.insertWith (++) uv rws (_pruneDeps s)}
-
-{- | Clear pending prune checks for a UVar.
-
-The enumerator calls this when it resumes checks for an expanded UVar. Oracles
-that consume entries from 'getPruneDeps' should delete them for the same
-reason: each dependency is a one-shot request to recheck after expansion.
--}
-deletePruneDep :: Int -> EnumerateM ()
-deletePruneDep uv =
-    modify' $ \s -> s{_pruneDeps = IntMap.delete uv (_pruneDeps s)}
 
 ---------------------
 -------- UVar accessors
@@ -364,12 +298,17 @@ hasEmptyContents _ = False
 -------- Variant maintainer
 ---------------------
 
--- This thing here might be a performance issue. UPDATE: Yes it is; clocked at 1/3 the time and 1/2 the
--- allocations of enumerateFully
---
--- It exists because it was easier to code / might actually be faster
--- to update referenced uvars here than inline in firstExpandableUVar.
--- There is no Sequence.foldMapWithIndexM.
+{- | Rewrite every suspended constraint to name its UVar's representative.
+
+'findExpandableUVars' matches candidate UVars against the UVars named by
+suspended constraints, and only representatives are kept up to date, so the
+two have to agree before that comparison is meaningful.
+
+This is a whole-state sweep and it costs: roughly a third of the time and half
+the allocation of 'enumerateFully'. Folding it into 'firstExpandableUVar'
+would avoid the separate pass, but there is no @Sequence.foldMapWithIndexM@ to
+do it in one traversal.
+-}
 refreshReferencedUVars :: EnumerateM ()
 refreshReferencedUVars = do
     values <- gets _uvarValues
@@ -394,7 +333,6 @@ refreshReferencedUVars = do
 ---------------------
 -------- Core enumeration algorithm
 ---------------------
---
 
 -- | Enumerate one node under the suspended constraints currently in scope.
 enumerateNode :: Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
@@ -441,8 +379,6 @@ data ExpandableUVarResult
       ExpansionNext !UVar
     deriving (Show)
 
--- Can speed this up with bitvectors
-
 findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Bool))
 findExpandableUVars = do
     values <- gets _uvarValues
@@ -453,9 +389,10 @@ findExpandableUVars = do
                 rep <- getUVarRepresentative (intToUVar i)
                 v <- getUVarValue rep
                 case v of
-                    (UVarUnenumerated (Just (Mu _)) Sequence.Empty) -> return IntMap.empty
-                    (UVarUnenumerated (Just (Mu _)) _) -> return $ IntMap.singleton (uvarToInt rep) False
-                    (UVarUnenumerated (Just _) _) -> return $ IntMap.singleton (uvarToInt rep) False
+                    -- An unconstrained Mu is the recursive base case: expanding
+                    -- it would unfold forever with nothing to stop it.
+                    UVarUnenumerated (Just (Mu _)) Sequence.Empty -> return IntMap.empty
+                    UVarUnenumerated (Just _) _ -> return $ IntMap.singleton (uvarToInt rep) False
                     _ -> return IntMap.empty
             )
             [0 .. (Sequence.length values - 1)]
@@ -479,76 +416,56 @@ findExpandableUVars = do
             let unconstrainedCandidateMap = IntMap.filter not (ruledOut <> candidates)
             return (Just unconstrainedCandidateMap)
 
+{- | Which of the currently expandable UVars to expand next.
+
+The list holds every UVar that can be expanded right now, in the order the
+enumerator itself would consider them, so its head is what it would pick.
+
+Returning 'Nothing' means "no preference". Returning a UVar that is not in the
+list means the same thing: this steers the order and can never make a UVar
+expandable before it is ready.
+
+Steering is worth it when the caller is waiting on a particular hole - one
+whose expansion settles a check parked in the oracle's own state - and would
+rather resolve it than enumerate the rest of a branch the check will kill.
+It cannot change which UVars are expandable, only which of them goes first.
+-}
+type ExpansionOrder state = state -> [UVar] -> Maybe UVar
+
+-- | The 'ExpansionOrder' that always leaves the choice to the enumerator.
+noExpansionPreference :: ExpansionOrder state
+noExpansionPreference _ _ = Nothing
+
 -- | Find the next UVar that can be expanded without violating dependencies.
 firstExpandableUVar :: EnumerateM ExpandableUVarResult
-firstExpandableUVar = do
+firstExpandableUVar = nextExpandableUVar (const Nothing)
+
+-- | 'firstExpandableUVar', letting the caller steer among the candidates.
+nextExpandableUVar :: ([UVar] -> Maybe UVar) -> EnumerateM ExpandableUVarResult
+nextExpandableUVar choose = do
     mb_unconstrainedCandidateMap <- findExpandableUVars
-    case mb_unconstrainedCandidateMap of
-        Nothing -> return ExpansionDone
+    return $ case mb_unconstrainedCandidateMap of
+        Nothing -> ExpansionDone
         Just unconstrainedCandidateMap ->
             case IntMap.lookupMin unconstrainedCandidateMap of
-                Nothing -> return ExpansionStuck
-                Just (i, _) -> return $ ExpansionNext $ intToUVar i
+                Nothing -> ExpansionStuck
+                Just (lowest, _) ->
+                    -- The candidate list is only forced if the caller looks at
+                    -- it, so the default order pays nothing for this.
+                    ExpansionNext $
+                        case choose (map intToUVar $ IntMap.keys unconstrainedCandidateMap) of
+                            Just preferred
+                                | IntMap.member (uvarToInt preferred) unconstrainedCandidateMap ->
+                                    preferred
+                            _ -> intToUVar lowest
 
-ruleMatches :: Bool -> TermFragment -> Term -> EnumerateM Bool
--- TODO: this should match types
-ruleMatches _ _ (Term (Symbol "<v>") _) = return True
-ruleMatches
-    pruneSuspended
-    (TermFragmentNode "app" [_, _, tf_f, tf_v])
-    (Term "app" [_, _, rw_f, rw_v]) = do
-        rw_f_m <- ruleMatches pruneSuspended tf_f rw_f
-        if not rw_f_m
-            then return False
-            else ruleMatches pruneSuspended tf_v rw_v
-ruleMatches
-    _
-    (TermFragmentNode ts [_])
-    (Term rws [_]) = return (ts == rws)
-ruleMatches pruneSuspended (TermFragmentUVar uv) rw =
-    do
-        val <- getUVarValue uv
-        case val of
-            UVarEnumerated t -> ruleMatches pruneSuspended t rw
-            _ -> return False
-ruleMatches _ _ _ = return False
+{- | Expand one UVar into a fragment.
 
-{- | Test whether a partially enumerated fragment represents any given term.
-
-This is the helper a pruning oracle uses after receiving a @Left
-TermFragment@ callback from 'getAllTermsPrune'. It understands the
-Spectacular template shape used by the pruning code: @filter@ unwraps to its
-body, @app@ compares the function and value positions, unary symbols compare
-by symbol, and the term symbol @"<v>"@ is treated as a wildcard.
-
-The Boolean argument marks checks that are allowed to suspend on unexpanded
-UVars. The current matcher only follows already-enumerated UVars; callers that
-need explicit suspension can pair this with 'addPruneDep'.
+The pattern bind is deliberately failable: 'EnumerateM' fails into the list
+monad, so a UVar that is not an unexpanded node drops this branch instead of
+raising. The branch is unreachable through 'enumerateFully'' and
+'enumerateOutFirstExpandableUVar', which only offer expandable UVars.
 -}
-fragRepresents :: Bool -> TermFragment -> [Term] -> EnumerateM Bool
-fragRepresents pruneSuspended (TermFragmentNode "filter" [_, t]) rwrs = fragRepresents pruneSuspended t rwrs
-fragRepresents pruneSuspended tf@(TermFragmentNode "app" [_, _, f, v]) rwrs = do
-    tfMatches <- filterM (ruleMatches pruneSuspended tf) rwrs
-    if not (null tfMatches)
-        then return True
-        else do
-            r <- or <$> mapM (flip (fragRepresents False) rwrs) [f, v]
-            return r
-fragRepresents pruneSuspended tf@(TermFragmentNode _ [_]) rwrs =
-    not . null <$> filterM (ruleMatches pruneSuspended tf) rwrs
-fragRepresents pruneSuspended tf@(TermFragmentUVar uv) rwrs =
-    do
-        uvMatches <- filterM (ruleMatches pruneSuspended tf) rwrs
-        if not (null uvMatches)
-            then return True
-            else do
-                val <- getUVarValue uv
-                case val of
-                    UVarEnumerated t -> fragRepresents pruneSuspended t rwrs
-                    _ -> return False
-fragRepresents _ tf _ = error $ "unrecognized frag! " ++ show tf
-
--- | Expand one UVar, then update prune dependencies and referenced UVars.
 enumerateOutUVar :: UVar -> EnumerateM TermFragment
 enumerateOutUVar uv =
     do
@@ -560,15 +477,11 @@ enumerateOutUVar uv =
             _ -> enumerateNode scs n
 
         setUVarValue (uvarToInt uv') (UVarEnumerated t)
-        pd <- getPruneDepsOf (uvarToInt uv)
-        case pd of
-            Just rws -> do
-                deletePruneDep (uvarToInt uv)
-                res <- fragRepresents True t rws
-                if res
-                    then mzero
-                    else return t
-            _ -> refreshReferencedUVars >> return t
+        -- Expanding a UVar merges others into it, so suspended constraints
+        -- recorded elsewhere may now name non-representatives.
+        -- 'firstExpandableUVar' compares against representatives.
+        refreshReferencedUVars
+        return t
 
 -- | Expand the next available UVar, failing when enumeration is done or stuck.
 enumerateOutFirstExpandableUVar :: EnumerateM ()
@@ -581,53 +494,34 @@ enumerateOutFirstExpandableUVar = do
 
 -- | Expand the root UVar until it represents a complete term.
 enumerateFully :: EnumerateM ()
-enumerateFully = const () <$> enumerateFully' () False (\x _ _ -> return (False, x))
+enumerateFully =
+    void $ enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
 
 {- | Enumerate until the root term is complete, with optional oracle pruning.
 
 The oracle is called twice around each expandable UVar:
 
 * @Right node@ is passed before expanding the node, so callers can drop a
-  whole branch early when the current ECTA already represents a forbidden
-  template.
-* @Left fragment@ is passed after expansion, so callers can reject the
-  concrete fragment or update their oracle state before enumeration
-  continues.
+  whole branch early when the ECTA about to be expanded is already known to
+  be uninteresting.
+* @Left fragment@ is passed after expansion, together with the UVar it came
+  from, so callers can reject the fragment or update their state before
+  enumeration continues.
 
-The threaded state parameter belongs to the caller. Returning @True@ prunes
-the current nondeterministic branch; returning @False@ keeps it. When
-@usePruneHints@ is enabled, UVar ids in 'pruneDeps' are expanded first so
-suspended checks resume promptly.
+The threaded state parameter belongs entirely to the caller. Returning @True@
+prunes the current nondeterministic branch; returning @False@ keeps it.
+
+The 'ExpansionOrder' sees the same state and may steer which expandable UVar
+goes next; 'noExpansionPreference' leaves that to the enumerator.
 -}
 enumerateFully' ::
     forall a.
     a ->
-    Bool ->
+    ExpansionOrder a ->
     (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
     EnumerateM Bool
-enumerateFully' ost usePruneHints oracle = do
-    muv <-
-        if usePruneHints
-            then do
-                hints <- IntMap.keysSet <$> getPruneDeps
-                if IntSet.null hints
-                    -- if we aren't targeting any terms, just expand the first one
-                    then {-# SCC "no-hints" #-} firstExpandableUVar
-                    else do
-                        expandable <- findExpandableUVars
-                        case expandable of
-                            Nothing -> return ExpansionDone
-                            Just ucm | IntMap.null ucm -> return ExpansionStuck
-                            Just ucm ->
-                                let expSet = IntMap.keysSet ucm
-                                    inters = IntSet.intersection expSet hints
-                                 in if not (IntSet.null inters)
-                                        then
-                                            return $
-                                                ExpansionNext $
-                                                    intToUVar (IntSet.findMax inters)
-                                        else firstExpandableUVar
-            else firstExpandableUVar
+enumerateFully' ost order oracle = do
+    muv <- nextExpandableUVar (order ost)
     case muv of
         ExpansionStuck -> mzero
         ExpansionDone -> return True
@@ -637,7 +531,7 @@ enumerateFully' ost usePruneHints oracle = do
                     (should_prune, ost'') <- oracle ost' uv (Left tf)
                     if should_prune
                         then mzero
-                        else enumerateFully' ost'' usePruneHints oracle
+                        else enumerateFully' ost'' order oracle
              in do
                     UVarUnenumerated (Just n) scs <- getUVarValue uv
                     case n of
@@ -708,9 +602,20 @@ state -> UVar -> Either TermFragment Node -> EnumerateM (Bool, state)
 It receives the caller state, the UVar being considered, and either the node
 about to be expanded (@Right@) or the fragment just produced (@Left@). Return
 @True@ to discard that branch, or @False@ with updated state to keep
-enumerating. A typical Spectacular-style oracle uses @Right node@ with
-'nodeRepresentsTemplate' to reject whole ECTA branches, and @Left fragment@
-with 'fragRepresents' to reject terms that match known rewrites/templates.
+enumerating. The state is threaded down each nondeterministic branch
+separately, so what one branch records cannot leak into a sibling.
+
+What counts as a term worth rejecting is the caller's to decide: this library
+supplies the callbacks and the means to read a partial term
+('expandPartialTermFrag') or test an ECTA node ('nodeRepresentsTemplate'), and
+no notion of which shapes are interesting.
+
+A check that cannot be settled because the fragment still holds an unexpanded
+'TermFragmentUVar' does not need help from this module either. Park it in the
+oracle's own state under that hole's representative
+('getUVarRepresentative'), and settle it when the oracle is called with
+@Left fragment@ for that UVar, which is guaranteed to happen before the branch
+completes. 'getAllTermsPruneWith' can bring that moment forward.
 -}
 getAllTermsPrune ::
     forall a.
@@ -718,8 +623,29 @@ getAllTermsPrune ::
     (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
     Node ->
     [Term]
-getAllTermsPrune ost oracle n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune ost oracle
+getAllTermsPrune ost = getAllTermsPruneWith ost noExpansionPreference
+
+{- | 'getAllTermsPrune' with a say in which UVar is expanded next.
+
+An oracle that parks checks on unexpanded holes can use this to reach those
+holes sooner: return the candidate the parked checks are waiting on, and a
+branch that a check would kill dies before the rest of it is enumerated.
+
+This is a hint about order, not about which terms are enumerated. It cannot
+make a UVar expandable early, and for an oracle whose rejections are monotone
+- once a branch can be rejected it stays rejectable - it changes only how much
+work is done. An oracle that decides differently depending on the order it
+sees UVars in will, of course, see the difference.
+-}
+getAllTermsPruneWith ::
+    forall a.
+    a ->
+    ExpansionOrder a ->
+    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
+    Node ->
+    [Term]
+getAllTermsPruneWith ost order oracle n =
+    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith ost order oracle
 
 {- | Monadic form of 'getAllTermsPrune'.
 
@@ -727,8 +653,17 @@ Use this when the caller is already composing lower-level enumeration actions
 in 'EnumerateM'. Most callers should prefer 'getAllTermsPrune'.
 -}
 enumPrune :: forall a. a -> (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) -> EnumerateM Term
-enumPrune a oracle = do
-    finished <- enumerateFully' a True oracle
+enumPrune a = enumPruneWith a noExpansionPreference
+
+-- | Monadic form of 'getAllTermsPruneWith'.
+enumPruneWith ::
+    forall a.
+    a ->
+    ExpansionOrder a ->
+    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
+    EnumerateM Term
+enumPruneWith a order oracle = do
+    finished <- enumerateFully' a order oracle
     if finished then expandUVar (intToUVar 0) else mzero
 
 -- | Enumerate all complete terms represented by an ECTA.

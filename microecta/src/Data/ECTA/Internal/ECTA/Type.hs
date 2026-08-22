@@ -1,11 +1,15 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Interned node and edge representation for the ECTA core.
+{- | Interned node and edge representation for the ECTA core.
+
+'DNode' and 'DEdge' are the hash-cons cache keys for an uninterned node and
+edge. They are instances of an associated data family, which Haddock cannot
+attach documentation to, hence this note.
+-}
 module Data.ECTA.Internal.ECTA.Type (
     RecNodeId (..),
     Edge (.., Edge),
-    -- | Cache key for an uninterned edge.
     pattern DEdge,
     UninternedEdge (..),
     mkEdge,
@@ -15,12 +19,10 @@ module Data.ECTA.Internal.ECTA.Type (
     edgeSymbol,
     setChildren,
     Node (.., Node, Mu),
-    -- | Cache key for an uninterned node.
     pattern DNode,
     InternedNode (..),
     InternedMu (..),
     UninternedNode (..),
-    -- | Opaque identifier for recursive nodes created during intersection.
     IntersectId,
     pattern IntersectId,
     nodeIdentity,
@@ -36,7 +38,6 @@ module Data.ECTA.Internal.ECTA.Type (
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
-import Data.List (sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -76,38 +77,36 @@ data RecNodeId
       containing 'RecDepth' in all contexts.
       -}
       RecDepth
-    | {- | Refer to Mu-node-to-be-constructed during intersection
+    | {- | Refer to a 'Mu' node that @intersect@ is about to construct
 
-      TODO: It is obviously not very elegant to have a constructor here specifically for one algorithm. Ideally, we
-      would parameterize @Node@ with the type of the identifiers in it. This might be useful also to rule out many
-      other cases (specifically, most of the time we are dealing with fully interned nodes, and so the only
-      constructor we expect is 'RecInt').
+      Having a constructor here for one algorithm is not elegant. Parameterizing
+      @Node@ over the type of identifier it carries would be better, and would
+      also rule out most of the other cases: outside these algorithms every node
+      is fully interned and 'RecInt' is the only constructor that can appear.
+      That change has not been made.
       -}
       RecIntersect IntersectId
     deriving (Eq, Ord, Show)
 
-{- | Context-free references to a 'Mu' node introduced by @intersect@
+{- | Pair of node identities naming the recursive node introduced by @intersect@.
 
-Background: This is a generalization of the idea to be able to refer to the "immediately enclosing binder", and then
-only deal with graphs with the property that we never need to refer past that enclosing binder. This too would allow
-us to refer to a 'Mu' node without knowing its 'Id', at the cost of requiring a substitution when we discover that
-'Id' to return this into a 'RecInt'. The generalization is that all we need to /some/ way to refer to that 'Mu' node
-concretely, without 'Id', but we can: intersection introduces 'Mu' whenever it encounters a 'Mu' on the left or the
-right, /and will then not introduce another 'Mu' for that same intersection problem (at least, not in the same
-scope). This means that the 'Id' of the left and right operand will indeed uniquely identify the 'Mu' node to be
-constructed by @intersect@.
+This is a context-free way to name a 'Mu' node before its 'Id' exists. It
+generalizes "refer to the immediately enclosing binder": all we need is /some/
+concrete way to name that node without an 'Id'. Intersection introduces a 'Mu'
+whenever it meets a 'Mu' on either side, and does not introduce a second one
+for the same intersection problem in the same scope, so the 'Id's of the two
+operands identify the node to be constructed uniquely. Seeing a call to
+intersect again with those same two operands - whatever kind of nodes they are
+- can therefore refer back to it.
 
-Furthermore, since we cache the free variables in a term, we have a cheap check to see if we need the 'Mu' node at
-all. This means that /if/ the input graphs satisfy the property that there are references past 'Mu' nodes, the output
-should too: we will not introduce redundant 'Mu' nodes.
+Intersection introduces a 'Mu' in three cases ('Mu' on both sides, on the left
+only, or on the right only), but the distinction does not matter here: the two
+operand 'Id's are the whole name.
 
-NOTE: Although intersect has three cases in which it introduces 'Mu' nodes ('Mu' in both operands, 'Mu' in the left,
-or 'Mu' in the right), we don't need that distinction here: we just need to know the 'Id' of the two operands, so
-that if we see a call to intersect again /with those same two operands/ (no matter what kind of nodes they are), we
-can refer to the newly constructed 'Mu' node.
+Because free variables are cached in a term, checking whether the 'Mu' node is
+needed at all is cheap. So if the input graphs never refer past a 'Mu', the
+output does not either: no redundant 'Mu' nodes are introduced.
 -}
-
--- | Pair of node identities naming the recursive node introduced by intersection.
 data IntersectId
     = -- Invariant: the two 'Id's should be ordered (guaranteed by the pattern synonym constructor)
       UnsafeIntersectId !Id !Id
@@ -150,9 +149,6 @@ instance Show Edge where
         | edgeEcs e == EmptyConstraints = "(Edge " ++ show (edgeSymbol e) ++ " " ++ show (edgeChildren e) ++ ")"
         | otherwise = "(mkEdge " ++ show (edgeSymbol e) ++ " " ++ show (edgeChildren e) ++ " " ++ show (edgeEcs e) ++ ")"
 
--- instance Show Edge where
---  show e = "InternedEdge " ++ show (edgeId e) ++ " " ++ show (edgeSymbol e) ++ " " ++ show (edgeChildren e) ++ " " ++ show (edgeEcs e)
-
 -- | Symbol at the root of terms accepted through this edge.
 edgeSymbol :: Edge -> Symbol
 edgeSymbol = uEdgeSymbol . uninternedEdge
@@ -185,16 +181,16 @@ data InternedMu = MkInternedMu
     , internedMuBody :: !Node
     {- ^ The body of the 'Mu'
 
-    Recursive occurrences to this node should be
+    Recursive occurrences of this node are
 
-    > Rec (RecNodeId internedMuId)
+    > Rec (RecInt internedMuId)
     -}
     , internedMuShape :: !Node
     {- ^ The body of the 'Mu', before it was assigned an 'Id'
 
     Invariant:
 
-    >    substFree internedMuId (Rec (RecUnint (numNestedMu internedMuBody)) internedMuBody
+    >    substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
     > == internedMuShape
     -}
     }
@@ -266,7 +262,7 @@ instance Hashable Node where
 
 {- | Maximum number of nested Mus in the term
 
-@O(1) provided that there are no unbounded Mu chains in the term.
+@O(1)@ provided that there are no unbounded Mu chains in the term.
 -}
 numNestedMu :: Node -> Int
 numNestedMu EmptyNode = 0
@@ -276,7 +272,7 @@ numNestedMu (Rec _) = 0
 
 {- | Free variables in the term
 
-@O(1) in the size of the graph, provided that there are no unbounded Mu chains in the term.
+@O(1)@ in the size of the graph, provided that there are no unbounded Mu chains in the term.
 @O(log n)@ in the number of free variables in the graph, which we expect to be orders of magnitude smaller than the
 size of the graph (indeed, we don't expect more than a handful).
 -}
@@ -300,9 +296,6 @@ nodeIdentity n = error $ "nodeIdentity: unexpected node " <> show n
 -- | Replace an edge's children while preserving its symbol and constraints.
 setChildren :: Edge -> [Node] -> Edge
 setChildren e ns = mkEdge (edgeSymbol e) ns (edgeEcs e)
-
-_dropEcs :: Edge -> Edge
-_dropEcs e = Edge (edgeSymbol e) (edgeChildren e)
 
 -----------------------------------------------------------------
 ------------------------- Interning Nodes -----------------------
@@ -359,7 +352,7 @@ instance Interned Node where
                 , internedMuBody = n (RecInt i)
                 , -- In order to establish the invariant for internedMuNoId, we need to know
                   --
-                  -- >    substFree internedMuId (Rec (RecUnint (numNestedMu internedMuBody)) internedMuBody
+                  -- >    substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
                   -- > == internedMuShape
                   --
                   -- This follows from parametricity:
@@ -372,9 +365,9 @@ instance Interned Node where
                   -- >      -- { by parametricity, depth is independent of the variable number }
                   -- > == n (RecUnint (numNestedMu (n (RecInt i))))
                   -- >      -- { parametricity again }
-                  -- > == substFree i (Rec (RecUnint (numNestedMu (n (RecInt i)))) (n (RecInt i))
+                  -- > == substFree (RecInt i) (Rec (RecUnint (numNestedMu (n (RecInt i))))) (n (RecInt i))
                   -- >      -- { definition of internedMuId and internedMuBody }
-                  -- > == substFree internedMuId (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
+                  -- > == substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
                   --
                   -- QED.
                   internedMuShape = shape n
@@ -494,9 +487,8 @@ removeEmptyEdges = filter (not . isEmptyEdge)
 
 -- | Build an edge with equality constraints.
 mkEdge :: Symbol -> [Node] -> EqConstraints -> Edge
-mkEdge _ _ ecs
-    | constraintsAreContradictory ecs = emptyEdge
 mkEdge s ns ecs
+    | constraintsAreContradictory ecs = emptyEdge
     | otherwise = intern $ UninternedEdge s ns ecs
 
 -------------------
@@ -516,11 +508,6 @@ mkNode es = case removeEmptyEdges es of
     [] -> EmptyNode
     es' -> intern $ UninternedNode $ Set.toList $ Set.fromList es'
 
-_mkNodeAlreadyNubbed :: [Edge] -> Node
-_mkNodeAlreadyNubbed es = case removeEmptyEdges es of
-    [] -> EmptyNode
-    es' -> intern $ UninternedNode $ sort es'
-
 {- | An optimized Node constructor that avoids the interning/preprocessing of the Node constructor
   when nothing changes
 -}
@@ -533,9 +520,6 @@ modifyNode n@(Node es) f =
             else
                 Node es'
 modifyNode n _ = error $ "modifyNode: unexpected node " <> show n
-
-_collapseEmptyEdge :: Edge -> Maybe Edge
-_collapseEmptyEdge e@(Edge _ ns) = if any (== EmptyNode) ns then Nothing else Just e
 
 ------ Mu
 
@@ -629,13 +613,13 @@ matchMu _otherwise = Nothing
 
 {- | Substitution
 
-@substFree i n@ will replace all occurrences of @Rec (RecNodeId i)@ by @n@. We appeal to the uniqueness of node IDs
+@substFree i n@ will replace all occurrences of @Rec i@ by @n@. We appeal to the uniqueness of node IDs
 and assume that all occurrences of @i@ must be free (in other words, that any occurrences of 'Mu' will have a
-/different/ identifier.
+/different/ identifier).
 
 Postcondition:
 
-> substFree i (Rec (RecNodeId i)) == id
+> substFree i (Rec i) == id
 -}
 substFree :: RecNodeId -> Node -> Node -> Node
 substFree old new = substFree' (Map.singleton old new)
@@ -674,7 +658,9 @@ sequenceTemplate :: [Template a] -> Template [a]
 sequenceTemplate = Template . go []
   where
     go :: [Map RecNodeId Node -> a] -> [Template a] -> Map RecNodeId Node -> [a]
-    go acc [] = \env -> reverse (map ($ env) acc)
+    -- The accumulator is reversed once here rather than on every environment
+    -- the resulting function is applied to.
+    go acc [] = let fs = reverse acc in \env -> map ($ env) fs
     go acc (Template !f : fs) = go (f : acc) fs
 
 {- | Extract the shape from a term

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 {- | Representations of paths in an FTA, data structures for
   equality constraints over paths, algorithms for saturating these constraints
@@ -35,7 +34,6 @@ module Data.ECTA.Internal.Paths (
     eqConstraintsDescend,
     constraintsAreContradictory,
     constraintsImply,
-    subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
 ) where
 
@@ -210,31 +208,16 @@ isTerminalPathTrie :: PathTrie -> Bool
 isTerminalPathTrie TerminalPathTrie = True
 isTerminalPathTrie _ = False
 
--- | Whether a trie contains at least two distinct paths.
+{- | Whether a trie contains at least two distinct paths.
+
+By the @PathTrie@ invariant a multi-child node has at least two children and
+none of them are empty, so it always holds at least two paths.
+-}
 pathTrieHasAtLeastTwoPaths :: PathTrie -> Bool
-pathTrieHasAtLeastTwoPaths = go False
-  where
-    go :: Bool -> PathTrie -> Bool
-    go _ EmptyPathTrie = False
-    go seenOne TerminalPathTrie = seenOne
-    go seenOne (PathTrieSingleChild _ pt) = go seenOne pt
-    go seenOne (PathTrie children) = goChildren seenOne children
-
-    goChildren :: Bool -> [(Int, PathTrie)] -> Bool
-    goChildren _ [] = False
-    goChildren seenOne ((_, pt) : rest)
-        | go seenOne pt = True
-        | pathTrieHasAnyPath pt =
-            if seenOne
-                then True
-                else goChildren True rest
-        | otherwise = goChildren seenOne rest
-
-    pathTrieHasAnyPath :: PathTrie -> Bool
-    pathTrieHasAnyPath EmptyPathTrie = False
-    pathTrieHasAnyPath TerminalPathTrie = True
-    pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
-    pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
+pathTrieHasAtLeastTwoPaths EmptyPathTrie = False
+pathTrieHasAtLeastTwoPaths TerminalPathTrie = False
+pathTrieHasAtLeastTwoPaths (PathTrieSingleChild _ pt) = pathTrieHasAtLeastTwoPaths pt
+pathTrieHasAtLeastTwoPaths (PathTrie _) = True
 
 -- | Compare sparse child lists as if they were dense vectors with empty cells.
 comparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
@@ -413,11 +396,10 @@ completedSubsumptionOrdering pec1 pec2
 
 -- | Equality constraints attached to an ECTA edge.
 data EqConstraints
-    = EqConstraints
-        { getEclasses :: [PathEClass]
-        -- ^ Must be sorted. This selector is partial for 'EqContradiction'.
-        }
-    | EqContradiction
+    = -- | Equality classes over paths into the edge's children. Sorted.
+      EqConstraints [PathEClass]
+    | -- | The classes forced a path to equal one of its strict subpaths.
+      EqContradiction
     deriving (Eq, Ord, Show)
 
 instance Hashable EqConstraints where
@@ -456,7 +438,11 @@ constraintsAreContradictory = (== EqContradiction)
 
 --------- Construction
 
--- | List-based reference implementation for 'hasSubsumingMember'.
+{- | 'hasSubsumingMember' over raw path lists.
+
+Used by 'isContradicting', which works on un-classed path lists, and by the
+tests as the reference the trie-based 'hasSubsumingMember' is checked against.
+-}
 hasSubsumingMemberListBased :: [Path] -> [Path] -> Bool
 hasSubsumingMemberListBased ps1 ps2 =
     any (\p1 -> any (isStrictSubpath p1) ps2) ps1
@@ -562,13 +548,11 @@ constraintsImply EqContradiction _ = True
 constraintsImply _ EqContradiction = False
 constraintsImply ecs1 ecs2 = all (\cs -> any (isSubsequenceOf cs) (ecsGetPaths ecs1)) (ecsGetPaths ecs2)
 
--- | Equality classes sorted for constraint propagation, if not contradictory.
-subsumptionOrderedEclasses :: EqConstraints -> Maybe [PathEClass]
-subsumptionOrderedEclasses ecs = case ecs of
-    EqContradiction -> Nothing
-    EqConstraints pecs -> Just $ sortBy completedSubsumptionOrdering pecs
+{- | Equality classes sorted for constraint propagation.
 
--- | Variant of 'subsumptionOrderedEclasses' that fails on contradiction.
+Fails on 'EqContradiction': reduction only reaches this after checking that the
+combined constraints are satisfiable.
+-}
 unsafeSubsumptionOrderedEclasses :: EqConstraints -> [PathEClass]
 unsafeSubsumptionOrderedEclasses (EqConstraints pecs) = sortBy completedSubsumptionOrdering pecs
 unsafeSubsumptionOrderedEclasses EqContradiction = error $ "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"

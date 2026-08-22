@@ -15,6 +15,39 @@
 * Raise the `base` lower bound to 4.21, matching `tested-with` and the floor
   that `containers >=0.7` already implied. The previous 4.13 bound claimed
   support back to GHC 8.8, which no configuration ever built.
+* Breaking: remove `fragRepresents`, and with it the enumerator's private
+  pruning bookkeeping (`pruneDeps` and the `EnumerationState` field behind it,
+  `getPruneDeps`, `getPruneDepsOf`, `addPruneDep`, `deletePruneDep`, and the
+  hint-ordered variant of `enumerateFully'`). `fragRepresents` hard-coded one
+  downstream project's term encoding - `app` with two leading type children,
+  `filter`, unary-by-symbol - inside the general enumeration core, and the
+  bookkeeping duplicated the oracle state `getAllTermsPrune` already threads
+  down each branch. An oracle keeps its own pending checks in that state
+  instead, parking them under a hole's `getUVarRepresentative` and settling
+  them when it is called for that UVar, and matches terms however it likes.
+  Deciding which terms are interesting is no longer this library's business.
+* Add `getAllTermsPruneWith` and the `ExpansionOrder` it takes, which let a
+  caller say which of the currently expandable UVars to expand next. This
+  replaces the removed `usePruneHints` flag, which read the enumerator's own
+  pending-check map and could not survive its removal, with an
+  encoding-agnostic hook: an oracle that parks checks returns the candidate one
+  is waiting on and settles it before enumerating the branch it will kill.
+  Returning 'Nothing', or a UVar that is not a candidate, leaves the order to
+  the enumerator; the hook cannot make a UVar expandable before it is ready.
+  `noExpansionPreference` is the default.
+* Export `edgeEcs`, `UVar`, `uvarToInt`, `getUVarRepresentative`, and
+  `expandPartialTermFrag` from `Data.ECTA`. An edge's equality constraints can
+  now be read back through the same module that reads its symbol and children,
+  and a pruning oracle can be given a type signature and can write the
+  deferred-check pattern above without reaching into `Data.ECTA.Internal`.
+* Breaking: drop `pathHeadUnsafe`, `pathTailUnsafe`,
+  `completedSubsumptionOrdering`, and `subsumptionOrderedEclasses` from
+  `Data.ECTA.Paths`. The first three remain in `Data.ECTA.Internal.Paths`; the
+  last was unused everywhere and is gone.
+* Document that ECTAs must be built from one thread, in `Data.ECTA` and in
+  `Data.Interned.Extended.HashTableBased`, rather than only in the README, and
+  refresh the benchmark baseline in the README to what the suite currently
+  measures.
 * Make contradictory equality constraints safe to pretty-print, replace
   partial test and enumeration paths with explicit cases, and enable strict
   warnings on GHC 9.12 and 9.14.

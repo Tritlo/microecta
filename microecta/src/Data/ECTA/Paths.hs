@@ -7,7 +7,8 @@ must denote equal subterms whenever an edge is used.
 Most users only need 'path', 'mkEqConstraints', 'EmptyConstraints', and the
 query helpers. The trie and e-class types are exposed because some downstream
 code inspects constraint structure directly, but they are still considered part
-of the low-level ECTA machinery.
+of the low-level ECTA machinery. Partial accessors and the propagation ordering
+stay in "Data.ECTA.Internal.Paths".
 -}
 module Data.ECTA.Paths (
     -- * Paths
@@ -15,8 +16,6 @@ module Data.ECTA.Paths (
     unPath,
     path,
     Pathable (..),
-    pathHeadUnsafe,
-    pathTailUnsafe,
     isSubpath,
     PathTrie (TerminalPathTrie),
     isEmptyPathTrie,
@@ -28,7 +27,6 @@ module Data.ECTA.Paths (
     PathEClass (getPathTrie),
     unPathEClass,
     hasSubsumingMember,
-    completedSubsumptionOrdering,
 
     -- * Equality constraints over paths
     EqConstraints (EmptyConstraints),
@@ -38,7 +36,6 @@ module Data.ECTA.Paths (
     eqConstraintsDescend,
     constraintsAreContradictory,
     constraintsImply,
-    subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
 ) where
 

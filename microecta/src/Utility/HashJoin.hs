@@ -47,14 +47,24 @@ maybeAddToHt v = \case
     Nothing -> (Just [v], ())
     Just vs -> (Just (v : vs), ())
 
--- | Group values by hash.
+{- | Group values by hash.
+
+Precondition, as for 'nubByIdSinglePass': @h x == h y@ must imply @x == y@.
+Callers cluster interned values by an id-derived hash, so a collision would
+silently merge two distinct groups.
+-}
 clusterByHash :: (a -> Int) -> [a] -> [[a]]
 clusterByHash h ls = runST $ do
     ht <- HT.new
     mapM_ (\x -> HT.mutate ht (h x) (maybeAddToHt x)) ls
     HT.foldM (\res (_, vs) -> return $ vs : res) [] ht
 
--- | Join two lists by equal hash and combine matching pairs.
+{- | Join two lists by equal hash and combine matching pairs.
+
+Precondition, as for 'nubByIdSinglePass': @h x == h y@ must imply @x == y@.
+The combining function is only ever applied to genuinely matching pairs under
+that assumption; a collision would pair unrelated values.
+-}
 hashJoin :: (a -> Int) -> (a -> a -> b) -> [a] -> [a] -> [b]
 hashJoin h j l1 l2 = runST $ do
     ht2 <- HT.new
