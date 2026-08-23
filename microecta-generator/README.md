@@ -412,6 +412,18 @@ structure explicit.
   exact sampling, structural shrinking, and size-stratified counting. They are
   not exposed.
 
+## Concurrency
+
+Generators build ECTAs, and `microecta` interns nodes through process-global
+tables that are not synchronized. Build and sample from one thread.
+
+This matters here more than it sounds, because this is a testing library and
+test runners parallelize: `tasty` runs independent tests concurrently by
+default, and `hspec` does under `parallel`. A property that draws from an
+`ECTAGen` under either is unsafe, and the failure is silent rather than a
+crash -- see the concurrency note in `microecta`'s README for what goes wrong.
+Run properties that use these generators sequentially.
+
 ## Dependency surface
 
 The library depends directly on `microecta`, `QuickCheck`, `array`,

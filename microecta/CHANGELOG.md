@@ -84,6 +84,11 @@ reduces them, or enumerates them needs to change.
   profile showed dominating a constraint-heavy run. On 64k distinct first
   arguments that is 167 MB against 68 MB now, with the core benchmark within
   noise on time and 0.1% up on allocation.
+* Sharpen the concurrency warning with what actually happens. Building one
+  structurally identical node from several threads produced two identities in
+  three runs out of eight, silently -- no exception. Both READMEs now say so,
+  and name the likeliest cause: a parallel test runner, which `tasty` is by
+  default and `hspec` is under `parallel`.
 * Document what the hash-consing and memo tables cost. They never evict, so
   retained memory grows with the number of *distinct* nodes, edges and symbols
   ever constructed -- and not at all with the work done over values that

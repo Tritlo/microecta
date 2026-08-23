@@ -171,6 +171,18 @@ synchronized for concurrent mutation. Once a value has been constructed,
 ordinary pure reads are safe; do not concurrently build nodes or force new
 memoized operations.
 
+This is not a theoretical caution, and it does not announce itself. Building
+the same node from several threads on four capabilities produced two different
+identities for one structurally identical node in three runs out of eight: no
+exception, no crash, just two values that are structurally equal and compare
+unequal. Everything downstream of that -- `Eq`, `Ord`, `Set` and `Map`
+membership, memoization, `intersect` -- is then quietly wrong.
+
+The likeliest way to hit this is a parallel test runner. `tasty` executes
+independent tests concurrently by default, and `hspec` does under `parallel`.
+If a property builds ECTAs, running it that way is unsafe even though nothing
+in your code looks concurrent. Run such properties sequentially.
+
 ### Memory
 
 Those tables never evict. Retained memory is proportional to the number of
