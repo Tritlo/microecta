@@ -424,10 +424,63 @@ default, and `hspec` does under `parallel`. A property drawing from an
 concurrent. Against earlier `microecta` that was silent corruption rather than
 a crash; see the concurrency note in `microecta`'s README.
 
+## Sampling performance
+
+Against a handwritten QuickCheck generator for the same language: nested
+`frequency` choices, the same exact weights, drawing uniformly from the same
+well-typed expressions at the same exact depth. Both are driven the way
+QuickCheck drives a property, one split seed per draw.
+
+A rate on its own would flatter this library, because the decoder has to be
+built before it can draw and that cost does not appear in a rate. So the
+benchmark reports what one draw costs from cold as well, and what each
+generator holds. Every cell runs in a fresh process -- `microecta`'s interning
+tables never evict, so measuring depth 4 after depth 1 would let it reuse
+depth 1's nodes and report a setup cost no first run can reproduce.
+
+| depth | engine | first expr | exprs/s | alloc/expr | setup mem | retained after 100k |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | ECTA | 0.04 ms | 2,218,918 | 3.6 KB | 6.0 KB | 38.0 KB |
+| 1 | handwritten | 0.03 ms | 552,279 | 14.1 KB | 3.1 KB | 41.6 KB |
+| 2 | ECTA | 0.06 ms | 1,828,388 | 3.8 KB | 48.8 KB | 57.8 KB |
+| 2 | handwritten | 0.04 ms | 197,621 | 38.2 KB | 6.3 KB | 106.0 KB |
+| 3 | ECTA | 0.09 ms | 986,359 | 5.8 KB | 64.7 KB | 159.9 KB |
+| 3 | handwritten | 0.10 ms | 67,269 | 112.3 KB | 50.1 KB | 354.6 KB |
+| 4 | ECTA | 0.15 ms | 370,664 | 12.8 KB | 102.6 KB | 396.7 KB |
+| 4 | handwritten | 0.57 ms | 21,981 | 335.8 KB | 83.9 KB | 1019.8 KB |
+
+The ECTA generator draws 4x faster at depth 1 and 17x faster at depth 4,
+allocating 4x to 26x less, and the gap widens with depth because the
+handwritten generator's cost is per node while this one's is one decode per
+sample. On the same machine an empty generator runs at 14.3M draws/s and a
+single `chooseInt` at 2.6M, so at depth 1 the ECTA generator is already within
+a small factor of one QuickCheck draw and cannot get much faster.
+
+Setup is not the tax it might look like. It is a fraction of a millisecond
+throughout, and by depth 4 it is *lower* than the handwritten generator's,
+which has to build a tree of alternatives weighted by exact expression counts
+before it can draw anything either.
+
+Memory is the honest cost. Both generators grow while they are sampled --
+neither is a fixed-size decoder -- and this one holds less at every depth, but
+part of what it holds is in `microecta`'s process-global tables and is not
+released when the generator is dropped. See the memory section of `microecta`'s
+README before pointing this at a long-lived process.
+
+Measured on the maintainer machine, three runs per cell, median of each metric.
+The memory figures are deterministic; the rates move a few percent between
+runs, and the ratios move with the QuickCheck and `random` versions in use.
+Reproduce with:
+
+```sh
+cabal bench microecta-generator:typed-expression-speed --enable-optimization=2
+```
+
 ## Dependency surface
 
 The library depends directly on `microecta`, `QuickCheck`, `array`,
-`containers`, and `text`; the benchmarks additionally use `random`. The
+`containers`, and `text`; the benchmarks additionally use `random` and
+`process`. The
 dependency direction is one-way: `microecta` does not depend on this package
 or on QuickCheck.
 

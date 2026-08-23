@@ -128,12 +128,14 @@ benchmark typed-expression-speed
 
   ghc-options:
     -rtsopts
+    -with-rtsopts=-T
 
   other-modules: Data.ECTA.TypedExpressionLanguage
   build-depends:
     QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
     microecta-generator,
+    process >=1.6 && <1.7,
     random >=1.2 && <1.4,
 
 benchmark pool-experiment
