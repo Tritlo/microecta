@@ -30,6 +30,23 @@ oracle's business; this module supplies only the callbacks,
 'expandPartialTermFrag' to read a partial term, and 'nodeRepresentsTemplate'
 to test a node.
 
+A node is a set of alternatives, and enumeration reads them back:
+
+>>> getAllTerms (Node [Edge "a" [], Edge "b" []])
+[Term "a" [],Term "b" []]
+
+'intersect' keeps what both accept:
+
+>>> getAllTerms (intersect (Node [Edge "a" [], Edge "b" []]) (Node [Edge "b" [], Edge "c" []]))
+[Term "b" []]
+
+An equality constraint ties two positions together, which is what an ECTA has
+that an ordinary tree automaton does not:
+
+>>> let alts = Node [Edge "a" [], Edge "b" []]
+>>> getAllTerms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
+[Term "p" [Term "a" [],Term "a" []],Term "p" [Term "b" [],Term "b" []]]
+
 Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
 instead of repeatedly traversing the same graph.
@@ -81,6 +98,16 @@ module Data.ECTA (
     edgeRepresentsTemplate,
 
     -- * Enumeration
+
+    {- |
+    Enumeration stops at recursion. Unfold first to see past it:
+
+    >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]])
+    >>> getAllTerms nat
+    [Term "Mu" []]
+    >>> getAllTerms (unfoldBounded 2 nat)
+    [Term "z" [],Term "s" [Term "z" []]]
+    -}
     EnumerateM,
     runEnumerateM,
     TermFragment (..),
@@ -103,3 +130,9 @@ import Data.ECTA.Internal.ECTA.Enumeration
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
 import Data.Persistent.UnionFind (UVar, uvarToInt)
+
+{- $setup
+>>> :set -XOverloadedStrings
+>>> import Data.ECTA.Paths
+>>> import Data.ECTA.Term
+-}
