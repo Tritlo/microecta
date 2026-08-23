@@ -79,9 +79,10 @@ jobs:
       - name: Doctest
         if: matrix.ghc == '9.12.2'
         run: |
-          cabal install doctest --ignore-project --overwrite-policy=always
-          cabal repl --with-repl=doctest lib:microecta
-          cabal repl --with-repl=doctest lib:microecta-generator
+          cabal install doctest --ignore-project --overwrite-policy=always \
+            --install-method=copy --installdir="$HOME/.local/bin"
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
       - name: Validate release artifacts
         run: |

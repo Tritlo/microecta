@@ -51,11 +51,10 @@ Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
 instead of repeatedly traversing the same graph.
 
-Build ECTAs from one thread. The hash-consing and memo tables behind that
-sharing are process-global and unsynchronized, so concurrently constructing
-nodes or forcing new memoized operations can hand back structurally equal
-values that compare unequal. Reading values that already exist is ordinary
-pure code and is safe from any thread.
+Build ECTAs from any thread. The hash-consing and memo tables behind that
+sharing are process-global, and each is an immutable map in an @IORef@ read
+without blocking and updated by compare-and-swap. Losing a race costs a
+recomputation and nothing else, because the values are pure.
 
 Those tables also never evict. Memory grows with the number of distinct nodes,
 edges and symbols ever built -- not with the work done on them -- and is never
