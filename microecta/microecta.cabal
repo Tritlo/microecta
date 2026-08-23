@@ -116,6 +116,7 @@ test-suite unit-tests
     -Wno-orphans
 
   other-modules:
+    Application.TermSearchSpec
     Data.Persistent.UnionFindSpec
     ECTASpec
     PathsSpec

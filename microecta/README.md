@@ -253,6 +253,36 @@ there rather than in a downstream build; the cap is deliberately not baked into
 the library's `ghc-options`, where it would cap GHC for everyone who depends on
 this package.
 
+### Limits
+
+Measured by scaling one dimension at a time until it stopped being practical,
+on the maintainer machine with a 20-second budget per point.
+
+Two things have a ceiling worth knowing about.
+
+**Enumerating an unfolded recursive automaton.** For a three-edge recursive
+type, `getAllTerms (unfoldBounded k t)` gives 677 terms at `k = 5` in a
+millisecond, 458,330 at `k = 6` in a second, and does not finish `k = 7` in
+twenty. The language grows faster than exponentially in the unfolding depth, so
+this is the shape of the problem rather than a defect: reach for
+`countAtSize` and `unrank` from `microecta-generator` when you want to work
+with a large language without materializing it.
+
+**Equality constraints whose paths nest.** Congruence saturation in
+`mkEqConstraints` is quadratic per round and iterates to a fixpoint, so classes
+that pair paths which are prefixes of one another cost about 4.7x per level
+added: 0.14s at depth 8, 0.77s at 9, 3.4s at 10, 16.4s at 11.
+
+The cost is in the nesting, not the count. A thousand independent classes over
+depth-two paths -- the shape term search and `apply` actually produce -- take
+0.04s, and both use depth two with a handful of classes. If you are building
+constraints by hand and they nest more than about ten deep, that is the wall.
+
+Everything else measured flat over the range tried: intersecting two recursive
+types up to ten branches each, intersecting two 12,800-edge finite nodes,
+2,560 disjoint constraint classes, reducing a 64-link constrained chain, and
+counting or unranking a bounded recursive generator.
+
 Run the benchmark suite with:
 
 ```sh

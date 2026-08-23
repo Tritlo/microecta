@@ -107,6 +107,15 @@ reduces them, or enumerates them needs to change.
   three runs out of eight, silently -- no exception. Both READMEs now say so,
   and name the likeliest cause: a parallel test runner, which `tasty` is by
   default and `hspec` is under `parallel`.
+* Add tests for `Application.TermSearch.*`, which had none: the type encoding,
+  the canonical and prefixed type variables, `filterType` keeping exactly the
+  terms of the requested type, and `reduceFully` reaching a fixpoint.
+* Document the measured limits in the README. Enumerating an unfolded
+  recursive automaton is practical to about six unfoldings, and equality
+  constraints whose paths nest cost about 4.7x per level, which makes about ten
+  the wall. Constraint *count* is not a problem -- a thousand independent
+  depth-two classes take 0.04s -- and intersection, reduction and the
+  generator's counting all measured flat over the ranges tried.
 * Document what the hash-consing and memo tables cost. They never evict, so
   retained memory grows with the number of *distinct* nodes, edges and symbols
   ever constructed -- and not at all with the work done over values that
