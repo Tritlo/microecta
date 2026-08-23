@@ -84,6 +84,24 @@ reduces them, or enumerates them needs to change.
   profile showed dominating a constraint-heavy run. On 64k distinct first
   arguments that is 167 MB against 68 MB now, with the core benchmark within
   noise on time and 0.1% up on allocation.
+* Make building ECTAs safe from any thread. The hash-consing and memoization
+  tables are now immutable maps in `IORef`s, read without blocking and updated
+  by compare-and-swap; an insert that loses takes the winner's value, so one
+  structure keeps one `Id`. A probe that raced 16 runs out of 20 before now
+  reports no disagreement in 25.
+
+  A lock does not work here. Hashing an uninterned `Mu` evaluates its shape,
+  which builds nodes, which interns again, so `intern` re-enters itself and any
+  non-reentrant lock held across the lookup deadlocks on a single thread. The
+  shape is now computed once and stored in `UninternedMu` rather than recomputed
+  by `Eq`, `Hashable` and `identify` in turn, which removes the re-entrancy and
+  is a large speedup on its own.
+
+  Together these make the core benchmark 45% faster and 45% leaner in
+  allocation (0.79s and 4,765 MB to 0.45s and 2,632 MB), at about 1.5x the
+  retained memory in the unbounded-growth case, which the README quantifies.
+  Breaking: `UninternedMu` takes the shape as a new first argument, and
+  `Cache`'s `content` field is an `IORef` of an immutable map.
 * Sharpen the concurrency warning with what actually happens. Building one
   structurally identical node from several threads produced two identities in
   three runs out of eight, silently -- no exception. Both READMEs now say so,

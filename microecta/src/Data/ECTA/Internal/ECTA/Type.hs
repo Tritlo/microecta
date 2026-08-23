@@ -305,20 +305,24 @@ setChildren e ns = mkEdge (edgeSymbol e) ns (edgeEcs e)
 data UninternedNode
     = UninternedNode ![Edge]
     | UninternedEmptyNode
-    | {- | Recursive node
+    | {- | Recursive node, carrying its shape alongside the function.
 
       The function should be parametric in the Id:
 
       > substFree i (Rec j) (f i) == f j
 
-      See 'shape' for additional discussion.
+      The shape is @'shape' f@, stored rather than recomputed. Computing it
+      builds nodes, which interns them, so leaving it to 'Eq' or 'Hashable'
+      would make hashing an uninterned node re-enter the interning cache. The
+      strict field forces it while the value is still being constructed, which
+      is before 'intern' looks at anything. See 'shape'.
       -}
-      UninternedMu !(RecNodeId -> Node)
+      UninternedMu !Node !(RecNodeId -> Node)
 
 instance Eq UninternedNode where
     UninternedNode es == UninternedNode es' = es == es'
     UninternedEmptyNode == UninternedEmptyNode = True
-    UninternedMu mu == UninternedMu mu' = shape mu == shape mu'
+    UninternedMu s _ == UninternedMu s' _ = s == s'
     _ == _ = False
 
 instance Hashable UninternedNode where
@@ -327,7 +331,7 @@ instance Hashable UninternedNode where
         go :: UninternedNode -> Int
         go UninternedEmptyNode = hashWithSalt salt (0 :: Int, ())
         go (UninternedNode es) = hashWithSalt salt (1 :: Int, es)
-        go (UninternedMu mu) = hashWithSalt salt (2 :: Int, shape mu)
+        go (UninternedMu s _) = hashWithSalt salt (2 :: Int, s)
 
 instance Interned Node where
     type Uninterned Node = UninternedNode
@@ -345,7 +349,7 @@ instance Interned Node where
                 , internedNodeFree = Set.unions (concatMap (map freeVars . edgeChildren) es)
                 }
     identify _ UninternedEmptyNode = EmptyNode
-    identify i (UninternedMu n) =
+    identify i (UninternedMu s n) =
         InternedMu $
             MkInternedMu
                 { internedMuId = i
@@ -370,7 +374,7 @@ instance Interned Node where
                   -- > == substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
                   --
                   -- QED.
-                  internedMuShape = shape n
+                  internedMuShape = s
                 }
 
     cache = nodeCache
@@ -550,7 +554,7 @@ will run in O(1) time:
 >                                substFree (internedMuId mu) n' (internedMuBody mu)
 >                       in createMu f
 >   -- { definition of createMu }
-> foo (InternedMu mu) = intern $ UninternedMu (f . Rec)
+> foo (InternedMu mu) = intern $ UninternedMu (shape (f . Rec)) (f . Rec)
 
 At this point, `intern` will call `shape (f . Rec)`, which will call `f . Rec` twice: once with `RecDepth` to compute
 the depth, and then once again with that depth to substitute a placeholder. Both of these special cases will use
@@ -585,7 +589,9 @@ Interning a 'Mu' is what assigns the identity its body refers to, so the redunda
 afterwards. This is that first half, exported for tests that need to observe a redundant node before it is dropped.
 -}
 createMuDontCleanup :: (Node -> Node) -> Node
-createMuDontCleanup f = intern $ UninternedMu (f . Rec)
+createMuDontCleanup f = intern $ UninternedMu (shape g) g
+  where
+    g = f . Rec
 
 {- | Match on a 'Mu' node
 

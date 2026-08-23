@@ -414,15 +414,15 @@ structure explicit.
 
 ## Concurrency
 
-Generators build ECTAs, and `microecta` interns nodes through process-global
-tables that are not synchronized. Build and sample from one thread.
+Safe. Generators build ECTAs, and `microecta` interns nodes through
+process-global tables, which are synchronized as of `microecta` 0.2.0.0.
 
 This matters here more than it sounds, because this is a testing library and
 test runners parallelize: `tasty` runs independent tests concurrently by
-default, and `hspec` does under `parallel`. A property that draws from an
-`ECTAGen` under either is unsafe, and the failure is silent rather than a
-crash -- see the concurrency note in `microecta`'s README for what goes wrong.
-Run properties that use these generators sequentially.
+default, and `hspec` does under `parallel`. A property drawing from an
+`ECTAGen` can be run that way without anything in your code looking
+concurrent. Against earlier `microecta` that was silent corruption rather than
+a crash; see the concurrency note in `microecta`'s README.
 
 ## Dependency surface
 

@@ -1,11 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Quick-and-dirty, thread-unsafe, hash-based memoization.
+{- | Quick-and-dirty hash-based memoization.
 
 The ECTA core relies on stable global memo tables for interning and recursive
 graph operations. This module intentionally keeps that machinery tiny: each
-call to 'memo' allocates one process-global hash table through
-'unsafePerformIO'.
+call to 'memo' allocates one process-global table through 'unsafePerformIO'.
+
+Safe from any thread. The table is an immutable map in an @IORef@, read
+without blocking and updated by compare-and-swap. Losing a race costs a
+recomputation and nothing else, because every function memoized here is pure.
+A lock is not an option: the memoized computation interns, and interning
+re-enters this module, so anything non-reentrant held across the miss
+deadlocks.
 
 The tables never evict, so a memoized function retains an entry for every
 distinct argument it has ever been applied to, for the lifetime of the process.
@@ -19,8 +25,10 @@ module Data.Memoization (
     memo2,
 ) where
 
-import qualified Data.HashTable.IO as HT
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -36,15 +44,20 @@ newtype MemoCacheTag
 
 memoIO :: forall a b. (Hashable a) => (a -> b) -> IO (a -> IO b)
 memoIO f = do
-    ht :: HT.CuckooHashTable a b <- HT.new
+    ref <- newIORef (HashMap.empty :: HashMap a b)
     let f' x = do
-            v <- HT.lookup ht x
-            case v of
-                Nothing -> do
-                    let r = f x
-                    HT.insert ht x r
-                    return r
+            cached <- HashMap.lookup x <$> readIORef ref
+            case cached of
                 Just r -> return r
+                Nothing -> do
+                    -- @r@ is never forced under the update: forcing it runs
+                    -- the memoized computation, which interns, which comes
+                    -- back through here and would diverge. Two racers may each
+                    -- insert their own thunk; both compute the same answer,
+                    -- because everything memoized here is pure.
+                    let r = f x
+                    atomicModifyIORef' ref (\m -> (HashMap.insert x r m, ()))
+                    return r
     return f'
 
 -- | Memoize a pure unary function in a process-global mutable hash table.

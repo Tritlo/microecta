@@ -165,23 +165,25 @@ The core still uses the original hash-consing, memoization, union-find,
 recursive-node, and path/equality-constraint machinery. Those are the hard parts
 of ECTA and are intentionally kept.
 
-Construct ECTAs and run ECTA operations from one thread. The process-global
-hash-consing and memo tables are deliberately simple and fast, but they are not
-synchronized for concurrent mutation. Once a value has been constructed,
-ordinary pure reads are safe; do not concurrently build nodes or force new
-memoized operations.
+Building ECTAs is safe from any thread. The hash-consing and memoization
+tables are immutable maps in `IORef`s: reads never block, and an insert that
+loses its compare-and-swap takes the winner's value, so one structure keeps one
+identity however many threads raced for it.
 
-This is not a theoretical caution, and it does not announce itself. Building
-the same node from several threads on four capabilities produced two different
-identities for one structurally identical node in three runs out of eight: no
+It was not always so. Before 0.2.0.0 the tables were mutable and unsynchronized,
+and building one structurally identical node from several threads on four
+capabilities produced two different identities in 16 runs out of 20 -- no
 exception, no crash, just two values that are structurally equal and compare
-unequal. Everything downstream of that -- `Eq`, `Ord`, `Set` and `Map`
-membership, memoization, `intersect` -- is then quietly wrong.
+unequal, after which `Eq`, `Ord`, `Set` membership, memoization and `intersect`
+were all quietly wrong. That mattered most for a parallel test runner: `tasty`
+runs independent tests concurrently by default and `hspec` does under
+`parallel`, so a property could be run that way without anything in the user's
+code looking concurrent. The same probe now reports no disagreement in 25 runs.
 
-The likeliest way to hit this is a parallel test runner. `tasty` executes
-independent tests concurrently by default, and `hspec` does under `parallel`.
-If a property builds ECTAs, running it that way is unsafe even though nothing
-in your code looks concurrent. Run such properties sequentially.
+A lock would have been simpler and was not available: hashing an uninterned
+recursive node evaluates its shape, which builds nodes, which interns again, so
+interning re-enters itself and any non-reentrant lock held across the lookup
+deadlocks -- on one thread as readily as on four.
 
 ### Memory
 
@@ -197,8 +199,15 @@ scaling only the count:
 | workload | 4k iterations | 16k | 64k |
 | --- | --- | --- | --- |
 | intersect + reduce over a fixed symbol set | 0.1 MB | 0.1 MB | 0.1 MB |
-| building fresh nodes, no memoized operations | 2.0 MB | 6.6 MB | 20.4 MB |
-| both: fresh nodes, intersect + reduce | 6.6 MB | 17.2 MB | 69.8 MB |
+| building fresh nodes, no memoized operations | 1.9 MB | 6.2 MB | 27.2 MB |
+| both: fresh nodes, intersect + reduce | 5.3 MB | 30.5 MB | 105.8 MB |
+
+Those last two rows are roughly half again what the pre-0.2.0.0 mutable tables
+retained, which is what the immutable maps cost: a HAMT node carries more
+overhead per entry than a slot in a flat mutable table. It buys thread safety
+and, on the core benchmark, 45% less allocation and 45% less time -- the tables
+are read far more often than written, and a lock-free read is cheaper than a
+mutable-table lookup. The trade was taken deliberately in that direction.
 
 The first row is the case to aim for. The others grow without bound, and there
 is no way to release them: a long-running process that keeps building

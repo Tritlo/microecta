@@ -1,10 +1,15 @@
 {- | Tiny hash-consing abstraction backed by mutable cuckoo hash tables.
 
-Not thread-safe. The cache is a process-global mutable table read and written
-through 'unsafeDupablePerformIO', so two threads interning the same value can
-both miss, both allocate an 'Id', and produce two values that structurally
-agree but compare unequal. Intern from one thread; reading already-constructed
-values is then ordinary pure code and is safe from any thread.
+Interning is safe from any thread. The cache is an immutable map in an
+'IORef': lookups read it without blocking, and an insert that loses its
+compare-and-swap re-reads and yields whatever the winner interned, so one
+structure keeps one 'Id' however many threads raced for it.
+
+A lock would be simpler and is not available. Hashing the description of a
+recursive node evaluates its shape, which builds nodes, which interns again, so 'intern'
+re-enters itself; a non-reentrant lock held across the lookup deadlocks, on
+one thread as readily as on four. Nothing here blocks, so re-entering is
+merely a retry.
 
 The cache never evicts and holds every distinct value ever interned, so it
 grows with the size of that set and is never released. See the memory section
@@ -18,24 +23,21 @@ module Data.Interned.Extended.HashTableBased (
     intern,
 ) where
 
-import qualified Data.HashTable.IO as HT
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable
 import Data.IORef
+import Data.Maybe (fromMaybe)
 import GHC.IO (unsafeDupablePerformIO)
 
 -- | Dense identity assigned to each interned value.
 type Id = Int
 
-{- | The interning table for one type, plus the counter that names new entries.
-
-The counter is a separate 'IORef' rather than the table's own size: reading
-the size instead (see https://github.com/gregorycollins/hashtables/pull/68)
-was measured slower.
--}
+-- | The interning table for one type, plus the counter that names new entries.
 data Cache t = Cache
     { fresh :: !(IORef Id)
-    -- ^ Next id to allocate.
-    , content :: !(HT.CuckooHashTable (Description t) t)
+    -- ^ Next id to allocate. Ids of values that lose an insert race go unused.
+    , content :: !(IORef (HashMap (Description t) t))
     -- ^ Map from structural descriptions to canonical interned values.
     }
 
@@ -44,7 +46,7 @@ freshCache :: IO (Cache t)
 freshCache =
     Cache
         <$> newIORef 0
-        <*> HT.new
+        <*> newIORef HashMap.empty
 
 -- | Values that can be hash-consed through a global cache.
 class
@@ -69,18 +71,21 @@ class
     cache :: Cache t
 
 -- | Return the canonical interned representative for an uninterned value.
-intern :: (Interned t) => Uninterned t -> t
+intern :: forall t. (Interned t) => Uninterned t -> t
 intern !bt = unsafeDupablePerformIO $ do
-    let c = cache
-    let refI = fresh c
-    let ht = content c
-    v <- HT.lookup ht dt
-    case v of
-        Nothing -> do
-            i <- atomicModifyIORef' refI (\i -> (i + 1, i))
-            let t = identify i bt
-            HT.insert ht dt t
-            return t
+    existing <- HashMap.lookup dt <$> readIORef (content c)
+    case existing of
         Just t -> return t
+        Nothing -> do
+            i <- atomicModifyIORef' (fresh c) (\next -> (next + 1, next))
+            let t = identify i bt
+            -- insertWith keeps whatever is already there, so the first writer
+            -- wins and nothing forces @t@: forcing it builds the value, which
+            -- interns, which would re-enter this update and diverge.
+            atomicModifyIORef' (content c) $ \m ->
+                (HashMap.insertWith (\_new old -> old) dt t m, ())
+            -- Re-read outside the update to pick up whoever won.
+            fromMaybe t . HashMap.lookup dt <$> readIORef (content c)
   where
+    c = cache :: Cache t
     !dt = describe bt
