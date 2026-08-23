@@ -185,6 +185,12 @@ recursive node evaluates its shape, which builds nodes, which interns again, so
 interning re-enters itself and any non-reentrant lock held across the lookup
 deadlocks -- on one thread as readily as on four.
 
+The replacement is not a novel design. The `intern` package, already a
+dependency here for interned text, has kept its caches as immutable maps in
+`IORef`s updated by compare-and-swap for years. It also shards them 1024 ways
+to cut write contention, which this does not yet do; if a workload ever turns
+out to be write-bound across many threads, that is the next step.
+
 ### Memory
 
 Those tables never evict. Retained memory is proportional to the number of
@@ -205,9 +211,12 @@ scaling only the count:
 Those last two rows are roughly half again what the pre-0.2.0.0 mutable tables
 retained, which is what the immutable maps cost: a HAMT node carries more
 overhead per entry than a slot in a flat mutable table. It buys thread safety
-and, on the core benchmark, 45% less allocation and 45% less time -- the tables
-are read far more often than written, and a lock-free read is cheaper than a
-mutable-table lookup. The trade was taken deliberately in that direction.
+and, on the core benchmark, less of everything else: 0.77s and 4,765 MB before
+0.2.0.0 against 0.30s and 2,161 MB now. Holding the cache fixed and adding only
+the stored shape accounts for 0.69s and 4,317 MB of that, so the swap away from
+the mutable table is the larger half. The tables are read far more often than
+written, and a pure lookup in a HAMT beats an IO-boxed probe into a cuckoo
+table.
 
 The first row is the case to aim for. The others grow without bound, and there
 is no way to release them: a long-running process that keeps building
@@ -304,8 +313,8 @@ The suite covers the current high-risk core paths:
 - filtered term-search reduction and enumeration
 
 The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
-`+RTS -s -M512M -RTS`, is about 4.76 GB allocated, 4.33 MB maximum residency,
-and roughly 0.85-0.88s elapsed on the maintainer machine. Treat that as a
+`+RTS -s -M512M -RTS`, is about 2.16 GB allocated, 4.34 MB maximum residency,
+and roughly 0.30s elapsed on the maintainer machine. Treat that as a
 regression guard, not a portable absolute number.
 
 Use a larger first argument for longer runs:

@@ -97,9 +97,12 @@ reduces them, or enumerates them needs to change.
   by `Eq`, `Hashable` and `identify` in turn, which removes the re-entrancy and
   is a large speedup on its own.
 
-  Together these make the core benchmark 45% faster and 45% leaner in
-  allocation (0.79s and 4,765 MB to 0.45s and 2,632 MB), at about 1.5x the
-  retained memory in the unbounded-growth case, which the README quantifies.
+  Together these take the core benchmark from 0.77s and 4,765 MB to 0.30s and
+  2,161 MB, at about 1.5x the retained memory in the unbounded-growth case,
+  which the README quantifies. The stored shape accounts for the smaller part
+  of that (0.69s and 4,317 MB with it alone); the rest is the immutable map
+  being a faster cache than the mutable one it replaced, not a cost of being
+  safe.
   Breaking: `UninternedMu` takes the shape as a new first argument, and
   `Cache`'s `content` field is an `IORef` of an immutable map.
 * Sharpen the concurrency warning with what actually happens. Building one
