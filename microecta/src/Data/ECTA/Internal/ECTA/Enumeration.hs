@@ -639,14 +639,7 @@ getAllTruncatedTermsWith :: (Hashable symbol, Typeable symbol) => (symbol -> out
 getAllTruncatedTermsWith concreteSymbol recursionSymbol holeSymbol n = map fst $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
-        let root = intToUVar 0
-        value <- getUVarValue root
-        case value of
-            UVarEnumerated fragment ->
-                expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol fragment
-            UVarUnenumerated (Just (InternedMu _)) _ ->
-                return $ Term recursionSymbol []
-            _ -> return $ Term (holeSymbol root) []
+        rootTermFrag >>= expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol
 
 {- | Enumerate terms while letting an oracle prune branches.
 
