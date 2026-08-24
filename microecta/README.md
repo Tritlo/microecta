@@ -47,30 +47,41 @@ Useful operations:
   alternatives.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
 - `nodeRepresents` checks concrete term membership.
-- `nodeRepresentsTemplate` checks whether a node could produce a term matching
-  a template, where the symbol `<v>` is a wildcard and missing template
-  children are unconstrained.
+- `matchesTemplate` checks a concrete term against an explicit `Template`.
+- `termsMatching` restricts a node to the accepted terms matching a template,
+  while preserving its equality constraints.
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms. Both stop at
   an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
   `unfoldBounded` first to see past the recursion.
 
+Templates do not overload ordinary symbols. `Hole` matches a complete
+subtree, `TemplateNode` and `AnyNode` require exact arity, and
+`TemplatePrefix` and `AnyPrefix` constrain only the leading children:
+
+```haskell
+unaryF = TemplateNode "f" [Hole]
+anyF = TemplatePrefix "f" []
+```
+
 ## Pruning API
 
 `getAllTermsPrune` lets a caller drop branches of the enumeration before they
-are explored. It calls an oracle twice around every UVar, passing the caller's
-own state, the UVar, and either:
+are explored. It calls an oracle twice around every UVar it expands, passing
+the caller's own state, the UVar, and either:
 
 - `Right node`, before that ECTA node is expanded
 - `Left fragment`, after a `TermFragment` has been produced
+
+A bare unconstrained `Mu` stops enumeration without being expanded and
+therefore produces neither callback.
 
 Return `True` to discard the current nondeterministic branch, or `False` to
 keep enumerating with updated state.
 
 What makes a term worth rejecting is entirely the caller's business.
 `microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
-term (unexpanded holes render as `<vN>`), and `nodeRepresentsTemplate` to ask
-whether an ECTA node could produce a term matching a template — and no opinion
-about which shapes matter.
+term (unexpanded holes render as `<vN>`), and no opinion about which shapes
+matter.
 
 ```haskell
 -- Drop any branch whose partial term already contains a forbidden symbol.
@@ -87,8 +98,9 @@ prunedTerms forbidden =
 ```
 
 A `Right node` decision covers a whole UVar, so it removes every term under
-that hole at once; use `Left fragment` when the choice has to be made per
-branch.
+that hole at once. The fact that `termsMatching template node` is non-empty
+only proves that some terms match; it does not justify dropping the whole
+node. Use `Left fragment` when the choice has to be made per branch.
 
 The oracle's state is threaded down each nondeterministic branch separately,
 which is what makes deferred checks work. When a check cannot be settled
@@ -166,9 +178,9 @@ recursive-node, and path/equality-constraint machinery. Those are the hard parts
 of ECTA and are intentionally kept.
 
 Building ECTAs is safe from any thread. The hash-consing and memoization
-tables are immutable maps in `IORef`s: reads never block, and an insert that
-loses its compare-and-swap takes the winner's value, so one structure keeps one
-identity however many threads raced for it.
+tables are immutable maps in `IORef`s: reads never block, and atomic updates
+retain the winning interned value, so one structure keeps one identity however
+many threads raced for it.
 
 It was not always so. Before 0.2.0.0 the tables were mutable and unsynchronized,
 and building one structurally identical node from several threads on four
@@ -180,14 +192,14 @@ runs independent tests concurrently by default and `hspec` does under
 `parallel`, so a property could be run that way without anything in the user's
 code looking concurrent. The same probe now reports no disagreement in 25 runs.
 
-A lock would have been simpler and was not available: hashing an uninterned
-recursive node evaluates its shape, which builds nodes, which interns again, so
-interning re-enters itself and any non-reentrant lock held across the lookup
-deadlocks -- on one thread as readily as on four.
+Recursive-node shapes are computed before entering the interning cache and
+stored in the uninterned description. Hashing and equality reuse that shape,
+while the candidate value remains lazy during the atomic update; forcing it
+there could build and intern further nodes.
 
 The replacement is not a novel design. The `intern` package, already a
 dependency here for interned text, has kept its caches as immutable maps in
-`IORef`s updated by compare-and-swap for years. It also shards them 1024 ways
+`IORef`s updated atomically for years. It also shards them 1024 ways
 to cut write contention, which this does not yet do; if a workload ever turns
 out to be write-bound across many threads, that is the next step.
 

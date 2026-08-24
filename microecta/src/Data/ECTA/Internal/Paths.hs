@@ -32,6 +32,7 @@ module Data.ECTA.Internal.Paths (
     eqConstraintsDescend,
     constraintsAreContradictory,
     constraintsImply,
+    subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
 ) where
 
@@ -196,16 +197,31 @@ isTerminalPathTrie :: PathTrie -> Bool
 isTerminalPathTrie TerminalPathTrie = True
 isTerminalPathTrie _ = False
 
-{- | Whether a trie contains at least two distinct paths.
-
-By the @PathTrie@ invariant a multi-child node has at least two children and
-none of them are empty, so it always holds at least two paths.
--}
+-- | Whether a trie contains at least two distinct paths.
 pathTrieHasAtLeastTwoPaths :: PathTrie -> Bool
-pathTrieHasAtLeastTwoPaths EmptyPathTrie = False
-pathTrieHasAtLeastTwoPaths TerminalPathTrie = False
-pathTrieHasAtLeastTwoPaths (PathTrieSingleChild _ pt) = pathTrieHasAtLeastTwoPaths pt
-pathTrieHasAtLeastTwoPaths (PathTrie _) = True
+pathTrieHasAtLeastTwoPaths = go False
+  where
+    go :: Bool -> PathTrie -> Bool
+    go _ EmptyPathTrie = False
+    go seenOne TerminalPathTrie = seenOne
+    go seenOne (PathTrieSingleChild _ pt) = go seenOne pt
+    go seenOne (PathTrie children) = goChildren seenOne children
+
+    goChildren :: Bool -> [(Int, PathTrie)] -> Bool
+    goChildren _ [] = False
+    goChildren seenOne ((_, pt) : rest)
+        | go seenOne pt = True
+        | pathTrieHasAnyPath pt =
+            if seenOne
+                then True
+                else goChildren True rest
+        | otherwise = goChildren seenOne rest
+
+    pathTrieHasAnyPath :: PathTrie -> Bool
+    pathTrieHasAnyPath EmptyPathTrie = False
+    pathTrieHasAnyPath TerminalPathTrie = True
+    pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
+    pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
 
 -- | Compare sparse child lists as if they were dense vectors with empty cells.
 comparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
@@ -550,6 +566,11 @@ constraintsImply :: EqConstraints -> EqConstraints -> Bool
 constraintsImply EqContradiction _ = True
 constraintsImply _ EqContradiction = False
 constraintsImply ecs1 ecs2 = all (\cs -> any (isSubsequenceOf cs) (ecsGetPaths ecs1)) (ecsGetPaths ecs2)
+
+-- | Equality classes sorted for constraint propagation, if not contradictory.
+subsumptionOrderedEclasses :: EqConstraints -> Maybe [PathEClass]
+subsumptionOrderedEclasses EqContradiction = Nothing
+subsumptionOrderedEclasses (EqConstraints pecs) = Just $ sortBy completedSubsumptionOrdering pecs
 
 {- | Equality classes sorted for constraint propagation.
 

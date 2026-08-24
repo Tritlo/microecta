@@ -38,10 +38,6 @@ module Data.ECTA.Internal.ECTA.Operations (
     dropEdgeConstraints,
     dropConstraints,
 
-    -- * Membership of templates
-    nodeRepresentsTemplate,
-    edgeRepresentsTemplate,
-
     -- * Intersection
     intersect,
     dropRedundantEdges,
@@ -293,51 +289,14 @@ edgeEcsSatisfied e t = all eclassSatisfied (unsafeGetEclasses $ edgeEcs e)
         go !y (!z : zs) = (y == z) && go y zs
     {-# INLINE allTheSame #-}
 
-{- | Test whether a node can represent a template term.
-
-This is the partial-term variant of 'nodeRepresents', not a concrete
-membership predicate: it asks whether some term the node accepts /could/ agree
-with the template, given that the template may leave parts unsaid. See
-'edgeRepresentsTemplate' for what a template may leave out.
-
-A pruning oracle can use it on the @Right node@ callback of
-'Data.ECTA.getAllTermsPrune' to drop a branch before any term under it is
-enumerated.
--}
-nodeRepresentsTemplate :: Node -> Term -> Bool
-nodeRepresentsTemplate EmptyNode _ = False
-nodeRepresentsTemplate (Node es) t = any (`edgeRepresentsTemplate` t) es
-nodeRepresentsTemplate n@(Mu _) t = nodeRepresentsTemplate (unfoldOuterRec n) t
-nodeRepresentsTemplate _ _ = False
-
-{- | Test whether one edge can represent a template term.
-
-A template is an ordinary t'Term' with two relaxations:
-
-* the symbol @"<v>"@ matches any edge symbol, and
-* a template may list fewer children than the edge has, in which case the
-  missing ones are unconstrained.
-
-The edge's own equality constraints still have to hold on the template.
-
-@"<v>"@ is the same spelling 'Data.ECTA.expandPartialTermFrag' uses for an
-unexpanded hole, which renders as @\<vN\>@ for a hole with id @N@; a template
-drops the id to mean "any subterm here".
--}
-edgeRepresentsTemplate :: Edge -> Term -> Bool
-edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
-    (s == edgeSymbol e || txt == "<v>")
-        && and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
-        && edgeEcsSatisfied e t
-
 -----------------------
 ------ Constraints
 -----------------------
 
 {- | Drop an edge's equality constraints.
 
-The result accepts every combination of children the edge's nodes allow, so it over-approximates: use it when the
-constraints are not the property being studied, not to simplify a language you still rely on.
+Dropping constraints broadens the language to every combination of child
+terms. Use it only when equality constraints are deliberately irrelevant.
 -}
 dropEdgeConstraints :: Edge -> Edge
 dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)

@@ -81,6 +81,7 @@ library
     Data.ECTA.Internal.Paths
     Data.ECTA.Internal.Term
     Data.ECTA.Paths
+    Data.ECTA.Template
     Data.ECTA.Term
     Data.Interned.Extended.HashTableBased
     Data.Memoization

@@ -2,9 +2,9 @@
 
 ## 0.2.0.0 - Unreleased
 
-This is a major bump rather than 0.1.1.0 because the pruning API lost members;
-see the two entries marked breaking below. Nothing that only builds ECTAs,
-reduces them, or enumerates them needs to change.
+This is a major bump rather than 0.1.1.0 because the public API changed; see
+the entries marked breaking below. Existing code that only builds ECTAs,
+reduces them, or enumerates them needs no migration.
 
 * Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
   matched, so a negative count decremented without end. Zero or less now
@@ -69,15 +69,12 @@ reduces them, or enumerates them needs to change.
   now be read back through the same module that reads its symbol and children,
   and a pruning oracle can be given a type signature and can write the
   deferred-check pattern above without reaching into `Data.ECTA.Internal`.
-* Breaking: drop `pathHeadUnsafe`, `pathTailUnsafe`,
-  `completedSubsumptionOrdering`, and `subsumptionOrderedEclasses` from
-  `Data.ECTA.Paths`. `completedSubsumptionOrdering` remains in
-  `Data.ECTA.Internal.Paths`; the other three are gone entirely, the two
-  `Unsafe` ones having had `toPathTrie` as their only caller.
-* Document that ECTAs must be built from one thread, in `Data.ECTA` and in
-  `Data.Interned.Extended.HashTableBased`, rather than only in the README, and
-  refresh the benchmark baseline in the README to what the suite currently
-  measures.
+* Breaking: drop `pathHeadUnsafe`, `pathTailUnsafe`, and
+  `completedSubsumptionOrdering` from `Data.ECTA.Paths`.
+  `completedSubsumptionOrdering` remains in `Data.ECTA.Internal.Paths`; the
+  two unsafe path accessors had `toPathTrie` as their only caller and are gone.
+  The safe `subsumptionOrderedEclasses` remains public, while its partial
+  counterpart is internal.
 * `memo2` keys one table by the argument pair instead of nesting two unary
   tables. The nested form allocated a fresh hash table for every distinct first
   argument -- about a kilobyte each before storing an entry -- which a heap
@@ -86,16 +83,10 @@ reduces them, or enumerates them needs to change.
   noise on time and 0.1% up on allocation.
 * Make building ECTAs safe from any thread. The hash-consing and memoization
   tables are now immutable maps in `IORef`s, read without blocking and updated
-  by compare-and-swap; an insert that loses takes the winner's value, so one
-  structure keeps one `Id`. A probe that raced 16 runs out of 20 before now
-  reports no disagreement in 25.
-
-  A lock does not work here. Hashing an uninterned `Mu` evaluates its shape,
-  which builds nodes, which interns again, so `intern` re-enters itself and any
-  non-reentrant lock held across the lookup deadlocks on a single thread. The
-  shape is now computed once and stored in `UninternedMu` rather than recomputed
-  by `Eq`, `Hashable` and `identify` in turn, which removes the re-entrancy and
-  is a large speedup on its own.
+  atomically; racing inserts converge on one interned `Id`. A probe that raced
+  16 runs out of 20 before now reports no disagreement in 25. Recursive-node
+  shapes are computed before entering the cache and stored in `UninternedMu`,
+  so hashing and equality do not rebuild nodes during an update.
 
   Together these take the core benchmark from 0.77s and 4,765 MB to 0.30s and
   2,161 MB, at about 1.5x the retained memory in the unbounded-growth case,
@@ -105,6 +96,12 @@ reduces them, or enumerates them needs to change.
   safe.
   Breaking: `UninternedMu` takes the shape as a new first argument, and
   `Cache`'s `content` field is an `IORef` of an immutable map.
+* Breaking: replace the Spectacular-derived `nodeRepresentsTemplate` and
+  `edgeRepresentsTemplate` predicates with an explicit `Template` type,
+  `matchesTemplate` for concrete terms, and `termsMatching` for restricting an
+  ECTA language. Wildcard symbols, exact arity, and prefix matching are now
+  separate constructors; `<v>` is no longer reserved, and equality constraints
+  are retained while the language is restricted.
 * Sharpen the concurrency warning with what actually happens. Building one
   structurally identical node from several threads produced two identities in
   three runs out of eight, silently -- no exception. Both READMEs now say so,

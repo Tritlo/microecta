@@ -311,7 +311,8 @@ data UninternedNode
 
       > substFree i (Rec j) (f i) == f j
 
-      The shape is @'shape' f@, stored rather than recomputed. Computing it
+      The shape is the result of applying 'shape' to the function, stored
+      rather than recomputed. Computing it
       builds nodes, which interns them, so leaving it to 'Eq' or 'Hashable'
       would make hashing an uninterned node re-enter the interning cache. The
       strict field forces it while the value is still being constructed, which
@@ -556,9 +557,13 @@ will run in O(1) time:
 >   -- { definition of createMu }
 > foo (InternedMu mu) = intern $ UninternedMu (shape (f . Rec)) (f . Rec)
 
-At this point, `intern` will call `shape (f . Rec)`, which will call `f . Rec` twice: once with `RecDepth` to compute
-the depth, and then once again with that depth to substitute a placeholder. Both of these special cases will use
-'internedMuShape' (and moreover, the depth calculation on 'internedMuShape' is @O(1)@).
+Before calling `intern`, `createMu` computes and stores `shape (f . Rec)` in
+the `UninternedMu`. Computing the shape calls `f . Rec` twice: once with
+`RecDepth` to compute the depth, and then again with that depth to substitute a
+placeholder. Both special cases use 'internedMuShape', whose cached depth makes
+the depth calculation @O(1)@. Equality, hashing, and identification then reuse
+the stored shape rather than invoking the function again inside the interning
+cache.
 -}
 pattern Mu :: (Node -> Node) -> Node
 pattern Mu f <- (matchMu -> Just f)
@@ -632,71 +637,70 @@ substFree old new = substFree' (Map.singleton old new)
 
 -- | Generalization of 'substFree' to multiple binders.
 substFree' :: Map RecNodeId Node -> Node -> Node
-substFree' env node = case template node of
-    Template f -> f env
+substFree' env node = case substitutionPlan node of
+    SubstitutionPlan f -> f env
 
 ------ Substitution internals
 
-{- | The template of a something is that something with holes for as-yet unknown 'Id's
+{- | A graph rebuild prepared for an environment of recursive substitutions.
 
-This datatype should satisfy two properties for 'template' to work correctly:
+This datatype should satisfy two properties for 'substitutionPlan' to work
+correctly:
 
-1. Forcing the @Template@ to WHNF should not result in any recursive calls
+1. Forcing the @SubstitutionPlan@ to WHNF should not result in any recursive calls
    (so that the recursion isn't totally unrolled before memoization can happen).
-2. But forcing the /function inside/ the @Template@ to WHNF /should/ result in all recursive calls to happen,
-   (/before/ the function is executed: executing the function should /not/ cause further calls to 'template').
+2. But forcing the /function inside/ the @SubstitutionPlan@ to WHNF /should/
+   perform all recursive calls before the function is executed; applying the
+   function should not call 'substitutionPlan' again.
 
-The idea here is that a function returning a @Template@, the application of that @Template@ should not result in
-further recursive calls to that function, so that any expensive computation done by that function is not repeated,
-but is done independently of the environment (the 'Map') that we provide to the @Template@. Put another way: the
-function can be memoized independently of that environment. For substitution this may not matter very much, but for
-other functions it could. Note however that the resulting @Template@ does build the graph on each invocation; this
-may still be prohibitively expensive. See @intersect@ for an example of how we can avoid an environment altogether.
-(This is not an option for substitution of course, where the environment is part of the API of the function.)
+Preparing the plan therefore does the expensive traversal once, independently
+of the substitution environment. Applying it still rebuilds the graph for each
+environment. See @intersect@ for an operation that can avoid an environment
+altogether; substitution cannot, because the environment is part of its input.
 -}
-data Template a = Template (Map RecNodeId Node -> a)
+data SubstitutionPlan a = SubstitutionPlan (Map RecNodeId Node -> a)
 
-{- | Commute @[]@ and @Template@
+{- | Commute @[]@ and @SubstitutionPlan@.
 
 Forces all elements in the list
 -}
-sequenceTemplate :: [Template a] -> Template [a]
-sequenceTemplate = Template . go []
+sequenceSubstitutionPlans :: [SubstitutionPlan a] -> SubstitutionPlan [a]
+sequenceSubstitutionPlans = SubstitutionPlan . go []
   where
-    go :: [Map RecNodeId Node -> a] -> [Template a] -> Map RecNodeId Node -> [a]
+    go :: [Map RecNodeId Node -> a] -> [SubstitutionPlan a] -> Map RecNodeId Node -> [a]
     -- The accumulator is reversed once here rather than on every environment
     -- the resulting function is applied to.
     go acc [] = let fs = reverse acc in \env -> map ($ env) fs
-    go acc (Template !f : fs) = go (f : acc) fs
+    go acc (SubstitutionPlan !f : fs) = go (f : acc) fs
 
 {- | Extract the shape from a term
 
-Somewhat serendipitously (or does this point to some deeper truth?) this also serves as a definition of substitution:
-any free variables in the original node will become " holes " in the @Template@.
+Any free variables in the original node become holes that the resulting
+plan fills from its environment.
 
-We do not use the pattern synonyms here, because 'template' is used (through 'substFree') to /define/ those
-pattern synonyms.
+We do not use the pattern synonyms here, because 'substitutionPlan' is used
+through 'substFree' to /define/ those pattern synonyms.
 -}
-template :: Node -> Template Node
-{-# NOINLINE template #-}
-template = memo (NameTag "template") onNode
+substitutionPlan :: Node -> SubstitutionPlan Node
+{-# NOINLINE substitutionPlan #-}
+substitutionPlan = memo (NameTag "substitutionPlan") onNode
   where
-    onNode :: Node -> Template Node
-    onNode n = Template $
+    onNode :: Node -> SubstitutionPlan Node
+    onNode n = SubstitutionPlan $
         case n of
             EmptyNode -> \_ -> EmptyNode
-            InternedNode node -> case sequenceTemplate $ map templateEdge (internedNodeEdges node) of
-                Template !f -> \env -> mkNode (f env)
+            InternedNode node -> case sequenceSubstitutionPlans $ map edgeSubstitutionPlan (internedNodeEdges node) of
+                SubstitutionPlan !f -> \env -> mkNode (f env)
             InternedMu mu -> case onNode (internedMuBody mu) of
-                Template !f -> \env -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r env)
+                SubstitutionPlan !f -> \env -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r env)
             Rec i -> \env -> fromMaybe n (Map.lookup i env)
 
--- | Internal auxiliary to 'template'
-templateEdge :: Edge -> Template Edge
-{-# NOINLINE templateEdge #-}
-templateEdge = memo (NameTag "templateEdge") onEdge
+-- | Prepare substitution for an edge's children.
+edgeSubstitutionPlan :: Edge -> SubstitutionPlan Edge
+{-# NOINLINE edgeSubstitutionPlan #-}
+edgeSubstitutionPlan = memo (NameTag "edgeSubstitutionPlan") onEdge
   where
-    onEdge :: Edge -> Template Edge
+    onEdge :: Edge -> SubstitutionPlan Edge
     onEdge e =
-        Template $ case sequenceTemplate (map template (edgeChildren e)) of
-            Template !f -> setChildren e . f
+        SubstitutionPlan $ case sequenceSubstitutionPlans (map substitutionPlan (edgeChildren e)) of
+            SubstitutionPlan !f -> setChildren e . f

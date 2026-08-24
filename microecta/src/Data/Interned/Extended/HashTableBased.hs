@@ -1,15 +1,19 @@
-{- | Tiny hash-consing abstraction backed by mutable cuckoo hash tables.
+{- | Tiny hash-consing abstraction backed by immutable hash maps in 'IORef's.
 
-Interning is safe from any thread. The cache is an immutable map in an
-'IORef': lookups read it without blocking, and an insert that loses its
-compare-and-swap re-reads and yields whatever the winner interned, so one
-structure keeps one 'Id' however many threads raced for it.
+Interning is safe from any thread. Lookups read the current map without
+blocking. Inserts use 'atomicModifyIORef'' and retain an existing entry, then
+re-read the map and return the winner, so one structure keeps one 'Id' however
+many threads raced for it.
 
-A lock would be simpler and is not available. Hashing the description of a
-recursive node evaluates its shape, which builds nodes, which interns again, so 'intern'
-re-enters itself; a non-reentrant lock held across the lookup deadlocks, on
-one thread as readily as on four. Nothing here blocks, so re-entering is
-merely a retry.
+The candidate value is kept lazy during the atomic update. This matters for
+recursive nodes: forcing the candidate builds its body, which may intern more
+nodes. The structural shape used as the key has already been computed before
+the update, so neither hashing nor collision checks need to force the
+candidate.
+
+'unsafeDupablePerformIO' may run an insertion more than once. Duplicate runs
+can consume unused ids, but the atomic update and final read make them converge
+on the same canonical value.
 
 The cache never evicts and holds every distinct value ever interned, so it
 grows with the size of that set and is never released. See the memory section

@@ -94,3 +94,19 @@ instance Arbitrary Edge where
                 return $ mkEdge sym ns (mkEqConstraints ps)
 
     shrink e = mkEdge (edgeSymbol e) <$> (mapM shrink (edgeChildren e)) <*> pure (edgeEcs e)
+
+instance Arbitrary Template where
+    arbitrary = capSize maxNodeDepth $ sized $ \n ->
+        if n == 0
+            then elements [Hole, AnyNode [], AnyPrefix []]
+            else do
+                symbol <- fst <$> elements testEdgeTypes
+                arity <- chooseInt (0, 3)
+                children <- replicateM arity (resize (n - 1) arbitrary)
+                elements
+                    [ Hole
+                    , AnyNode children
+                    , TemplateNode symbol children
+                    , AnyPrefix children
+                    , TemplatePrefix symbol children
+                    ]

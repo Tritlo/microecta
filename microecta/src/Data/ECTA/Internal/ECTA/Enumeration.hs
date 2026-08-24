@@ -508,7 +508,7 @@ enumerateFully =
 
 {- | Enumerate until the root term is complete, with optional oracle pruning.
 
-The oracle is called twice around each expandable UVar:
+The oracle is called twice around each UVar it expands:
 
 * @Right node@ is passed before expanding the node, so callers can drop a
   whole branch early when the ECTA about to be expanded is already known to
@@ -521,7 +521,9 @@ The threaded state parameter belongs entirely to the caller. Returning @True@
 prunes the current nondeterministic branch; returning @False@ keeps it.
 
 The 'ExpansionOrder' sees the same state and may steer which expandable UVar
-goes next; 'noExpansionPreference' leaves that to the enumerator.
+goes next; 'noExpansionPreference' leaves that to the enumerator. A bare
+unconstrained 'Mu' terminates enumeration without being expanded and produces
+neither callback.
 -}
 enumerateFully' ::
     forall a.
@@ -631,8 +633,7 @@ separately, so what one branch records cannot leak into a sibling.
 
 What counts as a term worth rejecting is the caller's to decide: this library
 supplies the callbacks and the means to read a partial term
-('expandPartialTermFrag') or test an ECTA node ('nodeRepresentsTemplate'), and
-no notion of which shapes are interesting.
+('expandPartialTermFrag'), and no notion of which shapes are interesting.
 
 A check that cannot be settled because the fragment still holds an unexpanded
 'TermFragmentUVar' does not need help from this module either. Park it in the

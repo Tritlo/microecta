@@ -102,10 +102,34 @@ spec = do
             nodeRepresents n (Term "f" [Term "a" []]) `shouldBe` False
             nodeRepresents n (Term "f" [Term "a" [], Term "b" [], Term "c" []]) `shouldBe` False
 
-        it "nodeRepresentsTemplate allows wildcard prefix templates" $ do
-            let n = Node [Edge "f" [constTerms ["a"], constTerms ["b"]]]
-            nodeRepresentsTemplate n (Term "<v>" [Term "<v>" [], Term "<v>" []]) `shouldBe` True
-            nodeRepresentsTemplate n (Term "<v>" []) `shouldBe` True
+    describe "templates" $ do
+        it "restricts a constrained language and lets equality narrow a hole" $ do
+            let values = Node [Edge "a" [], Edge "b" []]
+                pairs =
+                    Node
+                        [ mkEdge
+                            "pair"
+                            [values, values]
+                            (mkEqConstraints [[path [0], path [1]]])
+                        ]
+                rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
+            getAllTerms (termsMatching rightIsA pairs)
+                `shouldBe` [Term "pair" [Term "a" [], Term "a" []]]
+
+        it "distinguishes exact arity from an explicit prefix" $ do
+            let call = Term "call" [Term "f" [], Term "x" []]
+            matchesTemplate (TemplateNode "call" [Hole]) call `shouldBe` False
+            matchesTemplate (TemplatePrefix "call" [TemplateNode "f" []]) call `shouldBe` True
+
+        it "treats <v> as an ordinary symbol" $ do
+            matchesTemplate (TemplateNode "<v>" []) (Term "<v>" []) `shouldBe` True
+            matchesTemplate (TemplateNode "<v>" []) (Term "other" []) `shouldBe` False
+
+        it "restricting a finite ECTA agrees with filtering its terms" $
+            property $
+                mapSize (min 3) $ \template node ->
+                    HashSet.fromList (getAllTerms $ termsMatching template node)
+                        `shouldBe` HashSet.fromList (filter (matchesTemplate template) $ getAllTerms node)
 
     describe "intersection" $ do
         it "intersection commutes with getAllTerms" $
@@ -317,17 +341,6 @@ spec = do
             HashSet.fromList (getAllTermsPrune () oracle searchNode)
                 `shouldBe` HashSet.fromList
                     [applied "f" "y", applied "g" "x", applied "g" "y"]
-
-        -- A Right callback decides a whole UVar, so a template that any of the
-        -- node's alternatives matches removes everything under it.
-        it "a template matching a hole's node drops everything under it" $ do
-            let rejecting template state _ (Right node) =
-                    return (nodeRepresentsTemplate node template, state)
-                rejecting _ state _ (Left _) = return (False, state)
-            getAllTermsPrune () (rejecting (Term "f" [])) sharedFilterNode
-                `shouldBe` []
-            getAllTermsPrune () (rejecting (Term "absent" [])) sharedFilterNode
-                `shouldBe` getAllTerms sharedFilterNode
 
         -- The pattern the pruning docs prescribe now that the library holds no
         -- pending-check state of its own: the oracle parks a check under the

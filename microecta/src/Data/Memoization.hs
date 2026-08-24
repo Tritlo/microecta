@@ -7,11 +7,13 @@ graph operations. This module intentionally keeps that machinery tiny: each
 call to 'memo' allocates one process-global table through 'unsafePerformIO'.
 
 Safe from any thread. The table is an immutable map in an @IORef@, read
-without blocking and updated by compare-and-swap. Losing a race costs a
-recomputation and nothing else, because every function memoized here is pure.
-A lock is not an option: the memoized computation interns, and interning
-re-enters this module, so anything non-reentrant held across the miss
-deadlocks.
+without blocking and updated with 'atomicModifyIORef''. Two racers may install
+different thunks and return their own result, but both compute the same answer
+because every function memoized here is pure.
+
+The lazy map is important: an atomic update installs the result thunk without
+forcing the memoized computation. That computation may itself intern or call
+other memoized functions, so it must run outside the update.
 
 The tables never evict, so a memoized function retains an entry for every
 distinct argument it has ever been applied to, for the lifetime of the process.
@@ -34,9 +36,9 @@ import System.IO.Unsafe (unsafePerformIO)
 
 {- | Name of a memo table.
 
-The name is not stored anywhere: it labels the call site for a reader, and
-being an argument it also keeps two structurally identical 'memo' applications
-from being shared into one table.
+The name is not stored in the table. It labels the call site for readers and
+makes distinct source uses visibly distinct; table identity still belongs to
+the particular 'memo' application, not to the text of the tag.
 -}
 newtype MemoCacheTag
     = NameTag Text
@@ -62,6 +64,7 @@ memoIO f = do
 
 -- | Memoize a pure unary function in a process-global mutable hash table.
 memo :: (Hashable a) => MemoCacheTag -> (a -> b) -> (a -> b)
+{-# NOINLINE memo #-}
 memo !_tag f =
     let f' = unsafePerformIO (memoIO f)
      in \x -> unsafePerformIO (f' x)
