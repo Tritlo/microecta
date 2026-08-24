@@ -88,7 +88,7 @@ library
     array >=0.5 && <0.6,
     base >=4.21 && <5,
     containers >=0.7 && <0.8,
-    microecta >=0.1.0.0 && <0.3,
+    microecta >=0.2.0.0 && <0.3,
     text >=2.1 && <2.2,
 
 test-suite unit-tests
@@ -115,7 +115,7 @@ test-suite unit-tests
     base >=4.21 && <5,
     containers >=0.7 && <0.8,
     hspec >=2.11 && <2.12,
-    microecta >=0.1.0.0 && <0.3,
+    microecta >=0.2.0.0 && <0.3,
     microecta-generator,
 
 benchmark typed-expression-speed

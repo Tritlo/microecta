@@ -5,6 +5,8 @@
 Initial release: indexed applicative generators whose transparent regions are
 represented as equality-constrained tree automata.
 
+Requires `microecta` 0.2.0.0 or newer.
+
 ### Generators and sources
 
 * `fromIndexed` and `elements` lift a finite indexed source into transparent

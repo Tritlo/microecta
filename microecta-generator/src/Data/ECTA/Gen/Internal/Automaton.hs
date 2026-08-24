@@ -21,11 +21,8 @@ module Data.ECTA.Gen.Internal.Automaton (automatonIndex) where
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.ECTA (Edge, Node, edgeChildren, edgeSymbol, nodeEdges)
-
--- 'edgeEcs' is public from microecta 0.1.1.0 on, but reading it from the
--- internal module keeps this package's lower bound at 0.1.0.0.
-import Data.ECTA.Internal.ECTA.Type (edgeEcs, freeVars, nodeIdentity)
+import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, nodeEdges)
+import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import Data.ECTA.Term (Symbol, Term (Term))
 

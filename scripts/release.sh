@@ -86,10 +86,36 @@ fi
 release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microecta-release.XXXXXX")"
 trap 'rm -rf "$release_tmp"' EXIT
 tar -xzf "${sdists[0]}" -C "$release_tmp"
-(
-  cd "$release_tmp/$package-$version"
-  cabal test all -O2 --ghc-options=-Werror --test-show-details=direct
-)
+
+if [[ "$package" == microecta-generator ]]; then
+  dependency_build_dir="$release_build_dir/dependencies/microecta"
+  mkdir -p "$dependency_build_dir/sdist"
+  rm -f "$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz
+  cabal sdist --builddir="$dependency_build_dir" microecta
+
+  dependency_sdists=("$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz)
+  if [[ ${#dependency_sdists[@]} -ne 1 ]]; then
+    echo "Error: expected exactly one microecta source archive." >&2
+    exit 1
+  fi
+
+  dependency_version="$(awk '/^version:/ {print $2; exit}' microecta/microecta.cabal)"
+  tar -xzf "${dependency_sdists[0]}" -C "$release_tmp"
+  printf 'packages: %s\n          %s\n' \
+    "$release_tmp/microecta-$dependency_version" \
+    "$release_tmp/$package-$version" \
+    > "$release_tmp/cabal.project"
+
+  (
+    cd "$release_tmp"
+    cabal test "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
+  )
+else
+  (
+    cd "$release_tmp/$package-$version"
+    cabal test all -O2 --ghc-options=-Werror --test-show-details=direct
+  )
+fi
 
 if [[ "$check_only" == true ]]; then
   echo "=== Validated: $package-$version ==="
