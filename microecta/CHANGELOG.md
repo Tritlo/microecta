@@ -6,6 +6,15 @@ This is a major bump rather than 0.1.1.0 because the public API changed; see
 the entries marked breaking below. Existing code that only builds ECTAs,
 reduces them, or enumerates them needs no migration.
 
+* Fuse the expandable-variable scan into one pass over the UVar slots. The
+  scan now collects candidates in an `IntSet`, resolves only suspended
+  constraint targets through union-find, and writes path compression back
+  once, replacing the full `refreshReferencedUVars` sweep after every
+  expansion while preserving `ExpansionOrder`. On 65,536 constrained terms,
+  median CPU time fell from 0.478s to 0.218s and allocation from 4.44 GB to
+  2.25 GB; the existing enumeration benchmark improved by 8.6%. Differential
+  evaluation matched the old implementation over 10,000 generated automata
+  and one million deliberately stale union-find states.
 * Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
   matched, so a negative count decremented without end. Zero or less now
   unfolds nothing, which is what the bound already meant.

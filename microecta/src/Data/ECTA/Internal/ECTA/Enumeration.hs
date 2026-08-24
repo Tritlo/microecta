@@ -56,7 +56,8 @@ module Data.ECTA.Internal.ECTA.Enumeration (
 import Control.Monad (forM_, guard, mzero, void, zipWithM)
 import Control.Monad.State.Strict (StateT (..), gets, modify')
 import Control.Monad.Trans.Class (lift)
-import qualified Data.IntMap as IntMap
+import qualified Data.Foldable as Foldable
+import qualified Data.IntSet as IntSet
 import Data.Maybe (fromMaybe)
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
@@ -161,7 +162,10 @@ data EnumerationState = EnumerationState
     , _uvarRepresentative :: UnionFind
     -- ^ Persistent union-find for equality-constrained UVars.
     , _uvarValues :: Seq UVarValue
-    -- ^ Per-UVar contents indexed by 'uvarToInt'.
+    {- ^ Per-UVar contents indexed by 'uvarToInt'. A slot is
+    'UVarEliminated' exactly when its UVar is not a representative;
+    'findExpandableUVars' relies on 'assimilateUvarVal' maintaining this.
+    -}
     }
     deriving (Eq, Ord, Show)
 
@@ -302,42 +306,6 @@ hasEmptyContents (UVarUnenumerated (Just EmptyNode) _) = True
 hasEmptyContents _ = False
 
 ---------------------
--------- Variant maintainer
----------------------
-
-{- | Rewrite every suspended constraint to name its UVar's representative.
-
-'findExpandableUVars' matches candidate UVars against the UVars named by
-suspended constraints, and only representatives are kept up to date, so the
-two have to agree before that comparison is meaningful.
-
-This is a whole-state sweep and it costs: roughly a third of the time and half
-the allocation of 'enumerateFully'. Folding it into 'firstExpandableUVar'
-would avoid the separate pass, but there is no @Sequence.foldMapWithIndexM@ to
-do it in one traversal.
--}
-refreshReferencedUVars :: EnumerateM ()
-refreshReferencedUVars = do
-    values <- gets _uvarValues
-
-    updated <-
-        traverse
-            ( \case
-                UVarUnenumerated n scs ->
-                    UVarUnenumerated n
-                        <$> mapM
-                            ( \sc ->
-                                SuspendedConstraint (scGetPathTrie sc)
-                                    <$> getUVarRepresentative (scGetUVar sc)
-                            )
-                            scs
-                x -> return x
-            )
-            values
-
-    modify' $ \s -> s{_uvarValues = updated}
-
----------------------
 -------- Core enumeration algorithm
 ---------------------
 
@@ -388,42 +356,44 @@ data ExpandableUVarResult
       ExpansionNext !UVar
     deriving (Show)
 
-findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Bool))
+{- | Find every expandable UVar in one pass over the value slots.
+
+Slots merged into another UVar are marked 'UVarEliminated', so every live slot
+is a representative and can be considered directly. Suspended constraints may
+still name eliminated UVars; resolve only those references through the
+union-find and write their path compression back once after the scan.
+
+'Nothing' means no candidates remain. @Just empty@ means candidates exist, but
+all of them are blocked by suspended constraints.
+-}
+findExpandableUVars :: EnumerateM (Maybe IntSet.IntSet)
 findExpandableUVars = do
     values <- gets _uvarValues
-    -- check representative uvars because only representatives are updated
-    candidateMaps <-
-        mapM
-            ( \i -> do
-                rep <- getUVarRepresentative (intToUVar i)
-                v <- getUVarValue rep
-                case v of
+    uf0 <- gets _uvarRepresentative
+    let (candidates, ruledOut, uf) =
+            Sequence.foldlWithIndex collect (IntSet.empty, IntSet.empty, uf0) values
+    modify' $ \s -> s{_uvarRepresentative = uf}
+    return $
+        if IntSet.null candidates
+            then Nothing
+            else Just (candidates IntSet.\\ ruledOut)
+  where
+    collect (candidates, ruledOut, uf) i value = case value of
+        UVarUnenumerated mbContents scs ->
+            let (ruledOut', uf') = Foldable.foldl' resolve (ruledOut, uf) scs
+                candidates' = case mbContents of
                     -- An unconstrained Mu is the recursive base case: expanding
                     -- it would unfold forever with nothing to stop it.
-                    UVarUnenumerated (Just (Mu _)) Sequence.Empty -> return IntMap.empty
-                    UVarUnenumerated (Just _) _ -> return $ IntMap.singleton (uvarToInt rep) False
-                    _ -> return IntMap.empty
-            )
-            [0 .. (Sequence.length values - 1)]
-    let candidates = IntMap.unions candidateMaps
+                    Just (Mu _)
+                        | Sequence.null scs -> candidates
+                    Just _ -> IntSet.insert i candidates
+                    Nothing -> candidates
+             in (candidates', ruledOut', uf')
+        _ -> (candidates, ruledOut, uf)
 
-    if IntMap.null candidates
-        then
-            return Nothing
-        else do
-            let ruledOut =
-                    foldMap
-                        ( \case
-                            (UVarUnenumerated _ scs) ->
-                                foldMap
-                                    (\sc -> IntMap.singleton (uvarToInt $ scGetUVar sc) True)
-                                    scs
-                            _ -> IntMap.empty
-                        )
-                        values
-
-            let unconstrainedCandidateMap = IntMap.filter not (ruledOut <> candidates)
-            return (Just unconstrainedCandidateMap)
+    resolve (ruledOut, uf) sc =
+        let (rep, uf') = UnionFind.find (scGetUVar sc) uf
+         in (IntSet.insert (uvarToInt rep) ruledOut, uf')
 
 {- | Which of the currently expandable UVars to expand next.
 
@@ -452,21 +422,20 @@ firstExpandableUVar = nextExpandableUVar (const Nothing)
 -- | 'firstExpandableUVar', letting the caller steer among the candidates.
 nextExpandableUVar :: ([UVar] -> Maybe UVar) -> EnumerateM ExpandableUVarResult
 nextExpandableUVar choose = do
-    mb_unconstrainedCandidateMap <- findExpandableUVars
-    return $ case mb_unconstrainedCandidateMap of
+    mbCandidates <- findExpandableUVars
+    return $ case mbCandidates of
         Nothing -> ExpansionDone
-        Just unconstrainedCandidateMap ->
-            case IntMap.lookupMin unconstrainedCandidateMap of
-                Nothing -> ExpansionStuck
-                Just (lowest, _) ->
-                    -- The candidate list is only forced if the caller looks at
-                    -- it, so the default order pays nothing for this.
-                    ExpansionNext $
-                        case choose (map intToUVar $ IntMap.keys unconstrainedCandidateMap) of
-                            Just preferred
-                                | IntMap.member (uvarToInt preferred) unconstrainedCandidateMap ->
-                                    preferred
-                            _ -> intToUVar lowest
+        Just candidates
+            | IntSet.null candidates -> ExpansionStuck
+            | otherwise ->
+                -- The candidate list is only forced if the caller looks at it,
+                -- so the default order pays nothing for this.
+                ExpansionNext $
+                    case choose (map intToUVar $ IntSet.toAscList candidates) of
+                        Just preferred
+                            | IntSet.member (uvarToInt preferred) candidates ->
+                                preferred
+                        _ -> intToUVar (IntSet.findMin candidates)
 
 {- | Expand one UVar into a fragment.
 
@@ -486,10 +455,6 @@ enumerateOutUVar uv =
             _ -> enumerateNode scs n
 
         setUVarValue (uvarToInt uv') (UVarEnumerated t)
-        -- Expanding a UVar merges others into it, so suspended constraints
-        -- recorded elsewhere may now name non-representatives.
-        -- 'firstExpandableUVar' compares against representatives.
-        refreshReferencedUVars
         return t
 
 -- | Expand the next available UVar, failing when enumeration is done or stuck.
