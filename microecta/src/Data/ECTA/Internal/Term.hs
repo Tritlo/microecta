@@ -59,15 +59,15 @@ instance Read Symbol where
 ---------------------------- Terms ----------------------------
 ---------------------------------------------------------------
 
--- | Concrete first-order term.
-data Term = Term !Symbol ![Term]
+-- | Concrete first-order term over an arbitrary symbol alphabet.
+data Term symbol = Term !symbol ![Term symbol]
     deriving (Eq, Ord, Read, Show)
 
-instance Hashable Term where
+instance (Hashable symbol) => Hashable (Term symbol) where
     hashWithSalt salt (Term symbol children) =
         salt `hashWithSalt` symbol `hashWithSalt` children
 
-instance Pretty Term where
+instance (Pretty symbol) => Pretty (Term symbol) where
     pretty (Term s []) = pretty s
     pretty (Term s ts) = pretty s <> "(" <> (Text.intercalate ", " $ map pretty ts) <> ")"
 
@@ -75,8 +75,8 @@ instance Pretty Term where
 ------ Term ops
 ---------------------
 
-instance Pathable Term Term where
-    type Emptyable Term = Maybe Term
+instance Pathable (Term symbol) (Term symbol) where
+    type Emptyable (Term symbol) = Maybe (Term symbol)
 
     getPath EmptyPath t = Just t
     getPath (ConsPath p ps) (Term _ ts) = case atMay p ts of

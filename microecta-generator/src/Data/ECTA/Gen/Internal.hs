@@ -285,7 +285,7 @@ guidance = intercalate "\n"
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome a = Outcome
-    { outcomeTerm :: Term
+    { outcomeTerm :: Term Symbol
     , outcomeMass :: Rational
     , outcomeValue :: a
     }
@@ -320,7 +320,7 @@ data JoinGroup left right = JoinGroup
 
 -- | One transparent ECTA with a matching indexed outcome language.
 data Static a = Static
-    { staticSupport :: Node
+    { staticSupport :: Node Symbol
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     use the outcome index without forcing this field. A support observer builds
     it when needed; finite combinators retain their support work as a thunk.
@@ -343,7 +343,7 @@ cardinality, and ranks are size-major, so bounding the language with
 'boundedStatic' keeps every rank it already had.
 -}
 data Recursive a = Recursive
-    { recursiveSupport :: Node
+    { recursiveSupport :: Node Symbol
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     interpret the same recursive declaration without forcing this field.
     A support observer builds it once when needed.
@@ -356,7 +356,7 @@ data Recursive a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
-    , recursiveTerm :: Maybe (a -> Term)
+    , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
     mapped or combined value no longer stands for one term of the
@@ -1158,7 +1158,7 @@ joinNBucketStatic componentIndex operation arguments =
 equality constraint per argument tying each argument to the operation's key
 at that position.
 -}
-joinNode :: Int -> Node -> [Node] -> Node
+joinNode :: Int -> Node Symbol -> [Node Symbol] -> Node Symbol
 joinNode componentIndex operationSupport argumentSupports =
     Node
         [ mkEdge
@@ -1189,7 +1189,7 @@ so an occurrence at one key is the family under an edge holding that key's
 label, with a constraint equating the two. The discrimination is the
 automaton's own, which is what lets the whole family share one binder.
 -}
-restrictToKey :: Int -> Node -> Node
+restrictToKey :: Int -> Node Symbol -> Node Symbol
 restrictToKey position family =
     Node
         [ mkEdge
@@ -1199,7 +1199,7 @@ restrictToKey position family =
         ]
 
 -- | One recursive family node: one key-labelled edge per key, in key order.
-familyNode :: [(Int, Node)] -> Node
+familyNode :: [(Int, Node Symbol)] -> Node Symbol
 familyNode keyed =
     Node [Edge familySymbol [keyNode position, body] | (position, body) <- keyed]
 
@@ -1248,7 +1248,7 @@ recursiveJoin componentIndex operation arguments =
             || recursiveChainMassWeighted arguments
 
 -- | The support of every matched recursive argument group, in order.
-recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node]
+recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
 recursiveSupports ChainNil = []
 recursiveSupports (ChainCons recursive rest) =
     recursiveSupport (keyedRecursiveLanguage recursive) : recursiveSupports rest
@@ -1366,7 +1366,7 @@ chainLength ChainNil = 0
 chainLength (ChainCons _ rest) = 1 + chainLength rest
 
 -- | ECTA support of every argument group, in order.
-chainSupports :: ArgStatics operation result -> [Node]
+chainSupports :: ArgStatics operation result -> [Node Symbol]
 chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
 
@@ -1438,9 +1438,9 @@ chainDecoder (ChainCons static rest) =
 selectChain ::
     operation ->
     ArgStatics operation result ->
-    [Term] ->
+    [Term Symbol] ->
     Integer ->
-    Either ECTAGenError ([Term], Rational, result)
+    Either ECTAGenError ([Term Symbol], Rational, result)
 selectChain value ChainNil _ _ = Right ([], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
@@ -1476,11 +1476,11 @@ sequenceSampler outcomes
     selectValue = outcomeValue . Sequence.index outcomes . fromInteger
 
 -- | Singleton key node labelling one matched group.
-keyNode :: Int -> Node
+keyNode :: Int -> Node Symbol
 keyNode index = Node [Edge (keySymbol index) []]
 
 -- | The ECTA node accepting exactly one term.
-singletonNode :: Term -> Node
+singletonNode :: Term Symbol -> Node Symbol
 singletonNode (Term symbol children) =
     Node [Edge symbol $ map singletonNode children]
 

@@ -2,11 +2,20 @@
 
 This is the main public API for the ECTA core.
 
-A @Node@ represents a set of accepted terms. Each outgoing @Edge@ is one
+A @Node symbol@ represents a set of accepted terms. Each outgoing @Edge@ is one
 alternative: it has a symbol, child nodes, and optional equality constraints
 over paths into those children. @microecta@ keeps the original ECTA algorithms
 for intersection, reduction, refolding, and enumeration, but leaves out the
 larger application layers from @ecta@.
+
+The alphabet is a type parameter. Constructing an edge requires
+@Hashable symbol@ and @Typeable symbol@ so its symbol can be hash-consed in a
+type-safe cache. Building a node from existing edges needs only @Typeable@;
+operations that rebuild edges require both constraints. Inspection is
+unconstrained, and pure term/template matching needs only 'Eq'. The provided
+'Data.ECTA.Term.Symbol' type is an interned text alphabet with a
+'Data.String.IsString' instance, so existing @OverloadedStrings@ code keeps
+working.
 
 The usual workflow is:
 
@@ -29,22 +38,26 @@ unexpanded can be parked in that state under the hole's
 like expanded next, so a parked check resolves before the branch it will kill
 is enumerated. Deciding which terms are worth rejecting is entirely the
 oracle's business; this module supplies only the callbacks and
-'expandPartialTermFrag' to read a partial term.
+'expandPartialTermFrag' to read a partial term. Its 'PartialSymbol' result
+keeps concrete symbols, unexpanded variables, and truncated recursion
+structurally distinct.
 
 A node is a set of alternatives, and enumeration reads them back:
 
->>> getAllTerms (Node [Edge "a" [], Edge "b" []])
+>>> let choices = Node [Edge "a" [], Edge "b" []] :: Node Symbol
+>>> getAllTerms choices
 [Term "a" [],Term "b" []]
 
 'intersect' keeps what both accept:
 
->>> getAllTerms (intersect (Node [Edge "a" [], Edge "b" []]) (Node [Edge "b" [], Edge "c" []]))
+>>> let other = Node [Edge "b" [], Edge "c" []] :: Node Symbol
+>>> getAllTerms (intersect choices other)
 [Term "b" []]
 
 An equality constraint ties two positions together, which is what an ECTA has
 that an ordinary tree automaton does not:
 
->>> let alts = Node [Edge "a" [], Edge "b" []]
+>>> let alts = Node [Edge "a" [], Edge "b" []] :: Node Symbol
 >>> getAllTerms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
 [Term "p" [Term "a" [],Term "a" []],Term "p" [Term "b" [],Term "b" []]]
 
@@ -55,6 +68,16 @@ right child fixes the hole on the left because the edge requires equality:
 >>> let rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
 >>> getAllTerms (termsMatching rightIsA pairs)
 [Term "pair" [Term "a" [],Term "a" []]]
+
+An algebraic datatype works as the alphabet too; no string conversion is
+involved. 'getAllTermsWith' takes the symbol to use if enumeration truncates at
+recursion:
+
+>>> data NatSymbol = Zero | Succ | Recursion deriving (Eq, Generic, Show)
+>>> instance Hashable NatSymbol
+>>> let zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
+>>> getAllTermsWith Recursion zeroOrOne
+[Term Zero [],Term Succ [Term Zero []]]
 
 Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
@@ -113,7 +136,7 @@ module Data.ECTA (
     {- |
     Enumeration stops at recursion. Unfold first to see past it:
 
-    >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]])
+    >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]]) :: Node Symbol
     >>> getAllTerms nat
     [Term "Mu" []]
     >>> getAllTerms (unfoldBounded 2 nat)
@@ -122,16 +145,20 @@ module Data.ECTA (
     EnumerateM,
     runEnumerateM,
     TermFragment (..),
+    PartialSymbol (..),
     enumerateFully,
     getAllTerms,
+    getAllTermsWith,
     getAllTermsPrune,
     getAllTruncatedTerms,
+    getAllTruncatedTermsWith,
 
     -- * Pruning oracles
     UVar,
     uvarToInt,
     getUVarRepresentative,
     expandPartialTermFrag,
+    expandPartialTermFragWith,
     getAllTermsPruneWith,
     ExpansionOrder,
     noExpansionPreference,
@@ -144,7 +171,9 @@ import Data.ECTA.Template
 import Data.Persistent.UnionFind (UVar, uvarToInt)
 
 {- $setup
->>> :set -XOverloadedStrings
+>>> :set -XDeriveGeneric -XOverloadedStrings
+>>> import Data.Hashable (Hashable)
 >>> import Data.ECTA.Paths
 >>> import Data.ECTA.Term
+>>> import GHC.Generics (Generic)
 -}

@@ -14,7 +14,9 @@ to inspect or steer enumeration.
 -}
 module Data.ECTA.Internal.ECTA.Enumeration (
     TermFragment (..),
+    PartialSymbol (..),
     termFragToTruncatedTerm,
+    termFragToTruncatedTermWith,
     SuspendedConstraint (..),
     scGetPathTrie,
     scGetUVar,
@@ -43,10 +45,14 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     enumerateOutFirstExpandableUVar,
     enumerateFully,
     expandTermFrag,
+    expandTermFragWith,
     expandPartialTermFrag,
+    expandPartialTermFragWith,
     expandUVar,
     getAllTruncatedTerms,
+    getAllTruncatedTermsWith,
     getAllTerms,
+    getAllTermsWith,
     getAllTermsPrune,
     getAllTermsPruneWith,
     enumPrune,
@@ -57,11 +63,14 @@ import Control.Monad (forM_, guard, mzero, void, zipWithM)
 import Control.Monad.State.Strict (StateT (..), gets, modify')
 import Control.Monad.Trans.Class (lift)
 import qualified Data.Foldable as Foldable
+import Data.Hashable (Hashable (..))
 import qualified Data.IntSet as IntSet
 import Data.Maybe (fromMaybe)
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
+import Data.String (IsString (..))
+import Type.Reflection (Typeable, typeRep)
 
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
@@ -69,7 +78,6 @@ import Data.ECTA.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.Persistent.UnionFind as UnionFind
-import Data.Text.Extended.Pretty
 
 -------------------------------------------------------------------------------
 
@@ -78,17 +86,47 @@ import Data.Text.Extended.Pretty
 ---------------------------------------------------------------------------
 
 -- | Partially enumerated term with holes for nodes that still need expansion.
-data TermFragment
+data TermFragment symbol
     = -- | Concrete symbol with already-created child fragments.
-      TermFragmentNode !Symbol ![TermFragment]
+      TermFragmentNode !symbol ![TermFragment symbol]
     | -- | Hole whose value is tracked in the enumeration state.
       TermFragmentUVar UVar
     deriving (Eq, Ord, Show)
 
--- | Convert a fragment to a term, rendering holes as variable-like leaves.
-termFragToTruncatedTerm :: TermFragment -> Term
-termFragToTruncatedTerm (TermFragmentNode s ts) = Term s (map termFragToTruncatedTerm ts)
-termFragToTruncatedTerm (TermFragmentUVar uv) = Term (Symbol $ "v" <> pretty (uvarToInt uv)) []
+{- | A label in a term that may still contain enumeration holes.
+
+Keeping holes outside the caller's alphabet prevents a real symbol from being
+mistaken for a rendered placeholder such as @v0@. 'RecursionHole' records an
+unconstrained recursive node when the enumeration state is available to
+identify it.
+-}
+data PartialSymbol symbol
+    = -- | A symbol from the ECTA's alphabet.
+      ConcreteSymbol !symbol
+    | -- | An unexpanded enumeration variable.
+      UVarHole !UVar
+    | -- | Enumeration stopped at an unconstrained recursive node.
+      RecursionHole
+    deriving (Eq, Ord, Show)
+
+instance (Hashable symbol) => Hashable (PartialSymbol symbol) where
+    hashWithSalt salt (ConcreteSymbol symbol) =
+        salt `hashWithSalt` (0 :: Int) `hashWithSalt` symbol
+    hashWithSalt salt (UVarHole uv) =
+        salt `hashWithSalt` (1 :: Int) `hashWithSalt` (uvarToInt uv)
+    hashWithSalt salt RecursionHole =
+        salt `hashWithSalt` (2 :: Int)
+
+-- | Convert a fragment to a term while retaining holes outside the alphabet.
+termFragToTruncatedTerm :: TermFragment symbol -> Term (PartialSymbol symbol)
+termFragToTruncatedTerm = termFragToTruncatedTermWith ConcreteSymbol UVarHole
+
+-- | Convert a fragment to any output alphabet using separate concrete and hole mappings.
+termFragToTruncatedTermWith :: (symbol -> output) -> (UVar -> output) -> TermFragment symbol -> Term output
+termFragToTruncatedTermWith concreteSymbol holeSymbol = go
+  where
+    go (TermFragmentNode s ts) = Term (concreteSymbol s) (map go ts)
+    go (TermFragmentUVar uv) = Term (holeSymbol uv) []
 
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
@@ -126,20 +164,20 @@ descendScs i scs =
 -----------------------
 
 -- | Enumeration status for one UVar.
-data UVarValue
+data UVarValue symbol
     = -- | UVar still has an ECTA node to expand.
       UVarUnenumerated
         -- | ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
-        !(Maybe Node)
+        !(Maybe (Node symbol))
         -- | Constraints that should be carried while enumerating this value.
         !(Seq SuspendedConstraint)
     | -- | UVar has been expanded to a fragment.
-      UVarEnumerated !TermFragment
+      UVarEnumerated !(TermFragment symbol)
     | -- | UVar was merged into another representative and should no longer be used.
       UVarEliminated
     deriving (Eq, Ord, Show)
 
-intersectUVarValue :: UVarValue -> UVarValue -> UVarValue
+intersectUVarValue :: (Hashable symbol, Typeable symbol) => UVarValue symbol -> UVarValue symbol -> UVarValue symbol
 intersectUVarValue (UVarUnenumerated mn1 scs1) (UVarUnenumerated mn2 scs2) =
     let newContents = case (mn1, mn2) of
             (Nothing, x) -> x
@@ -156,12 +194,12 @@ intersectUVarValue _ _ = error "intersectUVarValue: Intersecting with enumerated
 -----------------------
 
 -- | Mutable state threaded through nondeterministic enumeration branches.
-data EnumerationState = EnumerationState
+data EnumerationState symbol = EnumerationState
     { _uvarCounter :: UVarGen
     -- ^ Fresh UVar supply.
     , _uvarRepresentative :: UnionFind
     -- ^ Persistent union-find for equality-constrained UVars.
-    , _uvarValues :: Seq UVarValue
+    , _uvarValues :: Seq (UVarValue symbol)
     {- ^ Per-UVar contents indexed by 'uvarToInt'. A slot is
     'UVarEliminated' exactly when its UVar is not a representative;
     'findExpandableUVars' relies on 'assimilateUvarVal' maintaining this.
@@ -170,19 +208,19 @@ data EnumerationState = EnumerationState
     deriving (Eq, Ord, Show)
 
 -- | Lens-compatible accessor for the fresh UVar supply.
-uvarCounter :: (Functor f) => (UVarGen -> f UVarGen) -> EnumerationState -> f EnumerationState
+uvarCounter :: (Functor f) => (UVarGen -> f UVarGen) -> EnumerationState symbol -> f (EnumerationState symbol)
 uvarCounter = lens _uvarCounter (\s c -> s{_uvarCounter = c})
 
 -- | Lens-compatible accessor for representative UVar tracking.
-uvarRepresentative :: (Functor f) => (UnionFind -> f UnionFind) -> EnumerationState -> f EnumerationState
+uvarRepresentative :: (Functor f) => (UnionFind -> f UnionFind) -> EnumerationState symbol -> f (EnumerationState symbol)
 uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = uf})
 
 -- | Lens-compatible accessor for per-UVar enumeration values.
-uvarValues :: (Functor f) => (Seq UVarValue -> f (Seq UVarValue)) -> EnumerationState -> f EnumerationState
+uvarValues :: (Functor f) => (Seq (UVarValue symbol) -> f (Seq (UVarValue symbol))) -> EnumerationState symbol -> f (EnumerationState symbol)
 uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 -- | Initial state whose root UVar contains the node being enumerated.
-initEnumerationState :: Node -> EnumerationState
+initEnumerationState :: Node symbol -> EnumerationState symbol
 initEnumerationState n =
     let (uvg, uv) = UnionFind.nextUVar UnionFind.initUVarGen
      in EnumerationState
@@ -199,31 +237,31 @@ initEnumerationState n =
 ---------------------
 
 -- | Nondeterministic enumeration state monad.
-type EnumerateM = StateT EnumerationState []
+type EnumerateM symbol = StateT (EnumerationState symbol) []
 
 -- | Run a lower-level enumeration action from an explicit state.
-runEnumerateM :: EnumerateM a -> EnumerationState -> [(a, EnumerationState)]
+runEnumerateM :: EnumerateM symbol a -> EnumerationState symbol -> [(a, EnumerationState symbol)]
 runEnumerateM = runStateT
 
 ---------------------
 -------- UVar accessors
 ---------------------
 
-nextUVar :: EnumerateM UVar
+nextUVar :: EnumerateM symbol UVar
 nextUVar = do
     c <- gets _uvarCounter
     let (c', uv) = UnionFind.nextUVar c
     modify' $ \s -> s{_uvarCounter = c'}
     return uv
 
-addUVarValue :: Maybe Node -> EnumerateM UVar
+addUVarValue :: Maybe (Node symbol) -> EnumerateM symbol UVar
 addUVarValue x = do
     uv <- nextUVar
     modify' $ \s -> s{_uvarValues = _uvarValues s :|> UVarUnenumerated x Sequence.Empty}
     return uv
 
 -- | Return the current representative for a UVar, updating union-find state.
-getUVarRepresentative :: UVar -> EnumerateM UVar
+getUVarRepresentative :: UVar -> EnumerateM symbol UVar
 getUVarRepresentative uv = do
     uf <- gets _uvarRepresentative
     let (uv', uf') = UnionFind.find uv uf
@@ -231,7 +269,7 @@ getUVarRepresentative uv = do
     return uv'
 
 -- | Look up the value for a UVar after path-compressing its representative.
-getUVarValue :: UVar -> EnumerateM UVarValue
+getUVarValue :: UVar -> EnumerateM symbol (UVarValue symbol)
 getUVarValue uv = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
@@ -244,7 +282,7 @@ An automaton that is a bare 'Mu' is never expanded - an unconstrained 'Mu' is
 where enumeration stops - so its root stays a hole, exactly as a nested one
 does.
 -}
-rootTermFrag :: EnumerateM TermFragment
+rootTermFrag :: EnumerateM symbol (TermFragment symbol)
 rootTermFrag = do
     value <- getUVarValue root
     return $ case value of
@@ -253,11 +291,11 @@ rootTermFrag = do
   where
     root = intToUVar 0
 
-setUVarValue :: Int -> UVarValue -> EnumerateM ()
+setUVarValue :: Int -> UVarValue symbol -> EnumerateM symbol ()
 setUVarValue idx val =
     modify' $ \s -> s{_uvarValues = Sequence.update idx val (_uvarValues s)}
 
-modifyUVarValue :: Int -> (UVarValue -> UVarValue) -> EnumerateM ()
+modifyUVarValue :: Int -> (UVarValue symbol -> UVarValue symbol) -> EnumerateM symbol ()
 modifyUVarValue idx f = do
     values <- gets _uvarValues
     setUVarValue idx (f (Sequence.index values idx))
@@ -266,7 +304,7 @@ modifyUVarValue idx f = do
 -------- Creating UVar's
 ---------------------
 
-pecToSuspendedConstraint :: PathEClass -> EnumerateM SuspendedConstraint
+pecToSuspendedConstraint :: PathEClass -> EnumerateM symbol SuspendedConstraint
 pecToSuspendedConstraint pec = do
     uv <- addUVarValue Nothing
     return $ SuspendedConstraint (getPathTrie pec) uv
@@ -276,7 +314,7 @@ pecToSuspendedConstraint pec = do
 ---------------------
 
 -- | Merge the source UVar into the target UVar, intersecting their constraints.
-assimilateUvarVal :: UVar -> UVar -> EnumerateM ()
+assimilateUvarVal :: (Hashable symbol, Typeable symbol) => UVar -> UVar -> EnumerateM symbol ()
 assimilateUvarVal uvTarg uvSrc
     | uvTarg == uvSrc = return ()
     | otherwise = do
@@ -292,7 +330,7 @@ assimilateUvarVal uvTarg uvSrc
                 setUVarValue (uvarToInt uvSrc) UVarEliminated
 
 -- | Intersect a node and inherited constraints into the value for a UVar.
-mergeNodeIntoUVarVal :: UVar -> Node -> Seq SuspendedConstraint -> EnumerateM ()
+mergeNodeIntoUVarVal :: (Hashable symbol, Typeable symbol) => UVar -> Node symbol -> Seq SuspendedConstraint -> EnumerateM symbol ()
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
@@ -301,7 +339,7 @@ mergeNodeIntoUVarVal uv n scs = do
     guard $ not $ hasEmptyContents $ Sequence.index newValues idx
 
 -- | Whether an unenumerated variable has already reduced to the empty node.
-hasEmptyContents :: UVarValue -> Bool
+hasEmptyContents :: UVarValue symbol -> Bool
 hasEmptyContents (UVarUnenumerated (Just EmptyNode) _) = True
 hasEmptyContents _ = False
 
@@ -310,7 +348,7 @@ hasEmptyContents _ = False
 ---------------------
 
 -- | Enumerate one node under the suspended constraints currently in scope.
-enumerateNode :: Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
+enumerateNode :: forall symbol. (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
 enumerateNode _ EmptyNode = mzero
 enumerateNode scs n =
     let (hereConstraints, descendantConstraints) = Sequence.partition (\(SuspendedConstraint pt _) -> isTerminalPathTrie pt) scs
@@ -318,7 +356,12 @@ enumerateNode scs n =
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
                 Node es -> enumerateEdge scs =<< lift es
-                _ -> error $ "enumerateNode: unexpected node " <> show n
+                Rec recId ->
+                    error $
+                        "enumerateNode: unexpected unresolved recursive reference "
+                            <> show recId
+                            <> " for symbol type "
+                            <> show (typeRep @symbol)
             (x :<| xs) -> do
                 reps <- mapM (getUVarRepresentative . scGetUVar) hereConstraints
                 forM_ xs $ \sc ->
@@ -331,7 +374,7 @@ enumerateNode scs n =
                 return $ TermFragmentUVar uv
 
 -- | Enumerate one edge, introducing UVars for its equality classes.
-enumerateEdge :: Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
+enumerateEdge :: (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Edge symbol -> EnumerateM symbol (TermFragment symbol)
 enumerateEdge scs e = do
     -- With no constraints this is 'minBound', which passes the guard below,
     -- as it should: nothing constrains how many children the edge needs.
@@ -366,7 +409,7 @@ union-find and write their path compression back once after the scan.
 'Nothing' means no candidates remain. @Just empty@ means candidates exist, but
 all of them are blocked by suspended constraints.
 -}
-findExpandableUVars :: EnumerateM (Maybe IntSet.IntSet)
+findExpandableUVars :: EnumerateM symbol (Maybe IntSet.IntSet)
 findExpandableUVars = do
     values <- gets _uvarValues
     uf0 <- gets _uvarRepresentative
@@ -384,7 +427,7 @@ findExpandableUVars = do
                 candidates' = case mbContents of
                     -- An unconstrained Mu is the recursive base case: expanding
                     -- it would unfold forever with nothing to stop it.
-                    Just (Mu _)
+                    Just (InternedMu _)
                         | Sequence.null scs -> candidates
                     Just _ -> IntSet.insert i candidates
                     Nothing -> candidates
@@ -416,11 +459,11 @@ noExpansionPreference :: ExpansionOrder state
 noExpansionPreference _ _ = Nothing
 
 -- | Find the next UVar that can be expanded without violating dependencies.
-firstExpandableUVar :: EnumerateM ExpandableUVarResult
+firstExpandableUVar :: EnumerateM symbol ExpandableUVarResult
 firstExpandableUVar = nextExpandableUVar (const Nothing)
 
 -- | 'firstExpandableUVar', letting the caller steer among the candidates.
-nextExpandableUVar :: ([UVar] -> Maybe UVar) -> EnumerateM ExpandableUVarResult
+nextExpandableUVar :: ([UVar] -> Maybe UVar) -> EnumerateM symbol ExpandableUVarResult
 nextExpandableUVar choose = do
     mbCandidates <- findExpandableUVars
     return $ case mbCandidates of
@@ -444,7 +487,7 @@ monad, so a UVar that is not an unexpanded node drops this branch instead of
 raising. The branch is unreachable through 'enumerateFully'' and
 'enumerateOutFirstExpandableUVar', which only offer expandable UVars.
 -}
-enumerateOutUVar :: UVar -> EnumerateM TermFragment
+enumerateOutUVar :: (Hashable symbol, Typeable symbol) => UVar -> EnumerateM symbol (TermFragment symbol)
 enumerateOutUVar uv =
     do
         UVarUnenumerated (Just n) scs <- getUVarValue uv
@@ -458,7 +501,7 @@ enumerateOutUVar uv =
         return t
 
 -- | Expand the next available UVar, failing when enumeration is done or stuck.
-enumerateOutFirstExpandableUVar :: EnumerateM ()
+enumerateOutFirstExpandableUVar :: (Hashable symbol, Typeable symbol) => EnumerateM symbol ()
 enumerateOutFirstExpandableUVar = do
     muv <- firstExpandableUVar
     case muv of
@@ -467,7 +510,7 @@ enumerateOutFirstExpandableUVar = do
         ExpansionStuck -> mzero
 
 -- | Expand the root UVar until it represents a complete term.
-enumerateFully :: EnumerateM ()
+enumerateFully :: (Hashable symbol, Typeable symbol) => EnumerateM symbol ()
 enumerateFully =
     void $ enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
 
@@ -491,11 +534,12 @@ unconstrained 'Mu' terminates enumeration without being expanded and produces
 neither callback.
 -}
 enumerateFully' ::
-    forall a.
+    forall symbol a.
+    (Hashable symbol, Typeable symbol) =>
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
-    EnumerateM Bool
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    EnumerateM symbol Bool
 enumerateFully' ost order oracle = do
     muv <- nextExpandableUVar (order ost)
     case muv of
@@ -524,28 +568,38 @@ enumerateFully' ost order oracle = do
 
 Unlike 'expandTermFrag', this is safe for diagnostics and oracle logging while
 enumeration is still in progress. Unexpanded non-recursive UVars become
-placeholders named @<vN>@, where @N@ is the UVar id; recursive holes become
-@Mu@.
+'UVarHole's, and recursive holes become 'RecursionHole's.
 -}
-expandPartialTermFrag :: TermFragment -> EnumerateM Term
-expandPartialTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandPartialTermFrag ts
-expandPartialTermFrag (TermFragmentUVar uv) =
-    do
+expandPartialTermFrag :: TermFragment symbol -> EnumerateM symbol (Term (PartialSymbol symbol))
+expandPartialTermFrag =
+    expandPartialTermFragWith ConcreteSymbol RecursionHole UVarHole
+
+-- | 'expandPartialTermFrag' using caller-supplied mappings into an output alphabet.
+expandPartialTermFragWith :: (symbol -> output) -> output -> (UVar -> output) -> TermFragment symbol -> EnumerateM symbol (Term output)
+expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol = go
+  where
+    go (TermFragmentNode s ts) = Term (concreteSymbol s) <$> mapM go ts
+    go (TermFragmentUVar uv) = do
         val <- getUVarValue uv
         case val of
-            UVarEnumerated t -> expandPartialTermFrag t
-            UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-            _ -> return $ Term (Symbol $ "<v" <> pretty (uvarToInt uv) <> ">") []
+            UVarEnumerated t -> go t
+            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+            _ -> return $ Term (holeSymbol uv) []
 
 -- | Expand a complete term fragment into a concrete term.
-expandTermFrag :: TermFragment -> EnumerateM Term
-expandTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandTermFrag ts
-expandTermFrag (TermFragmentUVar uv) =
-    do
+expandTermFrag :: (IsString symbol) => TermFragment symbol -> EnumerateM symbol (Term symbol)
+expandTermFrag = expandTermFragWith "Mu"
+
+-- | 'expandTermFrag' with an explicit symbol for truncated recursion.
+expandTermFragWith :: symbol -> TermFragment symbol -> EnumerateM symbol (Term symbol)
+expandTermFragWith recursionSymbol = go
+  where
+    go (TermFragmentNode s ts) = Term s <$> mapM go ts
+    go (TermFragmentUVar uv) = do
         val <- getUVarValue uv
         case val of
-            UVarEnumerated t -> expandTermFrag t
-            UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
+            UVarEnumerated t -> go t
+            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
@@ -556,30 +610,43 @@ same @Mu@ marker 'expandTermFrag' gives a nested one. Any other unenumerated
 state is not reachable once enumeration reports itself finished, and drops the
 branch rather than guessing.
 -}
-expandUVar :: UVar -> EnumerateM Term
-expandUVar uv = do
+expandUVar :: (IsString symbol) => UVar -> EnumerateM symbol (Term symbol)
+expandUVar = expandUVarWith "Mu"
+
+expandUVarWith :: symbol -> UVar -> EnumerateM symbol (Term symbol)
+expandUVarWith recursionSymbol uv = do
     value <- getUVarValue uv
     case value of
-        UVarEnumerated fragment -> expandTermFrag fragment
-        UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
+        UVarEnumerated fragment -> expandTermFragWith recursionSymbol fragment
+        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
         _ -> mzero
 
 ---------------------
 -------- Full enumeration
 ---------------------
 
-{- | Enumerate terms, rendering every hole as a variable-like leaf.
+{- | Enumerate terms while retaining truncation explicitly.
 
-Where 'getAllTerms' writes the marker term @Mu@ at a recursive hole, this
-writes @vN@ for the hole with id @N@ - including when the whole automaton is a
-bare 'Mu', which is one hole and nothing else. Useful for seeing the shape a
-partial enumeration reached rather than the terms themselves.
+Where 'getAllTerms' embeds a recursion marker into the caller's alphabet, this
+uses 'RecursionHole'. Any genuinely unresolved non-recursive variable remains
+a 'UVarHole', as it does in 'expandPartialTermFrag'.
 -}
-getAllTruncatedTerms :: Node -> [Term]
-getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
+getAllTruncatedTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [Term (PartialSymbol symbol)]
+getAllTruncatedTerms = getAllTruncatedTermsWith ConcreteSymbol RecursionHole UVarHole
+
+-- | 'getAllTruncatedTerms' using caller-supplied mappings into an output alphabet.
+getAllTruncatedTermsWith :: (Hashable symbol, Typeable symbol) => (symbol -> output) -> output -> (UVar -> output) -> Node symbol -> [Term output]
+getAllTruncatedTermsWith concreteSymbol recursionSymbol holeSymbol n = map fst $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
-        rootTermFrag
+        let root = intToUVar 0
+        value <- getUVarValue root
+        case value of
+            UVarEnumerated fragment ->
+                expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol fragment
+            UVarUnenumerated (Just (InternedMu _)) _ ->
+                return $ Term recursionSymbol []
+            _ -> return $ Term (holeSymbol root) []
 
 {- | Enumerate terms while letting an oracle prune branches.
 
@@ -608,11 +675,12 @@ oracle's own state under that hole's representative
 completes. 'getAllTermsPruneWith' can bring that moment forward.
 -}
 getAllTermsPrune ::
-    forall a.
+    forall symbol a.
+    (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
-    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
-    Node ->
-    [Term]
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    Node symbol ->
+    [Term symbol]
 getAllTermsPrune ost = getAllTermsPruneWith ost noExpansionPreference
 
 {- | 'getAllTermsPrune' with a say in which UVar is expanded next.
@@ -628,12 +696,13 @@ work is done. An oracle that decides differently depending on the order it
 sees UVars in will, of course, see the difference.
 -}
 getAllTermsPruneWith ::
-    forall a.
+    forall symbol a.
+    (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
-    Node ->
-    [Term]
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    Node symbol ->
+    [Term symbol]
 getAllTermsPruneWith ost order oracle n =
     map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith ost order oracle
 
@@ -642,16 +711,17 @@ getAllTermsPruneWith ost order oracle n =
 Use this when the caller is already composing lower-level enumeration actions
 in 'EnumerateM'. Most callers should prefer 'getAllTermsPrune'.
 -}
-enumPrune :: forall a. a -> (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) -> EnumerateM Term
+enumPrune :: forall symbol a. (Hashable symbol, Typeable symbol, IsString symbol) => a -> (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) -> EnumerateM symbol (Term symbol)
 enumPrune a = enumPruneWith a noExpansionPreference
 
 -- | Monadic form of 'getAllTermsPruneWith'.
 enumPruneWith ::
-    forall a.
+    forall symbol a.
+    (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a)) ->
-    EnumerateM Term
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    EnumerateM symbol (Term symbol)
 enumPruneWith a order oracle = do
     finished <- enumerateFully' a order oracle
     if finished then expandUVar (intToUVar 0) else mzero
@@ -668,5 +738,13 @@ To see past the recursion, unfold it first with 'unfoldBounded', or read the
 automaton with @microecta-generator@'s @fromECTA@, which counts and enumerates
 a recursive language by size.
 -}
-getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune () (\_ _ _ -> return (False, ()))
+getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Term symbol]
+getAllTerms = getAllTermsWith "Mu"
+
+-- | 'getAllTerms' with an explicit symbol for truncated recursion.
+getAllTermsWith :: (Hashable symbol, Typeable symbol) => symbol -> Node symbol -> [Term symbol]
+getAllTermsWith recursionSymbol n =
+    map fst $ flip runEnumerateM (initEnumerationState n) $ do
+        enumerateFully
+        expandUVarWith recursionSymbol (intToUVar 0)
+{-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol -> [Term Symbol] #-}

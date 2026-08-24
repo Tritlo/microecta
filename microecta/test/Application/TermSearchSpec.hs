@@ -20,16 +20,16 @@ import Data.ECTA.Term
 
 -----------------------------------------------------------------
 
-intType :: Node
+intType :: Node Symbol
 intType = typeConst "Int"
 
-boolType :: Node
+boolType :: Node Symbol
 boolType = typeConst "Bool"
 
 {- | Two constants of different types, in the term-search encoding: a term
 symbol carries its type as its one child.
 -}
-constants :: Node
+constants :: Node Symbol
 constants = Node [constFunc "one" intType, constFunc "true" boolType]
 
 spec :: Spec

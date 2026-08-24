@@ -28,8 +28,15 @@ reduces them, or enumerates them needs no migration.
   holds an unconstrained `Mu`, which is where enumeration stops, so it is never
   expanded; both functions now truncate it exactly as they already truncated a
   `Mu` nested under an edge. `getAllTerms` yields the marker term `Mu` and
-  `getAllTruncatedTerms` yields the hole `v0`. Their documentation now states
+  `getAllTruncatedTerms` yields `RecursionHole`. Their documentation now states
   that they truncate at recursion, and points at `unfoldBounded`.
+* Breaking: partial and truncated enumeration uses `PartialSymbol symbol`
+  rather than inventing symbols such as `v0`, `<v0>`, and `Mu` in the caller's
+  alphabet. `getAllTruncatedTerms` and `termFragToTruncatedTerm` distinguish
+  concrete symbols from `UVarHole`; `expandPartialTermFrag` additionally marks
+  an unconstrained recursive node with `RecursionHole`. Their `With` variants
+  accept separate mappings when a caller deliberately wants to flatten those
+  cases into one output alphabet. These APIs no longer require `IsString`.
 * Remove `getTermFragForUVar`, which was partial and is now unused;
   `rootTermFrag` replaces its one caller.
 * `toPathTrie` reports its own precondition -- distinct paths, none a prefix of

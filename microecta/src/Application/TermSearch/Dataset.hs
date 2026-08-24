@@ -11,12 +11,13 @@ module Application.TermSearch.Dataset (
 ) where
 
 import Data.ECTA
+import Data.ECTA.Term (Symbol)
 
 import Application.TermSearch.Type
 import Application.TermSearch.Utils
 
 -- | Translate a 'TypeSkeleton' into the ECTA encoding used by term search.
-typeToFta :: TypeSkeleton -> Node
+typeToFta :: TypeSkeleton -> Node Symbol
 typeToFta (TVar v) = genVar v
 typeToFta (TFun t1 t2) = arrowType (typeToFta t1) (typeToFta t2)
 typeToFta (TCons "Fun" [t1, t2]) = arrowType (typeToFta t1) (typeToFta t2)

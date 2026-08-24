@@ -27,7 +27,7 @@ import Data.ECTA (Edge, Node, edgeChildren, edgeSymbol, nodeEdges)
 -- internal module keeps this package's lower bound at 0.1.0.0.
 import Data.ECTA.Internal.ECTA.Type (edgeEcs, freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
-import Data.ECTA.Term (Term (Term))
+import Data.ECTA.Term (Symbol, Term (Term))
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Size (
@@ -44,7 +44,7 @@ import Data.ECTA.Gen.Internal.Size (
 Fails on an automaton with free recursive variables, which is not a closed
 language, and on one whose edges carry equality constraints.
 -}
-automatonIndex :: Node -> Either ECTAGenError (SizeIndex Term)
+automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Term Symbol))
 automatonIndex root
     | not $ Set.null $ freeVars root = Left OpenAutomaton
     | any constrained $ concatMap nodeEdges reachable = Left CannotCountConstrainedEdges
@@ -110,7 +110,7 @@ automatonIndex root
     prepend build term arguments = build (term : arguments)
 
 -- | Whether an edge carries equality constraints.
-constrained :: Edge -> Bool
+constrained :: Edge Symbol -> Bool
 constrained edge = case edgeEcs edge of
     EmptyConstraints -> False
     _ -> True

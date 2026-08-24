@@ -21,22 +21,47 @@ import Data.ECTA.Paths
 import Data.ECTA.Term
 ```
 
-An ECTA is a `Node`, which is a set of outgoing `Edge`s. An `Edge` has a symbol,
-child nodes, and optional equality constraints over paths into those children.
+An ECTA is a `Node symbol`, which is a set of outgoing `Edge symbol`s. An edge
+has a symbol, child nodes, and optional equality constraints over paths into
+those children. `Symbol` is the supplied interned text alphabet; its `IsString`
+instance keeps the usual `OverloadedStrings` syntax.
 
 ```haskell
-intType :: Node
+intType :: Node Symbol
 intType = Node [Edge "Int" []]
 
-maybeIntType :: Node
+maybeIntType :: Node Symbol
 maybeIntType = Node [Edge "Maybe" [intType]]
 
-sameChildren :: Edge
+sameChildren :: Edge Symbol
 sameChildren =
   mkEdge
     "Pair"
     [intType, intType]
     (mkEqConstraints [[path [0], path [1]]])
+```
+
+The alphabet can instead be an ordinary datatype. Edge construction needs
+`Hashable` and `Typeable` for type-safe hash-consing; building a node from
+existing edges needs only `Typeable`, and inspecting an existing node needs
+neither. Operations that rebuild edges, such as intersection and reduction,
+therefore carry both constraints. `getAllTermsWith` takes the value to use when
+recursion is truncated, so the datatype does not need an `IsString` instance:
+
+```haskell
+import Data.Hashable (Hashable)
+import GHC.Generics (Generic)
+
+data NatSymbol = Zero | Succ | Recursion
+  deriving (Eq, Generic, Show)
+
+instance Hashable NatSymbol
+
+zeroOrOne :: Node NatSymbol
+zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
+
+terms :: [Term NatSymbol]
+terms = getAllTermsWith Recursion zeroOrOne
 ```
 
 Useful operations:
@@ -59,8 +84,8 @@ subtree, `TemplateNode` and `AnyNode` require exact arity, and
 `TemplatePrefix` and `AnyPrefix` constrain only the leading children:
 
 ```haskell
-unaryF = TemplateNode "f" [Hole]
-anyF = TemplatePrefix "f" []
+unaryF = TemplateNode "f" [Hole] :: Template Symbol
+anyF = TemplatePrefix "f" [] :: Template Symbol
 ```
 
 ## Pruning API
@@ -80,12 +105,13 @@ keep enumerating with updated state.
 
 What makes a term worth rejecting is entirely the caller's business.
 `microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
-term (unexpanded holes render as `<vN>`), and no opinion about which shapes
-matter.
+term, and no opinion about which shapes matter. Its `PartialSymbol` alphabet
+keeps concrete symbols, unexpanded `UVarHole`s, and `RecursionHole` distinct;
+no placeholder can collide with a real symbol.
 
 ```haskell
 -- Drop any branch whose partial term already contains a forbidden symbol.
-prunedTerms :: [Symbol] -> Node -> [Term]
+prunedTerms :: [Symbol] -> Node Symbol -> [Term Symbol]
 prunedTerms forbidden =
   getAllTermsPrune () $ \() _ event ->
     case event of
@@ -94,7 +120,9 @@ prunedTerms forbidden =
         partial <- expandPartialTermFrag fragment
         pure (any (`occursIn` partial) forbidden, ())
   where
-    occursIn s (Term s' ts) = s == s' || any (occursIn s) ts
+    occursIn s (Term (ConcreteSymbol s') ts) =
+      s == s' || any (occursIn s) ts
+    occursIn s (Term _ ts) = any (occursIn s) ts
 ```
 
 A `Right node` decision covers a whole UVar, so it removes every term under
@@ -127,7 +155,7 @@ how much work is done, not which terms come out.
 For repeated reduction, downstream code usually wants:
 
 ```haskell
-reduceFully :: Node -> Node
+reduceFully :: Node Symbol -> Node Symbol
 reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
 ```
 

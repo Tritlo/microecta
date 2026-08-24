@@ -11,28 +11,30 @@ module Data.ECTA.Template (
     termsMatching,
 ) where
 
+import Data.Hashable (Hashable)
 import Data.Maybe (mapMaybe)
+import Type.Reflection (Typeable)
 
 import Data.ECTA.Internal.ECTA.Operations (reducePartially)
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Term
 
 -- | Pattern over first-order terms.
-data Template
+data Template symbol
     = -- | Match any complete subtree.
       Hole
     | -- | Match any root symbol with exactly these children.
-      AnyNode ![Template]
+      AnyNode ![Template symbol]
     | -- | Match this root symbol with exactly these children.
-      TemplateNode !Symbol ![Template]
+      TemplateNode !symbol ![Template symbol]
     | -- | Match any root symbol whose children begin with this prefix.
-      AnyPrefix ![Template]
+      AnyPrefix ![Template symbol]
     | -- | Match this root symbol when its children begin with this prefix.
-      TemplatePrefix !Symbol ![Template]
+      TemplatePrefix !symbol ![Template symbol]
     deriving (Eq, Ord, Read, Show)
 
 -- | Test a concrete term against a template.
-matchesTemplate :: Template -> Term -> Bool
+matchesTemplate :: (Eq symbol) => Template symbol -> Term symbol -> Bool
 matchesTemplate Hole _ = True
 matchesTemplate (AnyNode templates) (Term _ children) =
     exactChildrenMatch templates children
@@ -43,11 +45,11 @@ matchesTemplate (AnyPrefix templates) (Term _ children) =
 matchesTemplate (TemplatePrefix symbol templates) (Term termSymbol children) =
     symbol == termSymbol && childPrefixMatches templates children
 
-exactChildrenMatch :: [Template] -> [Term] -> Bool
+exactChildrenMatch :: (Eq symbol) => [Template symbol] -> [Term symbol] -> Bool
 exactChildrenMatch templates children =
     length templates == length children && childPrefixMatches templates children
 
-childPrefixMatches :: [Template] -> [Term] -> Bool
+childPrefixMatches :: (Eq symbol) => [Template symbol] -> [Term symbol] -> Bool
 childPrefixMatches [] _ = True
 childPrefixMatches (template : templates) (child : children) =
     matchesTemplate template child && childPrefixMatches templates children
@@ -59,12 +61,12 @@ The original equality constraints are retained and reduced after the child
 languages have been restricted. In particular, a 'Hole' at one constrained
 position can be narrowed by a concrete template at an equal position.
 -}
-termsMatching :: Template -> Node -> Node
+termsMatching :: (Hashable symbol, Typeable symbol) => Template symbol -> Node symbol -> Node symbol
 termsMatching Hole = id
 termsMatching (AnyPrefix []) = id
 termsMatching template = reducePartially . restrictNode template
 
-restrictNode :: Template -> Node -> Node
+restrictNode :: (Hashable symbol, Typeable symbol) => Template symbol -> Node symbol -> Node symbol
 restrictNode Hole node = node
 restrictNode (AnyPrefix []) node = node
 restrictNode _ EmptyNode = EmptyNode
@@ -72,7 +74,7 @@ restrictNode template node@(Mu body) = restrictNode template (body node)
 restrictNode template (Node edges) = Node (mapMaybe (restrictEdge template) edges)
 restrictNode _ (Rec _) = error "termsMatching: unexpected free recursive reference"
 
-restrictEdge :: Template -> Edge -> Maybe Edge
+restrictEdge :: (Hashable symbol, Typeable symbol) => Template symbol -> Edge symbol -> Maybe (Edge symbol)
 restrictEdge Hole edge = Just edge
 restrictEdge (AnyNode templates) edge = exactEdge templates edge
 restrictEdge (TemplateNode symbol templates) edge
@@ -83,7 +85,7 @@ restrictEdge (TemplatePrefix symbol templates) edge
     | symbol == edgeSymbol edge = prefixEdge templates edge
     | otherwise = Nothing
 
-exactEdge :: [Template] -> Edge -> Maybe Edge
+exactEdge :: (Hashable symbol, Typeable symbol) => [Template symbol] -> Edge symbol -> Maybe (Edge symbol)
 exactEdge templates edge
     | length templates == length children =
         Just $ setChildren edge (zipWith restrictNode templates children)
@@ -91,7 +93,7 @@ exactEdge templates edge
   where
     children = edgeChildren edge
 
-prefixEdge :: [Template] -> Edge -> Maybe Edge
+prefixEdge :: (Hashable symbol, Typeable symbol) => [Template symbol] -> Edge symbol -> Maybe (Edge symbol)
 prefixEdge templates edge
     | length templates <= length children =
         let (prefix, suffix) = splitAt (length templates) children

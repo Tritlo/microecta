@@ -79,10 +79,10 @@ benchmarks =
         forceInt $ length (take 64 (getAllTerms (reduceFully (filterMaybeIntSize2 i))))
     ]
 
-forceNode :: Node -> IO Int
+forceNode :: Node Symbol -> IO Int
 forceNode n = forceInt (nodeCount n + edgeCount n)
 
-forceNodes :: [Node] -> IO Int
+forceNodes :: [Node Symbol] -> IO Int
 forceNodes = forceInt . sum . map (\n -> nodeCount n + edgeCount n)
 
 forceEqConstraints :: EqConstraints -> IO Int
@@ -95,25 +95,25 @@ forceEqConstraints =
 forceInt :: Int -> IO Int
 forceInt = evaluate
 
-typeSearchNode :: Node
+typeSearchNode :: Node Symbol
 typeSearchNode =
     appNode
         (appNode (monoFunctionScope 0) (monoArgumentScope 0))
         (monoTermsOfSize 0 2)
 
-filterMaybeIntSize2 :: Int -> Node
+filterMaybeIntSize2 :: Int -> Node Symbol
 filterMaybeIntSize2 i =
     filterType
         (monoTermsOfSize i 2)
         (typeToFta $ TCons "Maybe" [TCons "Int" []])
 
-filterListIntSize3 :: Int -> Node
+filterListIntSize3 :: Int -> Node Symbol
 filterListIntSize3 i =
     filterType
         (monoTermsOfSize i 3)
         (typeToFta $ TCons "List" [TCons "Int" []])
 
-monoTermsOfSize :: Int -> Int -> Node
+monoTermsOfSize :: Int -> Int -> Node Symbol
 monoTermsOfSize salt size = union (go size)
   where
     go 0 = []
@@ -123,7 +123,7 @@ monoTermsOfSize salt size = union (go size)
         | i <- [1 .. n - 1]
         ]
 
-appNode :: Node -> Node -> Node
+appNode :: Node Symbol -> Node Symbol -> Node Symbol
 appNode f x =
     Node
         [ mkEdge
@@ -137,7 +137,7 @@ appNode f x =
             )
         ]
 
-monoArgumentScope :: Int -> Node
+monoArgumentScope :: Int -> Node Symbol
 monoArgumentScope salt =
     Node
         [ constFunc (named "x" salt) (typeConst "Int")
@@ -145,7 +145,7 @@ monoArgumentScope salt =
         , constFunc (named "xs" salt) (mkDatatype "List" [typeConst "Int"])
         ]
 
-monoFunctionScope :: Int -> Node
+monoFunctionScope :: Int -> Node Symbol
 monoFunctionScope salt =
     Node
         [ constFunc (named "idInt" salt) (arrowType intType intType)
@@ -158,13 +158,13 @@ monoFunctionScope salt =
 named :: String -> Int -> Symbol
 named prefix salt = Symbol $ Text.pack (prefix ++ show salt)
 
-intType :: Node
+intType :: Node Symbol
 intType = typeConst "Int"
 
-maybeIntType :: Node
+maybeIntType :: Node Symbol
 maybeIntType = mkDatatype "Maybe" [intType]
 
-listIntType :: Node
+listIntType :: Node Symbol
 listIntType = mkDatatype "List" [intType]
 
 congruencePathSets :: Int -> [[Path]]
@@ -185,33 +185,33 @@ wideSparseConstraints =
         | i <- [0 .. 15]
         ]
 
-finiteChoiceNode :: Int -> Node
+finiteChoiceNode :: Int -> Node Symbol
 finiteChoiceNode salt =
     Node
         [ Edge (named "f" salt) [choiceAB salt, choiceAB salt]
         , Edge (named "g" salt) [choiceAB salt, choiceAB salt]
         ]
 
-constrainedChoiceNode :: Int -> Node
+constrainedChoiceNode :: Int -> Node Symbol
 constrainedChoiceNode salt =
     Node
         [ mkEdge (named "f" salt) [choiceAB salt, choiceAB salt] (mkEqConstraints [[path [0], path [1]]])
         , Edge (named "g" salt) [choiceAB salt, choiceAB salt]
         ]
 
-choiceAB :: Int -> Node
+choiceAB :: Int -> Node Symbol
 choiceAB salt = Node [Edge (named "a" salt) [], Edge (named "b" salt) []]
 
 recursivePathConstraints :: EqConstraints
 recursivePathConstraints = mkEqConstraints [[path [0, 0, 0, 0], path [1, 0, 0]]]
 
-recursivePathNodes :: Int -> [Node]
+recursivePathNodes :: Int -> [Node Symbol]
 recursivePathNodes salt = [infiniteFNode salt, infiniteFNode salt]
 
-infiniteFNode :: Int -> Node
+infiniteFNode :: Int -> Node Symbol
 infiniteFNode salt = createMu $ \r -> Node [Edge (named "f" salt) [r]]
 
-recursiveTypeA :: Int -> Node
+recursiveTypeA :: Int -> Node Symbol
 recursiveTypeA salt =
     createMu $ \r ->
         Node
@@ -221,7 +221,7 @@ recursiveTypeA salt =
             , Edge "List" [r]
             ]
 
-recursiveTypeB :: Int -> Node
+recursiveTypeB :: Int -> Node Symbol
 recursiveTypeB salt =
     createMu $ \r ->
         Node

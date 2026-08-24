@@ -132,7 +132,7 @@ import Data.ECTA.Gen (
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
-import Data.ECTA.Term (Term)
+import Data.ECTA.Term (Symbol, Term)
 
 {- | QuickCheck as the sampling backend.
 
@@ -209,7 +209,7 @@ The automaton is the support and members are counted by size, so this draws
 uniformly from the terms of at most the current QuickCheck size. Automata
 whose edges carry equality constraints are rejected.
 -}
-fromECTA :: Node -> ECTAGen Term
+fromECTA :: Node Symbol -> ECTAGen (Term Symbol)
 fromECTA = ECTA.fromECTA
 
 {- | Treat every member of a finite generator as one atomic source choice.
@@ -378,7 +378,7 @@ relate ::
 relate = ECTA.relate
 
 -- | Return the ECTA support of an inspectable generator.
-support :: ECTAGen a -> Either ECTAGenError Node
+support :: ECTAGen a -> Either ECTAGenError (Node Symbol)
 support = ECTA.support
 
 -- | Return the exact number of ranks in a transparent generator.

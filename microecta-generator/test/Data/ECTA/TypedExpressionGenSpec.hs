@@ -11,6 +11,7 @@ import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges, numNestedMu, unfol
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (unsafeGetEclasses)
+import Data.ECTA.Term (Symbol)
 import Data.ECTA.TypedExpressionLanguage
 
 -- | Infer a ground type independently of either generator.
@@ -58,7 +59,7 @@ isWellTyped typed =
     inferType (expression typed) == Just (expressionType typed)
 
 -- | Find a joined edge that retains the requested argument constraints.
-hasArgumentConstraints :: Int -> Node -> Bool
+hasArgumentConstraints :: Int -> Node Symbol -> Bool
 hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
   where
     edgeMatches edge =

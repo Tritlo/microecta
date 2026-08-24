@@ -39,7 +39,7 @@ recursive automata. That gap is why a root 'Mu' enumerating to the empty
 language went unnoticed; those cases are covered by explicit examples in
 "ECTASpec" instead.
 -}
-instance Arbitrary Node where
+instance Arbitrary (Node Symbol) where
     arbitrary = capSize maxNodeDepth $ sized $ \_n -> do
         -- Edge arity, not the size parameter: the size drives depth, and the
         -- branching factor is kept small so denotation counts stay tractable.
@@ -65,13 +65,13 @@ testEdgeTypes =
 testConstants :: [Symbol]
 testConstants = map fst $ filter ((== 0) . snd) testEdgeTypes
 
-randPathPair :: [Node] -> Gen [Path]
+randPathPair :: [Node Symbol] -> Gen [Path]
 randPathPair ns = do
     p1 <- randPath ns
     p2 <- randPath ns
     return [p1, p2]
 
-randPath :: [Node] -> Gen Path
+randPath :: [Node Symbol] -> Gen Path
 randPath [] = return EmptyPath
 randPath ns = do
     i <- chooseInt (0, length ns - 1)
@@ -82,7 +82,7 @@ randPath ns = do
             if b then return (path [i]) else ConsPath i <$> randPath ns'
         _ -> error "randPath: generated child is not an ordinary node"
 
-instance Arbitrary Edge where
+instance Arbitrary (Edge Symbol) where
     arbitrary =
         sized $ \n -> case n of
             0 -> Edge <$> elements testConstants <*> pure []
@@ -95,7 +95,7 @@ instance Arbitrary Edge where
 
     shrink e = mkEdge (edgeSymbol e) <$> (mapM shrink (edgeChildren e)) <*> pure (edgeEcs e)
 
-instance Arbitrary Template where
+instance Arbitrary (Template Symbol) where
     arbitrary = capSize maxNodeDepth $ sized $ \n ->
         if n == 0
             then elements [Hole, AnyNode [], AnyPrefix []]

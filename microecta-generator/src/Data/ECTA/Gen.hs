@@ -103,7 +103,7 @@ import Data.ECTA.Gen.Internal.Size (
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Term (Term)
+import Data.ECTA.Term (Symbol, Term)
 
 {- | A transparent generator whose values are classified by a projected key.
 
@@ -396,7 +396,7 @@ its count is the size of an intersection rather than a product, and an
 automaton carrying them is rejected with 'CannotCountConstrainedEdges'
 rather than miscounted.
 -}
-fromECTA :: Node -> ECTAGen gen Term
+fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
 fromECTA node =
     Cyclic $ do
         index <- automatonIndex node
@@ -1139,7 +1139,7 @@ relate leftKey rightKey relation left right =
 A recursive generator's support is its @Mu@ node, which accepts members of
 every size: a size bound restricts the rank space, not the automaton.
 -}
-support :: ECTAGen gen a -> Either ECTAGenError Node
+support :: ECTAGen gen a -> Either ECTAGenError (Node Symbol)
 support (Transparent result) = staticSupport <$> result
 support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator

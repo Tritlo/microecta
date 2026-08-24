@@ -28,7 +28,7 @@ import Data.ECTA (
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Term)
+import Data.ECTA.Term (Symbol, Term)
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
@@ -58,7 +58,7 @@ boundedTreeCount :: Integer
 boundedTreeCount = 471
 
 -- | A finite automaton whose language is easy to state independently.
-finiteAutomaton :: Node
+finiteAutomaton :: Node Symbol
 finiteAutomaton =
     Node
         [ Edge "a" []
@@ -67,7 +67,7 @@ finiteAutomaton =
         ]
 
 -- | A recursive automaton: ground types under one type constructor and one arrow.
-typeAutomaton :: Node
+typeAutomaton :: Node Symbol
 typeAutomaton =
     createMu $ \recursive ->
         Node
@@ -77,7 +77,7 @@ typeAutomaton =
             ]
 
 -- | An automaton whose edge carries an equality constraint.
-constrainedAutomaton :: Node
+constrainedAutomaton :: Node Symbol
 constrainedAutomaton =
     Node
         [ mkEdge
@@ -365,5 +365,5 @@ spec = do
                 `shouldBe` Left CannotCountConstrainedEdges
 
 -- | The head symbol of a term, as a coverage key.
-termSymbol :: Term -> String
+termSymbol :: Term Symbol -> String
 termSymbol = show

@@ -342,14 +342,14 @@ of the terms it accepts, counting them by size — the number of term nodes —
 with the automaton itself as the support.
 
 ```haskell
-types :: Node
+types :: Node Symbol
 types = createMu $ \recursive -> Node
     [ Edge "baseType" []
     , Edge "->" [recursive, recursive]
     , Edge "Maybe" [recursive]
     ]
 
-typeGen :: ECTAGen Term
+typeGen :: ECTAGen (Term Symbol)
 typeGen = ECTAGen.fromECTA types
 ```
 
