@@ -16,7 +16,6 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     TermFragment (..),
     PartialSymbol (..),
     termFragToTruncatedTerm,
-    termFragToTruncatedTermWith,
     SuspendedConstraint (..),
     scGetPathTrie,
     scGetUVar,
@@ -47,10 +46,8 @@ module Data.ECTA.Internal.ECTA.Enumeration (
     expandTermFrag,
     expandTermFragWith,
     expandPartialTermFrag,
-    expandPartialTermFragWith,
     expandUVar,
     getAllTruncatedTerms,
-    getAllTruncatedTermsWith,
     getAllTerms,
     getAllTermsWith,
     getAllTermsPrune,
@@ -96,7 +93,7 @@ data TermFragment symbol
 {- | A label in a term that may still contain enumeration holes.
 
 Keeping holes outside the caller's alphabet prevents a real symbol from being
-mistaken for a rendered placeholder such as @v0@. 'RecursionHole' records an
+mistaken for a rendered placeholder such as @v0@. 'TruncatedRecursion' records an
 unconstrained recursive node when the enumeration state is available to
 identify it.
 -}
@@ -106,7 +103,7 @@ data PartialSymbol symbol
     | -- | An unexpanded enumeration variable.
       UVarHole !UVar
     | -- | Enumeration stopped at an unconstrained recursive node.
-      RecursionHole
+      TruncatedRecursion
     deriving (Eq, Ord, Show)
 
 instance (Hashable symbol) => Hashable (PartialSymbol symbol) where
@@ -114,19 +111,14 @@ instance (Hashable symbol) => Hashable (PartialSymbol symbol) where
         salt `hashWithSalt` (0 :: Int) `hashWithSalt` symbol
     hashWithSalt salt (UVarHole uv) =
         salt `hashWithSalt` (1 :: Int) `hashWithSalt` (uvarToInt uv)
-    hashWithSalt salt RecursionHole =
+    hashWithSalt salt TruncatedRecursion =
         salt `hashWithSalt` (2 :: Int)
 
 -- | Convert a fragment to a term while retaining holes outside the alphabet.
 termFragToTruncatedTerm :: TermFragment symbol -> Term (PartialSymbol symbol)
-termFragToTruncatedTerm = termFragToTruncatedTermWith ConcreteSymbol UVarHole
-
--- | Convert a fragment to any output alphabet using separate concrete and hole mappings.
-termFragToTruncatedTermWith :: (symbol -> output) -> (UVar -> output) -> TermFragment symbol -> Term output
-termFragToTruncatedTermWith concreteSymbol holeSymbol = go
-  where
-    go (TermFragmentNode s ts) = Term (concreteSymbol s) (map go ts)
-    go (TermFragmentUVar uv) = Term (holeSymbol uv) []
+termFragToTruncatedTerm (TermFragmentNode symbol children) =
+    Term (ConcreteSymbol symbol) (map termFragToTruncatedTerm children)
+termFragToTruncatedTerm (TermFragmentUVar uv) = Term (UVarHole uv) []
 
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
@@ -568,23 +560,17 @@ enumerateFully' ost order oracle = do
 
 Unlike 'expandTermFrag', this is safe for diagnostics and oracle logging while
 enumeration is still in progress. Unexpanded non-recursive UVars become
-'UVarHole's, and recursive holes become 'RecursionHole's.
+'UVarHole's, and recursive continuations become 'TruncatedRecursion'.
 -}
 expandPartialTermFrag :: TermFragment symbol -> EnumerateM symbol (Term (PartialSymbol symbol))
-expandPartialTermFrag =
-    expandPartialTermFragWith ConcreteSymbol RecursionHole UVarHole
-
--- | 'expandPartialTermFrag' using caller-supplied mappings into an output alphabet.
-expandPartialTermFragWith :: (symbol -> output) -> output -> (UVar -> output) -> TermFragment symbol -> EnumerateM symbol (Term output)
-expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol = go
-  where
-    go (TermFragmentNode s ts) = Term (concreteSymbol s) <$> mapM go ts
-    go (TermFragmentUVar uv) = do
-        val <- getUVarValue uv
-        case val of
-            UVarEnumerated t -> go t
-            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
-            _ -> return $ Term (holeSymbol uv) []
+expandPartialTermFrag (TermFragmentNode symbol children) =
+    Term (ConcreteSymbol symbol) <$> mapM expandPartialTermFrag children
+expandPartialTermFrag (TermFragmentUVar uv) = do
+    value <- getUVarValue uv
+    case value of
+        UVarEnumerated fragment -> expandPartialTermFrag fragment
+        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term TruncatedRecursion []
+        _ -> return $ Term (UVarHole uv) []
 
 -- | Expand a complete term fragment into a concrete term.
 expandTermFrag :: (IsString symbol) => TermFragment symbol -> EnumerateM symbol (Term symbol)
@@ -628,18 +614,14 @@ expandUVarWith recursionSymbol uv = do
 {- | Enumerate terms while retaining truncation explicitly.
 
 Where 'getAllTerms' embeds a recursion marker into the caller's alphabet, this
-uses 'RecursionHole'. Any genuinely unresolved non-recursive variable remains
+uses 'TruncatedRecursion'. Any genuinely unresolved non-recursive variable remains
 a 'UVarHole', as it does in 'expandPartialTermFrag'.
 -}
 getAllTruncatedTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [Term (PartialSymbol symbol)]
-getAllTruncatedTerms = getAllTruncatedTermsWith ConcreteSymbol RecursionHole UVarHole
-
--- | 'getAllTruncatedTerms' using caller-supplied mappings into an output alphabet.
-getAllTruncatedTermsWith :: (Hashable symbol, Typeable symbol) => (symbol -> output) -> output -> (UVar -> output) -> Node symbol -> [Term output]
-getAllTruncatedTermsWith concreteSymbol recursionSymbol holeSymbol n = map fst $
+getAllTruncatedTerms n = map fst $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
-        rootTermFrag >>= expandPartialTermFragWith concreteSymbol recursionSymbol holeSymbol
+        rootTermFrag >>= expandPartialTermFrag
 
 {- | Enumerate terms while letting an oracle prune branches.
 

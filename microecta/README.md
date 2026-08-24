@@ -106,8 +106,10 @@ keep enumerating with updated state.
 What makes a term worth rejecting is entirely the caller's business.
 `microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
 term, and no opinion about which shapes matter. Its `PartialSymbol` alphabet
-keeps concrete symbols, unexpanded `UVarHole`s, and `RecursionHole` distinct;
-no placeholder can collide with a real symbol.
+keeps concrete symbols, unexpanded `UVarHole`s, and `TruncatedRecursion`
+distinct; no placeholder can collide with a real symbol. `Term` is a functor,
+so a caller that deliberately wants one concrete alphabet can materialize a
+partial term with `fmap resolvePartial`.
 
 ```haskell
 -- Drop any branch whose partial term already contains a forbidden symbol.

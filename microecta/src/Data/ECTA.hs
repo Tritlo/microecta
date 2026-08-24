@@ -151,14 +151,12 @@ module Data.ECTA (
     getAllTermsWith,
     getAllTermsPrune,
     getAllTruncatedTerms,
-    getAllTruncatedTermsWith,
 
     -- * Pruning oracles
     UVar,
     uvarToInt,
     getUVarRepresentative,
     expandPartialTermFrag,
-    expandPartialTermFragWith,
     getAllTermsPruneWith,
     ExpansionOrder,
     noExpansionPreference,

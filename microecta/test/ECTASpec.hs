@@ -141,10 +141,16 @@ spec = do
             let zero = Node [Edge Zero []]
                 naturals = Node [Edge Zero [], Edge Succ [zero]]
                 successors = termsMatching (TemplateNode Succ [Hole]) naturals
+                materialize = \case
+                    ConcreteSymbol symbol -> symbol
+                    UVarHole _ -> Recursion
+                    TruncatedRecursion -> Recursion
             getAllTermsWith Recursion successors
                 `shouldBe` [Term Succ [Term Zero []]]
             getAllTruncatedTerms successors
                 `shouldBe` [Term (ConcreteSymbol Succ) [Term (ConcreteSymbol Zero) []]]
+            map (fmap materialize) (getAllTruncatedTerms successors)
+                `shouldBe` [Term Succ [Term Zero []]]
 
         it "restricting a finite ECTA agrees with filtering its terms" $
             property $
@@ -319,7 +325,7 @@ spec = do
         it "a bare Mu truncates instead of reporting an empty language" $ do
             getAllTerms intTest7 `shouldBe` [Term "Mu" []]
             getAllTruncatedTerms intTest7
-                `shouldBe` [Term RecursionHole []]
+                `shouldBe` [Term TruncatedRecursion []]
 
         it "a Mu under an edge truncates the same way" $
             getAllTerms (Node [Edge "wrap" [intTest7]])
