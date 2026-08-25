@@ -284,7 +284,7 @@ spec =
                 Left err -> expectationFailure $ show err
                 Right node -> do
                     numNestedMu node `shouldBe` 1
-                    -- Unfolding the recursion twice admits the atoms and one
+                    -- Unfolding the recursion twice admits the literals and one
                     -- application layer, and nothing ill-typed: 46 members.
                     length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 46
 

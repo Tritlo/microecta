@@ -106,6 +106,8 @@ test-suite unit-tests
 
   other-modules:
     Data.ECTA.GenSpec
+    Data.ECTA.IFCExpressionGenSpec
+    Data.ECTA.IFCExpressionLanguage
     Data.ECTA.RecursiveGenSpec
     Data.ECTA.TypedExpressionGenSpec
     Data.ECTA.TypedExpressionLanguage

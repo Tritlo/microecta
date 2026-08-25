@@ -84,14 +84,14 @@ Here each command language keeps its existing compact support. Only the two
 declared keys are stored.
 
 ```haskell
-functionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
-functionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
+binaryFunctionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
+binaryFunctionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
 
 signature function =
   argument1Type function :* argument2Type function :-> resultType function
 
-atomsByType :: Grouped Type TypedExpression
-atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
+literalsByType :: Grouped Type TypedExpression
+literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
 notFunctions :: Grouped (Sig '[Type] Type) (TypedExpression -> TypedExpression)
 notFunctions =
@@ -105,7 +105,7 @@ conditionalFunctions =
 
 binaryLayer children =
   ECTAGen.apply
-    (compileApplication <$> functionsBySignature)
+    (compileApplication <$> binaryFunctionsBySignature)
     (children :& children :& ANil)
 
 conditionalLayer children =
@@ -315,7 +315,7 @@ and equality constraints meet in one cycle:
 ```haskell
 expressions :: Grouped Type TypedExpression
 expressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.oneofGrouped [atomsByType, applicationGen self]
+    ECTAGen.oneofGrouped [literalsByType, applicationGen self]
 
 anyExpression = ECTAGen.ungroup expressions
 intExpression = ECTAGen.atKey TInt expressions

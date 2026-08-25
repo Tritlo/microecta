@@ -31,7 +31,7 @@ block builds exactly the 'Data.ECTA.Gen.apply' join:
 
 @
 applicationGen children = ECTAGen.do
-    op <- functionsBySignature
+    op <- binaryFunctionsBySignature
     x <- children
     y <- children
     ECTAGen.pure (compile op x y)

@@ -23,7 +23,7 @@ module Data.ECTA.TypedExpressionLanguage (
     ConditionalSignature,
     allTypes,
     binaryFunctionInstances,
-    atoms,
+    literals,
     notSignature,
     functionSignature,
     conditionalSignature,
@@ -32,13 +32,13 @@ module Data.ECTA.TypedExpressionLanguage (
     compileConditional,
 
     -- * Generators
-    notFunctionsBySignature,
-    functionsBySignature,
-    conditionalsBySignature,
-    atomsByType,
-    unaryApplicationGen,
-    binaryApplicationGen,
-    conditionalApplicationGen,
+    unaryFunctionsBySignature,
+    binaryFunctionsBySignature,
+    conditionalFunctionsBySignature,
+    literalsByType,
+    unaryECTA,
+    binaryECTA,
+    conditionalECTA,
     applicationGen,
     depthByType,
     expressionGenAtDepth,
@@ -130,8 +130,8 @@ binaryFunctionInstances =
            ]
 
 -- | Two literals of each ground type.
-atoms :: [TypedExpression]
-atoms =
+literals :: [TypedExpression]
+literals =
     [ TypedExpression TInt (IntLiteral 0)
     , TypedExpression TInt (IntLiteral 1)
     , TypedExpression TBool (BoolLiteral False)
@@ -170,9 +170,9 @@ compileConditional result condition ifTrue ifFalse =
             (expression ifFalse)
 
 -- | The unary operation grouped by its ground signature.
-notFunctionsBySignature ::
+unaryFunctionsBySignature ::
     Grouped NotSignature (TypedExpression -> TypedExpression)
-notFunctionsBySignature =
+unaryFunctionsBySignature =
     compileNot
         <$ ECTAGen.keyed notSignature (ECTAGen.elements [()])
 
@@ -184,16 +184,16 @@ joins which groups should receive equal internal labels on constrained ECTA
 paths. Conceptually, this is a compact map from each signature to the sublanguage
 of functions having that signature.
 -}
-functionsBySignature :: Grouped FunctionSignature BinaryFunctionInstance
-functionsBySignature =
+binaryFunctionsBySignature :: Grouped FunctionSignature BinaryFunctionInstance
+binaryFunctionsBySignature =
     ECTAGen.groupBy functionSignature (ECTAGen.elements binaryFunctionInstances)
 
 -- | One conditional builder per possible branch and result type.
-conditionalsBySignature ::
+conditionalFunctionsBySignature ::
     Grouped
         ConditionalSignature
         (TypedExpression -> TypedExpression -> TypedExpression -> TypedExpression)
-conditionalsBySignature =
+conditionalFunctionsBySignature =
     compileConditional
         <$> ECTAGen.groupBy conditionalSignature (ECTAGen.elements allTypes)
 
@@ -203,28 +203,28 @@ Each projected @Type@ classifies literals into a group. Those keys let later
 applications match compatible children and equate their ECTA paths without
 enumerating or inspecting every expression.
 -}
-atomsByType :: Grouped Type TypedExpression
-atomsByType = ECTAGen.groupBy expressionType (ECTAGen.elements atoms)
+literalsByType :: Grouped Type TypedExpression
+literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
 -- | Add one unary application layer.
-unaryApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-unaryApplicationGen children = ECTAGen.do
-    build <- notFunctionsBySignature
+unaryECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+unaryECTA children = ECTAGen.do
+    build <- unaryFunctionsBySignature
     value <- children
     ECTAGen.pure (build value)
 
 -- | Add one binary application layer.
-binaryApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-binaryApplicationGen children = ECTAGen.do
-    operation <- functionsBySignature
+binaryECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+binaryECTA children = ECTAGen.do
+    operation <- binaryFunctionsBySignature
     left <- children
     right <- children
     ECTAGen.pure (compileApplication operation left right)
 
 -- | Add one ternary conditional layer.
-conditionalApplicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-conditionalApplicationGen children = ECTAGen.do
-    build <- conditionalsBySignature
+conditionalECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+conditionalECTA children = ECTAGen.do
+    build <- conditionalFunctionsBySignature
     condition <- children
     ifTrue <- children
     ifFalse <- children
@@ -249,9 +249,9 @@ applicationGen children =
         Left _ -> ECTAGen.oneofGrouped alternatives
   where
     alternatives =
-        [ unaryApplicationGen children
-        , binaryApplicationGen children
-        , conditionalApplicationGen children
+        [ unaryECTA children
+        , binaryECTA children
+        , conditionalECTA children
         ]
     totalCardinality = fmap sum . ECTAGen.sizes
 
@@ -263,7 +263,7 @@ serve as both typed child inputs to the following application layer, where
 matching result-type groups have their paths equated.
 -}
 depthByType :: Int -> Grouped Type TypedExpression
-depthByType 0 = atomsByType
+depthByType 0 = literalsByType
 depthByType depth
     | depth > 0 = applicationGen $ depthByType $ depth - 1
     | otherwise = error $ "negative expression depth: " <> show depth
@@ -280,20 +280,20 @@ expressionGenAtDepth = ECTAGen.ungroup . depthByType
 
 {- | Expressions of depth at most the bound, grouped by result type.
 
-'ECTAGen.frequencies' merges the atom layer and the application layer group
+'ECTAGen.frequencies' merges the literal layer and the application layer group
 by group. Weighting the two alternatives by their exact expression counts
 makes every expression of every admitted depth equally likely, so the whole
 bounded language is uniform.
 -}
 upToDepthByType :: Int -> Grouped Type TypedExpression
-upToDepthByType 0 = atomsByType
+upToDepthByType 0 = literalsByType
 upToDepthByType depth =
     ECTAGen.frequencies
-        [ (atomCount, atomsByType)
-        , (upToDepthCount depth - atomCount, applicationGen $ upToDepthByType $ depth - 1)
+        [ (literalCount, literalsByType)
+        , (upToDepthCount depth - literalCount, applicationGen $ upToDepthByType $ depth - 1)
         ]
   where
-    atomCount = sum $ map (expressionCount 0) allTypes
+    literalCount = sum $ map (expressionCount 0) allTypes
 
 {- | Every well-typed expression, as one recursive family.
 
@@ -305,7 +305,7 @@ constraints.
 -}
 recursiveExpressions :: Grouped Type TypedExpression
 recursiveExpressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.oneofGrouped [atomsByType, applicationGen self]
+    ECTAGen.oneofGrouped [literalsByType, applicationGen self]
 
 -- | Erase the ground instantiation after constructing a typed expression.
 compileApplication ::
@@ -318,7 +318,7 @@ compileApplication instance_ first second =
 -- | Number of exact-depth expressions with the requested result type.
 expressionCount :: Int -> Type -> Integer
 expressionCount 0 result =
-    toInteger $ length $ filter ((== result) . expressionType) atoms
+    toInteger $ length $ filter ((== result) . expressionType) literals
 expressionCount depth result =
     applicationCount (expressionCount childDepth) result
   where
@@ -361,7 +361,7 @@ weights make every expression of a given exact depth equally likely.
 -}
 handwrittenExpressionOfType :: Int -> Type -> QC.Gen TypedExpression
 handwrittenExpressionOfType 0 result =
-    QC.elements $ filter ((== result) . expressionType) atoms
+    QC.elements $ filter ((== result) . expressionType) literals
 handwrittenExpressionOfType depth result =
     frequencyInteger $ notAlternatives <> binaryAlternatives <> conditionalAlternatives
   where
