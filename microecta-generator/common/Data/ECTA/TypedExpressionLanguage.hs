@@ -18,17 +18,17 @@ module Data.ECTA.TypedExpressionLanguage (
     BinaryFunctionInstance (..),
     Expression (..),
     TypedExpression (..),
-    NotSignature,
-    FunctionSignature,
+    UnarySignature,
+    BinarySignature,
     ConditionalSignature,
     allTypes,
     binaryFunctionInstances,
     literals,
-    notSignature,
-    functionSignature,
+    unarySignature,
+    binarySignature,
     conditionalSignature,
     compileNot,
-    compileApplication,
+    compileBinary,
     compileConditional,
 
     -- * Generators
@@ -36,10 +36,10 @@ module Data.ECTA.TypedExpressionLanguage (
     binaryFunctionsBySignature,
     conditionalFunctionsBySignature,
     literalsByType,
-    unaryECTA,
-    binaryECTA,
-    conditionalECTA,
-    applicationGen,
+    unaryLayer,
+    binaryLayer,
+    conditionalLayer,
+    applicationLayer,
     depthByType,
     expressionGenAtDepth,
     upToDepthByType,
@@ -100,14 +100,14 @@ data TypedExpression = TypedExpression
     deriving (Eq, Ord, Show)
 
 -- | The dependency information needed to apply 'Not'.
-type NotSignature = ECTAGen.Sig '[Type] Type
+type UnarySignature = ECTAGen.Sig '[Type] Type
 
 {- | The dependency information needed to apply one binary function.
 
 The first two types select child result-type groups whose paths are equated; the
 third is retained as the completed application's result-type key.
 -}
-type FunctionSignature = ECTAGen.Sig '[Type, Type] Type
+type BinarySignature = ECTAGen.Sig '[Type, Type] Type
 
 -- | The dependency information needed to build an 'IfExpression'.
 type ConditionalSignature = ECTAGen.Sig '[Type, Type, Type] Type
@@ -139,12 +139,12 @@ literals =
     ]
 
 -- | The complete ground signature of 'Not'.
-notSignature :: NotSignature
-notSignature = TBool :-> TBool
+unarySignature :: UnarySignature
+unarySignature = TBool :-> TBool
 
 -- | Extract the complete ground signature of a function instance.
-functionSignature :: BinaryFunctionInstance -> FunctionSignature
-functionSignature instance_ =
+binarySignature :: BinaryFunctionInstance -> BinarySignature
+binarySignature instance_ =
     firstArgumentType instance_
         :* secondArgumentType instance_
         :-> binaryResultType instance_
@@ -171,10 +171,10 @@ compileConditional result condition ifTrue ifFalse =
 
 -- | The unary operation grouped by its ground signature.
 unaryFunctionsBySignature ::
-    Grouped NotSignature (TypedExpression -> TypedExpression)
+    Grouped UnarySignature (TypedExpression -> TypedExpression)
 unaryFunctionsBySignature =
     compileNot
-        <$ ECTAGen.keyed notSignature (ECTAGen.elements [()])
+        <$ ECTAGen.keyed unarySignature (ECTAGen.elements [()])
 
 {- | Function instances grouped by their complete ground signature.
 
@@ -184,9 +184,9 @@ joins which groups should receive equal internal labels on constrained ECTA
 paths. Conceptually, this is a compact map from each signature to the sublanguage
 of functions having that signature.
 -}
-binaryFunctionsBySignature :: Grouped FunctionSignature BinaryFunctionInstance
+binaryFunctionsBySignature :: Grouped BinarySignature BinaryFunctionInstance
 binaryFunctionsBySignature =
-    ECTAGen.groupBy functionSignature (ECTAGen.elements binaryFunctionInstances)
+    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
 
 -- | One conditional builder per possible branch and result type.
 conditionalFunctionsBySignature ::
@@ -207,23 +207,23 @@ literalsByType :: Grouped Type TypedExpression
 literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
 -- | Add one unary application layer.
-unaryECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-unaryECTA children = ECTAGen.do
+unaryLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+unaryLayer children = ECTAGen.do
     build <- unaryFunctionsBySignature
     value <- children
     ECTAGen.pure (build value)
 
 -- | Add one binary application layer.
-binaryECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-binaryECTA children = ECTAGen.do
+binaryLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+binaryLayer children = ECTAGen.do
     operation <- binaryFunctionsBySignature
     left <- children
     right <- children
-    ECTAGen.pure (compileApplication operation left right)
+    ECTAGen.pure (compileBinary operation left right)
 
 -- | Add one ternary conditional layer.
-conditionalECTA :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-conditionalECTA children = ECTAGen.do
+conditionalLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+conditionalLayer children = ECTAGen.do
     build <- conditionalFunctionsBySignature
     condition <- children
     ifTrue <- children
@@ -242,16 +242,16 @@ recursive family uses equal structural alternatives instead.
 Keeping the result group is what lets the operation compose recursively at the
 next depth.
 -}
-applicationGen :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-applicationGen children =
+applicationLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
+applicationLayer children =
     case traverse totalCardinality alternatives of
         Right cardinalities -> ECTAGen.frequencies $ zip cardinalities alternatives
         Left _ -> ECTAGen.oneofGrouped alternatives
   where
     alternatives =
-        [ unaryECTA children
-        , binaryECTA children
-        , conditionalECTA children
+        [ unaryLayer children
+        , binaryLayer children
+        , conditionalLayer children
         ]
     totalCardinality = fmap sum . ECTAGen.sizes
 
@@ -265,7 +265,7 @@ matching result-type groups have their paths equated.
 depthByType :: Int -> Grouped Type TypedExpression
 depthByType 0 = literalsByType
 depthByType depth
-    | depth > 0 = applicationGen $ depthByType $ depth - 1
+    | depth > 0 = applicationLayer $ depthByType $ depth - 1
     | otherwise = error $ "negative expression depth: " <> show depth
 
 {- | Return an ordinary ECTA generator after composing the requested depth.
@@ -290,7 +290,7 @@ upToDepthByType 0 = literalsByType
 upToDepthByType depth =
     ECTAGen.frequencies
         [ (literalCount, literalsByType)
-        , (upToDepthCount depth - literalCount, applicationGen $ upToDepthByType $ depth - 1)
+        , (upToDepthCount depth - literalCount, applicationLayer $ upToDepthByType $ depth - 1)
         ]
   where
     literalCount = sum $ map (expressionCount 0) allTypes
@@ -305,12 +305,12 @@ constraints.
 -}
 recursiveExpressions :: Grouped Type TypedExpression
 recursiveExpressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.oneofGrouped [literalsByType, applicationGen self]
+    ECTAGen.oneofGrouped [literalsByType, applicationLayer self]
 
 -- | Erase the ground instantiation after constructing a typed expression.
-compileApplication ::
+compileBinary ::
     BinaryFunctionInstance -> TypedExpression -> TypedExpression -> TypedExpression
-compileApplication instance_ first second =
+compileBinary instance_ first second =
     TypedExpression
         (binaryResultType instance_)
         (ApplyBinary (binaryFunction instance_) (expression first) (expression second))
@@ -385,7 +385,7 @@ handwrittenExpressionOfType depth result =
                     handwrittenExpressionOfType
                         childDepth
                         (secondArgumentType instance_)
-                pure $ compileApplication instance_ first second
+                pure $ compileBinary instance_ first second
           )
         | instance_ <- binaryFunctionInstances
         , binaryResultType instance_ == result

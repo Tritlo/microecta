@@ -30,11 +30,11 @@ remaining binds choose one argument per signature component in order, and the
 block builds exactly the 'Data.ECTA.Gen.apply' join:
 
 @
-applicationGen children = ECTAGen.do
-    op <- binaryFunctionsBySignature
-    x <- children
-    y <- children
-    ECTAGen.pure (compile op x y)
+binaryLayer children = ECTAGen.do
+    operation <- binaryFunctionsBySignature
+    left <- children
+    right <- children
+    ECTAGen.pure (compileBinary operation left right)
 @
 -}
 module Data.ECTA.Gen.Do (

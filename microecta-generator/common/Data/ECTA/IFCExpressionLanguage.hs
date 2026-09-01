@@ -38,7 +38,7 @@ module Data.ECTA.IFCExpressionLanguage (
 
     -- * Exact counts
     expressionKeys,
-    countUpToDepth,
+    expressionCountUpTo,
     programCountUpToDepth,
 
     -- * Handwritten baseline
@@ -162,7 +162,7 @@ atomsByKey :: Grouped Labeled LabeledExpression
 atomsByKey = ECTAGen.groupBy securityKey (ECTAGen.elements atoms)
 
 -- | One ground-and-labeled instantiation of a binary function.
-data BinaryInstance = BinaryInstance
+data BinaryFunctionInstance = BinaryFunctionInstance
     { binaryFunction :: !Function
     , firstArgumentKey :: !Labeled
     , secondArgumentKey :: !Labeled
@@ -171,9 +171,9 @@ data BinaryInstance = BinaryInstance
     deriving (Eq, Ord, Show)
 
 -- | Every ground instantiation, with the result label joining the arguments.
-binaryInstances :: [BinaryInstance]
-binaryInstances =
-    [ BinaryInstance
+binaryFunctionInstances :: [BinaryFunctionInstance]
+binaryFunctionInstances =
+    [ BinaryFunctionInstance
         function_
         (firstType, firstLabel)
         (secondType, secondLabel)
@@ -193,19 +193,19 @@ binaryInstances =
         ]
 
 -- | The complete signature of one binary instance.
-binarySignature :: BinaryInstance -> Sig '[Labeled, Labeled] Labeled
+binarySignature :: BinaryFunctionInstance -> Sig '[Labeled, Labeled] Labeled
 binarySignature instance_ =
     firstArgumentKey instance_
         :* secondArgumentKey instance_
         :-> binaryResultKey instance_
 
 -- | Binary instances grouped by their label-joining signature.
-binariesBySignature :: Grouped (Sig '[Labeled, Labeled] Labeled) BinaryInstance
-binariesBySignature =
-    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryInstances)
+binaryFunctionsBySignature :: Grouped (Sig '[Labeled, Labeled] Labeled) BinaryFunctionInstance
+binaryFunctionsBySignature =
+    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
 
 -- | Build one labeled binary application.
-compileBinary :: BinaryInstance -> LabeledExpression -> LabeledExpression -> LabeledExpression
+compileBinary :: BinaryFunctionInstance -> LabeledExpression -> LabeledExpression -> LabeledExpression
 compileBinary instance_ first second =
     LabeledExpression joinedType joinedLabel $
         ApplyBinary (binaryFunction instance_) (expression first) (expression second)
@@ -215,7 +215,7 @@ compileBinary instance_ first second =
 -- | Add one binary application layer.
 binaryLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
 binaryLayer children = ECTAGen.do
-    operation <- binariesBySignature
+    operation <- binaryFunctionsBySignature
     first <- children
     second <- children
     ECTAGen.pure (compileBinary operation first second)
@@ -352,10 +352,10 @@ expressionKeys :: [Labeled]
 expressionKeys = [(type_, label) | type_ <- [TInt, TBool], label <- allLabels]
 
 -- | Number of expressions of depth at most the bound with the given key.
-countUpToDepth :: Int -> Labeled -> Integer
-countUpToDepth 0 key = atomCount key
-countUpToDepth depth key =
-    atomCount key + applicationCount (countUpToDepth (depth - 1)) key
+expressionCountUpTo :: Int -> Labeled -> Integer
+expressionCountUpTo 0 key = atomCount key
+expressionCountUpTo depth key =
+    atomCount key + applicationCount (expressionCountUpTo (depth - 1)) key
 
 -- | Number of atoms with the given key.
 atomCount :: Labeled -> Integer
@@ -373,7 +373,7 @@ applicationCount childCount key =
         sum
             [ childCount (firstArgumentKey instance_)
                 * childCount (secondArgumentKey instance_)
-            | instance_ <- binaryInstances
+            | instance_ <- binaryFunctionInstances
             , binaryResultKey instance_ == key
             ]
     conditionalCount =
@@ -387,7 +387,7 @@ applicationCount childCount key =
 
 -- | Number of programs of depth at most the bound: one print per expression.
 programCountUpToDepth :: Int -> Integer
-programCountUpToDepth depth = sum $ map (countUpToDepth depth) expressionKeys
+programCountUpToDepth depth = sum $ map (expressionCountUpTo depth) expressionKeys
 
 {- | The handwritten baseline makes the label dependency explicit by accepting
 the desired key and selecting only compatible instances. Its weights make
@@ -405,7 +405,7 @@ handwrittenExpressionUpToDepth depth key =
         | depth <= 0 = []
         | otherwise = unaryAlternatives <> binaryAlternatives <> conditionalAlternatives
     childDepth = depth - 1
-    count = countUpToDepth childDepth
+    count = expressionCountUpTo childDepth
     child = handwrittenExpressionUpToDepth childDepth
     unaryAlternatives =
         [ ( count (TBool, label)
@@ -421,7 +421,7 @@ handwrittenExpressionUpToDepth depth key =
                 second <- child (secondArgumentKey instance_)
                 pure $ compileBinary instance_ first second
           )
-        | instance_ <- binaryInstances
+        | instance_ <- binaryFunctionInstances
         , binaryResultKey instance_ == key
         ]
     conditionalAlternatives =
@@ -442,11 +442,11 @@ handwrittenExpressionUpToDepth depth key =
 handwrittenProgramGen :: Int -> QC.Gen LabeledExpression
 handwrittenProgramGen depth =
     frequencyInteger
-        [ ( countUpToDepth depth key
+        [ ( expressionCountUpTo depth key
           , compilePrint key <$> handwrittenExpressionUpToDepth depth key
           )
         | key <- expressionKeys
-        , countUpToDepth depth key > 0
+        , expressionCountUpTo depth key > 0
         ]
 
 {- | The generator a practiced QuickCheck user actually writes: one function
@@ -532,7 +532,7 @@ surfaceExpressionNode depth key =
         [ Edge
             (functionSymbol $ binaryFunction instance_)
             [child (firstArgumentKey instance_), child (secondArgumentKey instance_)]
-        | instance_ <- binaryInstances
+        | instance_ <- binaryFunctionInstances
         , binaryResultKey instance_ == key
         ]
     conditionalEdges =
@@ -557,7 +557,7 @@ surfaceProgramNode depth label =
     Node
         [ Edge "print" [surfaceExpressionNode depth (type_, label)]
         | type_ <- [TInt, TBool]
-        , countUpToDepth depth (type_, label) > 0
+        , expressionCountUpTo depth (type_, label) > 0
         ]
 
 -- | Read a surface term back as an expression, for readable output.

@@ -453,8 +453,8 @@ needs:
 @
 expressions = ECTAGen.recurGrouped $ \self ->
     ECTAGen.frequencies
-        [ (1, atomsByType)
-        , (1, ECTAGen.apply (compile '<$>' binaryFunctionsBySignature) (self ':&' self ':&' 'ANil'))
+        [ (1, literalsByType)
+        , (1, ECTAGen.apply (compileBinary '<$>' binaryFunctionsBySignature) (self ':&' self ':&' 'ANil'))
         ]
 @
 

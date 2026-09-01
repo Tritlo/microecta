@@ -24,7 +24,7 @@ import Data.ECTA.TypedExpressionLanguage (
     Expression (BoolLiteral, IntLiteral),
     Type (TBool, TInt),
     TypedExpression (TypedExpression),
-    applicationGen,
+    applicationLayer,
  )
 
 -- | Samples per generator in each throughput row.
@@ -61,7 +61,7 @@ collisionExample = do
 typedExpressionExample :: IO ()
 typedExpressionExample = do
     let integers = freeze 20260819 8 $ QC.chooseInt (-1000000, 1000000)
-        expressionsByType = applicationGen $ pooledAtoms integers
+        expressionsByType = applicationLayer $ pooledAtoms integers
         expressions = ECTAGen.ungroup expressionsByType
     putStrLn "\nTyped expressions with native integer literals"
     putStrLn $ "integer literal pool: " <> show (members integers)

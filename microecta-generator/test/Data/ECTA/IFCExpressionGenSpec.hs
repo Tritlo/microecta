@@ -144,7 +144,7 @@ spec =
 
         it "agrees with the handwritten baseline on exact counts" $ do
             programCountUpToDepth 1 `shouldBe` 108
-            map (countUpToDepth 1) expressionKeys `shouldBe` [39, 29, 33, 7]
+            map (expressionCountUpTo 1) expressionKeys `shouldBe` [39, 29, 33, 7]
             ECTAGen.cardinality (ECTAGen.ungroup (programsUpToDepth 2))
                 `shouldBe` Right (programCountUpToDepth 2)
 

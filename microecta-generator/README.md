@@ -88,33 +88,34 @@ Here each command language keeps its existing compact support. Only the two
 declared keys are stored.
 
 ```haskell
-binaryFunctionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
-binaryFunctionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
+binaryFunctionsBySignature :: Grouped BinarySignature BinaryFunctionInstance
+binaryFunctionsBySignature =
+  ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
 
-signature function =
-  argument1Type function :* argument2Type function :-> resultType function
+binarySignature instance_ =
+  firstArgumentType instance_
+    :* secondArgumentType instance_
+    :-> binaryResultType instance_
 
 literalsByType :: Grouped Type TypedExpression
 literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
-notFunctions :: Grouped (Sig '[Type] Type) (TypedExpression -> TypedExpression)
-notFunctions =
-  compileNot <$ ECTAGen.keyed (TBool :-> TBool) (ECTAGen.elements [()])
+unaryFunctionsBySignature :: Grouped UnarySignature (TypedExpression -> TypedExpression)
+unaryFunctionsBySignature =
+  compileNot <$ ECTAGen.keyed unarySignature (ECTAGen.elements [()])
 
-conditionalFunctions =
+conditionalFunctionsBySignature =
   compileConditional
-    <$> ECTAGen.groupBy
-      (\result -> TBool :* result :* result :-> result)
-      (ECTAGen.elements allTypes)
+    <$> ECTAGen.groupBy conditionalSignature (ECTAGen.elements allTypes)
 
 binaryLayer children =
   ECTAGen.apply
-    (compileApplication <$> binaryFunctionsBySignature)
+    (compileBinary <$> binaryFunctionsBySignature)
     (children :& children :& ANil)
 
 conditionalLayer children =
   ECTAGen.apply
-    conditionalFunctions
+    conditionalFunctionsBySignature
     (children :& children :& children :& ANil)
 ```
 
@@ -142,7 +143,7 @@ authentication = ECTAGen.do
   ECTAGen.pure (Authentication user method)
 
 conditionalLayer children = ECTAGen.do
-  build <- conditionalFunctions
+  build <- conditionalFunctionsBySignature
   condition <- children
   ifTrue <- children
   ifFalse <- children
@@ -363,7 +364,7 @@ and equality constraints meet in one cycle:
 ```haskell
 expressions :: Grouped Type TypedExpression
 expressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.oneofGrouped [literalsByType, applicationGen self]
+    ECTAGen.oneofGrouped [literalsByType, applicationLayer self]
 
 anyExpression = ECTAGen.ungroup expressions
 intExpression = ECTAGen.atKey TInt expressions
