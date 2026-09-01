@@ -342,7 +342,12 @@ finite atomic choices inside the body.
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has no
 smallest member; an unguarded definition is rejected with
-'UnguardedRecursion' rather than left to diverge. A recursive language also
+'UnguardedRecursion' rather than left to diverge. The check is per definition,
+so inside a nested 'recur' an occurrence of the /outer/ language must also sit
+under an application within the inner body. 'pure' is one source choice, so
+@pure f '<*>' self@ counts as guarded where @f '<$>' self@ does not - and
+@pure f '<*>' x@ has one more choice than @f '<$>' x@, so the two have
+different sizes and different ranks. A recursive language also
 needs a finite base member; a guarded cycle with no base is an 'EmptyGenerator'.
 Recursive structure is
 chosen from its counted size classes, so 'frequency' alternatives around a
@@ -1295,8 +1300,8 @@ shrinkRank (Transparent (Right static)) rank
     outcomes = staticOutcomes static
 shrinkRank _ _ = []
 
-{- | Every member structurally smaller than the given rank's member, in size
-order, as replayable rank and value.
+{- | Every member of strictly smaller size than the given rank's member, in
+size order, as replayable rank and value.
 
 Size is the number of source choices in a member. The stream is lazy, so cap
 it before use; a smallest failing member found in it is globally minimal.

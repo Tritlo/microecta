@@ -33,7 +33,11 @@ than materializing their Cartesian products.
 `:==:` keeps both projections as data, so the match can group each input by
 its own key, encode the shared keys as an actual ECTA equality constraint,
 count the matching group products, and unrank directly into the selected
-group. `:&&:` conjoins several equalities. `match` accepts arbitrary value
+group. `:&&:` conjoins several equalities. This is the exact-uniform
+conditioning of [Claessen, Duregård and Pałka, *Generating Constrained Random
+Data with Uniform Distribution*, JFP 25,
+2015](https://doi.org/10.1017/S0956796815000143), with the condition reified as
+data rather than tested on samples. `match` accepts arbitrary value
 projections, so discovering its groups requires enumerating the input ranks;
 conditioning three or more generators is the grouped layer's job (`groupBy`
 and `apply`).
@@ -194,16 +198,22 @@ empty trace contributes one choice, so size 41 represents forty commands.
 property and shrinks to the smallest failing member. It first tests every
 member of strictly smaller size, in size order (`smallerMembers`, capped by
 `smallerMemberLimit`), so the reported counterexample is globally size-minimal
-whenever that search reaches one - a guarantee ordinary shrinking cannot make.
-Past the cap it falls back to size-major structural shrinking through
-`shrinkRank`, which for a recursive generator reads its candidates from the
-form bounded at the current size, since bounding is what gives a recursive
-member components to shrink. Every candidate is a member of the generated
-language, and the failing rank is printed for deterministic replay with
-`unrank`. A generator with an opaque region has no ranks at all, so `forAll`
-tests it by sampling with no shrinking. `sized` builds and compiles one
-generator per QuickCheck size (shared across samples), so layered generators
-can scale with the size parameter.
+whenever that search reaches one. Behind that it offers size-major structural
+shrinking through `shrinkRank`, which for a recursive generator reads its
+candidates from the form bounded at the current size, since bounding is what
+gives a recursive member components to shrink. Every candidate is a member of
+the generated language, and the failing rank is printed for deterministic
+replay with `unrank`. A generator with an opaque region has no ranks at all, so
+`forAll` tests it by sampling with no shrinking. `sized` builds and compiles
+one generator per QuickCheck size (shared across samples), so layered
+generators can scale with the size parameter.
+
+Greedy shrinkers - QuickCheck, Hedgehog, Hypothesis, falsify - stop at a local
+minimum. Bounded-exhaustive tools find a smallest counterexample by testing the
+whole space up to a bound ([Runciman, Naylor and Lindblad, *SmallCheck and Lazy
+SmallCheck*, Haskell 2008](https://doi.org/10.1145/1411286.1411292), and FEAT's
+exhaustive modes). `forAll` gets a size-minimal counterexample starting from a
+random one, by enumerating every member of strictly smaller size first.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
@@ -256,6 +266,25 @@ source choices in a member — `countAtSize tree 4` is `Right 405` for the
 tree above. Ranks are size-major, so `unrank tree 0` is the smallest member
 and every rank replays as usual, and the ECTA support is a `Mu` node: one
 finite automaton for infinitely many terms.
+
+The convolution is FEAT's ([Duregård, Jansson and Wang, *Feat: Functional
+Enumeration of Algebraic Types*, Haskell
+2012](https://doi.org/10.1145/2364506.2364515)), but the size measure is not:
+FEAT charges size wherever the definition says `pay`, while here every source
+choice costs one and nothing else does. "Size-major rank" is this package's own
+term for the resulting order. Counting a family by a size recurrence and
+drawing from those counts is the recursive method of Nijenhuis and Wilf,
+*Combinatorial Algorithms*, 2nd ed., 1978, and of [Flajolet, Zimmermann and Van
+Cutsem, *A Calculus for the Random Generation of Labelled Combinatorial
+Structures*, TCS 132, 1994](https://doi.org/10.1016/0304-3975(94)90226-7);
+turning a rank back into a member is unranking, as in [Martínez and Molinero,
+*A generic approach for the unranking of labeled combinatorial classes*, RSA
+19, 2001](https://doi.org/10.1002/rsa.10025).
+
+`pure` is one source choice like any other, so `pure f <*> x` has one more
+choice than `f <$> x`: the two have different sizes and therefore different
+ranks. It also counts as guarding recursion, so `pure f <*> self` is accepted
+where `f <$> self` is `UnguardedRecursion`.
 
 `upToSize n` bounds the language back to an ordinary finite generator over
 the members of size at most `n`, and `toGen` and `forAll` apply it from
@@ -310,7 +339,9 @@ recursive language every finite inspector calls unbounded.
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
-`UnguardedRecursion` rather than left to hang. Structural alternatives around a
+`UnguardedRecursion` rather than left to hang. The check is per definition, so
+inside a nested `recur` an occurrence of the *outer* language must also sit
+under an application within the inner body. Structural alternatives around a
 recursive occurrence must carry equal weights; `oneof` is the combinator that
 already reads that way, and the size bound controls how large members get.
 `frequency` with unequal recursive-branch weights is rejected rather than

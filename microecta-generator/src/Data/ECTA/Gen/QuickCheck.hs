@@ -221,7 +221,8 @@ enters recursion; a finite composition outside the boundary is a new choice
 and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating it or taking an inner
 QuickCheck-size prefix. Bound a recursive language with 'upToSize' before
-making it atomic.
+making it atomic, /outside/ the recursive definition: applying either to the
+'recur' argument is rejected with 'BoundedRecursiveOccurrence'.
 -}
 atomic :: ECTAGen a -> ECTAGen a
 atomic = ECTA.atomic
@@ -239,7 +240,15 @@ otherwise it is an empty generator.
 
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
-being built.
+being built. 'upToSize' and 'atomic' cannot be applied to the argument, or to
+anything built from it; bound the finished language from outside instead.
+
+The guard check is per definition, so inside a nested 'recur' an occurrence of
+the /outer/ language must also sit under an application within the inner body.
+
+'pure' is one source choice, so @pure f '<*>' x@ has one more choice than
+@f '<$>' x@, and therefore different sizes and ranks; @pure f '<*>' self@
+counts as guarded where @f '<$>' self@ does not.
 -}
 recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 recur = ECTA.recur
@@ -405,8 +414,9 @@ unrank = ECTA.unrank
 shrinkRank :: ECTAGen a -> Integer -> [Integer]
 shrinkRank = ECTA.shrinkRank
 
-{- | Every member structurally smaller than the given rank's member, in size
-order, as replayable rank and value. The stream is lazy; cap it before use.
+{- | Every member of strictly smaller size than the given rank's member, in
+size order, as replayable rank and value. The stream is lazy; cap it before
+use.
 -}
 smallerMembers :: ECTAGen a -> Integer -> [(Integer, a)]
 smallerMembers = ECTA.smallerMembers
@@ -564,8 +574,8 @@ forAllWithLimit limit generator prop
 
     showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
 
-{- | 'forAll' tests at most this many structurally smaller members per shrink
-step before falling back to component shrinking.
+{- | 'forAll' tests at most this many members of strictly smaller size per
+shrink step before falling back to component shrinking.
 -}
 smallerMemberLimit :: Int
 smallerMemberLimit = 1000
