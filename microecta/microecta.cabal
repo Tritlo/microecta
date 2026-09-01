@@ -1,0 +1,151 @@
+cabal-version: 3.0
+name: microecta
+version: 0.2.0.0
+synopsis: Small equality-constrained tree automata core
+description: A small equality-constrained tree automata core extracted from ecta.
+homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Jimmy Koppel, Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2021-2025 Jimmy Koppel, 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.12.2 || ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microecta
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+
+  if impl(ghc >=9.14)
+    ghc-options: -Wno-pattern-namespace-specifier
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    PatternGuards
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Application.TermSearch.Dataset
+    Application.TermSearch.TermSearch
+    Application.TermSearch.Type
+    Application.TermSearch.Utils
+    Data.ECTA
+    Data.ECTA.Internal.ECTA.Enumeration
+    Data.ECTA.Internal.ECTA.Operations
+    Data.ECTA.Internal.ECTA.Type
+    Data.ECTA.Internal.Paths
+    Data.ECTA.Internal.Term
+    Data.ECTA.Paths
+    Data.ECTA.Template
+    Data.ECTA.Term
+    Data.Interned.Extended.HashTableBased
+    Data.Memoization
+    Data.Persistent.UnionFind
+    Utility.Fixpoint
+    Utility.HashJoin
+
+  other-modules:
+    Data.Text.Extended.Pretty
+    Utility.List
+
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.8,
+    equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
+    hashtables >=1.4 && <1.5,
+    intern >=0.9 && <0.10,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    transformers >=0.6 && <0.7,
+    unordered-containers >=0.2 && <0.3,
+
+test-suite unit-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -Wno-orphans
+
+  other-modules:
+    Application.TermSearchSpec
+    Data.Persistent.UnionFindSpec
+    ECTASpec
+    PathsSpec
+    Test.Generators.ECTA
+    Utility.HashJoinSpec
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.21 && <5,
+    containers >=0.7 && <0.8,
+    equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
+    hspec >=2.11 && <2.12,
+    microecta,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
+
+benchmark micro-bench
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Benchmarks.hs
+  hs-source-dirs: benchmarks
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-M512M
+
+  build-depends:
+    base >=4.21 && <5,
+    microecta,
+    text >=2.1 && <2.2,

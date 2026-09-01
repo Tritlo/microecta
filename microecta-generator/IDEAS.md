@@ -1,0 +1,4 @@
+# Future work
++ Count equality-constrained edges, the piece `fromECTA` leaves out: a constraint correlates an edge's children, so its count is the size of an intersection rather than a product, and counting one needs a way to count a child's completions with a fixed subterm. The TermSearch automaton is the target - sampling well-typed terms straight out of it is the payoff.
++ Retain one ECTA term per recursive member, so `groupBy`, `match`, `pmf`, and `countBy` can cross the recursive boundary in both layers. The term shape is already determined by the support the recursive builders construct; what is missing is carrying it beside the value without paying for it on the sampling path.
++ Term-level shrink rewrites validated by nodeRepresents against the support: propose subtree replacements from the support's own edges and let the automaton check acceptance, complementing the delivered size-ordered minimal search.

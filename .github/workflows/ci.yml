@@ -9,18 +9,22 @@ permissions:
 
 jobs:
   build-test-bench:
-    name: Build, test, and benchmark
+    name: GHC ${{ matrix.ghc }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ["9.12.2", "9.14.1"]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Haskell
         uses: haskell-actions/setup@v2
         id: setup
         with:
-          ghc-version: "9.12.2"
+          ghc-version: ${{ matrix.ghc }}
           cabal-version: "3.16.1.0"
           cabal-update: true
 
@@ -28,7 +32,7 @@ jobs:
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
 
       - name: Restore cached dependencies
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         id: deps-cache
         env:
           key: cabal-store-microecta-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
@@ -43,16 +47,48 @@ jobs:
 
       - name: Save cached dependencies
         if: steps.deps-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ steps.setup.outputs.cabal-store }}
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
 
-      - name: Build
-        run: cabal v2-build all
+      - name: Check package metadata
+        run: |
+          (cd microecta && cabal check)
+          (cd microecta-generator && cabal check)
+
+      - name: Build with strict warnings
+        run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
+
+      # The dense PathTrie representation used to make an -O2 build of the core
+      # exhaust small development machines. This is the regression guard for
+      # that: it fails here rather than in a downstream build, which is why the
+      # cap is not baked into the library's ghc-options.
+      - name: Guard compile-time memory of the optimized core
+        run: |
+          cabal v2-build lib:microecta \
+            --enable-optimization=2 \
+            --ghc-options='-Werror +RTS -K512M -M512M -RTS'
 
       - name: Test
-        run: cabal v2-test all
+        run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
+
+      # doctest links against the GHC API, so it lags new compiler releases.
+      # The examples are compiler-independent, so running them on one GHC is
+      # enough.
+      - name: Doctest
+        if: matrix.ghc == '9.12.2'
+        run: |
+          cabal install doctest --ignore-project --overwrite-policy=always \
+            --install-method=copy --installdir="$HOME/.local/bin"
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+
+      - name: Validate release artifacts
+        run: |
+          scripts/release.sh microecta --check-only
+          scripts/release.sh microecta-generator --check-only
 
       - name: Benchmark
-        run: cabal v2-bench all
+        if: matrix.ghc == '9.14.1'
+        run: cabal v2-bench all --enable-optimization=2
