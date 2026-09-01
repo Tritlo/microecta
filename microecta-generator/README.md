@@ -146,8 +146,12 @@ conditionalLayer children = ECTAGen.do
 ```
 
 Impossible shapes fail at compile time with an explanation: a statement using
-an earlier bound value, an unqualified `pure` ending, a missing operation
-argument, or a fallible pattern.
+an earlier bound value, an unqualified `pure` ending, or a fallible pattern.
+A block that binds fewer arguments than its operation's signature arity is a
+type mismatch against `Applying`, whose haddock says what the remaining keys
+are. A statement whose result is a tuple, as `match` and `relate` give, must
+bind it lazily: `ApplicativeDo` rejects `(a, b) <- match ...` and accepts
+`~(a, b) <- match ...`.
 
 Every transparent generator samples compositionally by rank, including exact
 non-uniform `frequency` and conditioned joins; sampling never materializes the
