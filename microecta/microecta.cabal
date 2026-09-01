@@ -1,8 +1,11 @@
 cabal-version: 3.0
 name: microecta
 version: 0.2.0.0
-synopsis: Small equality-constrained tree automata core
-description: A small equality-constrained tree automata core extracted from ecta.
+synopsis: Small finite tree automata and ECTA core
+description:
+  A small finite-state tree automata structure plus the equality-constrained
+  tree automata core extracted from ecta.
+
 homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
 category: Data
@@ -75,6 +78,7 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
+    Data.ECTA.FTA
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
@@ -86,6 +90,8 @@ library
     Data.Interned.Extended.HashTableBased
     Data.Memoization
     Data.Persistent.UnionFind
+    Data.Tree.FTA
+    Data.Tree.Term
     Utility.Fixpoint
     Utility.HashJoin
 

@@ -14,6 +14,33 @@ by downstream projects.
 The intent is similar to the relationship between `microlens` and `lens`: keep
 the useful core small, direct, and quick to build.
 
+## Ordinary FTA core
+
+`Data.Tree.FTA` is the constraint-neutral structure underneath the newer tree
+automata APIs. It stores states, ranked transitions, an initial state, and an
+arbitrary transition annotation. Cycles are valid: an FTA has finitely many
+states, but may accept an infinite tree language.
+
+```haskell
+import Data.Tree.FTA
+import Data.Tree.Term
+
+data Q = Root | Atom
+  deriving (Eq, Ord, Show)
+
+plain :: Either (FTAError Q String) (PlainFTA Q String)
+plain =
+  mkFTA Root
+    [ (Root, [Transition "pair" [Atom, Atom] ()])
+    , (Atom, [Transition "zero" [] (), Transition "one" [] ()])
+    ]
+```
+
+`Data.ECTA.FTA.toFTA` exposes an ECTA through this structure, retaining each
+edge's `EqConstraints` as its transition annotation. `Data.LTA` uses the same
+FTA directly with liquid guards. This is deliberately only the common
+mechanism; equality propagation and SMT entailment remain separate theories.
+
 ## Core API
 
 The main entry point is `Data.ECTA`.
@@ -202,6 +229,8 @@ the pieces that downstream projects still use:
   reduction, traversal, and enumeration.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
+- `Data.Tree.Term`, `Data.Tree.FTA`, and `Data.ECTA.FTA` expose the shared term
+  type, the constraint-neutral automaton, and the ECTA view of that automaton.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
   term-search-shaped type encodings.
 - `Data.ECTA.Internal.*` contains the equality-constrained tree automata

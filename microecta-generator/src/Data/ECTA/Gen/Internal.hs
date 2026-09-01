@@ -107,17 +107,7 @@ import Data.ECTA.Gen.Internal.Size (
 import Data.ECTA.Gen.Sig (Sig (..))
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
-
-{- | A finite source addressed by a stable integer index.
-
-The selector is called only with an index in @[0, indexedCardinality)@.
--}
-data Indexed a = Indexed
-    { indexedCardinality :: !Integer
-    -- ^ Number of selectable values.
-    , indexedSelect :: Integer -> a
-    -- ^ Decode one valid index.
-    }
+import Data.Tree.Gen.Internal (Indexed (..))
 
 {- | Failure while constructing, inspecting, or sampling a generator.
 
