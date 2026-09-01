@@ -2,9 +2,8 @@
 
 module Data.ECTA.IFCExpressionGenSpec (spec) where
 
-import Data.List (isSuffixOf)
+import Data.List (isSuffixOf, sort)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
@@ -84,6 +83,12 @@ faithfullyLabeled value =
 minimalLeak :: LabeledExpression
 minimalLeak = LabeledExpression TUnit Private (Print (Variable "secret"))
 
+{- | The fields 'Eq' compares, which the custom 'Show' hides. Comparing these
+makes a failure name the differing field.
+-}
+keyAndExpression :: LabeledExpression -> (Labeled, Expression)
+keyAndExpression value = (securityKey value, expression value)
+
 spec :: Spec
 spec =
     describe "information-flow expression generation" $ do
@@ -116,12 +121,17 @@ spec =
                     )
 
         it "finds the smallest leaking program as a query" $
-            ECTAGen.smallest (ECTAGen.atKey (TUnit, Private) (programsUpToDepth 1))
-                `shouldBe` Right (Just minimalLeak)
+            fmap
+                (fmap keyAndExpression)
+                (ECTAGen.smallest (ECTAGen.atKey (TUnit, Private) (programsUpToDepth 1)))
+                `shouldBe` Right (Just (keyAndExpression minimalLeak))
 
-        it "cannot represent a leak under the enforcing print" $
+        it "cannot represent a leak under the enforcing print" $ do
             ECTAGen.smallest (ECTAGen.atKey (TUnit, Private) (secureProgramsUpToDepth 1))
                 `shouldBe` Right Nothing
+            -- Not vacuous: the enforcing print does admit the public programs.
+            ECTAGen.sizes (secureProgramsUpToDepth 1)
+                `shouldBe` Right (Map.fromList [((TUnit, Public), 72)])
 
         it "shrinks a QuickCheck leak to the minimal program" $ do
             let generator = ECTAGen.ungroup (programsUpToDepth 2)
@@ -138,11 +148,11 @@ spec =
             it "samples only leak-free programs from the enforcing print" $
                 QC.forAll (ECTAGen.toGen (ECTAGen.ungroup (secureProgramsUpToDepth 2))) $
                     \program ->
-                        QC.counterexample (show program) $
+                        QC.counterexample (show program <> " :: " <> show (securityKey program)) $
                             QC.property $
                                 faithfullyLabeled program && not (leaks program)
 
-        it "agrees with the handwritten baseline on exact counts" $ do
+        it "agrees with the count oracle on exact counts" $ do
             programCountUpToDepth 1 `shouldBe` 108
             map (expressionCountUpTo 1) expressionKeys `shouldBe` [39, 29, 33, 7]
             ECTAGen.cardinality (ECTAGen.ungroup (programsUpToDepth 2))
@@ -151,22 +161,24 @@ spec =
         modifyMaxSuccess (const 500) $
             it "samples faithfully labeled programs from the handwritten baseline" $
                 QC.forAll (handwrittenProgramGen 2) $ \program ->
-                    QC.counterexample (show program) $
+                    QC.counterexample (show program <> " :: " <> show (securityKey program)) $
                         QC.property $
                             faithfullyLabeled program
 
+        -- The practical generator computes its label with practicalLabel, a copy
+        -- of referenceLabel, so only the type half says anything here.
         modifyMaxSuccess (const 500) $
-            it "samples faithfully labeled programs from the practical baseline" $
+            it "samples programs of the reference type from the practical baseline" $
                 QC.forAll (practicalProgramGen 2) $ \program ->
-                    QC.counterexample (show program) $
+                    QC.counterexample (show program <> " :: " <> show (securityKey program)) $
                         QC.property $
-                            faithfullyLabeled program
+                            referenceType (expression program) == Just (expressionType program)
 
         it "builds the surface automaton with the exact counts" $ do
             length (getAllTerms (surfaceProgramNode 1 Public)) `shouldBe` 72
             length (getAllTerms (surfaceProgramNode 1 Private)) `shouldBe` 36
-            mapMaybe termToExpression (getAllTerms (surfaceProgramNode 1 Private))
-                `shouldSatisfy` all ((== Private) . referenceLabel)
+            map termToExpression (getAllTerms (surfaceProgramNode 1 Private))
+                `shouldSatisfy` all (maybe False ((== Private) . referenceLabel))
 
         it "answers the secret-branching shape as a template restriction" $ do
             termsMatching branchesOnSecret (surfaceProgramNode 2 Public)
@@ -178,9 +190,9 @@ spec =
                     filter (matchesTemplate branchesOnSecret) $
                         getAllTerms (surfaceProgramNode 2 Private)
             length restricted `shouldBe` 24896
-            length byFilter `shouldBe` 24896
-            mapMaybe termToExpression restricted
-                `shouldSatisfy` all ((== Private) . referenceLabel)
+            sort byFilter `shouldBe` sort restricted
+            map termToExpression restricted
+                `shouldSatisfy` all (maybe False ((== Private) . referenceLabel))
 
         it "reads the restricted automaton back as a generator" $ do
             -- The largest member is print of an if whose guard holds three
@@ -191,7 +203,10 @@ spec =
                             termsMatching branchesOnSecret (surfaceProgramNode 2 Private)
             ECTAGen.cardinality branchy `shouldBe` Right 24896
 
--- | Programs that consult the secret in a conditional's guard.
+{- | Programs whose conditional guard is an equality test whose first operand
+is the secret. That is narrower than "consults the secret in a guard": the
+template pins the guard's top node.
+-}
 branchesOnSecret :: Template Symbol
 branchesOnSecret =
     TemplateNode
