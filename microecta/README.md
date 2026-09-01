@@ -163,7 +163,7 @@ resolveParkedFirst parked candidates =
 
 -- The recursion symbol comes first, so a datatype alphabet can prune too.
 prunedNats oracle =
-  getAllTermsPruneWith Recursion IntMap.empty resolveParkedFirst oracle oracle
+  getAllTermsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
 ```
 
 This steers order only. It cannot make a hole expandable early, and a UVar
