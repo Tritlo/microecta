@@ -6,6 +6,14 @@ This is a major bump rather than 0.1.1.0 because the public API changed; see
 the entries marked breaking below. Existing code that only builds ECTAs,
 reduces them, or enumerates them needs no migration.
 
+* Key the edge joins on the symbol itself rather than on its hash.
+  `clusterByHash` and `hashJoin` took an `Int` projection and documented the
+  precondition that it be injective, and `intersect` and
+  `withoutRedundantEdges` passed them `hash . edgeSymbol`. A lawful `Hashable`
+  instance for a user alphabet may collide, and then `intersect {A} {B}`
+  returned `[B]` and `withoutRedundantEdges {A, B}` dropped an edge. Both
+  helpers now take a key projection of any `Hashable` key type and key the
+  table by the key, so the precondition is gone.
 * Fuse the expandable-variable scan into one pass over the UVar slots. The
   scan now collects candidates in an `IntSet`, resolves only suspended
   constraint targets through union-find, and writes path compression back

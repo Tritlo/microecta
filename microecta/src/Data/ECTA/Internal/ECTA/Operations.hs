@@ -59,7 +59,7 @@ module Data.ECTA.Internal.ECTA.Operations (
 
 import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
 import qualified Data.HashMap.Strict as HashMap
-import Data.Hashable (Hashable (..), hash)
+import Data.Hashable (Hashable (..))
 import Data.List (inits, tails)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -361,7 +361,7 @@ data RuleOutRes symbol = Keep | RuledOutBy (Edge symbol)
 dropRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol] -> [Edge symbol]
 dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
-    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash (hash . edgeSymbol) origEs
+    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
 
     reduceCluster :: [Edge symbol] -> [Edge symbol]
     reduceCluster [] = []
@@ -496,7 +496,7 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
             (InternedNode l', InternedNode r') ->
                 Node $
                     hashJoin
-                        (hash . edgeSymbol)
+                        edgeSymbol
                         (\e e' -> intersectOpenEdge (dom, e, e'))
                         (internedNodeEdges l')
                         (internedNodeEdges r')
