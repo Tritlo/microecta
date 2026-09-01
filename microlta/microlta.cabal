@@ -1,0 +1,58 @@
+cabal-version: 3.0
+name: microlta
+version: 0.1.0.0
+synopsis: Small liquid tree automata core
+description:
+  A finite liquid tree automata spike using Liquid Fixpoint predicates and Z3
+  entailment.
+
+homepage: https://github.com/Tritlo/microecta#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.12.2 || ==9.14.1
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microlta
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+
+  if impl(ghc >=9.14)
+    ghc-options: -Wno-pattern-namespace-specifier
+
+library
+  import: warnings
+  hs-source-dirs: src
+  default-language: Haskell2010
+  default-extensions:
+    LambdaCase
+    NamedFieldPuns
+
+  exposed-modules:
+    Data.LTA
+    Data.LTA.Guard
+    Data.LTA.LiquidFixpoint
+    Data.LTA.Refinement
+
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.8,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microecta >=0.2.0.0 && <0.3,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,

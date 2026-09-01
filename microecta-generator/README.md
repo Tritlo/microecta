@@ -8,6 +8,27 @@ generator regions retain an exact ECTA support, cardinality, and replay rank;
 the same package includes QuickCheck integration for sampling, opaque fallbacks,
 and structural shrinking.
 
+The lower-level `Data.Tree.Gen` API is automaton-neutral. It represents a
+non-empty finite language by stable ranks plus a backend-independent sampling
+plan. `Data.Tree.FTA.Gen.fromFTA` compiles an acyclic ordinary FTA into that
+representation, after which `Data.Tree.Gen.QuickCheck.forAll` supplies valid
+sampling, deterministic replay ranks, and language-preserving shrinking:
+
+```haskell
+import qualified Data.Tree.FTA.Gen as FTAGen
+import qualified Data.Tree.Gen as Ranked
+import qualified Data.Tree.Gen.QuickCheck as RankedQC
+
+Right ranked = FTAGen.fromFTA plainFTA
+
+replay = Ranked.unrank ranked 42
+property = RankedQC.forAll ranked invariant
+```
+
+ECTA and LTA remain adapters over this layer. ECTA keeps its richer grouped,
+recursive, and equality-aware combinators; LTA can discharge liquid guards
+once and then use the same pure rank/sample/shrink operations.
+
 Add the package to `build-depends` and import the QuickCheck-facing API:
 
 ```cabal
