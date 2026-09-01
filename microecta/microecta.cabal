@@ -95,7 +95,7 @@ library
 
   build-depends:
     base >=4.21 && <5,
-    containers >=0.7 && <0.8,
+    containers >=0.7 && <0.9,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     hashtables >=1.4 && <1.5,
@@ -127,7 +127,7 @@ test-suite unit-tests
   build-depends:
     QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
-    containers >=0.7 && <0.8,
+    containers >=0.7 && <0.9,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,

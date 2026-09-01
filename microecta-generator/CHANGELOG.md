@@ -5,7 +5,8 @@
 Initial release: indexed applicative generators whose transparent regions are
 represented as equality-constrained tree automata.
 
-Requires `microecta` 0.2.0.0 or newer.
+Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
+0.8, so GHC 9.14 uses the one it ships.
 
 ### Generators and sources
 

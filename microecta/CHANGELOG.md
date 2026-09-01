@@ -6,6 +6,8 @@ This is a major bump rather than 0.1.1.0 because the public API changed; see
 the entries marked breaking below. Existing code that only builds ECTAs,
 reduces them, or enumerates them needs no migration.
 
+* Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
+  it ships instead of rebuilding 0.7 beside its own boot library.
 * Key the edge joins on the symbol itself rather than on its hash.
   `clusterByHash` and `hashJoin` took an `Int` projection and documented the
   precondition that it be injective, and `intersect` and
