@@ -260,7 +260,7 @@ whose groups are all empty, which 'ECTAGen.frequencies' would otherwise
 reject as a zero weight. A recursive family has no cardinality to weight by,
 so the whole choice becomes 'ECTAGen.oneofGrouped' — the equal structural
 alternatives recursion requires anyway. Any other failure belongs to one
-alternative and is reported as it is.
+alternative, and 'ECTAGen.oneofGrouped' reports it as it is.
 -}
 weighted :: (Ord key) => [Grouped key a] -> Grouped key a
 weighted alternatives = case traverse liveCardinality alternatives of
@@ -269,7 +269,6 @@ weighted alternatives = case traverse liveCardinality alternatives of
             [ (count, alternative)
             | (Just count, alternative) <- zip counts alternatives
             ]
-    Left ECTAGen.UnboundedGenerator -> ECTAGen.oneofGrouped alternatives
     Left _ -> ECTAGen.oneofGrouped alternatives
   where
     liveCardinality alternative = case ECTAGen.sizes alternative of
