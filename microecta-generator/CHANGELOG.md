@@ -96,8 +96,8 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 
 * `toGen`, `toGenWithRank`, and their `Either`-returning variants sample through
   the generator type QuickCheck expects, bounding recursive generators from the
-  size parameter. `sized` maps the size parameter to a generator, building each
-  size once.
+  size parameter. `sized` maps the size parameter to a generator, building and
+  compiling each size once.
 * `forAll` shrinks to the smallest failing member: it first searches every
   structurally smaller member in size order (`smallerMembers`, capped by
   `smallerMemberLimit`), then shrinks components through `shrinkRank`. Every

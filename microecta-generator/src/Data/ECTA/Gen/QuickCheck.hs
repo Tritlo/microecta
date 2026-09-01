@@ -559,10 +559,11 @@ smallerMemberLimit = 1000
 
 {- | Build the generator from QuickCheck's size parameter.
 
-The generators for every size are built once and shared across samples, so a
-layered generator is not reconstructed on every draw.
+The generator for each size is built /and compiled/ once and shared across
+samples, so neither the generator nor its decode plan is reconstructed on every
+draw.
 -}
 sized :: (Int -> ECTAGen a) -> QC.Gen a
-sized build = QC.sized $ \size -> toGen $ towers !! max 0 size
+sized build = QC.sized $ \size -> towers !! max 0 size
   where
-    towers = map build [0 ..]
+    towers = map (toGen . build) [0 ..]
