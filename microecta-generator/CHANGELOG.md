@@ -23,7 +23,13 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   supports `pmf`, `countBy`, and `groupBy`. Automata whose edges carry equality
   constraints are rejected with `CannotCountConstrainedEdges`: a constrained
   edge's count is the size of an intersection rather than a product of its
-  children's counts.
+  children's counts. Ambiguous automata are rejected with
+  `AmbiguousAutomaton`: a node's count sums over its edges, which counts
+  accepting runs, so a node with two edges accepting a common term would count
+  that term twice and report it at two ranks. A node that accepts nothing at
+  all, such as a `Mu` with no base case, counts nothing rather than an endless
+  run of zeroes, which `unrank`, `sizeOfRank`, and `smallerMembers` used to
+  walk forever on an out-of-range rank.
 * `frequency` and `oneof` choose among generators; `Functor` and `Applicative`
   composition tracks exact cardinalities without materializing the product.
 

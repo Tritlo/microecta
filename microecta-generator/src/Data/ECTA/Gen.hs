@@ -427,6 +427,11 @@ Equality constraints are not counted: they correlate an edge's children, so
 its count is the size of an intersection rather than a product, and an
 automaton carrying them is rejected with 'CannotCountConstrainedEdges'
 rather than miscounted.
+
+Ambiguity is not counted either. A node's count sums over its edges, which
+counts accepting runs, so a node with two edges accepting a common term would
+count that term twice and report it at two ranks. Such an automaton is
+rejected with 'AmbiguousAutomaton'.
 -}
 fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
 fromECTA node =

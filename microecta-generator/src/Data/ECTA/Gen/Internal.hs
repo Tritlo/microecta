@@ -156,6 +156,11 @@ data ECTAGenError
       CannotCountConstrainedEdges
     | -- | An automaton has free recursive variables, so it is not a language.
       OpenAutomaton
+    | {- | An automaton has a node with two edges accepting a common term, so
+      its runs outnumber its terms and counting runs would count that term
+      twice.
+      -}
+      AmbiguousAutomaton
     | {- | A recursive definition reaches itself without passing through an
       application, so it has no smallest member and no size to count.
       -}
@@ -282,6 +287,16 @@ explain UnguardedRecursion =
         , "Branch <$> self <*> self, or under apply in a grouped family. An"
         , "alternative that is the argument itself, such as oneof [leaf, self],"
         , "is the shape to look for."
+        ]
+explain AmbiguousAutomaton =
+    guidance
+        [ "The automaton has a node with two edges that accept a common term, so"
+        , "it has more accepting runs than terms, and counting runs would count"
+        , "that term once per run."
+        , "Fix: make the alternatives disjoint, by splitting the shared part into"
+        , "its own edge or intersecting it away. withoutRedundantEdges only drops"
+        , "an alternative another one wholly subsumes, so it does not settle a"
+        , "partial overlap."
         ]
 explain BoundedRecursiveOccurrence =
     guidance

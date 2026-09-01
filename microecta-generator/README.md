@@ -377,6 +377,14 @@ the edge's count is the size of an intersection rather than a product of the
 children's counts; an automaton carrying them is rejected with
 `CannotCountConstrainedEdges` rather than miscounted.
 
+Ambiguity is not counted either. A node's count is the sum over its edges,
+which counts accepting *runs*, so a node with two edges that accept a common
+term would count that term twice and `unrank` would return it at two ranks.
+Every reachable node is checked, and an ambiguous automaton is rejected with
+`AmbiguousAutomaton`. Two edges overlap when they share a symbol and arity and
+every child position has a non-empty intersection, which without constraints
+is exactly when they share a term.
+
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
