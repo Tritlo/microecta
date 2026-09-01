@@ -16,9 +16,9 @@ import Data.ECTA (
     matchesTemplate,
     termsMatching,
  )
-import Data.ECTA.Term (Symbol)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.IFCExpressionLanguage
+import Data.ECTA.Term (Symbol)
 
 {- | Reference label semantics, independent of the generator: a value's label
 is the join of every atom that can influence it, with a branch condition
@@ -127,7 +127,8 @@ spec =
             let generator = ECTAGen.ungroup (programsUpToDepth 2)
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 500} $
-                    ECTAGen.forAll generator $ \program -> not (leaks program)
+                    ECTAGen.forAll generator $
+                        \program -> not (leaks program)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
                     shown `shouldSatisfy` (show minimalLeak `isSuffixOf`)

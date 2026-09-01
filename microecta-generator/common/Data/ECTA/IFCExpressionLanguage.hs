@@ -414,28 +414,26 @@ handwrittenExpressionUpToDepth depth key =
         | (TBool, label) <- [key]
         ]
     binaryAlternatives =
-        [
-            ( count (firstArgumentKey instance_)
+        [ ( count (firstArgumentKey instance_)
                 * count (secondArgumentKey instance_)
-            , do
+          , do
                 first <- child (firstArgumentKey instance_)
                 second <- child (secondArgumentKey instance_)
                 pure $ compileBinary instance_ first second
-            )
+          )
         | instance_ <- binaryInstances
         , binaryResultKey instance_ == key
         ]
     conditionalAlternatives =
-        [
-            ( count (TBool, conditionLabel instance_)
+        [ ( count (TBool, conditionLabel instance_)
                 * count (branchType instance_, trueLabel instance_)
                 * count (branchType instance_, falseLabel instance_)
-            , do
+          , do
                 condition <- child (TBool, conditionLabel instance_)
                 ifTrue <- child (branchType instance_, trueLabel instance_)
                 ifFalse <- child (branchType instance_, falseLabel instance_)
                 pure $ compileConditional instance_ condition ifTrue ifFalse
-            )
+          )
         | instance_ <- conditionalInstances
         , (branchType instance_, resultLabel instance_) == key
         ]
