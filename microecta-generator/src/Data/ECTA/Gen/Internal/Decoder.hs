@@ -327,7 +327,9 @@ dispatchTree upper parts =
                 error
                     "microecta-generator bug in Data.ECTA.Gen.Internal.Decoder.dispatchTree: \
                     \no part to dispatch to"
-        midpoint = (low + upper) `div` 2
+        -- Written this way so a total cardinality near maxBound does not
+        -- overflow the sum and send the split the wrong way.
+        midpoint = low + (upper - low) `div` 2
         (lowParts, highParts) =
             case break (\(offset, _) -> offset > midpoint) parts of
                 (allParts, []) -> (init allParts, [last allParts])
