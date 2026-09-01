@@ -435,6 +435,12 @@ joins. Repeated draws remain repeated ranks and therefore retain their
 empirical weight. Reuse the returned generator when two choices must range over
 the same frozen universe.
 
+`freeze seed n native` is `pool` with the draws fixed by a seed, so it is an
+ordinary transparent generator rather than a `Gen` of one: it can be weighted
+by `uniformly`, keyed, joined, replayed, and shrunk, and its ranks are the same
+in every run under the same seed. The native generator runs at QuickCheck size
+30, the default of `generate`; use `resize` on it for another size.
+
 Every failure is an `ECTAGenError`. The derived `Show` names the case, and
 `explain` says what it means and which combinator resolves it; sampling a
 generator that could not be built raises both together.

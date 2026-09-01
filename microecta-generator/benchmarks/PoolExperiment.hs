@@ -38,17 +38,9 @@ main = do
     typedExpressionExample
     throughputExperiment
 
--- | Freeze native draws deterministically for repeatable experiments.
-freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
-freeze seed sampleCount_ native =
-    QCGen.unGen
-        (ECTAGen.pool sampleCount_ native)
-        (QCRandom.mkQCGen seed)
-        30
-
 collisionExample :: IO ()
 collisionExample = do
-    let integers = freeze 20260818 8 $ QC.chooseInteger (0, 3)
+    let integers = ECTAGen.freeze 20260818 8 $ QC.chooseInteger (0, 3)
         values = members integers
         equalPairs = ECTAGen.match (id :==: id) integers integers
         accepted = either (const 0) id $ ECTAGen.cardinality equalPairs
@@ -60,7 +52,7 @@ collisionExample = do
 
 typedExpressionExample :: IO ()
 typedExpressionExample = do
-    let integers = freeze 20260819 8 $ QC.chooseInt (-1000000, 1000000)
+    let integers = ECTAGen.freeze 20260819 8 $ QC.chooseInt (-1000000, 1000000)
         expressionsByType = applicationLayer $ pooledAtoms integers
         expressions = ECTAGen.ungroup expressionsByType
     putStrLn "\nTyped expressions with native integer literals"
@@ -99,7 +91,7 @@ throughputRow :: Int -> IO ()
 throughputRow poolSize = do
     startFreeze <- getCPUTime
     let native = QC.chooseInteger (0, 1000000000000)
-        integers = freeze (20260818 + poolSize) poolSize native
+        integers = ECTAGen.freeze (20260818 + poolSize) poolSize native
         counts = ECTAGen.countBy id integers
         countChecksum =
             either

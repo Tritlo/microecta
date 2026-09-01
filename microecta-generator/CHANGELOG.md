@@ -15,7 +15,9 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   explicitly opaque region with no support, ranks, or inspection.
 * `pool` samples an ordinary QuickCheck generator once and freezes its draws as
   a finite transparent generator. Repeated draws stay repeated ranks, so the
-  pool keeps the native generator's empirical weight.
+  pool keeps the native generator's empirical weight. `freeze` is `pool`
+  with the draws fixed by a seed, so it is an ordinary transparent generator
+  whose ranks are the same in every run.
 * `fromECTA` reads an existing automaton as a generator of the terms it
   accepts. Nodes become choices, edges become products under a size-one symbol,
   and interning ties `Mu` nodes into the same recursive size index `recur`

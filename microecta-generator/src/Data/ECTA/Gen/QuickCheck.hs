@@ -54,6 +54,7 @@ module Data.ECTA.Gen.QuickCheck (
     fromIndexed,
     elements,
     pool,
+    freeze,
     fromECTA,
     fromGen,
 
@@ -121,6 +122,8 @@ import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
 import qualified Test.QuickCheck as QC
+import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Random (mkQCGen)
 
 import Data.ECTA (Node)
 import Data.ECTA.Gen (
@@ -204,6 +207,19 @@ empty generator.
 pool :: Int -> QC.Gen a -> QC.Gen (ECTAGen a)
 pool sampleCount native =
     elements <$> QC.vectorOf (max 0 sampleCount) native
+
+{- | 'pool' with the draws fixed by a seed.
+
+The native generator is run once, at QuickCheck size 30 (the default of
+'QC.generate'), so the result is an ordinary transparent generator: it can be
+weighted by 'uniformly', keyed, joined, replayed, and shrunk, and its ranks are
+the same in every run under the same seed. That is the trade against 'pool',
+which draws afresh each time its outer 'QC.Gen' runs. Use 'QC.resize' on the
+native generator for another size.
+-}
+freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
+freeze seed sampleCount native =
+    unGen (pool sampleCount native) (mkQCGen seed) 30
 
 {- | Read an ECTA as a generator of the terms it accepts.
 
