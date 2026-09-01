@@ -73,7 +73,10 @@ for later equality constraints. The operation family holds functions (`fmap`
 a compiling function onto it); the argument families arrive as an `Args`
 chain. `frequencies` chooses among grouped generators with relative weights,
 group by group, so alternated layers (for example expressions of depth at
-most n) stay grouped. `ungroup` returns an ordinary `ECTAGen` with
+most n) stay grouped. `uniformlyGrouped` combines grouped generators in
+proportion to their exact cardinalities, so every member of the union is
+equally likely, which is what a layered language wants; `uniformly` does the
+same for flat generators. `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 
@@ -120,8 +123,8 @@ conditionalLayer children =
 ```
 
 The typed-expression example combines unary `Not`, binary functions, and
-ternary `IfExpression`. Its finite layers weight those three alternatives by
-their exact cardinalities, so every expression remains equally likely. Its
+ternary `IfExpression`. Its finite layers combine those three alternatives with
+`uniformlyGrouped`, so every expression remains equally likely. Its
 recursive layer uses equal structural alternatives, as recursive declarations
 require.
 

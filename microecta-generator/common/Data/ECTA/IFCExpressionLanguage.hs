@@ -64,7 +64,7 @@ import Data.ECTA (Edge (Edge), Node (EmptyNode, Node))
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Term (Symbol, Term (Term))
-import Data.ECTA.TypedExpressionLanguage (frequencyInteger, weighted)
+import Data.ECTA.TypedExpressionLanguage (frequencyInteger)
 
 {- | Security labels. The derived 'Ord' is the flow order, MAC's @Less@ at
 the value level: @Public <= Private@ and nothing flows down. Because the
@@ -302,14 +302,14 @@ conditionalLayer children = ECTAGen.do
 -- | Add one application layer, weighted so every expression stays uniform.
 applicationLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
 applicationLayer children =
-    weighted [unaryLayer children, binaryLayer children, conditionalLayer children]
+    ECTAGen.uniformlyGrouped [unaryLayer children, binaryLayer children, conditionalLayer children]
 
 -- | Labeled expressions of depth at most the bound, uniform across depths.
 expressionsUpToDepth :: Int -> Grouped Labeled LabeledExpression
 expressionsUpToDepth depth
     | depth <= 0 = atomsByKey
     | otherwise =
-        weighted [atomsByKey, applicationLayer (expressionsUpToDepth (depth - 1))]
+        ECTAGen.uniformlyGrouped [atomsByKey, applicationLayer (expressionsUpToDepth (depth - 1))]
 
 -- | The enforcing print signatures: the flow check, written literally.
 securePrintInstances :: [Labeled]

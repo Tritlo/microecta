@@ -40,7 +40,6 @@ module Data.ECTA.TypedExpressionLanguage (
     binaryLayer,
     conditionalLayer,
     applicationLayer,
-    weighted,
     depthByType,
     expressionGenAtDepth,
     upToDepthByType,
@@ -245,37 +244,11 @@ next depth.
 -}
 applicationLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
 applicationLayer children =
-    weighted
+    ECTAGen.uniformlyGrouped
         [ unaryLayer children
         , binaryLayer children
         , conditionalLayer children
         ]
-
-{- | Choose among grouped alternatives weighted by their exact cardinalities,
-so every member of the combined language is equally likely.
-
-An alternative that contributes nothing is dropped rather than failing the
-whole choice: one whose construction is 'ECTAGen.EmptyGenerator', and one
-whose groups are all empty, which 'ECTAGen.frequencies' would otherwise
-reject as a zero weight. A recursive family has no cardinality to weight by,
-so the whole choice becomes 'ECTAGen.oneofGrouped' — the equal structural
-alternatives recursion requires anyway. Any other failure belongs to one
-alternative, and 'ECTAGen.oneofGrouped' reports it as it is.
--}
-weighted :: (Ord key) => [Grouped key a] -> Grouped key a
-weighted alternatives = case traverse liveCardinality alternatives of
-    Right counts ->
-        ECTAGen.frequencies
-            [ (count, alternative)
-            | (Just count, alternative) <- zip counts alternatives
-            ]
-    Left _ -> ECTAGen.oneofGrouped alternatives
-  where
-    liveCardinality alternative = case ECTAGen.sizes alternative of
-        Left ECTAGen.EmptyGenerator -> Right Nothing
-        Left err -> Left err
-        Right groups
-            | total <- sum groups -> Right $ if total > 0 then Just total else Nothing
 
 {- | Exact-depth expressions grouped by result type.
 

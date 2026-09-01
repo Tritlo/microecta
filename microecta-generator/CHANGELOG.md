@@ -30,7 +30,9 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   all, such as a `Mu` with no base case, counts nothing rather than an endless
   run of zeroes, which `unrank`, `sizeOfRank`, and `smallerMembers` used to
   walk forever on an out-of-range rank.
-* `frequency` and `oneof` choose among generators; `Functor` and `Applicative`
+* `frequency`, `oneof`, and `uniformly` choose among generators, the last in
+  proportion to their cardinalities so every member of the union is equally
+  likely; `Functor` and `Applicative`
   composition tracks exact cardinalities without materializing the product.
 
 ### Conditioned joins
@@ -52,8 +54,9 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   transparent generator's outcomes, `keyed` declares one key for a whole
   inspectable generator without enumerating it, `regroupBy` reclassifies without
   enumerating values, `mapWithKey` maps with the key in hand, `atKey` and
-  `ungroup` are the exits, and `frequencies` and `oneofGrouped` choose among
-  grouped generators group by group.
+  `ungroup` are the exits, and `frequencies`, `oneofGrouped`, and
+  `uniformlyGrouped` choose among grouped generators group by group, the last
+  in proportion to their cardinalities.
 * `apply` applies a generated operation of any arity to one argument family per
   signature component, in a single ECTA edge holding one equality constraint per
   argument. A `Sig` is written like a many-sorted operation signature:

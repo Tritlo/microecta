@@ -23,6 +23,7 @@ module Data.ECTA.Gen (
     -- * Composing
     frequency,
     oneof,
+    uniformly,
     On (..),
     match,
     relate,
@@ -39,6 +40,7 @@ module Data.ECTA.Gen (
     apply,
     frequencies,
     oneofGrouped,
+    uniformlyGrouped,
     ungroup,
 
     -- * Recursion
@@ -1064,6 +1066,37 @@ family admits.
 oneofGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
 oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alternatives]
 
+{- | Choose among grouped generators so that every member of the combined
+language is equally likely.
+
+Finite alternatives are combined in proportion to their exact cardinalities,
+the sum of their 'sizes'. An alternative with no members is dropped, as is one
+whose construction failed with 'EmptyGenerator'; any other failure is
+reported. A recursive family has no cardinality, and its size-class sampler
+already draws every member of a size class equally, so alternatives around one
+are combined with equal weights, as 'oneofGrouped' does.
+
+An alternative that is itself weighted keeps its own distribution, so members
+are equally likely exactly when each alternative is uniform.
+-}
+uniformlyGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
+uniformlyGrouped alternatives
+    | any isRecursiveGrouped alternatives = oneofGrouped alternatives
+    | otherwise = case traverse liveCardinality alternatives of
+        Left err -> Grouped $ Left err
+        Right counts ->
+            frequencies
+                [ (count, alternative)
+                | (Just count, alternative) <- zip counts alternatives
+                ]
+  where
+    liveCardinality alternative = case sizes alternative of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right groups ->
+            let total = sum groups
+             in Right $ if total > 0 then Just total else Nothing
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
 ungroup = atKey () . regroupBy (const ())
@@ -1142,6 +1175,35 @@ within the selected size.
 -}
 oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
+
+{- | Choose among generators so that every member of the combined language is
+equally likely.
+
+Finite alternatives are combined in proportion to their cardinalities. An
+alternative with no members is dropped, as is one whose construction failed
+with 'EmptyGenerator'; any other failure is reported, including an opaque
+alternative, which has no cardinality to weight by. A recursive alternative
+makes this 'oneof': a recursive language has no cardinality either, and its
+size-class sampler already draws every member of a size class equally.
+
+An alternative that is itself weighted keeps its own distribution, so members
+are equally likely exactly when each alternative is uniform.
+-}
+uniformly :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
+uniformly alternatives
+    | any isRecursive alternatives = oneof alternatives
+    | otherwise = case traverse liveCardinality alternatives of
+        Left err -> Transparent $ Left err
+        Right counts ->
+            frequency
+                [ (count, alternative)
+                | (Just count, alternative) <- zip counts alternatives
+                ]
+  where
+    liveCardinality alternative = case cardinality alternative of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right count -> Right $ if count > 0 then Just count else Nothing
 
 -- | Generate two values whose projected keys agree.
 match ::

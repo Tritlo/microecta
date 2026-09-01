@@ -60,6 +60,7 @@ module Data.ECTA.Gen.QuickCheck (
     -- * Composing
     frequency,
     oneof,
+    uniformly,
     On (..),
     match,
     relate,
@@ -76,6 +77,7 @@ module Data.ECTA.Gen.QuickCheck (
     apply,
     frequencies,
     oneofGrouped,
+    uniformlyGrouped,
     ungroup,
 
     -- * Recursion
@@ -346,6 +348,14 @@ family admits.
 oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped = ECTA.oneofGrouped
 
+{- | Choose among grouped generators so that every member of the combined
+language is equally likely: finite alternatives are combined in proportion to
+their exact cardinalities, and alternatives around a recursive family with
+equal weights.
+-}
+uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
+uniformlyGrouped = ECTA.uniformlyGrouped
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped key a -> ECTAGen a
 ungroup = ECTA.ungroup
@@ -362,6 +372,13 @@ recursive occurrence are rejected.
 -}
 oneof :: [ECTAGen a] -> ECTAGen a
 oneof = ECTA.oneof
+
+{- | Choose among generators so that every member of the combined language is
+equally likely: finite alternatives are combined in proportion to their
+cardinalities, and alternatives around a recursive one with equal weights.
+-}
+uniformly :: [ECTAGen a] -> ECTAGen a
+uniformly = ECTA.uniformly
 
 -- | Generate two values whose projected keys agree.
 match ::
