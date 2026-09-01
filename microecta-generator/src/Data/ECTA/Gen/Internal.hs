@@ -1085,12 +1085,21 @@ offsetJoinGroups = go 0
 
 -- | Merge weighted static languages into one group.
 mergeBucketGroup :: [(Rational, Static a)] -> Either ECTAGenError (KeyedBucket a)
+-- One alternative is already the group, and rebuilding it through
+-- 'frequencyStatic' would drop its atomic marker.
+mergeBucketGroup [(mass, static)] | mass > 0 = Right $ KeyedBucket mass static
 mergeBucketGroup alternatives = do
     weightedAlternatives <- integerOutcomes alternatives
     pure $
         KeyedBucket
             (sum $ map fst alternatives)
-            (frequencyStatic weightedAlternatives)
+            -- All-atomic alternatives have size-one plans, so their merge is
+            -- still one source choice and stays atomic. A mixed merge is not.
+            (retainAtomic $ frequencyStatic weightedAlternatives)
+  where
+    retainAtomic
+        | all (staticAtomic . snd) alternatives = atomicStatic
+        | otherwise = id
 
 -- | Merge weighted joined components into normalized result-key groups.
 mergeComponentsByKey ::
