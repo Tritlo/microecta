@@ -286,15 +286,22 @@ FTA becomes the finite command source, so QuickCheck's size acts on the outer
 trace instead of taking a second prefix inside each command. For an already
 finite generator, its cardinality and distribution also stay unchanged. Only
 the size and structural-shrinking boundary changes. A recursive input has
-infinitely many members, so bound it with `upToSize` before making it atomic.
-Opaque generators have no size structure and cannot be made atomic.
+infinitely many members, so bound it with `upToSize` before making it atomic --
+and do that *outside* the recursive definition. Neither `upToSize` nor `atomic`
+can be applied to the `recur` argument, or to anything built from it: the bound
+would need the size classes that definition is still computing, and an atom
+over them would have a cardinality depending on itself. Both shapes are
+rejected with `BoundedRecursiveOccurrence`. Opaque generators have no size
+structure and cannot be made atomic.
 
 The self-reference has to go through `recur`. A generator that names itself
 directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
 value: building it never finishes, and the failure is a hang rather than
 anything the library can report. In the other direction, a body that never
 uses the argument is not recursive, and is handed back as it is: a finite
-body stays a finite generator, cardinality and inspection included.
+body stays a finite generator, cardinality and inspection included. A body
+that could not be built at all reports its own error, rather than becoming a
+recursive language every finite inspector calls unbounded.
 
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language

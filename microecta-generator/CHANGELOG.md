@@ -65,7 +65,11 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   `UnguardedRecursion` rather than left to hang. Alternatives around a recursive
   occurrence must carry equal weights, and a guarded cycle still needs a finite
   base member. `recur` and `recurGrouped` hand back a body that never reaches
-  its own occurrence unchanged, so a finite body stays a finite generator.
+  its own occurrence unchanged, so a finite body stays a finite generator, and
+  hand back a body that failed to build with its own error rather than as a
+  recursive language. `upToSize` and `atomic` cannot be applied to the
+  occurrence itself, or to anything built from it, and say so with
+  `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and
   equality constraints meet in one cycle. The key set is solved by a monotone
   fixpoint before the languages are tied over it, and all keys share one `Mu`
@@ -88,7 +92,9 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   which differs from the counts under weighted atomic choices. `pmfAtSize`
   aggregates arbitrary values by interpreting one size-class sampler.
 * Every failure is an `ECTAGenError`, and `explain` says what it means and which
-  combinator resolves it. Sampling a generator that could not be built raises
+  combinator resolves it. `BoundedRecursiveOccurrence` covers `upToSize` or
+  `atomic` applied to the recursive occurrence inside the body defining it,
+  which is ill-founded rather than merely unbounded. Sampling a generator that could not be built raises
   the case name together with that guidance. Internal invariant failures name
   themselves as bugs in this package so they are not mistaken for misuse.
 

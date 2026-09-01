@@ -160,6 +160,11 @@ data ECTAGenError
       application, so it has no smallest member and no size to count.
       -}
       UnguardedRecursion
+    | {- | @upToSize@ or @atomic@ was applied to the recursive occurrence
+      inside the body that is defining it, whose size classes are what the
+      definition is still computing.
+      -}
+      BoundedRecursiveOccurrence
     deriving (Eq, Show)
 
 {- | What one failure means, and what to do about it.
@@ -278,6 +283,16 @@ explain UnguardedRecursion =
         , "alternative that is the argument itself, such as oneof [leaf, self],"
         , "is the shape to look for."
         ]
+explain BoundedRecursiveOccurrence =
+    guidance
+        [ "upToSize or atomic was applied to the recursive occurrence inside the"
+        , "recur or recurGrouped body that defines it. The bound would need the"
+        , "size classes the definition is still computing, and an atom over them"
+        , "would have a cardinality depending on itself."
+        , "Fix: bound or close the language outside the knot, as in"
+        , "upToSize n (recur ...), and keep only finite atomic choices inside the"
+        , "body."
+        ]
 
 -- | One guidance message, one line per element.
 guidance :: [String] -> String
@@ -356,6 +371,14 @@ data Recursive a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
+    , recursiveOccurrence :: !Bool
+    {- ^ Whether this language is, or is built from, the argument of a
+    @recur@ or @recurGrouped@ body that is still being defined. Bounding such
+    a language is ill-founded — its size classes are what the definition is
+    computing — so 'boundedStatic' must not be reached through it. The flag is
+    set on the placeholders and cleared on the finished result, and is
+    therefore not the Boolean knot @usedOccurrence@ is.
+    -}
     , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
@@ -372,6 +395,7 @@ recursiveFromStatic static =
         index
         sampling
         weighted
+        False
         Nothing
   where
     outcomes = staticOutcomes static
@@ -1221,6 +1245,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
+            joinedOccurrence
             Nothing
         )
         joinedMasses
@@ -1246,6 +1271,9 @@ recursiveJoin componentIndex operation arguments =
     joinedMassWeighted =
         keyedRecursiveMassWeighted operation
             || recursiveChainMassWeighted arguments
+    joinedOccurrence =
+        recursiveOccurrence operationRecursive
+            || recursiveChainOccurrence arguments
 
 -- | The support of every matched recursive argument group, in order.
 recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
@@ -1315,6 +1343,12 @@ recursiveChainWeighted ChainNil = False
 recursiveChainWeighted (ChainCons recursive rest) =
     recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
 
+-- | Whether any recursive argument is still a recursive occurrence.
+recursiveChainOccurrence :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainOccurrence ChainNil = False
+recursiveChainOccurrence (ChainCons recursive rest) =
+    recursiveOccurrence (keyedRecursiveLanguage recursive) || recursiveChainOccurrence rest
+
 -- | Whether a recursive argument's key mass differs from structural counts.
 recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
 recursiveChainMassWeighted ChainNil = False
@@ -1341,6 +1375,7 @@ mergeRecursiveGroups alternatives =
                 index
                 (choiceMassSampleIndex indexedSamplers)
                 weighted
+                (any (recursiveOccurrence . keyedRecursiveLanguage) alternatives)
                 Nothing
             )
             masses
