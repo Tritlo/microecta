@@ -1304,13 +1304,15 @@ smallerMembers (Transparent (Right static)) rank
         smallerPlanMembers (outcomePlan outcomes) rank
   where
     outcomes = staticOutcomes static
--- Recursive ranks are size-major, so every smaller rank already decodes to
--- a member of at most the same size, and the members of strictly smaller
--- size are exactly the ranks below the current size class.
+-- Recursive ranks are size-major, so the members of strictly smaller size are
+-- exactly the ranks below the current size class. The rank is that class's
+-- offset plus the position, which is what 'unrank' reads back; the rank
+-- 'sizeClassSelect' reports is the plan's own, and the two differ whenever a
+-- size class came from a finite bucket.
 smallerMembers (Cyclic (Right recursive)) rank
     | Just (size, _) <- sizeClassOf index rank =
-        [ sizeClassSelect index smallerSize position
-        | smallerSize <- [1 .. size - 1]
+        [ (offset + position, snd $ sizeClassSelect index smallerSize position)
+        | (smallerSize, offset) <- zip [1 .. size - 1] (scanl (+) 0 (sizeClassCounts index))
         , position <- [0 .. Size.countAtSize index smallerSize - 1]
         ]
   where
