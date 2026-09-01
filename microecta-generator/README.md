@@ -419,7 +419,8 @@ process-global tables, which are synchronized as of `microecta` 0.2.0.0.
 
 This matters here more than it sounds, because this is a testing library and
 test runners parallelize: `tasty` runs independent tests concurrently by
-default, and `hspec` does under `parallel`. A property drawing from an
+default when the test binary is linked with `-threaded` and run with `+RTS -N`,
+and `hspec` does under `parallel`. A property drawing from an
 `ECTAGen` can be run that way without anything in your code looking
 concurrent. Against earlier `microecta` that was silent corruption rather than
 a crash; see the concurrency note in `microecta`'s README.

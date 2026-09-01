@@ -130,9 +130,11 @@ reduces them, or enumerates them needs no migration.
   are retained while the language is restricted.
 * Sharpen the concurrency warning with what actually happens. Building one
   structurally identical node from several threads produced two identities in
-  three runs out of eight, silently -- no exception. Both READMEs now say so,
-  and name the likeliest cause: a parallel test runner, which `tasty` is by
-  default and `hspec` is under `parallel`.
+  three runs out of eight, silently -- no exception. That is the first,
+  eight-run probe; the entry above reports the later 20-run one against the
+  synchronized tables. Both READMEs now say so, and name the likeliest cause: a
+  parallel test runner, which `tasty` is by default and `hspec` is under
+  `parallel`.
 * Add tests for `Application.TermSearch.*`, which had none: the type encoding,
   the canonical and prefixed type variables, `filterType` keeping exactly the
   terms of the requested type, and `reduceFully` reaching a fixpoint.
@@ -164,7 +166,7 @@ reduces them, or enumerates them needs no migration.
 * Add `dropEdgeConstraints` and `dropConstraints`, which drop equality
   constraints from an edge or a whole node. The result over-approximates the
   language, so it is for cases where the constraints are not what is being
-  studied. Ported from jkoppel/ecta 059cafa by James Koppel.
+  studied. Ported from jkoppel/ecta 059cafa by Jimmy Koppel.
 * Relax package lower bounds to less precise minor-version floors while keeping
   the existing upper bounds.
 * Move the package into the repository's two-package Cabal workspace without

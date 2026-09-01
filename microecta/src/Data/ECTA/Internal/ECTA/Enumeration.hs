@@ -712,6 +712,13 @@ recursive position is that marker - and an automaton that is /itself/ a bare
 To see past the recursion, unfold it first with 'unfoldBounded', or read the
 automaton with @microecta-generator@'s @fromECTA@, which counts and enumerates
 a recursive language by size.
+
+Two caveats. Enumeration lists accepting /runs/, not distinct terms, so an
+ambiguous node - two edges that accept a common term - yields that term once
+per edge. Use 'withoutRedundantEdges' first, or deduplicate the result, if you
+need each term once. And a constraint whose paths descend into a truncated
+'Mu' is dropped rather than checked, so a result term containing the marker is
+not evidence that the language below it is non-empty.
 -}
 getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Term symbol]
 getAllTerms = getAllTermsWith "Mu"
