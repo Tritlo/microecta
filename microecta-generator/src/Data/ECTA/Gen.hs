@@ -47,6 +47,7 @@ module Data.ECTA.Gen (
     recurGrouped,
     upToSize,
     isRecursive,
+    isOpaque,
 
     -- * Inspection
     support,
@@ -183,6 +184,11 @@ recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
 isRecursive :: ECTAGen gen a -> Bool
 isRecursive (Cyclic _) = True
 isRecursive _ = False
+
+-- | Whether a generator is an opaque region, which cannot be inspected.
+isOpaque :: ECTAGen gen a -> Bool
+isOpaque (Opaque _) = True
+isOpaque _ = False
 
 instance Functor (Grouped gen key) where
     fmap transform (Grouped result) =

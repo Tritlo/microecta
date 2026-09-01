@@ -187,14 +187,19 @@ empty trace contributes one choice, so size 41 represents forty commands.
 
 `Data.ECTA.Gen.QuickCheck` exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
-property and shrinks to the smallest failing member: candidates first search
-every structurally smaller member in size order (`smallerMembers`, capped),
-so the reported counterexample is globally size-minimal whenever the search
-reaches one - a guarantee ordinary shrinking cannot make. Structural
-component shrinking through `shrinkRank` follows as a fallback. Every
-candidate is a member of the generated language, and the failing rank is
-printed for deterministic replay with `unrank`. `sized` builds one generator per QuickCheck size (shared
-across samples), so layered generators can scale with the size parameter.
+property and shrinks to the smallest failing member. It first tests every
+member of strictly smaller size, in size order (`smallerMembers`, capped by
+`smallerMemberLimit`), so the reported counterexample is globally size-minimal
+whenever that search reaches one - a guarantee ordinary shrinking cannot make.
+Past the cap it falls back to size-major structural shrinking through
+`shrinkRank`, which for a recursive generator reads its candidates from the
+form bounded at the current size, since bounding is what gives a recursive
+member components to shrink. Every candidate is a member of the generated
+language, and the failing rank is printed for deterministic replay with
+`unrank`. A generator with an opaque region has no ranks at all, so `forAll`
+tests it by sampling with no shrinking. `sized` builds and compiles one
+generator per QuickCheck size (shared across samples), so layered generators
+can scale with the size parameter.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
@@ -256,7 +261,8 @@ selected from their member counts; weighted finite choices closed with
 ranks: the members of size at most `n` hold the same ranks under every bound
 large enough to contain them. A counterexample therefore replays under any
 larger bound, and `forAll` shrinks by walking whole size classes below the
-failing member.
+failing member and then, past its cap, by shrinking the components of the form
+bounded at the failing member's size.
 
 `atomic` treats every member of a finite generator as one source choice. This
 sets a domain-sized boundary inside a recursive language. For example, an
@@ -393,7 +399,9 @@ is the shape to look for.
 `fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
 Opaque regions still compose and sample, but cannot be inspected with `pmf`;
 joining through one falls back to QuickCheck rejection. Opaque regions also
-have no replay rank. There is deliberately no `Monad` or `Selective` instance.
+have no replay rank, and `forAll` therefore tests a generator holding one by
+sampling alone, without shrinking. There is deliberately no `Monad` or
+`Selective` instance.
 This keeps inspectable applicative regions inside ECTA and makes the loss of
 structure explicit.
 

@@ -99,10 +99,14 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   size parameter. `sized` maps the size parameter to a generator, building and
   compiling each size once.
 * `forAll` shrinks to the smallest failing member: it first searches every
-  structurally smaller member in size order (`smallerMembers`, capped by
-  `smallerMemberLimit`), then shrinks components through `shrinkRank`. Every
+  member of strictly smaller size, in size order (`smallerMembers`, capped by
+  `smallerMemberLimit`), then shrinks components through `shrinkRank`. For a
+  recursive generator those component candidates come from the form bounded at
+  the failing member's size, since `shrinkRank` has none of its own for a
+  recursive language; bounding preserves ranks, so they replay unchanged. Every
   candidate is a member of the generated language, and the failing rank is
-  printed so `unrank` replays it.
+  printed so `unrank` replays it. A generator with an opaque region has no
+  ranks, so `forAll` tests it by sampling with no shrinking.
 * `Data.ECTA.Gen.Do` provides qualified do-notation for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
   for monadic shapes.

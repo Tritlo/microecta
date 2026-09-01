@@ -499,14 +499,19 @@ raise called err =
 {- | Check a property over a transparent generator, shrinking to the
 smallest failing member.
 
-Shrink candidates first search every structurally smaller member in size
-order, capped at 'smallerMemberLimit', so the result is the globally
-smallest failing member whenever the search reaches one. Structural
-component shrinking through 'shrinkRank' follows as a fallback, restricted
-to candidates of at most the current size so shrinking always terminates.
-Every candidate is a member of the generated language, and the failing rank
-is printed with the counterexample, so 'unrank' replays it
-deterministically.
+Shrink candidates first search every member of strictly smaller size, in size
+order, capped at 'smallerMemberLimit', so the result is the globally smallest
+failing member whenever the search reaches one. Component shrinking through
+'shrinkRank' follows as a fallback, restricted to candidates of at most the
+current size. For a recursive generator that fallback reads the candidates
+from the form bounded at the current size, since a recursive generator has no
+component shrinks of its own; bounding preserves ranks, so the candidates
+replay against the unbounded generator unchanged. Every candidate is a member
+of the generated language, and the failing rank is printed with the
+counterexample, so 'unrank' replays it deterministically.
+
+A generator with an opaque region has no ranks to shrink or replay, so it is
+tested by sampling alone, with no shrinking.
 -}
 forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
 forAll = forAllWithLimit smallerMemberLimit
@@ -525,26 +530,34 @@ many members per shrink step.
 -}
 forAllWithLimit ::
     (QC.Testable prop, Show a) => Int -> ECTAGen a -> (a -> prop) -> QC.Property
-forAllWithLimit limit generator prop =
-    QC.forAllShrinkShow
-        (toGenWithRank generator)
-        shrinkCandidates
-        showRanked
-        (prop . snd)
+forAllWithLimit limit generator prop
+    | ECTA.isOpaque generator = QC.forAll (toGen generator) prop
+    | otherwise =
+        QC.forAllShrinkShow
+            (toGenWithRank generator)
+            shrinkCandidates
+            showRanked
+            (prop . snd)
   where
     shrinkCandidates (rank, _) = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
         currentSize = sizeOfRank generator rank
-        -- Bounding candidates by the current size is what makes a greedy
-        -- shrink loop terminate. A candidate whose size cannot be read is out
-        -- of range and is dropped by the 'unrank' guard below anyway.
+        -- 'shrinkRank' has no candidates for a recursive generator, so the
+        -- structural candidates come from the form bounded at the current
+        -- size, whose shrinking is size-major halving. Bounding preserves
+        -- ranks, and leaves a finite generator alone.
+        bounded = maybe generator (`ECTA.upToSize` generator) currentSize
+        -- Every 'shrinkRank' candidate already has a strictly smaller rank, so
+        -- this guard only stops a candidate from growing in size; it is not
+        -- what makes shrinking terminate. A candidate whose size cannot be
+        -- read is out of range and is dropped by the 'unrank' guard below.
         notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
             (Just candidateSize, Just size) -> candidateSize <= size
             _ -> True
         structural =
             [ (candidate, value)
-            | candidate <- shrinkRank generator rank
+            | candidate <- shrinkRank bounded rank
             , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
