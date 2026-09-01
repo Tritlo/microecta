@@ -34,9 +34,10 @@ and therefore produces neither callback. The oracle carries its own state down
 each branch, so a check that cannot be settled while a hole is still
 unexpanded can be parked in that state under the hole's
 'getUVarRepresentative' and settled when the oracle is called for that UVar.
-'getAllTermsPruneWith' additionally lets the oracle say which hole it would
-like expanded next, so a parked check resolves before the branch it will kill
-is enumerated. Deciding which terms are worth rejecting is entirely the
+'getAllTermsPruneWith' takes the truncated-recursion symbol explicitly instead
+of requiring 'Data.String.IsString', and additionally lets the oracle say which
+hole it would like expanded next, so a parked check resolves before the branch
+it will kill is enumerated. Deciding which terms are worth rejecting is entirely the
 oracle's business; this module supplies only the callbacks and
 'expandPartialTermFrag' to read a partial term. Its 'PartialSymbol' result
 keeps concrete symbols, unexpanded variables, and truncated recursion

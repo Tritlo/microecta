@@ -150,20 +150,30 @@ under the hole's `getUVarRepresentative` and settle it when the oracle is
 called with `Left fragment` for that UVar — which is guaranteed to happen
 before the branch completes.
 
-`getAllTermsPruneWith` adds a say in which hole is expanded next, so a parked
-check can be settled before the branch it will kill is enumerated:
+`getAllTermsPruneWith` takes the truncated-recursion symbol explicitly, as
+`getAllTermsWith` does, so an alphabet without an `IsString` instance can prune
+too. It also adds a say in which hole is expanded next, so a parked check can
+be settled before the branch it will kill is enumerated:
 
 ```haskell
 -- Expand a hole some parked check is waiting on, if one is available.
 resolveParkedFirst :: ExpansionOrder (IntMap [Term])
 resolveParkedFirst parked candidates =
   listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
+
+prunedNats :: Node NatSymbol -> [Term NatSymbol]
+prunedNats = getAllTermsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
 ```
 
 This steers order only. It cannot make a hole expandable early, and a UVar
 that is not among the candidates is ignored. For an oracle whose rejections
 are monotone — once a branch can be rejected it stays rejectable — it changes
 how much work is done, not which terms come out.
+
+A partial term reports an unexpanded hole as `UVarHole` and a recursive node
+enumeration has finished with as `TruncatedRecursion`. A recursive node whose
+equality constraints are still pending is a hole, not truncated recursion,
+because it may still be expanded.
 
 For repeated reduction, downstream code usually wants:
 

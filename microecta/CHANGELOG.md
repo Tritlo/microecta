@@ -47,6 +47,12 @@ reduces them, or enumerates them needs no migration.
   an unconstrained recursive node with `TruncatedRecursion`. These fixed constructors
   keep partiality outside the caller's alphabet. These APIs no longer require
   `IsString`.
+* `expandPartialTermFrag` reports a recursive node that still carries suspended
+  constraints as a `UVarHole` rather than as `TruncatedRecursion`. Such a node
+  is still pending expansion, and an oracle that parks its checks on holes
+  would have read it as final and settled a check that had not been decided.
+  `TruncatedRecursion` now means what enumeration means by it: a recursive node
+  with no constraints left, which is where enumeration stops.
 * Remove `getTermFragForUVar`, which was partial and is now unused;
   `rootTermFrag` replaces its one caller.
 * `toPathTrie` reports its own precondition -- distinct paths, none a prefix of
@@ -82,7 +88,11 @@ reduces them, or enumerates them needs no migration.
   them when it is called for that UVar, and matches terms however it likes.
   Deciding which terms are interesting is no longer this library's business.
 * Add `getAllTermsPruneWith` and the `ExpansionOrder` it takes, which let a
-  caller say which of the currently expandable UVars to expand next. This
+  caller say which of the currently expandable UVars to expand next. It takes
+  the truncated-recursion symbol as its first argument, as `getAllTermsWith`
+  does, rather than requiring `IsString`, so an ordinary datatype alphabet can
+  prune; `enumPruneWith` matches it. `getAllTermsPrune` and `enumPrune` keep
+  `IsString` and pass `"Mu"`. This
   replaces the removed `usePruneHints` flag, which read the enumerator's own
   pending-check map and could not survive its removal, with an
   encoding-agnostic hook: an oracle that parks checks returns the candidate one
