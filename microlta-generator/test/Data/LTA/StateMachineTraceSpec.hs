@@ -19,6 +19,15 @@ compileOrFail generator =
             Left err -> expectationFailure (show err) >> fail "unreachable"
             Right compiled -> pure compiled
 
+-- | Compile the automaton-level flagship path with the symbolic model.
+compileTraceOrFail :: Int -> IO (LTA.Compiled Trace)
+compileTraceOrFail traceLength =
+    withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+        result <- compileTracesOfLength solver traceLength
+        case result of
+            Left err -> expectationFailure (show err) >> fail "unreachable"
+            Right compiled -> pure compiled
+
 -- | Enumerate the accepted values in stable rank order.
 values :: LTA.Compiled a -> [a]
 values compiled =
@@ -31,7 +40,7 @@ spec :: Spec
 spec =
     describe "liquid typed stack-machine traces" $ do
         it "matches the independent trace counts through length four" $ do
-            compiled <- traverse (compileOrFail . tracesOfLength) [1 .. 4]
+            compiled <- traverse compileTraceOrFail [1 .. 4]
             map LTA.cardinality compiled
                 `shouldBe` [traceCount length_ (StackState []) | length_ <- [1 .. 4]]
 
@@ -40,7 +49,7 @@ spec =
                 `shouldBe` [4, 22, 132, 556, 3104, 13760, 73528, 342136, 1783112, 8567224]
 
         it "retains the dependent command sequences and rejects ill-typed ones" $ do
-            compiled <- compileOrFail $ tracesOfLength 3
+            compiled <- compileTraceOrFail 3
             LTA.cardinality compiled `shouldBe` 132
             LTA.cardinality compiled `shouldBe` traceCount 3 (StackState [])
             let sequences = Set.fromList $ map (map eventCommand . traceEvents) $ values compiled
@@ -52,11 +61,11 @@ spec =
             sequences `shouldSatisfy` not . Set.member [Push (IntValue 0), Push (BoolValue True), Add]
 
         it "predicts every response and post-state before concrete execution" $ do
-            compiled <- compileOrFail $ tracesOfLength 3
+            compiled <- compileTraceOrFail 3
             values compiled `shouldSatisfy` all traceIsValid
 
         it "carries the final stack type as the trace result refinement" $ do
-            compiled <- compileOrFail $ tracesOfLength 3
+            compiled <- compileTraceOrFail 3
             let generated =
                     [ member
                     | rank <- [0 .. LTA.cardinality compiled - 1]

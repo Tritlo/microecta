@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
 
 {- | Solver-checked generation of typed stack-machine traces.
@@ -40,6 +41,8 @@ module Data.LTA.StateMachineTraceLanguage (
     solverAssumptions,
     initialTrace,
     tracesOfLength,
+    traceAutomaton,
+    compileTracesOfLength,
     tracesUpTo,
     naiveTraceGen,
     handwrittenTraceGen,
@@ -56,11 +59,23 @@ import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
-import Data.LTA (Guard, Refinement, Symbol)
+import Data.LTA (
+    Automaton,
+    AutomatonError,
+    Entailment,
+    Guard (Top),
+    LiquidTerm (..),
+    Refinement,
+    State (State),
+    Symbol,
+    mkAutomaton,
+    pattern Transition,
+ )
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (
     Position,
     allOf,
+    argument,
     descendant,
     isSubtypeOf,
     root,
@@ -163,11 +178,136 @@ initialTrace =
     LTA.refinedNode "start" (stateRefinement emptyState) unconstrained $
         LTA.pure (Trace [] emptyState)
 
--- | Generate traces with exactly the requested number of commands.
+{- | Generate traces with exactly the requested number of commands through
+the compositional surface DSL.
+
+This remains useful for small examples of @LTA.do@. The flagship benchmark
+uses 'compileTracesOfLength', whose source of truth is the finite-state LTA in
+'traceAutomaton' and which never scans the Cartesian command language.
+-}
 tracesOfLength :: Int -> LTA.LTAGen Trace
 tracesOfLength length_
     | length_ <= 0 = initialTrace
     | otherwise = extendTrace $ tracesOfLength (length_ - 1)
+
+{- | Build the unpruned LTA for one exact trace length.
+
+States are indexed by @(prefix length, output stack)@. Each candidate @step@
+transition combines one preceding state, one reusable liquid command schema,
+and one possible output state. The liquid guard—not the Haskell model—decides
+which transitions survive. The graph grows linearly with trace length.
+-}
+traceAutomaton :: Int -> Either AutomatonError Automaton
+traceAutomaton requestedLength =
+    mkAutomaton initialState $ rootRow : prefixRows <> contractRows
+  where
+    traceLength = max 0 requestedLength
+    initialState = State 0
+    rootRow
+        | traceLength == 0 =
+            (initialState, [Transition "start" (stateRefinement emptyState) [] Top])
+        | otherwise =
+            ( initialState
+            , concatMap (stepTransitions traceLength) stackStates
+            )
+    prefixRows =
+        [ ( traceState prefixLength output
+          , if prefixLength == 0
+                then
+                    [ Transition "start" (stateRefinement emptyState) [] Top
+                    | output == emptyState
+                    ]
+                else stepTransitions prefixLength output
+          )
+        | prefixLength <- [0 .. traceLength - 1]
+        , output <- stackStates
+        ]
+    contractRows
+        | traceLength == 0 = []
+        | otherwise =
+            [ (commandState contractRank, [contractTransition contract])
+            | (contractRank, contract) <- zip [0 ..] commandContractValues
+            ]
+                <> [(formalState, [Transition "model" stateRange [] Top])]
+                <> [ ( postState contractRank
+                     , [Transition "post-state" (contractPostState contract) [] Top]
+                     )
+                   | (contractRank, contract) <- zip [0 ..] commandContractValues
+                   ]
+
+    stepTransitions prefixLength output =
+        [ Transition
+            "step"
+            (stateRefinement output)
+            [ traceState (prefixLength - 1) input
+            , commandState contractRank
+            ]
+            (validStep (argument 0) (argument 1))
+        | input <- stackStates
+        , (contractRank, _) <- zip [0 ..] commandContractValues
+        ]
+
+    contractTransition contract =
+        Transition
+            (contractSymbol contract)
+            (contractInputSpace contract)
+            [formalState, postState $ findContractIndex contract]
+            Top
+
+    findContractIndex selected =
+        case lookup selected $ zip commandContractValues [0 ..] of
+            Just index -> index
+            Nothing -> error "traceAutomaton: unknown command contract"
+
+    stateCount = length stackStates
+    contractCount = length commandContractValues
+    traceState prefixLength output =
+        State $
+            1
+                + prefixLength * stateCount
+                + stateIndex output
+    commandState index =
+        State $
+            1
+                + traceLength * stateCount
+                + index
+    formalState =
+        State $
+            1
+                + traceLength * stateCount
+                + contractCount
+    postState index =
+        State $
+            2
+                + traceLength * stateCount
+                + contractCount
+                + index
+
+    stateIndex selected =
+        case lookup selected $ zip stackStates [0 ..] of
+            Just index -> index
+            Nothing -> error "traceAutomaton: unknown stack state"
+
+{- | Compile one exact trace LTA, then expose it as a QuickCheck generator.
+
+Z3 prunes guarded transitions in the automaton. Dynamic counting and unranking
+stay in the generator adapter, and only a selected rank is decoded to 'Trace'.
+-}
+compileTracesOfLength ::
+    Entailment ->
+    Int ->
+    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+compileTracesOfLength entailment traceLength =
+    case traceAutomaton traceLength of
+        Left err -> pure $ Left $ LTA.InvalidSupport err
+        Right automaton ->
+            fmap (fmap $ LTA.mapCompiled decodeTrace) $
+                LTA.compileAutomaton entailment automaton
+  where
+    decodeTrace term =
+        case traceFromLiquidTerm term of
+            Just trace -> trace
+            Nothing -> error "compileTracesOfLength: pruned LTA produced an invalid trace term"
 
 -- | Generate every trace up to a maximum length, shortest first for shrinking.
 tracesUpTo :: Int -> Either LTA.GeneratorError (LTA.LTAGen Trace)
@@ -243,6 +383,36 @@ traceFromCommands commands = do
     appendCommand (events, before) command = do
         (response, after) <- modelStep before command
         pure (Event before command response after : events, after)
+
+-- | Decode one accepted liquid witness into the ordinary QSM trace value.
+traceFromLiquidTerm :: LiquidTerm -> Maybe Trace
+traceFromLiquidTerm LiquidTerm{liquidSymbol = "start", liquidRefinement, liquidChildren = []}
+    | liquidRefinement == stateRefinement emptyState = Just initialTraceValue
+traceFromLiquidTerm LiquidTerm{liquidSymbol = "step", liquidRefinement, liquidChildren = [previousTerm, commandTerm]} = do
+    previous <- traceFromLiquidTerm previousTerm
+    command <- commandFromLiquidTerm commandTerm
+    let before = traceFinalState previous
+    (response, after) <- modelStep before command
+    guard $ liquidRefinement == stateRefinement after
+    pure $
+        Trace
+            (traceEvents previous <> [Event before command response after])
+            after
+traceFromLiquidTerm _ = Nothing
+
+-- | Recover the command represented by one reusable liquid schema.
+commandFromLiquidTerm :: LiquidTerm -> Maybe Command
+commandFromLiquidTerm LiquidTerm{liquidSymbol, liquidChildren = [_, _]} =
+    lookup
+        liquidSymbol
+        [ (contractSymbol contract, contractCommand contract)
+        | contract <- commandContractValues
+        ]
+commandFromLiquidTerm _ = Nothing
+
+-- | Concrete value represented by the nullary initial transition.
+initialTraceValue :: Trace
+initialTraceValue = Trace [] emptyState
 
 -- | Every distinct raw command value in the example alphabet.
 commandValues :: [Command]
@@ -378,30 +548,43 @@ commandContracts :: LTA.LTAGen Command
 commandContracts =
     oneofOrDie
         "typed stack-machine command contracts"
-        ( map pushContract literalValues
-            <> [ popContract TInt
-               , popContract TBool
-               , contract "add" Add (stacksStartingWith [TInt, TInt]) popIntOutput
-               , contract "and" And (stacksStartingWith [TBool, TBool]) popBoolOutput
-               , contract "equal-int" Equal (stacksStartingWith [TInt, TInt]) equalIntOutput
-               , contract "equal-bool" Equal (stacksStartingWith [TBool, TBool]) equalBoolOutput
-               , contract "not" Not (stacksStartingWith [TBool]) unchangedOutput
-               ]
-        )
+        (map contractGenerator commandContractValues)
+
+-- | One reusable liquid input/output schema for a stack-machine command.
+data CommandContract = CommandContract
+    { contractSymbol :: !Symbol
+    , contractCommand :: !Command
+    , contractInputSpace :: !Refinement
+    , contractPostState :: !Refinement
+    }
+    deriving (Eq)
+
+-- | The eleven schemas from which every trace layer is constructed.
+commandContractValues :: [CommandContract]
+commandContractValues =
+    map pushContract literalValues
+        <> [ popContract TInt
+           , popContract TBool
+           , CommandContract "add" Add (stacksStartingWith [TInt, TInt]) popIntOutput
+           , CommandContract "and" And (stacksStartingWith [TBool, TBool]) popBoolOutput
+           , CommandContract "equal-int" Equal (stacksStartingWith [TInt, TInt]) equalIntOutput
+           , CommandContract "equal-bool" Equal (stacksStartingWith [TBool, TBool]) equalBoolOutput
+           , CommandContract "not" Not (stacksStartingWith [TBool]) unchangedOutput
+           ]
 
 -- | Build the dependent transition contract for one pushed literal.
-pushContract :: Value -> LTA.LTAGen Command
+pushContract :: Value -> CommandContract
 pushContract pushed =
-    contract
+    CommandContract
         (fromString $ "push-" <> valueName pushed)
         (Push pushed)
         stacksWithRoom
         (value .==. ((2 :: Int) .*. variable "model" .+. typeTag (valueType pushed)))
 
 -- | Build one of the two typed pop transition contracts.
-popContract :: ValueType -> LTA.LTAGen Command
+popContract :: ValueType -> CommandContract
 popContract type_ =
-    contract
+    CommandContract
         (fromString $ "pop-" <> typeName type_)
         Pop
         (stacksStartingWith [type_])
@@ -412,13 +595,13 @@ popOutput :: ValueType -> Refinement
 popOutput TInt = popIntOutput
 popOutput TBool = popBoolOutput
 
--- | Build one input-space/formal-state/post-state command schema.
-contract :: Symbol -> Command -> Refinement -> Refinement -> LTA.LTAGen Command
-contract symbol command inputSpace postState =
-    LTA.refinedNode symbol inputSpace unconstrained $ LTA.do
+-- | Present one command schema through the compositional generator DSL.
+contractGenerator :: CommandContract -> LTA.LTAGen Command
+contractGenerator CommandContract{contractSymbol, contractCommand, contractInputSpace, contractPostState} =
+    LTA.refinedNode contractSymbol contractInputSpace unconstrained $ LTA.do
         _formalState <- LTA.leaf () "model" stateRange
-        _postState <- LTA.leaf () "post-state" postState
-        LTA.pure command
+        _postState <- LTA.leaf () "post-state" contractPostState
+        LTA.pure contractCommand
 
 -- | States in which another value can be pushed.
 stacksWithRoom :: Refinement

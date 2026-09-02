@@ -35,7 +35,7 @@ prepare "naive" length_ = pure $ naiveTraceGen length_
 prepare "bespoke" length_ = pure $ handwrittenTraceGen length_
 prepare "lta" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-        result <- LTA.compile solver $ tracesOfLength length_
+        result <- compileTracesOfLength solver length_
         case result of
             Left err -> fail $ "could not compile LTA benchmark: " <> show err
             Right compiled -> pure $ LTA.toGen compiled
