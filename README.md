@@ -70,23 +70,29 @@ are retained only when the previous trace's output stack is a subtype of the
 next command's input space. The resulting trace is then replayed through both
 an abstract model and a separate concrete interpreter.
 
-Two smaller examples remain useful alongside that progression. The ECTA
+Three smaller examples remain useful alongside that progression. The ECTA
 [filesystem ownership join](microecta-generator/test/Data/ECTA/GenSpec.hs)
 shows flat equality conditioning, while
 [`SafeBufferLanguage`](microlta-generator/common/Data/LTA/SafeBufferLanguage.hs)
 shows Z3 proving symbolic bounds and dependent append lengths before a partial
-buffer interpreter reaches QuickCheck.
+buffer interpreter reaches QuickCheck. The more LTA-biased
+[`SizedVectorLanguage`](microlta-generator/common/Data/LTA/SizedVectorLanguage.hs)
+composes `append`, `take`, `zipWith`, and safe indexing through arithmetic
+result-size refinements using the ordinary qualified-do syntax.
 
 ## Generator benchmarks
 
-The three flagship languages are benchmarked against both naive
-recognition/rejection and a handwritten bespoke generator. Every comparison is
-uniform over the same exact language at each depth or trace length; cells run
-in fresh processes, include a cold first-sample measurement, and time out after
-30 seconds. A fourth control benchmark generates the typed-expression language
-with either ECTA path equality or LTA integer-equality refinements, isolating
-the practical cost of the liquid constraint theory. The measured tables and
-methodology live in the
+The three flagship languages are benchmarked against naive recognition and
+ordinary handwritten generation. The trace table additionally includes a
+QSM-style online generator and a hand-specialized rank decoder: the former
+gives up global uniformity, while the latter establishes the ceiling for
+bespoke code that duplicates the generic compiler. Exact-language comparisons
+remain uniform at each depth or trace length; cells run in fresh processes,
+include a cold first-sample measurement, and time out after 30 seconds. A
+fourth control benchmark generates the typed-expression language with either
+ECTA path equality or LTA integer-equality refinements, isolating the practical
+cost of the liquid constraint theory. The measured tables and methodology live
+in the
 [`microecta-generator`](microecta-generator/README.md#sampling-performance) and
 [`microlta-generator`](microlta-generator/README.md#sampling-performance)
 READMEs.

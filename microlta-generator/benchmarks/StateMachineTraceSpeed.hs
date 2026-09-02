@@ -1,8 +1,12 @@
-{- | Compare three exact-uniform generators for typed stack-machine traces.
+{- | Compare four exact-uniform generators and one QSM-style baseline.
 
 The naive generator rejects whole raw command sequences, the bespoke generator
-tracks the abstract stack in Haskell, and the LTA generator compiles dependent
-transition contracts with Z3 before rank-decoding accepted traces.
+tracks exact suffix counts in Haskell, the QSM-style generator chooses a valid
+next command from the current model, the ranked control hand-codes one global
+rank decoder, and the LTA generator compiles dependent transition contracts
+with Z3 before rank-decoding accepted traces. Every engine except QSM-style
+online generation is exact-uniform; QSM has the same support but intentionally
+uses a different distribution.
 -}
 module Main (main) where
 
@@ -21,9 +25,9 @@ benchmark :: Benchmark Trace
 benchmark =
     Benchmark
         { benchmarkSizeName = "length"
-        , benchmarkSizes = [1 .. 10]
-        , benchmarkEngines = ["naive", "bespoke", "lta"]
-        , benchmarkSampleCount = 100000
+        , benchmarkSizes = [1 .. 10] <> [12, 16, 20, 30, 40]
+        , benchmarkEngines = ["naive", "qsm-online", "bespoke", "ranked", "lta"]
+        , benchmarkSampleCount = 20000
         , benchmarkMembers = \length_ -> traceCount length_ (StackState [])
         , benchmarkPrepare = prepare
         , benchmarkTally = traceScore
@@ -32,7 +36,9 @@ benchmark =
 -- | Construct one selected exact-length generator.
 prepare :: String -> Int -> IO (QC.Gen Trace)
 prepare "naive" length_ = pure $ naiveTraceGen length_
+prepare "qsm-online" length_ = pure $ qsmTraceGen length_
 prepare "bespoke" length_ = pure $ handwrittenTraceGen length_
+prepare "ranked" length_ = pure $ rankedTraceGen length_
 prepare "lta" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         result <- compileTracesOfLength solver length_

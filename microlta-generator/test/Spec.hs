@@ -9,6 +9,7 @@ import qualified Data.LTA.QuickCheckSyntaxSpec
 import qualified Data.LTA.RecursiveGeneratorSpec
 import qualified Data.LTA.SafeBufferSpec
 import qualified Data.LTA.SimilarityMinimizationSpec
+import qualified Data.LTA.SizedVectorSpec
 import qualified Data.LTA.StateMachineTraceSpec
 import qualified Data.LTA.SubsumptionTypedExpressionSpec
 
@@ -22,5 +23,6 @@ main =
         Data.LTA.PreconditionTypedExpressionSpec.spec
         Data.LTA.SubsumptionTypedExpressionSpec.spec
         Data.LTA.SimilarityMinimizationSpec.spec
+        Data.LTA.SizedVectorSpec.spec
         Data.LTA.StateMachineTraceSpec.spec
         Data.LTA.DependentApplicationSpec.spec

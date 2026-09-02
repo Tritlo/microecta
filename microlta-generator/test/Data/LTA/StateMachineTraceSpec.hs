@@ -119,7 +119,7 @@ spec =
             QC.isSuccess result `shouldBe` True
 
         modifyMaxSuccess (const 300) $
-            it "keeps both reference generators in the valid trace language" $
+            it "keeps every reference generator in the valid trace language" $
                 QC.conjoin
                     [ QC.forAll (generator 4) $ \trace ->
                         QC.counterexample (show trace) $
@@ -127,5 +127,18 @@ spec =
                                 [ QC.property $ traceIsValid trace
                                 , length (traceEvents trace) QC.=== 4
                                 ]
-                    | generator <- [naiveTraceGen, handwrittenTraceGen]
+                    | generator <-
+                        [ naiveTraceGen
+                        , qsmTraceGen
+                        , handwrittenTraceGen
+                        , rankedTraceGen
+                        ]
                     ]
+
+        it "replays every QSM-style deletion shrink through the model" $
+            QC.forAll (qsmTraceGen 8) $ \trace ->
+                QC.counterexample (show trace) $
+                    QC.conjoin
+                        [ QC.property $ traceIsValid shrunk
+                        | shrunk <- qsmTraceShrinks trace
+                        ]

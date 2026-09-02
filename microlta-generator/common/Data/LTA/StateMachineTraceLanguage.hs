@@ -45,7 +45,10 @@ module Data.LTA.StateMachineTraceLanguage (
     compileTracesOfLength,
     tracesUpTo,
     naiveTraceGen,
+    qsmTraceGen,
+    qsmTraceShrinks,
     handwrittenTraceGen,
+    rankedTraceGen,
     traceCount,
     modelStep,
     replayTrace,
@@ -55,6 +58,7 @@ module Data.LTA.StateMachineTraceLanguage (
 
 import Control.Monad (foldM, guard)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
@@ -326,6 +330,46 @@ naiveTraceGen length_ =
         (QC.vectorOf (max 0 length_) $ QC.elements commandValues)
         traceFromCommands
 
+{- | Generate a valid trace in the usual state-machine-testing style.
+
+The next command is chosen uniformly from those admitted by the current model,
+then the model is advanced before generating the suffix. This is deliberately
+not uniform over complete traces: prefixes with fewer later continuations get
+more probability than they do in the exact-uniform generators. Its advantage
+is that it needs neither rejection nor suffix counts.
+-}
+qsmTraceGen :: Int -> QC.Gen Trace
+qsmTraceGen length_ = generateFrom (max 0 length_) emptyState
+  where
+    generateFrom 0 state = pure $ Trace [] state
+    generateFrom remaining before = do
+        (command, response, after) <-
+            QC.elements
+                [ (command, response, after)
+                | command <- commandValues
+                , Just (response, after) <- [modelStep before command]
+                ]
+        suffix <- generateFrom (remaining - 1) after
+        pure $
+            suffix
+                { traceEvents =
+                    Event before command response after : traceEvents suffix
+                }
+
+{- | Dependency-aware deletion candidates for a QSM-style failing trace.
+
+QuickCheck-state-machine generates a complete trace before execution. On a
+failure it removes commands, replays the remaining sequence from the initial
+model, and retains only candidates whose preconditions still hold. This small
+version has no command-local shrinker, so it isolates that structural step.
+-}
+qsmTraceShrinks :: Trace -> [Trace]
+qsmTraceShrinks =
+    mapMaybe traceFromCommands
+        . QC.shrinkList (const [])
+        . map eventCommand
+        . traceEvents
+
 {- | Generate only valid commands while tracking the abstract stack state.
 
 Each command is weighted by the number of valid suffixes following its output
@@ -350,6 +394,46 @@ handwrittenTraceGen length_ = generateFrom (max 0 length_) emptyState
             | command <- commandValues
             , Just (response, after) <- [modelStep before command]
             ]
+
+{- | Handwritten exact-uniform generation through one global rank.
+
+This is the strongest bespoke control: it manually duplicates the LTA
+adapter's count-and-unrank strategy, but constructs 'Trace' directly without a
+liquid witness. It is less idiomatic than 'handwrittenTraceGen' and makes the
+automaton library's compilation algorithm part of application code.
+-}
+rankedTraceGen :: Int -> QC.Gen Trace
+rankedTraceGen requestedLength = do
+    rank <- QC.chooseInteger (0, traceCount length_ emptyState - 1)
+    pure $ decode length_ emptyState rank
+  where
+    length_ = max 0 requestedLength
+
+    decode 0 state _ = Trace [] state
+    decode remaining before rank =
+        case select rank alternatives of
+            Just (command, response, after, suffixRank) ->
+                let suffix = decode (remaining - 1) after suffixRank
+                 in suffix
+                        { traceEvents =
+                            Event before command response after : traceEvents suffix
+                        }
+            Nothing -> error "rankedTraceGen: rank outside the counted trace language"
+      where
+        alternatives =
+            [ ( command
+              , response
+              , after
+              , traceCount (remaining - 1) after
+              )
+            | command <- commandValues
+            , Just (response, after) <- [modelStep before command]
+            ]
+
+    select _ [] = Nothing
+    select rank ((command, response, after, count) : rest)
+        | rank < count = Just (command, response, after, rank)
+        | otherwise = select (rank - count) rest
 
 -- | Count valid command traces of one remaining length from an abstract state.
 traceCount :: Int -> StackState -> Integer

@@ -95,6 +95,8 @@ test-suite unit-tests
     Data.LTA.SafeBufferLanguage
     Data.LTA.SafeBufferSpec
     Data.LTA.SimilarityMinimizationSpec
+    Data.LTA.SizedVectorLanguage
+    Data.LTA.SizedVectorSpec
     Data.LTA.StateMachineTraceLanguage
     Data.LTA.StateMachineTraceSpec
     Data.LTA.SubsumptionTypedExpressionSpec

@@ -261,96 +261,161 @@ and a separate concrete integer/Boolean interpreter. A smaller surface-DSL
 variant also verifies guarded shrinking. The final QuickCheck property needs no
 implication or `suchThat` filter.
 
+## LTA-biased case study: sized-vector pipelines
+
+The stack machine is a good stateful progression, but its bounded stack shapes
+can still be tabulated by a sufficiently patient FTA author. The more
+LTA-native example is
+[`Data.LTA.SizedVectorLanguage`](common/Data/LTA/SizedVectorLanguage.hs): a
+dependent vector-expression language in which result sizes are arithmetic
+refinements rather than finite type tags.
+
+```text
+append xs ys    : Vector n -> Vector m -> Vector (n + m)
+take k xs       : 0 <= k <= n => Vector n -> Vector k
+zipWith (+) x y : Vector n -> Vector n -> Vector n
+index i xs      : 0 <= i < n => Vector n -> Int
+```
+
+One operation layer is ordinary applicative LTA syntax:
+
+```haskell
+takenVectors maximumLength children =
+  LTA.refinedNodeBy "take" vectorLength validTake $ LTA.do
+    result    <- possibleLengths maximumLength
+    _function <- takeFunction
+    count     <- possibleLengths maximumLength
+    input     <- children
+    LTA.pure $ SizedVector
+      (Take (numberValue count) $ vectorExpression input)
+      (numberRefinement result)
+
+validTake result function count input =
+  withActualFor count (takeCountFormalAt function) $
+    allOf
+      [ vectorLengthAt input `isSubtypeOf` function
+      , takeResultAt function `isSubtypeOf` result
+      ]
+```
+
+The `takeFunction` contract says that its input length is at least the formal
+`k` and its result is exactly `k`. The guard substitutes the selected count for
+that formal. `append` substitutes both input lengths into `out = n + m`;
+`zipWith` substitutes the left length and requires the right length to inhabit
+the same input space. A stable result-length child lets these proofs compose at
+the next expression layer without exposing a refinement wrapper in `Program`.
+
+The one-layer language contains 20 pipelines and exactly 44 safe indexing
+programs. The tests enumerate them, check every result refinement against an
+independent list interpreter, and execute the deliberately partial indexer over
+every accepted program.
+
+This is the specification-leverage example. A handwritten exact-uniform
+generator must group every recursive sublanguage by result length, derive the
+append, take, and zip cardinality recurrences for those groups, weight each
+constructor by its number of valid completions, and repeat the bookkeeping for
+the final index. The LTA source states the four dependent contracts once. This
+small surface compiler is intentionally an executable clarity example; large
+recursive languages should be compiled as automata so terms stay symbolic.
+
 ## Sampling performance
 
-The typed stack-machine example has three exact-uniform implementations:
+The typed stack-machine benchmark separates five useful baselines:
 
 - **naive** draws uniformly from all nine raw commands at every position and
   rejects the complete sequence if abstract replay fails;
-- **bespoke** tracks `StackState` directly and weights each valid command by
-  the exact number of complete suffixes following its output state; and
+- **QSM online** follows the normal state-machine-testing shape: choose a
+  command admitted by the current model, advance the model, and continue;
+- **bespoke** is ordinary compositional QuickCheck code which weights every
+  valid next command by its number of complete suffixes;
+- **ranked** is the strongest handwritten control: it duplicates the count and
+  global-unrank algorithm in application code and constructs `Trace` directly;
 - **LTA** compiles the dependent transition schemas with Z3, then samples the
   accepted ranked language without further solver calls.
 
-The suffix weights are essential. Merely choosing uniformly among the commands
-valid at the current state would bias traces whose later states have fewer
-continuations. All three rows instead sample the same uniform language at each
-exact length. The `members` column is computed by an independent state-model
-recurrence and checked against the compiled LTA cardinality in the specs.
+Naive rejection, bespoke, ranked, and LTA are uniform over the same exact trace
+language. QSM online has the same support but intentionally has a different
+distribution: choosing uniformly at each prefix gives extra probability to
+traces passing through states with fewer valid continuations. That is usually
+the right engineering trade in state-machine testing. As in
+[quickcheck-state-machine](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the complete trace is generated before execution; after a failure,
+`qsmTraceShrinks` removes commands and replays the remainder so dependencies
+whose producers disappeared are rejected.
 
-Each successful cell draws 100,000 traces. It runs in a fresh process with a
+Each successful cell draws 20,000 traces. It runs in a fresh process with a
 30-second wall-clock limit and is the median of three runs. The first-sample
 column includes all setup—in the LTA row, that means starting Z3, checking the
 transition guards, pruning and counting the automaton, and drawing once.
 Steady-state sampling is pure. After an engine times out at one length, the
 harness skips its larger cells and reports `after timeout`.
 
-| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
-| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 4 | naive | 0.02 ms | 586,393 | 13.6 KB | 32.7 KB | 34.7 KB |
-| 1 | 4 | bespoke | 0.02 ms | 2,263,878 | 3.4 KB | 2.0 KB | 35.2 KB |
-| 1 | 4 | LTA | 17.16 ms | 751,383 | 10.1 KB | 121.5 KB | 97.9 KB |
-| 2 | 22 | naive | 0.02 ms | 279,632 | 28.5 KB | 32.8 KB | 34.8 KB |
-| 2 | 22 | bespoke | 0.04 ms | 1,047,307 | 7.2 KB | 36.6 KB | 40.5 KB |
-| 2 | 22 | LTA | 170.60 ms | 434,991 | 16.6 KB | 126.4 KB | 102.8 KB |
-| 3 | 132 | naive | 0.02 ms | 161,902 | 48.4 KB | 32.9 KB | 34.9 KB |
-| 3 | 132 | bespoke | 0.04 ms | 743,345 | 10.5 KB | 38.4 KB | 71.8 KB |
-| 3 | 132 | LTA | 195.95 ms | 285,488 | 23.7 KB | 135.7 KB | 112.1 KB |
-| 4 | 556 | naive | 0.04 ms | 71,429 | 111.2 KB | 32.9 KB | 35.0 KB |
-| 4 | 556 | bespoke | 0.05 ms | 533,678 | 14.3 KB | 40.3 KB | 207.2 KB |
-| 4 | 556 | LTA | 233.53 ms | 219,306 | 30.2 KB | 147.3 KB | 123.7 KB |
+The crossover and deep-scaling rows are:
 
-Lengths five through ten expose both scaling boundaries:
+| length | members | engine | first sample | samples/s | alloc/sample | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| 8 | 342,136 | naive | 0.07 ms | 6,216 | 1.23 MB | 35.3 KB |
+| 8 | 342,136 | QSM online | 0.02 ms | 181,177 | 42.6 KB | 34.7 KB |
+| 8 | 342,136 | bespoke | 0.08 ms | 127,999 | 37.5 KB | 32.91 MB |
+| 8 | 342,136 | ranked | 0.06 ms | 407,407 | 11.7 KB | 43.4 KB |
+| 8 | 342,136 | LTA | 356.11 ms | 116,904 | 56.1 KB | 176.0 KB |
+| 10 | 8,567,224 | naive | 0.22 ms | 1,891 | 3.97 MB | 35.5 KB |
+| 10 | 8,567,224 | QSM online | 0.03 ms | 141,073 | 53.6 KB | 34.7 KB |
+| 10 | 8,567,224 | bespoke | 0.10 ms | 71,529 | 57.5 KB | 74.04 MB |
+| 10 | 8,567,224 | ranked | 0.07 ms | 291,592 | 14.3 KB | 45.3 KB |
+| 10 | 8,567,224 | LTA | 417.44 ms | 92,226 | 69.7 KB | 204.0 KB |
+| 12 | 215,809,688 | naive | **timeout (30s)** | — | — | — |
+| 12 | 215,809,688 | QSM online | 0.03 ms | 117,655 | 64.5 KB | 34.7 KB |
+| 12 | 215,809,688 | bespoke | 0.10 ms | 52,819 | 77.4 KB | 118.24 MB |
+| 12 | 215,809,688 | ranked | 0.08 ms | 247,927 | 16.0 KB | 47.1 KB |
+| 12 | 215,809,688 | LTA | 481.34 ms | 77,779 | 82.6 KB | 231.7 KB |
+| 20 | 90,356,263,022,904 | QSM online | 0.04 ms | 67,903 | 108.4 KB | 34.7 KB |
+| 20 | 90,356,263,022,904 | bespoke | 0.15 ms | 24,013 | 157.6 KB | 303.87 MB |
+| 20 | 90,356,263,022,904 | ranked | 0.13 ms | 138,917 | 25.1 KB | 54.6 KB |
+| 20 | 90,356,263,022,904 | LTA | 738.57 ms | 47,230 | 139.1 KB | 349.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | QSM online | 0.05 ms | 34,504 | 218.0 KB | 34.7 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | bespoke | 0.32 ms | 8,663 | 365.0 KB | 778.94 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | ranked | 0.22 ms | 58,076 | 50.7 KB | 78.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA | 1,400.42 ms | 21,706 | 298.8 KB | 629.7 KB |
 
-| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
-| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 5 | 3,104 | naive | 0.05 ms | 42,595 | 185.3 KB | 33.0 KB | 35.1 KB |
-| 5 | 3,104 | bespoke | 0.06 ms | 438,754 | 17.3 KB | 42.6 KB | 944.4 KB |
-| 5 | 3,104 | LTA | 258.52 ms | 176,230 | 36.4 KB | 158.1 KB | 134.5 KB |
-| 6 | 13,760 | naive | 0.08 ms | 20,493 | 383.2 KB | 33.1 KB | 35.2 KB |
-| 6 | 13,760 | bespoke | 0.06 ms | 337,511 | 21.4 KB | 44.0 KB | 4.18 MB |
-| 6 | 13,760 | LTA | 291.39 ms | 151,257 | 42.7 KB | 169.5 KB | 145.9 KB |
-| 7 | 73,528 | naive | 0.08 ms | 11,968 | 651.9 KB | 33.2 KB | 35.2 KB |
-| 7 | 73,528 | bespoke | 0.08 ms | 256,367 | 25.6 KB | 47.3 KB | 20.26 MB |
-| 7 | 73,528 | LTA | 317.99 ms | 131,105 | 49.7 KB | 183.2 KB | 159.6 KB |
-| 8 | 342,136 | naive | 0.08 ms | 6,254 | 1.24 MB | 33.3 KB | 35.3 KB |
-| 8 | 342,136 | bespoke | 0.08 ms | 168,804 | 32.1 KB | 47.6 KB | 72.82 MB |
-| 8 | 342,136 | LTA | 359.07 ms | 115,144 | 56.1 KB | 199.6 KB | 176.0 KB |
-| 9 | 1,783,112 | naive | 0.08 ms | 3,553 | 2.14 MB | 33.4 KB | 35.4 KB |
-| 9 | 1,783,112 | bespoke | 0.09 ms | 118,239 | 41.2 KB | 52.2 KB | 166.76 MB |
-| 9 | 1,783,112 | LTA | 374.66 ms | 105,446 | 62.5 KB | 213.6 KB | 190.0 KB |
-| 10 | 8,567,224 | naive | **timeout (30s)** | — | — | — | — |
-| 10 | 8,567,224 | bespoke | 0.09 ms | 83,180 | 51.1 KB | 54.3 KB | 265.52 MB |
-| 10 | 8,567,224 | LTA | 418.18 ms | 92,704 | 69.7 KB | 227.6 KB | 204.0 KB |
+The ordinary bespoke generator wins at short lengths, but LTA overtakes it at
+length nine. At length 40 the LTA produces 21,706 traces/s versus 8,663/s:
+2.5x the throughput, while retaining about 630 KB rather than 779 MB after the
+fixed workload. This is the clear amortisation win: the generic compiler pays
+1.4 seconds once, then reuses its pruned count table instead of rebuilding
+weighted QuickCheck choices through every generated suffix.
 
-Naive rejection therefore cracks at length ten for this fixed workload. Length
-nine only just completes: 3,553 traces/s means one 100,000-sample cell takes
-about 28.1 seconds, is 33x slower than bespoke generation, and allocates 2.14
-MB per accepted trace. At length ten only about 0.25% of the raw command
-sequences are valid, so the next cell crosses the 30-second boundary.
+The ranked row is the necessary ceiling on that claim. A bespoke author who
+manually reproduces count-and-unrank reaches 58,076 traces/s and allocates only
+50.7 KB per trace, because it constructs `Trace` directly. LTA is buying the
+reusable liquid specification and generic compiler, not claiming to outrun a
+perfect specialization of its own algorithm. QSM online is the pragmatic
+state-machine baseline: it is 1.6x faster than LTA at length 40, but it gives up
+uniformity over complete traces and delegates minimisation to failure-time
+shrinking.
+
+Naive rejection cracks at length 12 for the 20,000-sample workload. At length
+10 it is already 49x slower than LTA and allocates 3.97 MB per accepted trace.
 
 The first benchmark run made repeated solver work visible: length four took
 6.50 seconds to compile and length five timed out, despite only 115 distinct
 entailment requests among 34,073 requests at length four. Caching exact
 obligations for one compile and checking a generated witness directly, rather
-than first turning it into a singleton automaton, cuts length-four setup to 188
-ms and makes length five complete in 1.94 seconds.
+than first turning it into a singleton automaton, cut length-four setup to 188
+ms and made length five complete in 1.94 seconds.
 
 Replacing the outcome lists with `PlanAp` removes that allocation, but does not
 remove the work: the surface compiler still has to visit `11^6 = 1,771,561`
 ranks to discover 13,760 valid traces, so length six still exceeds 30 seconds.
-That experiment isolates the real requirement from the paper. The current
-flagship therefore builds an LTA with state-indexed trace layers, runs semantic
+That experiment isolates the real requirement from the paper. The flagship
+therefore builds an LTA with state-indexed trace layers, runs semantic
 transition pruning, and counts the reduced graph before unranking.
 
-The result reaches length ten in 418 ms of setup while representing 8,567,224
-traces in about 228 KB. Sampling materializes one liquid term and decodes it to
-one `Trace`; it does not retain the language. At length ten this path produces
-92,704 traces/s, about 11% faster than the handwritten exact-uniform generator
-on this workload, while naive rejection has already timed out. The remaining
-per-sample allocation—69.7 KB versus 51.1 KB bespoke—is the cost of constructing
-the selected `LiquidTerm` before decoding the Haskell trace, not of expanding
-the other 8.5 million members.
+At length 40 the pruned LTA represents roughly 1.12e28 traces in about 653 KB of
+setup memory. Sampling materializes one liquid term and decodes it to one
+`Trace`; it does not retain the language. The remaining 298.8 KB of allocation
+per sample is the price of that intermediate annotated term, visible in the
+gap to the hand-ranked control.
 
 ## Equality theory cost: ECTA versus LTA
 
