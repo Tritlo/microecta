@@ -39,10 +39,10 @@ plain =
 
 `Data.ECTA.FTA.toFTA` exposes an ECTA through this structure, retaining each
 edge's `EqConstraints` as its transition annotation. Handwritten constrained
-rows use `FTA.guarded` in the same position as `FTA.transition`. `Data.LTA.Syntax`
-mirrors this shape, adding the transition refinement and a named liquid guard.
-This is deliberately only the common mechanism; equality propagation and SMT
-entailment remain separate theories.
+rows use `Data.ECTA.FTA.Syntax.transition`; ordinary FTA syntax does not expose
+a generic `guarded` escape hatch. `Data.LTA.Syntax` mirrors the row shape while
+adding the transition refinement and a named liquid guard. The graph is shared;
+each constraint theory owns its public syntax.
 
 ## Core API
 

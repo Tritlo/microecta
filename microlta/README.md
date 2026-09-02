@@ -10,13 +10,13 @@ Handwritten FTAs and LTAs deliberately have the same shape:
 
 ```haskell
 import Data.LTA.Guard (requires, unconstrained)
-import Data.LTA.Refinement (true, (.>=.))
+import Data.LTA.Refinement ((.>=.))
 import qualified Data.LTA.Syntax as LTA
 
 numbers =
   LTA.automaton expression
     [ LTA.row expression
-        [ LTA.transition "sqrt" true [number]
+        [ LTA.transition "sqrt" nonNegative [number]
             (\argument -> argument `requires` nonNegative)
         ]
     , LTA.row number
@@ -32,7 +32,8 @@ phrases are:
 - ``candidate `requires` predicate`` for an ordinary precondition;
 - ``actual `isSubtypeOf` expected`` for semantic subtyping;
 - ``actual `isSameTermAs` expected`` for ECTA-style structural equality;
-- `withActualFor actual formal guard` for dependent result types;
+- `withActualFor actual formal guard` for dependent result types; the actual
+  symbol is assumed to satisfy the refinement carried by its whole subtree;
 - `allOf`, `anyOf`, and `notGuard` for Boolean composition.
 
 Raw paths and guard constructors remain available for generated automata.

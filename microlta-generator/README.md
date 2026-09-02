@@ -12,7 +12,7 @@ valid and which pool refinements imply one another, then returns a pure
 
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (isSubtypeOf)
-import Data.LTA.Refinement (true, (.==.), (.>=.))
+import Data.LTA.Refinement ((.==.), (.>=.))
 
 choices = LTA.pool
   [ LTA.refined 0 "non-negative" (value .>=. 0)
@@ -20,15 +20,20 @@ choices = LTA.pool
   ]
 
 liquidPairs =
-  LTA.node "pair" true (\actual expected -> actual `isSubtypeOf` expected) $ LTA.do
+  LTA.node "pair" subtypePair $ LTA.do
     left  <- choices
     right <- choices
     LTA.pure (left, right)
+
+subtypePair actual expected = actual `isSubtypeOf` expected
 ```
 
-The do-block only describes independent children. The root symbol, refinement,
-and guard live at `node`, where they belong. A value-dependent child choice is
-rejected at compile time; express that relationship with the liquid guard.
+The do-block only describes independent children. The root symbol and guard
+live at `node`, where they belong. Its result refinement defaults internally to
+the universal predicate; use `refinedNode` for one fixed result refinement or
+`refinedNodeBy` when each generated result computes its own. A value-dependent
+child choice is rejected at compile time; express that relationship with the
+liquid guard.
 The guard function receives symbolic constructor arguments in the same order
 as the child generators below it. For guards over nested terms,
 `descendant left [1]` selects the second child below `left`. The common cases
@@ -53,7 +58,7 @@ compiled <- LTA.compileSampled solver $ do
   lefts  <- LTA.samplePool 32 nativeRefinedInt
   rights <- LTA.samplePool 8  nativeRefinedInt
   pure $
-    LTA.node "pair" true (\actual expected -> actual `isSubtypeOf` expected) $ LTA.do
+    LTA.node "pair" subtypePair $ LTA.do
       left  <- lefts
       right <- rights
       LTA.pure (left, right)
@@ -89,11 +94,12 @@ for formal parameters. That permits constraints such as:
 
 ```haskell
 safeDivision =
-  LTA.node "divide" true
-    (\_ denominator -> denominator `requires` nonZero) $ LTA.do
-      numerator   <- integers
-      denominator <- integers
-      LTA.pure (Divide numerator denominator)
+  LTA.node "divide" validDenominator $ LTA.do
+    numerator   <- integers
+    denominator <- integers
+    LTA.pure (Divide numerator denominator)
+
+validDenominator _ denominator = denominator `requires` nonZero
 ```
 
 For dependent application, put the result type, function, and argument in the
@@ -111,6 +117,159 @@ applicationGuard result function argument =
 The compiler checks every frozen candidate once, removes those whose complete
 guard is false, and returns a pure language. This is semantic pruning at the
 finite QuickCheck boundary: invalid values never reach a property.
+
+## Flagship: typed state-machine traces
+
+[`Data.LTA.StateMachineTraceLanguage`](common/Data/LTA/StateMachineTraceLanguage.hs)
+is the LTA step in the repository's worked progression. The FTA example has
+only integer expression shapes; the ECTA example adds Boolean result types;
+this example carries those types through time as a stack-machine state.
+
+The abstract contract is the familiar typed reverse-Polish calculator:
+
+```text
+Push TInt  : Stack s                   -> Stack (TInt  ': s)
+Add        : Stack (TInt ': TInt ': s) -> Stack (TInt  ': s)
+Equal      : Stack (a    ': a    ': s) -> Stack (TBool ': s)
+Pop        : Stack (a    ': s)         -> (a, Stack s)
+```
+
+Those are explanatory signatures, not GADT constructors. The public Haskell
+values stay ordinary. The LTA stores the input state as each command root's
+refinement and its dependent output state as a child refinement. A trace node's
+result refinement is its final stack type:
+
+```haskell
+extendTrace previousTraces =
+  LTA.refinedNodeBy "step" (stateRefinement . traceFinalState) validStep $ LTA.do
+    previous <- previousTraces
+    command  <- commandContracts
+    LTA.pure (predictStep previous command)
+
+validStep previous command =
+  allOf
+    [ previous `isSubtypeOf` command
+    , withActualFor previous (descendant command [0]) $
+        descendant command [1] `isSubtypeOf` root
+    ]
+```
+
+The first guard says that the preceding trace's output state inhabits the next
+command's input space. The second substitutes that actual state for the
+command's formal `model` and proves its output formula implies the new trace
+root. With the top stack type in the low bits, for example, pushing an integer
+has output `v = 2 * model + 1`, while `Add` accepts two leading integer tags and
+has output relation `model = 2 * v + 1`.
+
+The stack depth is bounded only to make the QuickCheck language finite. There
+is one symbolic schema per operation, not one transition per concrete
+input/output pair. This is where the LTA is materially clearer than an ECTA: a
+bounded ECTA could tabulate every stack shape, but it cannot state and reuse the
+dependent arithmetic transition itself.
+
+Following the
+[quickcheck-state-machine workflow](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the whole trace is generated before execution. Every retained event predicts
+its before-state, response space, and after-state. The specs enumerate all 132
+accepted traces of length three, replay every one through an independent
+abstract model and a separate concrete integer/Boolean interpreter, and verify
+that shrinking never violates a later command's stack precondition. The final
+QuickCheck property therefore has no implication or `suchThat` filter.
+
+## Sampling performance
+
+The typed stack-machine example has three exact-uniform implementations:
+
+- **naive** draws uniformly from all nine raw commands at every position and
+  rejects the complete sequence if abstract replay fails;
+- **bespoke** tracks `StackState` directly and weights each valid command by
+  the exact number of complete suffixes following its output state; and
+- **LTA** compiles the dependent transition schemas with Z3, then samples the
+  accepted ranked language without further solver calls.
+
+The suffix weights are essential. Merely choosing uniformly among the commands
+valid at the current state would bias traces whose later states have fewer
+continuations. All three rows instead sample the same uniform language at each
+exact length. The `members` column is computed by an independent state-model
+recurrence and checked against the compiled LTA cardinality in the specs.
+
+Each successful cell draws 100,000 traces. It runs in a fresh process with a
+30-second wall-clock limit and is the median of three runs. The first-sample
+column includes all setup—in the LTA row, that means starting Z3, checking the
+guards and shrink implications, compiling the accepted language, and drawing
+once. Steady-state sampling is pure.
+
+| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 4 | naive | 0.02 ms | 585,840 | 13.6 KB | 32.7 KB | 34.7 KB |
+| 1 | 4 | bespoke | 0.01 ms | 2,391,143 | 3.4 KB | 2.0 KB | 35.2 KB |
+| 1 | 4 | LTA | 7.10 ms | 2,334,540 | 3.4 KB | 62.8 KB | 39.1 KB |
+| 2 | 22 | naive | 0.02 ms | 278,497 | 28.5 KB | 32.8 KB | 34.8 KB |
+| 2 | 22 | bespoke | 0.02 ms | 1,049,307 | 7.2 KB | 34.1 KB | 40.5 KB |
+| 2 | 22 | LTA | 48.58 ms | 1,955,187 | 3.7 KB | 75.7 KB | 51.3 KB |
+| 3 | 132 | naive | 0.02 ms | 160,202 | 48.4 KB | 32.9 KB | 34.9 KB |
+| 3 | 132 | bespoke | 0.03 ms | 738,585 | 10.5 KB | 34.9 KB | 71.8 KB |
+| 3 | 132 | LTA | 563.00 ms | 1,305,960 | 4.1 KB | 133.7 KB | 106.7 KB |
+| 4 | 556 | naive | 0.04 ms | 69,257 | 111.2 KB | 32.9 KB | 35.0 KB |
+| 4 | 556 | bespoke | 0.05 ms | 527,348 | 14.3 KB | 35.9 KB | 207.2 KB |
+| 4 | 556 | LTA | 6,584.83 ms | 697,355 | 4.0 KB | 354.4 KB | 325.5 KB |
+
+The trade-off is clean. LTA setup grows from 7 ms to 6.6 seconds over these
+four lengths because solver work is front-loaded, but it remains below the
+30-second boundary. Once compiled, the length-four LTA is about 10x faster
+than whole-sequence rejection and 1.3x faster than the bespoke generator,
+while allocating about 28x and 3.6x less per sample respectively. Whether that
+setup amortizes is therefore visible rather than hidden.
+
+Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
+2026-09-02. Reproduce this table, or all three FTA/ECTA/LTA tables, from the
+repository root with:
+
+```sh
+cabal bench microlta-generator:state-machine-trace-speed --enable-optimization=2
+./scripts/benchmark-generators.sh
+```
+
+## A second dependent example: safe buffer programs
+
+[`Data.LTA.SafeBufferLanguage`](common/Data/LTA/SafeBufferLanguage.hs) gives
+buffers and indexes symbolic integer names, records the surrounding Liquid
+environment as solver assumptions, and generates two deliberately partial
+operations:
+
+```haskell
+safeReads = LTA.node "read-at" validRead $ LTA.do
+  buffer <- sourceBuffers
+  function <- readFunction
+  ~(_, index) <- indexes
+  LTA.pure (ReadAt (bufferExpression buffer) index)
+
+validRead buffer function index =
+  withActualFor buffer (descendant function [0]) $
+    index `isSubtypeOf` descendant function [1]
+```
+
+The function's input refinement is `0 <= v && v < n`. Substitution replaces
+the formal `n` with the selected buffer-length symbol; Z3 then uses facts such
+as `tripleLength = 3` to retain indexes 0, 1, and 2 while rejecting -1 and 3.
+
+The same module demonstrates a two-argument dependent result. Append declares
+`resultLength = n + m`, substitutes both selected buffer lengths, and uses
+`refinedNodeBy` to retain the proven result refinement. A later `head` node can
+therefore prove the appended buffer non-empty. The property itself needs no
+precondition:
+
+```haskell
+withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+  Right compiled <- LTA.compile solver safePrograms
+  quickCheck $ LTA.forAll compiled $ \program ->
+    programIsSafe program && safeResult program == Just (runProgram program)
+```
+
+The specs enumerate all 14 accepted programs, verify exact append lengths, and
+run the partial interpreter through QuickCheck. This is the distinction from
+an ECTA key: the accepted combinations depend on arithmetic implication under
+an environment, not equality of a finite classification tag.
 
 ## Refinement shrinking, similarity, and pools
 
