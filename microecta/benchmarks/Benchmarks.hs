@@ -3,6 +3,8 @@
 module Main (main) where
 
 import Control.Exception (evaluate)
+import Data.Function (on)
+import Data.List (sortBy)
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
@@ -31,6 +33,7 @@ data Bench = Bench
 
 main :: IO ()
 main = do
+    preparePathOrderInputs
     multiplier <- parseMultiplier <$> getArgs
     putStrLn "benchmark,cpu_seconds,repeats,checksum"
     mapM_ (runBench multiplier) benchmarks
@@ -77,6 +80,18 @@ benchmarks =
         forceNode $ reduceFully (filterListIntSize3 i)
     , Bench "enumerate/reduced-filter-maybe-int-size-2" 80 $ \i ->
         forceInt $ length (take 64 (getAllTerms (reduceFully (filterMaybeIntSize2 i))))
+    , Bench "sort/path-eclasses/cached/small" 120 $ \i ->
+        forcePathEClasses $
+            sortBy compare (selectPathOrderInput smallPathOrderInputs i)
+    , Bench "sort/path-eclasses/trie/small" 120 $ \i ->
+        forcePathEClasses $
+            sortBy (compare `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
+    , Bench "sort/path-eclasses/cached/shared-prefix" 40 $ \i ->
+        forcePathEClasses $
+            sortBy compare (selectPathOrderInput sharedPrefixPathOrderInputs i)
+    , Bench "sort/path-eclasses/trie/shared-prefix" 40 $ \i ->
+        forcePathEClasses $
+            sortBy (compare `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
     ]
 
 forceNode :: Node Symbol -> IO Int
@@ -92,8 +107,67 @@ forceEqConstraints =
         . map (sum . map (length . unPath) . unPathEClass)
         . unsafeGetEclasses
 
+-- | Force a sorted equality-class result through its cached path lists.
+forcePathEClasses :: [PathEClass] -> IO Int
+forcePathEClasses =
+    forceInt
+        . sum
+        . map (sum . map (sum . unPath) . unPathEClass)
+
 forceInt :: Int -> IO Int
 forceInt = evaluate
+
+-- | Force both views before timing so the benchmark measures comparison.
+preparePathOrderInputs :: IO ()
+preparePathOrderInputs = do
+    mapM_ forcePathEClasses allInputs
+    mapM_ forcePathTries allInputs
+  where
+    allInputs = smallPathOrderInputs ++ sharedPrefixPathOrderInputs
+
+    forcePathTries =
+        forceInt
+            . sum
+            . map (sum . map (sum . unPath) . fromPathTrie . getPathTrie)
+
+-- | Select one of several deterministic input permutations.
+selectPathOrderInput :: [[PathEClass]] -> Int -> [PathEClass]
+selectPathOrderInput inputs salt = inputs !! (salt `rem` length inputs)
+
+-- | Small equality classes with one common leading path.
+smallPathOrderInputs :: [[PathEClass]]
+smallPathOrderInputs = pathOrderInputs smallPathSets
+  where
+    smallPathSets =
+        [ [ path [0, 0, 0]
+          , path [1, n `div` 32, n `rem` 32]
+          , path [2, n `rem` 17, n `div` 17]
+          ]
+        | n <- [0 .. 255]
+        ]
+
+-- | Larger equality classes whose comparisons share sixteen paths.
+sharedPrefixPathOrderInputs :: [[PathEClass]]
+sharedPrefixPathOrderInputs = pathOrderInputs sharedPrefixPathSets
+  where
+    sharedPrefixPathSets =
+        [ [path [0, k, 0, 0] | k <- [0 .. 15]]
+            ++ [path [1, n `div` 16, n `rem` 16, 0]]
+        | n <- [0 .. 127]
+        ]
+
+-- | Build and deterministically permute equality classes outside timed work.
+pathOrderInputs :: [[Path]] -> [[PathEClass]]
+pathOrderInputs pathSets =
+    [ map snd $
+        sortBy (compare `on` fst) $
+            [ ((index * 73 + salt * 37) `rem` 257, pec)
+            | (index, pec) <- zip [(0 :: Int) ..] corpus
+            ]
+    | salt <- [0 .. 7]
+    ]
+  where
+    corpus = concatMap (unsafeGetEclasses . mkEqConstraints . (: [])) pathSets
 
 typeSearchNode :: Node Symbol
 typeSearchNode =

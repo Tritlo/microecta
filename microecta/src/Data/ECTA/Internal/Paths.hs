@@ -300,8 +300,9 @@ data PathEClass = PathEClass'
 instance Eq PathEClass where
     (==) = (==) `on` getPathTrie
 
+-- | Compare the cached sorted path lists instead of rebuilding them from tries.
 instance Ord PathEClass where
-    compare = compare `on` getPathTrie
+    compare = compare `on` getOrigPaths
 
 -- | Build or match an equality class from its sorted path list view.
 pattern PathEClass :: [Path] -> PathEClass

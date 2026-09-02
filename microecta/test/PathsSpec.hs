@@ -98,6 +98,12 @@ spec = do
                  in hasSubsumingMember pec1 pec2 == hasSubsumingMemberListBased (unPathEClass pec1) (unPathEClass pec2)
 
     describe "PathEClass" $ do
+        it "cached path ordering agrees with trie ordering" $ do
+            property $ \pt1 pt2 ->
+                let pec1 = PathEClass (fromPathTrie pt1)
+                    pec2 = PathEClass (fromPathTrie pt2)
+                 in compare pec1 pec2 == compare pt1 pt2
+
         it "both ways of getting list of paths from a PathEClass are identical" $ do
             property $ \pt -> fromPathTrie (getPathTrie (PathEClass (fromPathTrie pt))) == getOrigPaths (PathEClass (fromPathTrie pt))
 
