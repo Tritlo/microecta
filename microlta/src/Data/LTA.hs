@@ -1,15 +1,18 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-{- | Finite, acyclic liquid tree automata.
+{- | Liquid tree automata over Liquid Fixpoint refinements.
 
 An LTA transition has a ranked symbol, child states, and a Boolean guard over
 paths into the candidate term. 'Same' retains ECTA's syntactic equality, while
 'Entails' asks whether the refinement at one path implies the refinement at
-another. Refinements are Liquid Fixpoint expressions.
+another. 'Satisfies' compares a path with a literal requirement, avoiding
+phantom constant children. 'Substitute' applies the paper's actual-for-formal
+position substitutions before semantic checks. Refinements are Liquid Fixpoint
+expressions.
 
-This initial implementation deliberately covers recognition only. It does not
-yet implement position substitutions, recursive automata, synthesis, semantic
-intersection, or similarity minimisation.
+Recursive automata are accepted. As required by the LTA construction, a guard
+may only inspect positions whose states are acyclic; recursive states can still
+occur elsewhere in the generated term.
 
 "Data.LTA.Guard" provides higher-level guard syntax in terms of constructor
 arguments. This module also exposes the underlying constructors for tools that
@@ -22,12 +25,19 @@ module Data.LTA (
     path,
     Refinement,
     LiquidTerm (..),
+    LiquidSymbol,
     eraseRefinements,
 
     -- * Guards
+    Substitution (..),
     Guard (..),
+    guardPaths,
     Verdict (..),
     Entailment (..),
+    RefinementRelation (..),
+    refinementRelation,
+    SemanticIntersection (..),
+    semanticIntersection,
     evaluateGuard,
 
     -- * Automata
@@ -35,6 +45,7 @@ module Data.LTA (
     Transition,
     pattern Transition,
     transitionSymbol,
+    transitionRefinement,
     transitionChildren,
     transitionGuard,
     Automaton,
@@ -47,6 +58,7 @@ module Data.LTA (
 
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import Data.ECTA.Paths (Path, path, unPath)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
@@ -79,6 +91,10 @@ data Guard
       Same !Path !Path
     | -- | Require the refinement at the first path to imply the second.
       Entails !Path !Path
+    | -- | Require the refinement at a path to imply a literal requirement.
+      Satisfies !Path !Refinement
+    | -- | Apply actual-for-formal substitutions before checking a guard.
+      Substitute ![Substitution] !Guard
     | -- | Logical negation.
       Not !Guard
     | -- | Logical conjunction.
@@ -86,6 +102,34 @@ data Guard
     | -- | Logical disjunction.
       Or ![Guard]
     deriving (Eq, Show)
+
+{- | Replace the variable named at the formal path with the variable named at
+the actual path while evaluating a semantic guard.
+
+This is the paper's @[actual/formal]@ position substitution. Both positions are
+relative to the root of the guarded transition.
+-}
+data Substitution = Substitution
+    { substitutionActual :: !Path
+    , substitutionFormal :: !Path
+    }
+    deriving (Eq, Show)
+
+-- | Every term position inspected by a guard, including substitutions.
+guardPaths :: Guard -> [Path]
+guardPaths Top = []
+guardPaths Bottom = []
+guardPaths (Same left right) = [left, right]
+guardPaths (Entails antecedent consequent) = [antecedent, consequent]
+guardPaths (Satisfies target _) = [target]
+guardPaths (Substitute substitutions nested) =
+    concatMap substitutionPaths substitutions <> guardPaths nested
+  where
+    substitutionPaths Substitution{substitutionActual, substitutionFormal} =
+        [substitutionActual, substitutionFormal]
+guardPaths (Not nested) = guardPaths nested
+guardPaths (And guards) = concatMap guardPaths guards
+guardPaths (Or guards) = concatMap guardPaths guards
 
 -- | A three-valued decision. Solver uncertainty is never silently made false.
 data Verdict = Yes | No | Unknown
@@ -96,42 +140,128 @@ newtype Entailment = Entailment
     { entails :: Refinement -> Refinement -> IO Verdict
     }
 
+-- | The semantic subtype relationship between two refinements.
+data RefinementRelation
+    = -- | Each refinement implies the other.
+      Equivalent
+    | -- | The left refinement is strictly more specific.
+      StrictSubtype
+    | -- | The right refinement is strictly more specific.
+      StrictSupertype
+    | -- | Neither refinement implies the other.
+      Incomparable
+    | -- | The solver could not decide at least one required implication.
+      RelationUnknown
+    deriving (Eq, Show)
+
+{- | Compare two refinements by asking for implication in both directions.
+
+This is the semantic comparison used by LTA intersection and similarity
+minimisation. Solver uncertainty remains explicit.
+-}
+refinementRelation :: Entailment -> Refinement -> Refinement -> IO RefinementRelation
+refinementRelation entailment left right = do
+    leftToRight <- entails entailment left right
+    rightToLeft <- entails entailment right left
+    pure $ case (leftToRight, rightToLeft) of
+        (Yes, Yes) -> Equivalent
+        (Yes, No) -> StrictSubtype
+        (No, Yes) -> StrictSupertype
+        (No, No) -> Incomparable
+        _ -> RelationUnknown
+
+-- | Result of the paper's semantic intersection on refinement transitions.
+data SemanticIntersection
+    = -- | The intersection retains this more-specific refinement.
+      MoreSpecific !Refinement
+    | -- | The semantic entailment constraint cannot relate the transitions.
+      BottomIntersection
+    | -- | The solver could not decide the required relation.
+      IntersectionUnknown
+    deriving (Eq, Show)
+
+{- | Intersect two refinement transitions by keeping their most-specific
+representative when one subsumes the other.
+
+This is the semantic-intersection rule used while pruning an LTA, not general
+logical conjunction: overlapping but incomparable predicates yield
+'BottomIntersection'.
+-}
+semanticIntersection :: Entailment -> Refinement -> Refinement -> IO SemanticIntersection
+semanticIntersection entailment left right = do
+    relation <- refinementRelation entailment left right
+    pure $ case relation of
+        Equivalent -> MoreSpecific left
+        StrictSubtype -> MoreSpecific left
+        StrictSupertype -> MoreSpecific right
+        Incomparable -> BottomIntersection
+        RelationUnknown -> IntersectionUnknown
+
 -- | Evaluate a guard against one candidate term.
 evaluateGuard :: Entailment -> Guard -> LiquidTerm -> IO Verdict
 evaluateGuard entailment guard term = go guard
   where
-    go Top = pure Yes
-    go Bottom = pure No
-    go (Same left right) =
+    go = evaluateWith []
+
+    evaluateWith _ Top = pure Yes
+    evaluateWith _ Bottom = pure No
+    evaluateWith _ (Same left right) =
         pure $ case (termAt left term, termAt right term) of
             (Just leftTerm, Just rightTerm)
                 | eraseRefinements leftTerm == eraseRefinements rightTerm -> Yes
             _ -> No
-    go (Entails antecedent consequent) =
+    evaluateWith substitutions (Entails antecedent consequent) =
         case (termAt antecedent term, termAt consequent term) of
             (Just leftTerm, Just rightTerm) ->
-                entails entailment (liquidRefinement leftTerm) (liquidRefinement rightTerm)
+                entails
+                    entailment
+                    (applySubstitutions substitutions $ liquidRefinement leftTerm)
+                    (applySubstitutions substitutions $ liquidRefinement rightTerm)
             _ -> pure No
-    go (Not nested) = negateVerdict <$> go nested
-    go (And guards) = andM (map go guards)
-    go (Or guards) = orM (map go guards)
+    evaluateWith substitutions (Satisfies target requirement) =
+        case termAt target term of
+            Just targetTerm ->
+                entails
+                    entailment
+                    (applySubstitutions substitutions $ liquidRefinement targetTerm)
+                    (applySubstitutions substitutions requirement)
+            Nothing -> pure No
+    evaluateWith substitutions (Substitute additions nested) =
+        case traverse (resolveSubstitution term) additions of
+            Just resolved -> evaluateWith (resolved <> substitutions) nested
+            Nothing -> pure No
+    evaluateWith substitutions (Not nested) =
+        negateVerdict <$> evaluateWith substitutions nested
+    evaluateWith substitutions (And guards) =
+        andM (map (evaluateWith substitutions) guards)
+    evaluateWith substitutions (Or guards) =
+        orM (map (evaluateWith substitutions) guards)
 
 -- | An integer identity for one LTA state.
 newtype State = State {unState :: Int}
     deriving (Eq, Ord, Show)
 
--- | One guarded outgoing alternative from an LTA state.
-type Transition = FTA.Transition State Symbol Guard
+-- | The ranked alphabet label carried by one LTA transition.
+data LiquidSymbol = LiquidSymbol !Symbol !Refinement
+    deriving (Eq, Ord, Show)
+
+-- | One refinement-labelled, guarded alternative from an LTA state.
+type Transition = FTA.Transition State LiquidSymbol Guard
 
 -- | Construct or match an LTA transition.
-pattern Transition :: Symbol -> [State] -> Guard -> Transition
-pattern Transition symbol children guard = FTA.Transition symbol children guard
+pattern Transition :: Symbol -> Refinement -> [State] -> Guard -> Transition
+pattern Transition symbol refinement children guard =
+    FTA.Transition (LiquidSymbol symbol refinement) children guard
 
 {-# COMPLETE Transition #-}
 
 -- | Symbol at the root of a transition.
 transitionSymbol :: Transition -> Symbol
-transitionSymbol = FTA.transitionSymbol
+transitionSymbol (FTA.Transition (LiquidSymbol symbol _) _ _) = symbol
+
+-- | Refinement formula at the root of a transition.
+transitionRefinement :: Transition -> Refinement
+transitionRefinement (FTA.Transition (LiquidSymbol _ refinement) _ _) = refinement
 
 -- | Child states of a transition, from left to right.
 transitionChildren :: Transition -> [State]
@@ -141,8 +271,8 @@ transitionChildren = FTA.transitionChildren
 transitionGuard :: Transition -> Guard
 transitionGuard = FTA.transitionGuard
 
--- | A validated finite, acyclic LTA.
-type Automaton = FTA.FTA State Symbol Guard
+-- | A validated LTA, possibly with recursive states.
+type Automaton = FTA.FTA State LiquidSymbol Guard
 
 -- | Initial state of an LTA.
 automatonInitial :: Automaton -> State
@@ -156,22 +286,78 @@ automatonTransitions = FTA.transitionTable
 data AutomatonError
     = MissingInitialState !State
     | DanglingState !State
-    | CyclicState !State
+    | {- | A guard position reaches a recursive state, which would produce an
+      unbounded logical obligation during semantic operations.
+      -}
+      CyclicGuardReference !State !Path
     | InconsistentArity !Symbol !Int !Int
     deriving (Eq, Show)
 
--- | Validate and construct a finite, acyclic LTA.
+-- | Validate and construct an LTA, including guarded-cycle well-formedness.
 mkAutomaton :: State -> [(State, [Transition])] -> Either AutomatonError Automaton
 mkAutomaton initial rows = do
     automaton <- first fromFTAError $ FTA.mkFTA initial rows
-    case FTA.cycleState automaton of
-        Just state -> Left (CyclicState state)
-        Nothing -> Right automaton
+    ensureConsistentSymbolArity automaton
+    ensureGuardedPositionsAcyclic automaton
+    pure automaton
   where
     fromFTAError (FTA.MissingInitialState state) = MissingInitialState state
     fromFTAError (FTA.DanglingState state) = DanglingState state
-    fromFTAError (FTA.InconsistentArity symbol expected actual) =
+    fromFTAError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
         InconsistentArity symbol expected actual
+
+ensureConsistentSymbolArity :: Automaton -> Either AutomatonError ()
+ensureConsistentSymbolArity automaton = go Map.empty allTransitions
+  where
+    allTransitions = concat $ Map.elems $ automatonTransitions automaton
+
+    go _ [] = Right ()
+    go arities (transition : rest) =
+        let symbol = transitionSymbol transition
+            arity = length $ transitionChildren transition
+         in case Map.lookup symbol arities of
+                Nothing -> go (Map.insert symbol arity arities) rest
+                Just expected
+                    | expected == arity -> go arities rest
+                    | otherwise -> Left (InconsistentArity symbol expected arity)
+
+ensureGuardedPositionsAcyclic :: Automaton -> Either AutomatonError ()
+ensureGuardedPositionsAcyclic automaton =
+    case referencesIntoCycles of
+        (state, target) : _ -> Left (CyclicGuardReference state target)
+        [] -> Right ()
+  where
+    cyclic = FTA.cyclicStates automaton
+    referencesIntoCycles =
+        [ (referenced, target)
+        | (state, transitions) <- Map.toList $ automatonTransitions automaton
+        , transition <- transitions
+        , target <- guardPaths $ transitionGuard transition
+        , referenced <- Set.toList $ statesAtPath automaton state transition target
+        , Set.member referenced cyclic
+        ]
+
+statesAtPath :: Automaton -> State -> Transition -> Path -> Set.Set State
+statesAtPath automaton parent transition target =
+    case unPath target of
+        [] -> Set.singleton parent
+        index : rest ->
+            descend rest $ maybe Set.empty Set.singleton $ atIndex index (transitionChildren transition)
+  where
+    descend [] current = current
+    descend (index : rest) current =
+        descend rest . Set.fromList $
+            [ child
+            | state <- Set.toList current
+            , outgoing <- FTA.transitionsFrom automaton state
+            , Just child <- [atIndex index $ FTA.transitionChildren outgoing]
+            ]
+
+    atIndex index values
+        | index < 0 = Nothing
+        | otherwise = case drop index values of
+            value : _ -> Just value
+            [] -> Nothing
 
 -- | Decide whether an annotated term is accepted from the initial state.
 accepts :: Entailment -> Automaton -> LiquidTerm -> IO Verdict
@@ -183,6 +369,7 @@ accepts entailment automaton =
 
     acceptsTransition term transition
         | transitionSymbol transition /= liquidSymbol term = pure No
+        | transitionRefinement transition /= liquidRefinement term = pure No
         | length (transitionChildren transition) /= length (liquidChildren term) = pure No
         | otherwise = do
             childrenVerdict <-
@@ -206,6 +393,21 @@ termAt target = go (unPath target)
         | otherwise = case drop index liquidChildren of
             child : _ -> go rest child
             [] -> Nothing
+
+type ResolvedSubstitution = (Fixpoint.Symbol, Refinement)
+
+resolveSubstitution :: LiquidTerm -> Substitution -> Maybe ResolvedSubstitution
+resolveSubstitution term Substitution{substitutionActual, substitutionFormal} = do
+    LiquidTerm{liquidSymbol = Symbol actualName} <- termAt substitutionActual term
+    LiquidTerm{liquidSymbol = Symbol formalName} <- termAt substitutionFormal term
+    pure
+        ( Fixpoint.symbol formalName
+        , Fixpoint.EVar $ Fixpoint.symbol actualName
+        )
+
+applySubstitutions :: [ResolvedSubstitution] -> Refinement -> Refinement
+applySubstitutions substitutions refinement =
+    foldl Fixpoint.subst1 refinement substitutions
 
 negateVerdict :: Verdict -> Verdict
 negateVerdict Yes = No

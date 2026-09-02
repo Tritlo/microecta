@@ -21,6 +21,7 @@ module Data.Tree.FTA (
     mkFTA,
     states,
     transitionsFrom,
+    cyclicStates,
     cycleState,
     mapGuards,
     stripGuards,
@@ -28,6 +29,7 @@ module Data.Tree.FTA (
 ) where
 
 import Control.Monad (foldM)
+import Data.Graph (SCC (AcyclicSCC, CyclicSCC), stronglyConnComp)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -118,28 +120,39 @@ transitionsFrom automaton state =
 
 -- | Find one state on a cycle, if the automaton is cyclic.
 cycleState :: (Ord state) => FTA state symbol guard -> Maybe state
-cycleState automaton = go Set.empty (states automaton)
-  where
-    go _ [] = Nothing
-    go visited (state : rest)
-        | Set.member state visited = go visited rest
-        | otherwise = case visit Set.empty visited state of
-            Left cyclic -> Just cyclic
-            Right visited' -> go visited' rest
+cycleState = Set.lookupMin . cyclicStates
 
-    visit visiting visited state
-        | Set.member state visiting = Left state
-        | Set.member state visited = Right visited
-        | otherwise = do
-            visitedChildren <-
-                foldM
-                    (visit $ Set.insert state visiting)
-                    visited
-                    [ child
-                    | transition <- transitionsFrom automaton state
-                    , child <- transitionChildren transition
-                    ]
-            pure (Set.insert state visitedChildren)
+{- | All states that participate in a dependency cycle.
+
+A singleton strongly connected component is cyclic only when it has a direct
+self-edge. This is useful to consumers such as LTAs, which permit recursive
+languages but restrict what constraints may inspect inside them.
+-}
+cyclicStates :: (Ord state) => FTA state symbol guard -> Set.Set state
+cyclicStates automaton =
+    Set.fromList $ concatMap componentStates components
+  where
+    components = stronglyConnComp $ map dependencyNode (states automaton)
+
+    dependencyNode state =
+        ( state
+        , state
+        , [ child
+          | transition <- transitionsFrom automaton state
+          , child <- transitionChildren transition
+          ]
+        )
+
+    componentStates (CyclicSCC component) = component
+    componentStates (AcyclicSCC state)
+        | state `elem` directChildren state = [state]
+        | otherwise = []
+
+    directChildren state =
+        [ child
+        | transition <- transitionsFrom automaton state
+        , child <- transitionChildren transition
+        ]
 
 -- | Change transition annotations without changing the accepted tree shapes.
 mapGuards :: (guard -> other) -> FTA state symbol guard -> FTA state symbol other

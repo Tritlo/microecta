@@ -91,6 +91,7 @@ library
     Data.Memoization
     Data.Persistent.UnionFind
     Data.Tree.FTA
+    Data.Tree.FTA.Syntax
     Data.Tree.Term
     Utility.Fixpoint
     Utility.HashJoin
@@ -125,6 +126,7 @@ test-suite unit-tests
   other-modules:
     Application.TermSearchSpec
     Data.Persistent.UnionFindSpec
+    Data.Tree.FTASyntaxSpec
     ECTASpec
     PathsSpec
     Test.Generators.ECTA

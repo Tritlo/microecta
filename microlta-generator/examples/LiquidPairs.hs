@@ -8,7 +8,7 @@ import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (refines)
+import Data.LTA.Guard (isSubtypeOf)
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (true, (.==.), (.>=.))
 
@@ -25,7 +25,7 @@ main =
                 LTA.node
                     "pair"
                     true
-                    (\left right -> left `refines` right)
+                    (\actual expected -> actual `isSubtypeOf` expected)
                     $ LTA.do
                         left <- choices
                         right <- choices

@@ -3,8 +3,8 @@ name: microlta
 version: 0.1.0.0
 synopsis: Small liquid tree automata core
 description:
-  A finite liquid tree automata spike using Liquid Fixpoint predicates and Z3
-  entailment.
+  Liquid tree automata with refinement-labelled transitions, position
+  substitutions, recursive-state validation, and Z3 entailment.
 
 homepage: https://github.com/Tritlo/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
@@ -16,6 +16,7 @@ license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
 tested-with: ghc ==9.12.2 || ==9.14.1
+extra-doc-files: README.md
 
 source-repository head
   type: git
@@ -48,6 +49,7 @@ library
     Data.LTA.Guard
     Data.LTA.LiquidFixpoint
     Data.LTA.Refinement
+    Data.LTA.Syntax
 
   build-depends:
     base >=4.21 && <5,
@@ -56,3 +58,28 @@ library
     microecta >=0.2.0.0 && <0.3,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
+
+test-suite unit-tests
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  default-language: Haskell2010
+  default-extensions:
+    NamedFieldPuns
+    OverloadedStrings
+    PatternSynonyms
+
+  other-modules:
+    Data.LTA.GuardSpec
+    Data.LTA.RecognitionSpec
+    Data.LTA.RecursiveSpec
+    Data.LTA.SemanticsSpec
+    Data.LTA.SubstitutionSpec
+    Data.LTA.SyntaxSpec
+
+  build-depends:
+    base >=4.21 && <5,
+    hspec >=2.11 && <2.12,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microlta,

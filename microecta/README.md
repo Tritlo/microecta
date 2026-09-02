@@ -22,7 +22,8 @@ arbitrary transition annotation. Cycles are valid: an FTA has finitely many
 states, but may accept an infinite tree language.
 
 ```haskell
-import Data.Tree.FTA
+import Data.Tree.FTA (FTAError, PlainFTA)
+import qualified Data.Tree.FTA.Syntax as FTA
 import Data.Tree.Term
 
 data Q = Root | Atom
@@ -30,16 +31,18 @@ data Q = Root | Atom
 
 plain :: Either (FTAError Q String) (PlainFTA Q String)
 plain =
-  mkFTA Root
-    [ (Root, [Transition "pair" [Atom, Atom] ()])
-    , (Atom, [Transition "zero" [] (), Transition "one" [] ()])
+  FTA.automaton Root
+    [ FTA.row Root [FTA.transition "pair" [Atom, Atom]]
+    , FTA.row Atom [FTA.transition "zero" [], FTA.transition "one" []]
     ]
 ```
 
 `Data.ECTA.FTA.toFTA` exposes an ECTA through this structure, retaining each
-edge's `EqConstraints` as its transition annotation. `Data.LTA` uses the same
-FTA directly with liquid guards. This is deliberately only the common
-mechanism; equality propagation and SMT entailment remain separate theories.
+edge's `EqConstraints` as its transition annotation. Handwritten constrained
+rows use `FTA.guarded` in the same position as `FTA.transition`. `Data.LTA.Syntax`
+mirrors this shape, adding the transition refinement and a named liquid guard.
+This is deliberately only the common mechanism; equality propagation and SMT
+entailment remain separate theories.
 
 ## Core API
 

@@ -6,13 +6,13 @@ This repository contains four Cabal packages:
 | --- | --- |
 | [`microecta`](microecta/README.md) | A general FTA structure plus the equality-constrained tree automata core. |
 | [`microecta-generator`](microecta-generator/README.md) | Shared ranked FTA generation plus ECTA-specific combinators and QuickCheck integration. |
-| [`microlta`](microlta/) | Finite liquid tree automata using Liquid Fixpoint predicates and Z3 entailment. |
-| [`microlta-generator`](microlta-generator/) | Compile-once liquid generators with inspectable support, replay, and shrinking. |
+| [`microlta`](microlta/) | Liquid tree automata using Liquid Fixpoint predicates and Z3 entailment. |
+| [`microlta-generator`](microlta-generator/) | Compile-once liquid generators with pruning, replay, semantic shrinking, and bounded recursion. |
 
-`Data.Tree.FTA` is the shared ranked-transition graph. An ordinary FTA uses
-`()` transition guards; `Data.ECTA.FTA` retains `EqConstraints`, and
-`Data.LTA` specializes the same structure with liquid guards. Constraint
-theories remain in their own modules.
+`Data.Tree.FTA` is the shared ranked-transition graph. `Data.Tree.FTA.Syntax`
+constructs ordinary or annotated FTAs with `row`, `transition`, and `guarded`.
+`Data.ECTA.FTA` retains `EqConstraints`, while `Data.LTA` adds refinement-labelled
+transitions and liquid guards. Constraint theories remain in their own modules.
 
 `microecta-generator` depends on `microecta`; the core package does not depend
 on the generator package or on QuickCheck. `Data.Tree.Gen` provides exact
@@ -27,9 +27,17 @@ Enter `nix-shell` to put Z3 on `PATH`, then run the semantic entailment example:
 cabal run liquid-pairs
 ```
 
-The spike recognises finite acyclic LTAs. It does not yet implement position
-substitutions, recursive LTAs, synthesis, semantic intersection, or similarity
-minimisation.
+`microlta` implements refinement-labelled recognition, Boolean guards,
+actual-for-formal position substitutions, semantic intersection, similarity
+comparison, and recursive LTAs with the paper's acyclic-guard restriction.
+`microlta-generator` adds named guard syntax, finite or frozen QuickCheck pools,
+semantic pruning and shrinking, opt-in similarity minimisation, and explicitly
+bounded generation from recursive LTAs. It is an automata and generator library,
+not the Hegel component-based synthesizer from the paper.
+
+See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
+FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda
+syntax.
 
 Build and test the whole workspace from the repository root:
 

@@ -2,6 +2,9 @@
 module Data.LTA.Refinement (
     true,
     false,
+    (.+.),
+    (.-.),
+    (.*.),
     (.==.),
     (./=.),
     (.<.),
@@ -21,7 +24,21 @@ true = Fixpoint.PTrue
 false :: Refinement
 false = Fixpoint.PFalse
 
+infixl 6 .+., .-.
+infixl 7 .*.
 infix 4 .==., ./=., .<., .<=., .>., .>=.
+
+-- | Integer addition between two Liquid Fixpoint expressions.
+(.+.) :: (Fixpoint.Expression left, Fixpoint.Expression right) => left -> right -> Fixpoint.Expr
+left .+. right = arithmetic Fixpoint.Plus left right
+
+-- | Integer subtraction between two Liquid Fixpoint expressions.
+(.-.) :: (Fixpoint.Expression left, Fixpoint.Expression right) => left -> right -> Fixpoint.Expr
+left .-. right = arithmetic Fixpoint.Minus left right
+
+-- | Integer multiplication between two Liquid Fixpoint expressions.
+(.*.) :: (Fixpoint.Expression left, Fixpoint.Expression right) => left -> right -> Fixpoint.Expr
+left .*. right = arithmetic Fixpoint.Times left right
 
 -- | Equality between two Liquid Fixpoint expressions.
 (.==.) :: (Fixpoint.Expression left, Fixpoint.Expression right) => left -> right -> Refinement
@@ -55,3 +72,12 @@ relation ::
     Refinement
 relation operator left right =
     Fixpoint.PAtom operator (Fixpoint.expr left) (Fixpoint.expr right)
+
+arithmetic ::
+    (Fixpoint.Expression left, Fixpoint.Expression right) =>
+    Fixpoint.Bop ->
+    left ->
+    right ->
+    Fixpoint.Expr
+arithmetic operator left right =
+    Fixpoint.EBin operator (Fixpoint.expr left) (Fixpoint.expr right)

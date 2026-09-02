@@ -15,6 +15,7 @@ module Data.LTA.Gen (
     Refined,
     refined,
     pool,
+    minimizePoolBy,
     leaf,
 
     -- * Tree constructors
@@ -23,6 +24,7 @@ module Data.LTA.Gen (
     binary,
     frequency,
     oneof,
+    fromAutomatonUpToDepth,
 
     -- * Compilation and inspection
     support,
@@ -97,6 +99,44 @@ pool entries =
             , target /= source
             ]
         [] -> []
+
+{- | Retain the most specific semantic representatives in each similarity
+class, following the LTA paper's similarity minimisation rule.
+
+The projection defines which values are candidates for merging. Within one
+class, a strict subtype replaces its supertype; equivalent refinements keep the
+earlier entry. Incomparable entries are all retained. This operation is opt-in:
+ordinary QuickCheck pools should keep syntactically distinct values when broad
+coverage matters more than semantic representative reduction.
+-}
+minimizePoolBy ::
+    (Ord key) =>
+    Entailment ->
+    (a -> key) ->
+    [Refined a] ->
+    IO (Either GeneratorError (LTAGen a))
+minimizePoolBy _ _ [] = pure $ Left EmptyGenerator
+minimizePoolBy entailment similarityKey entries = do
+    survivors <- traverse survives $ zip [0 :: Int ..] entries
+    pure $ pool . map snd . filter fst <$> sequence survivors
+  where
+    survives indexed@(_, entry) = do
+        dominated <- traverse (dominates indexed) $ zip [0 :: Int ..] entries
+        pure $ do
+            decisions <- sequence dominated
+            pure (not $ or decisions, entry)
+
+    dominates (index, Refined value _ refinement) (candidateIndex, Refined candidate _ candidateRefinement)
+        | index == candidateIndex = pure $ Right False
+        | similarityKey value /= similarityKey candidate = pure $ Right False
+        | otherwise = do
+            relation <- refinementRelation entailment candidateRefinement refinement
+            pure $ case relation of
+                StrictSubtype -> Right True
+                Equivalent -> Right (candidateIndex < index)
+                StrictSupertype -> Right False
+                Incomparable -> Right False
+                RelationUnknown -> Left SolverUnknown
 
 -- | Build a singleton refined leaf.
 leaf :: a -> Symbol -> Refinement -> LTAGen a
@@ -256,6 +296,62 @@ frequency alternatives = do
 -- | Combine equally weighted alternatives.
 oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)
 oneof = frequency . map (\generator -> (1, generator))
+
+{- | Unfold an LTA into a finite generator up to a maximum constructor depth.
+
+Depth zero contains only nullary transitions. A recursive transition consumes
+one unit of depth before its children are expanded, so cyclic LTAs become
+ordinary finite 'LTAGen' values before solver compilation. Unproductive
+transitions are omitted; an entirely unproductive bound returns
+'EmptyGenerator'.
+-}
+fromAutomatonUpToDepth :: Int -> Automaton -> Either GeneratorError (LTAGen LiquidTerm)
+fromAutomatonUpToDepth maximumDepth automaton
+    | maximumDepth < 0 = Left EmptyGenerator
+    | otherwise = build maximumDepth (automatonInitial automaton)
+  where
+    build :: Int -> State -> Either GeneratorError (LTAGen LiquidTerm)
+    build remaining state =
+        oneof
+            [ generated
+            | transition <- Map.findWithDefault [] state $ automatonTransitions automaton
+            , Right generated <- [buildTransition remaining transition]
+            ]
+
+    buildTransition :: Int -> Transition -> Either GeneratorError (LTAGen LiquidTerm)
+    buildTransition remaining transition
+        | null childStates = Right $ closeTransition transition (pure [] :: Children [LiquidTerm])
+        | remaining <= 0 = Left EmptyGenerator
+        | otherwise = do
+            childGenerators <- traverse (build $ remaining - 1) childStates
+            pure $
+                closeTransition transition $
+                    foldr
+                        prependChild
+                        (pure [])
+                        childGenerators
+      where
+        childStates = transitionChildren transition
+
+    prependChild :: LTAGen LiquidTerm -> Children [LiquidTerm] -> Children [LiquidTerm]
+    prependChild child rest =
+        (:) <$> children child <*> rest
+
+    closeTransition :: Transition -> Children [LiquidTerm] -> LTAGen LiquidTerm
+    closeTransition transition childForest =
+        node
+            (transitionSymbol transition)
+            (transitionRefinement transition)
+            (transitionGuard transition)
+            ( makeTerm
+                <$> childForest
+            )
+      where
+        makeTerm childTerms =
+            LiquidTerm
+                (transitionSymbol transition)
+                (transitionRefinement transition)
+                childTerms
 
 -- | Compile all candidates into one inspectable LTA support.
 support :: LTAGen a -> Either GeneratorError Automaton
@@ -568,6 +664,7 @@ addWitnessAt state witness build =
         transition =
             Transition
                 (witnessSymbol witness)
+                (witnessRefinement witness)
                 childStates
                 (witnessGuard witness)
      in withChildren

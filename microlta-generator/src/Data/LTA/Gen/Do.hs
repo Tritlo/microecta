@@ -13,7 +13,7 @@ Enable @ApplicativeDo@ and @QualifiedDo@, then close the block with
 
 @
 pairs = LTA.node "pair" rootRefinement
-    (\left right -> refines left right) $ LTA.do
+    (\actual expected -> isSubtypeOf actual expected) $ LTA.do
     left <- choices
     right <- choices
     LTA.pure (left, right)
