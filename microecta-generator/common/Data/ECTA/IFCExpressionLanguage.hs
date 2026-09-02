@@ -38,7 +38,7 @@ module Data.ECTA.IFCExpressionLanguage (
 
     -- * Exact counts
     expressionKeys,
-    countUpToDepth,
+    expressionCountUpTo,
     programCountUpToDepth,
 
     -- * Handwritten baseline
@@ -56,10 +56,11 @@ module Data.ECTA.IFCExpressionLanguage (
     termToExpression,
 ) where
 
+import qualified Data.Map.Strict as Map
 import Data.String (fromString)
 import qualified Test.QuickCheck as QC
 
-import Data.ECTA (Edge (Edge), Node (Node))
+import Data.ECTA (Edge (Edge), Node (EmptyNode, Node))
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Term (Symbol, Term (Term))
@@ -85,6 +86,18 @@ data Type = TInt | TBool | TUnit
 data Function = Equal | Add | Multiply | Or | And
     deriving (Bounded, Enum, Eq, Ord, Show)
 
+{- | The surface symbol of each binary function, without spacing.
+
+One table for the 'Show' instance, which pads it, the surface automaton's edge
+labels, and reading a surface term back.
+-}
+functionSymbol :: Function -> String
+functionSymbol Equal = "=="
+functionSymbol Add = "+"
+functionSymbol Multiply = "*"
+functionSymbol Or = "||"
+functionSymbol And = "&&"
+
 -- | Expression syntax, shown as concrete syntax for readable counterexamples.
 data Expression
     = IntLiteral !Int
@@ -106,18 +119,12 @@ instance Show Expression where
     showsPrec context (ApplyBinary function_ first second) =
         showParen (context > 6) $
             showsPrec 7 first
-                . showString (functionSymbol function_)
+                . showString (" " <> functionSymbol function_ <> " ")
                 . showsPrec 7 second
-      where
-        functionSymbol Equal = " == "
-        functionSymbol Add = " + "
-        functionSymbol Multiply = " * "
-        functionSymbol Or = " || "
-        functionSymbol And = " && "
     showsPrec context (IfExpression condition ifTrue ifFalse) =
         showParen (context > 0) $
             showString "if "
-                . shows condition
+                . showsPrec 1 condition
                 . showString " then "
                 . shows ifTrue
                 . showString " else "
@@ -162,7 +169,7 @@ atomsByKey :: Grouped Labeled LabeledExpression
 atomsByKey = ECTAGen.groupBy securityKey (ECTAGen.elements atoms)
 
 -- | One ground-and-labeled instantiation of a binary function.
-data BinaryInstance = BinaryInstance
+data BinaryFunctionInstance = BinaryFunctionInstance
     { binaryFunction :: !Function
     , firstArgumentKey :: !Labeled
     , secondArgumentKey :: !Labeled
@@ -171,9 +178,9 @@ data BinaryInstance = BinaryInstance
     deriving (Eq, Ord, Show)
 
 -- | Every ground instantiation, with the result label joining the arguments.
-binaryInstances :: [BinaryInstance]
-binaryInstances =
-    [ BinaryInstance
+binaryFunctionInstances :: [BinaryFunctionInstance]
+binaryFunctionInstances =
+    [ BinaryFunctionInstance
         function_
         (firstType, firstLabel)
         (secondType, secondLabel)
@@ -193,19 +200,19 @@ binaryInstances =
         ]
 
 -- | The complete signature of one binary instance.
-binarySignature :: BinaryInstance -> Sig '[Labeled, Labeled] Labeled
+binarySignature :: BinaryFunctionInstance -> Sig '[Labeled, Labeled] Labeled
 binarySignature instance_ =
     firstArgumentKey instance_
         :* secondArgumentKey instance_
         :-> binaryResultKey instance_
 
 -- | Binary instances grouped by their label-joining signature.
-binariesBySignature :: Grouped (Sig '[Labeled, Labeled] Labeled) BinaryInstance
-binariesBySignature =
-    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryInstances)
+binaryFunctionsBySignature :: Grouped (Sig '[Labeled, Labeled] Labeled) BinaryFunctionInstance
+binaryFunctionsBySignature =
+    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
 
 -- | Build one labeled binary application.
-compileBinary :: BinaryInstance -> LabeledExpression -> LabeledExpression -> LabeledExpression
+compileBinary :: BinaryFunctionInstance -> LabeledExpression -> LabeledExpression -> LabeledExpression
 compileBinary instance_ first second =
     LabeledExpression joinedType joinedLabel $
         ApplyBinary (binaryFunction instance_) (expression first) (expression second)
@@ -215,7 +222,7 @@ compileBinary instance_ first second =
 -- | Add one binary application layer.
 binaryLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
 binaryLayer children = ECTAGen.do
-    operation <- binariesBySignature
+    operation <- binaryFunctionsBySignature
     first <- children
     second <- children
     ECTAGen.pure (compileBinary operation first second)
@@ -240,19 +247,23 @@ well as both branch labels: choosing a branch on a 'Private' condition is an
 implicit flow, and it taints the result even when both branches are 'Public'.
 -}
 data ConditionalInstance = ConditionalInstance
-    { conditionLabel :: !Label
-    , branchType :: !Type
-    , trueLabel :: !Label
-    , falseLabel :: !Label
+    { conditionKey :: !Labeled
+    , trueKey :: !Labeled
+    , falseKey :: !Labeled
+    , conditionalResultKey :: !Labeled
     }
     deriving (Eq, Ord, Show)
 
 -- | Every conditional shape over the expression types.
 conditionalInstances :: [ConditionalInstance]
 conditionalInstances =
-    [ ConditionalInstance condition branch ifTrue ifFalse
+    [ ConditionalInstance
+        (TBool, condition)
+        (branch, ifTrue)
+        (branch, ifFalse)
+        (branch, condition `max` ifTrue `max` ifFalse)
     | condition <- allLabels
-    , branch <- [TInt, TBool]
+    , branch <- expressionTypes
     , ifTrue <- allLabels
     , ifFalse <- allLabels
     ]
@@ -261,15 +272,10 @@ conditionalInstances =
 conditionalSignature ::
     ConditionalInstance -> Sig '[Labeled, Labeled, Labeled] Labeled
 conditionalSignature instance_ =
-    (TBool, conditionLabel instance_)
-        :* (branchType instance_, trueLabel instance_)
-        :* (branchType instance_, falseLabel instance_)
-        :-> (branchType instance_, resultLabel instance_)
-
--- | The label a conditional shape assigns to its result.
-resultLabel :: ConditionalInstance -> Label
-resultLabel instance_ =
-    conditionLabel instance_ `max` trueLabel instance_ `max` falseLabel instance_
+    conditionKey instance_
+        :* trueKey instance_
+        :* falseKey instance_
+        :-> conditionalResultKey instance_
 
 -- | Build one labeled conditional.
 compileConditional ::
@@ -279,8 +285,10 @@ compileConditional ::
     LabeledExpression ->
     LabeledExpression
 compileConditional instance_ condition ifTrue ifFalse =
-    LabeledExpression (branchType instance_) (resultLabel instance_) $
+    LabeledExpression resultType resultLabel $
         IfExpression (expression condition) (expression ifTrue) (expression ifFalse)
+  where
+    (resultType, resultLabel) = conditionalResultKey instance_
 
 -- | Add one conditional layer, tracking implicit flows.
 conditionalLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
@@ -294,30 +302,18 @@ conditionalLayer children = ECTAGen.do
 -- | Add one application layer, weighted so every expression stays uniform.
 applicationLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
 applicationLayer children =
-    weighted [unaryLayer children, binaryLayer children, conditionalLayer children]
-
--- | Weight grouped alternatives by their exact cardinalities when available.
-weighted :: [Grouped Labeled LabeledExpression] -> Grouped Labeled LabeledExpression
-weighted alternatives = case traverse totalCardinality alternatives of
-    Right cardinalities -> ECTAGen.frequencies $ zip cardinalities alternatives
-    Left _ -> ECTAGen.oneofGrouped alternatives
-  where
-    totalCardinality = fmap sum . ECTAGen.sizes
+    ECTAGen.uniformlyGrouped [unaryLayer children, binaryLayer children, conditionalLayer children]
 
 -- | Labeled expressions of depth at most the bound, uniform across depths.
 expressionsUpToDepth :: Int -> Grouped Labeled LabeledExpression
-expressionsUpToDepth 0 = atomsByKey
-expressionsUpToDepth depth =
-    weighted [atomsByKey, applicationLayer (expressionsUpToDepth (depth - 1))]
-
--- | The permissive print signatures: any label goes through.
-printInstances :: [Labeled]
-printInstances = [(type_, label) | type_ <- [TInt, TBool], label <- allLabels]
+expressionsUpToDepth depth
+    | depth <= 0 = atomsByKey
+    | otherwise =
+        ECTAGen.uniformlyGrouped [atomsByKey, applicationLayer (expressionsUpToDepth (depth - 1))]
 
 -- | The enforcing print signatures: the flow check, written literally.
 securePrintInstances :: [Labeled]
-securePrintInstances =
-    [(type_, label) | (type_, label) <- printInstances, label <= Public]
+securePrintInstances = filter ((<= Public) . snd) expressionKeys
 
 -- | @print :: a -> ()@, keeping its argument's label on the completed print.
 printSignature :: Labeled -> Sig '[Labeled] Labeled
@@ -341,21 +337,27 @@ printLayer instances children = ECTAGen.do
 
 -- | All programs, leaks included, keyed @(TUnit, label)@.
 programsUpToDepth :: Int -> Grouped Labeled LabeledExpression
-programsUpToDepth depth = printLayer printInstances (expressionsUpToDepth depth)
+programsUpToDepth depth = printLayer expressionKeys (expressionsUpToDepth depth)
 
 -- | Programs whose print only admits 'Public': a leak is unrepresentable.
 secureProgramsUpToDepth :: Int -> Grouped Labeled LabeledExpression
 secureProgramsUpToDepth depth = printLayer securePrintInstances (expressionsUpToDepth depth)
 
+{- | The types an expression can have. 'TUnit' is excluded: it is the type of
+a completed print, not of anything a print can take.
+-}
+expressionTypes :: [Type]
+expressionTypes = [TInt, TBool]
+
 -- | Every key an expression can have.
 expressionKeys :: [Labeled]
-expressionKeys = [(type_, label) | type_ <- [TInt, TBool], label <- allLabels]
+expressionKeys = [(type_, label) | type_ <- expressionTypes, label <- allLabels]
 
 -- | Number of expressions of depth at most the bound with the given key.
-countUpToDepth :: Int -> Labeled -> Integer
-countUpToDepth 0 key = atomCount key
-countUpToDepth depth key =
-    atomCount key + applicationCount (countUpToDepth (depth - 1)) key
+expressionCountUpTo :: Int -> Labeled -> Integer
+expressionCountUpTo depth key
+    | depth <= 0 = atomCount key
+    | otherwise = atomCount key + applicationCount (expressionCountUpTo (depth - 1)) key
 
 -- | Number of atoms with the given key.
 atomCount :: Labeled -> Integer
@@ -373,26 +375,30 @@ applicationCount childCount key =
         sum
             [ childCount (firstArgumentKey instance_)
                 * childCount (secondArgumentKey instance_)
-            | instance_ <- binaryInstances
+            | instance_ <- binaryFunctionInstances
             , binaryResultKey instance_ == key
             ]
     conditionalCount =
         sum
-            [ childCount (TBool, conditionLabel instance_)
-                * childCount (branchType instance_, trueLabel instance_)
-                * childCount (branchType instance_, falseLabel instance_)
+            [ childCount (conditionKey instance_)
+                * childCount (trueKey instance_)
+                * childCount (falseKey instance_)
             | instance_ <- conditionalInstances
-            , (branchType instance_, resultLabel instance_) == key
+            , conditionalResultKey instance_ == key
             ]
 
 -- | Number of programs of depth at most the bound: one print per expression.
 programCountUpToDepth :: Int -> Integer
-programCountUpToDepth depth = sum $ map (countUpToDepth depth) expressionKeys
+programCountUpToDepth depth = sum $ map (expressionCountUpTo depth) expressionKeys
 
 {- | The handwritten baseline makes the label dependency explicit by accepting
 the desired key and selecting only compatible instances. Its weights make
 every expression of depth at most the bound equally likely, matching the
 transparent generator's distribution exactly.
+
+Precondition: the key must be inhabited at that depth. A key with no members
+leaves no alternative to weight, and the draw fails.
+'handwrittenProgramGen' guards it with 'expressionCountUpTo'.
 -}
 handwrittenExpressionUpToDepth :: Int -> Labeled -> QC.Gen LabeledExpression
 handwrittenExpressionUpToDepth depth key =
@@ -405,7 +411,7 @@ handwrittenExpressionUpToDepth depth key =
         | depth <= 0 = []
         | otherwise = unaryAlternatives <> binaryAlternatives <> conditionalAlternatives
     childDepth = depth - 1
-    count = countUpToDepth childDepth
+    count = expressionCountUpTo childDepth
     child = handwrittenExpressionUpToDepth childDepth
     unaryAlternatives =
         [ ( count (TBool, label)
@@ -414,41 +420,39 @@ handwrittenExpressionUpToDepth depth key =
         | (TBool, label) <- [key]
         ]
     binaryAlternatives =
-        [
-            ( count (firstArgumentKey instance_)
+        [ ( count (firstArgumentKey instance_)
                 * count (secondArgumentKey instance_)
-            , do
+          , do
                 first <- child (firstArgumentKey instance_)
                 second <- child (secondArgumentKey instance_)
                 pure $ compileBinary instance_ first second
-            )
-        | instance_ <- binaryInstances
+          )
+        | instance_ <- binaryFunctionInstances
         , binaryResultKey instance_ == key
         ]
     conditionalAlternatives =
-        [
-            ( count (TBool, conditionLabel instance_)
-                * count (branchType instance_, trueLabel instance_)
-                * count (branchType instance_, falseLabel instance_)
-            , do
-                condition <- child (TBool, conditionLabel instance_)
-                ifTrue <- child (branchType instance_, trueLabel instance_)
-                ifFalse <- child (branchType instance_, falseLabel instance_)
+        [ ( count (conditionKey instance_)
+                * count (trueKey instance_)
+                * count (falseKey instance_)
+          , do
+                condition <- child (conditionKey instance_)
+                ifTrue <- child (trueKey instance_)
+                ifFalse <- child (falseKey instance_)
                 pure $ compileConditional instance_ condition ifTrue ifFalse
-            )
+          )
         | instance_ <- conditionalInstances
-        , (branchType instance_, resultLabel instance_) == key
+        , conditionalResultKey instance_ == key
         ]
 
 -- | Draw uniformly from all programs of depth at most the bound.
 handwrittenProgramGen :: Int -> QC.Gen LabeledExpression
 handwrittenProgramGen depth =
     frequencyInteger
-        [ ( countUpToDepth depth key
+        [ ( expressionCountUpTo depth key
           , compilePrint key <$> handwrittenExpressionUpToDepth depth key
           )
         | key <- expressionKeys
-        , countUpToDepth depth key > 0
+        , expressionCountUpTo depth key > 0
         ]
 
 {- | The generator a practiced QuickCheck user actually writes: one function
@@ -457,9 +461,10 @@ decrementing a depth bound. Labels are not steered at all; they are computed
 from the finished term, which is how a property about labels would read them
 anyway.
 
-This is the fair fast baseline: no exact weights, no instance machinery,
-just the grammar spelled out. In return its distribution is whatever
-constructor-uniform choice yields, not the uniform language.
+This is the baseline a benchmark would compare against: no exact weights, no
+instance machinery, just the grammar spelled out. In return its distribution
+is whatever constructor-uniform choice yields, not the uniform language. No
+benchmark uses it yet.
 -}
 practicalInt :: Int -> QC.Gen Expression
 practicalInt 0 =
@@ -509,57 +514,70 @@ practicalLabel (Print value) = practicalLabel value
 practicalLabel _ = Public
 
 {- | The same language as an automaton over surface symbols, so shape queries
-can be asked with "Data.ECTA" templates: literals, variables, @==@, @+@,
-@||@, @if@, and @print@ are the term symbols. The label discipline is baked
-into which child nodes each edge takes, exactly as in the grouped generator.
+can be asked with "Data.ECTA" templates: the literals and variables, @==@,
+@+@, @*@, @||@, @&&@, @not@, @if@, and @print@ are the term symbols. The label
+discipline is baked into which child nodes each edge takes, exactly as in the
+grouped generator.
+
+The generator's own 'ECTAGen.support' cannot serve here. It is built over
+namespaced @$ecta-gen/...@ symbols and carries the joins' equality
+constraints, so a template cannot name its symbols and @fromECTA@ rejects it.
 -}
 surfaceExpressionNode :: Int -> Labeled -> Node Symbol
 surfaceExpressionNode depth key =
-    Node $ atomEdges <> applicationEdges
+    Map.findWithDefault EmptyNode key $ surfaceLevels !! max 0 depth
+
+{- | The expression node of every key, one list entry per depth.
+
+Each level is built once from the level below it, rather than once per edge
+slot that mentions it, which is about 27 times per level.
+-}
+surfaceLevels :: [Map.Map Labeled (Node Symbol)]
+surfaceLevels = iterate deeper base
   where
-    atomEdges =
+    base = Map.fromList [(key, Node (atomEdges key)) | key <- expressionKeys]
+    deeper below =
+        Map.fromList
+            [ (key, Node (atomEdges key <> applicationEdges (childOf below) key))
+            | key <- expressionKeys
+            ]
+    childOf below childKey = Map.findWithDefault EmptyNode childKey below
+
+    atomEdges key =
         [ Edge (fromString $ show $ expression atom) []
         | atom <- atoms
         , securityKey atom == key
         ]
-    applicationEdges
-        | depth <= 0 = []
-        | otherwise = unaryEdges <> binaryEdges <> conditionalEdges
-    child = surfaceExpressionNode (depth - 1)
-    unaryEdges =
+    applicationEdges child key =
+        unaryEdges child key <> binaryEdges child key <> conditionalEdges child key
+    unaryEdges child key =
         [ Edge "not" [child (TBool, label)]
         | (TBool, label) <- [key]
         ]
-    binaryEdges =
+    binaryEdges child key =
         [ Edge
-            (functionSymbol $ binaryFunction instance_)
+            (fromString $ functionSymbol $ binaryFunction instance_)
             [child (firstArgumentKey instance_), child (secondArgumentKey instance_)]
-        | instance_ <- binaryInstances
+        | instance_ <- binaryFunctionInstances
         , binaryResultKey instance_ == key
         ]
-    conditionalEdges =
+    conditionalEdges child key =
         [ Edge
             "if"
-            [ child (TBool, conditionLabel instance_)
-            , child (branchType instance_, trueLabel instance_)
-            , child (branchType instance_, falseLabel instance_)
+            [ child (conditionKey instance_)
+            , child (trueKey instance_)
+            , child (falseKey instance_)
             ]
         | instance_ <- conditionalInstances
-        , (branchType instance_, resultLabel instance_) == key
+        , conditionalResultKey instance_ == key
         ]
-    functionSymbol Equal = "=="
-    functionSymbol Add = "+"
-    functionSymbol Multiply = "*"
-    functionSymbol Or = "||"
-    functionSymbol And = "&&"
 
 -- | All programs with the given result label, as a surface automaton.
 surfaceProgramNode :: Int -> Label -> Node Symbol
 surfaceProgramNode depth label =
     Node
         [ Edge "print" [surfaceExpressionNode depth (type_, label)]
-        | type_ <- [TInt, TBool]
-        , countUpToDepth depth (type_, label) > 0
+        | type_ <- expressionTypes
         ]
 
 -- | Read a surface term back as an expression, for readable output.
@@ -571,20 +589,18 @@ termToExpression (Term "if" [condition, ifTrue, ifFalse]) =
         <$> termToExpression condition
         <*> termToExpression ifTrue
         <*> termToExpression ifFalse
-termToExpression (Term "==" [first, second]) =
-    ApplyBinary Equal <$> termToExpression first <*> termToExpression second
-termToExpression (Term "+" [first, second]) =
-    ApplyBinary Add <$> termToExpression first <*> termToExpression second
-termToExpression (Term "*" [first, second]) =
-    ApplyBinary Multiply <$> termToExpression first <*> termToExpression second
-termToExpression (Term "||" [first, second]) =
-    ApplyBinary Or <$> termToExpression first <*> termToExpression second
-termToExpression (Term "&&" [first, second]) =
-    ApplyBinary And <$> termToExpression first <*> termToExpression second
-termToExpression (Term "0" []) = Just $ IntLiteral 0
-termToExpression (Term "1" []) = Just $ IntLiteral 1
-termToExpression (Term "False" []) = Just $ BoolLiteral False
-termToExpression (Term "True" []) = Just $ BoolLiteral True
-termToExpression (Term "input" []) = Just $ Variable "input"
-termToExpression (Term "secret" []) = Just $ Variable "secret"
+termToExpression (Term symbol [first, second])
+    | Just function_ <- lookup symbol binaryFunctionSymbols =
+        ApplyBinary function_ <$> termToExpression first <*> termToExpression second
+termToExpression (Term symbol []) = lookup symbol atomSymbols
 termToExpression _ = Nothing
+
+-- | The surface symbol of every binary function, as the automaton spells it.
+binaryFunctionSymbols :: [(Symbol, Function)]
+binaryFunctionSymbols =
+    [(fromString $ functionSymbol function_, function_) | function_ <- [minBound ..]]
+
+-- | The surface symbol of every atom, as the automaton spells it.
+atomSymbols :: [(Symbol, Expression)]
+atomSymbols =
+    [(fromString $ show $ expression atom, expression atom) | atom <- atoms]

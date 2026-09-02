@@ -5,7 +5,8 @@
 Initial release: indexed applicative generators whose transparent regions are
 represented as equality-constrained tree automata.
 
-Requires `microecta` 0.2.0.0 or newer.
+Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
+0.8, so GHC 9.14 uses the one it ships.
 
 ### Generators and sources
 
@@ -14,7 +15,9 @@ Requires `microecta` 0.2.0.0 or newer.
   explicitly opaque region with no support, ranks, or inspection.
 * `pool` samples an ordinary QuickCheck generator once and freezes its draws as
   a finite transparent generator. Repeated draws stay repeated ranks, so the
-  pool keeps the native generator's empirical weight.
+  pool keeps the native generator's empirical weight. `freeze` is `pool`
+  with the draws fixed by a seed, so it is an ordinary transparent generator
+  whose ranks are the same in every run.
 * `fromECTA` reads an existing automaton as a generator of the terms it
   accepts. Nodes become choices, edges become products under a size-one symbol,
   and interning ties `Mu` nodes into the same recursive size index `recur`
@@ -22,8 +25,16 @@ Requires `microecta` 0.2.0.0 or newer.
   supports `pmf`, `countBy`, and `groupBy`. Automata whose edges carry equality
   constraints are rejected with `CannotCountConstrainedEdges`: a constrained
   edge's count is the size of an intersection rather than a product of its
-  children's counts.
-* `frequency` and `oneof` choose among generators; `Functor` and `Applicative`
+  children's counts. Ambiguous automata are rejected with
+  `AmbiguousAutomaton`: a node's count sums over its edges, which counts
+  accepting runs, so a node with two edges accepting a common term would count
+  that term twice and report it at two ranks. A node that accepts nothing at
+  all, such as a `Mu` with no base case, counts nothing rather than an endless
+  run of zeroes, which `unrank`, `sizeOfRank`, and `smallerMembers` used to
+  walk forever on an out-of-range rank.
+* `frequency`, `oneof`, and `uniformly` choose among generators, the last in
+  proportion to their cardinalities so every member of the union is equally
+  likely; `Functor` and `Applicative`
   composition tracks exact cardinalities without materializing the product.
 
 ### Conditioned joins
@@ -45,8 +56,9 @@ Requires `microecta` 0.2.0.0 or newer.
   transparent generator's outcomes, `keyed` declares one key for a whole
   inspectable generator without enumerating it, `regroupBy` reclassifies without
   enumerating values, `mapWithKey` maps with the key in hand, `atKey` and
-  `ungroup` are the exits, and `frequencies` and `oneofGrouped` choose among
-  grouped generators group by group.
+  `ungroup` are the exits, and `frequencies`, `oneofGrouped`, and
+  `uniformlyGrouped` choose among grouped generators group by group, the last
+  in proportion to their cardinalities.
 * `apply` applies a generated operation of any arity to one argument family per
   signature component, in a single ECTA edge holding one equality constraint per
   argument. A `Sig` is written like a many-sorted operation signature:
@@ -64,7 +76,11 @@ Requires `microecta` 0.2.0.0 or newer.
   `UnguardedRecursion` rather than left to hang. Alternatives around a recursive
   occurrence must carry equal weights, and a guarded cycle still needs a finite
   base member. `recur` and `recurGrouped` hand back a body that never reaches
-  its own occurrence unchanged, so a finite body stays a finite generator.
+  its own occurrence unchanged, so a finite body stays a finite generator, and
+  hand back a body that failed to build with its own error rather than as a
+  recursive language. `upToSize` and `atomic` cannot be applied to the
+  occurrence itself, or to anything built from it, and say so with
+  `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and
   equality constraints meet in one cycle. The key set is solved by a monotone
   fixpoint before the languages are tied over it, and all keys share one `Mu`
@@ -87,7 +103,9 @@ Requires `microecta` 0.2.0.0 or newer.
   which differs from the counts under weighted atomic choices. `pmfAtSize`
   aggregates arbitrary values by interpreting one size-class sampler.
 * Every failure is an `ECTAGenError`, and `explain` says what it means and which
-  combinator resolves it. Sampling a generator that could not be built raises
+  combinator resolves it. `BoundedRecursiveOccurrence` covers `upToSize` or
+  `atomic` applied to the recursive occurrence inside the body defining it,
+  which is ill-founded rather than merely unbounded. Sampling a generator that could not be built raises
   the case name together with that guidance. Internal invariant failures name
   themselves as bugs in this package so they are not mistaken for misuse.
 
@@ -95,13 +113,17 @@ Requires `microecta` 0.2.0.0 or newer.
 
 * `toGen`, `toGenWithRank`, and their `Either`-returning variants sample through
   the generator type QuickCheck expects, bounding recursive generators from the
-  size parameter. `sized` maps the size parameter to a generator, building each
-  size once.
+  size parameter. `sized` maps the size parameter to a generator, building and
+  compiling each size once.
 * `forAll` shrinks to the smallest failing member: it first searches every
-  structurally smaller member in size order (`smallerMembers`, capped by
-  `smallerMemberLimit`), then shrinks components through `shrinkRank`. Every
+  member of strictly smaller size, in size order (`smallerMembers`, capped by
+  `smallerMemberLimit`), then shrinks components through `shrinkRank`. For a
+  recursive generator those component candidates come from the form bounded at
+  the failing member's size, since `shrinkRank` has none of its own for a
+  recursive language; bounding preserves ranks, so they replay unchanged. Every
   candidate is a member of the generated language, and the failing rank is
-  printed so `unrank` replays it.
+  printed so `unrank` replays it. A generator with an opaque region has no
+  ranks, so `forAll` tests it by sampling with no shrinking.
 * `Data.ECTA.Gen.Do` provides qualified do-notation for flat generators and for
   grouped operation application at any arity, with curated compile-time errors
   for monadic shapes.

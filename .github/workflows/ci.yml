@@ -73,11 +73,8 @@ jobs:
       - name: Test
         run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
 
-      # doctest links against the GHC API, so it lags new compiler releases.
-      # The examples are compiler-independent, so running them on one GHC is
-      # enough.
+      # The examples are run on every compiler in the matrix.
       - name: Doctest
-        if: matrix.ghc == '9.12.2'
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"

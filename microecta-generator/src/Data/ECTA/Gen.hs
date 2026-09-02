@@ -23,6 +23,7 @@ module Data.ECTA.Gen (
     -- * Composing
     frequency,
     oneof,
+    uniformly,
     On (..),
     match,
     relate,
@@ -39,6 +40,7 @@ module Data.ECTA.Gen (
     apply,
     frequencies,
     oneofGrouped,
+    uniformlyGrouped,
     ungroup,
 
     -- * Recursion
@@ -47,6 +49,7 @@ module Data.ECTA.Gen (
     recurGrouped,
     upToSize,
     isRecursive,
+    isOpaque,
 
     -- * Inspection
     support,
@@ -184,6 +187,11 @@ isRecursive :: ECTAGen gen a -> Bool
 isRecursive (Cyclic _) = True
 isRecursive _ = False
 
+-- | Whether a generator is an opaque region, which cannot be inspected.
+isOpaque :: ECTAGen gen a -> Bool
+isOpaque (Opaque _) = True
+isOpaque _ = False
+
 instance Functor (Grouped gen key) where
     fmap transform (Grouped result) =
         Grouped $ fmap (fmap mapBucket) result
@@ -202,6 +210,7 @@ instance Functor (Grouped gen key) where
                     (mapIndex transform $ recursiveIndex recursive)
                     (mapSampleIndex transform $ recursiveSampling recursive)
                     (recursiveWeighted recursive)
+                    (recursiveOccurrence recursive)
                     Nothing
                 )
                 (keyedRecursiveMasses group)
@@ -219,6 +228,7 @@ instance (Functor gen) => Functor (ECTAGen gen) where
                 (mapIndex transform $ recursiveIndex recursive)
                 (mapSampleIndex transform $ recursiveSampling recursive)
                 (recursiveWeighted recursive)
+                (recursiveOccurrence recursive)
                 Nothing
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
@@ -250,6 +260,7 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
                             (recursiveSampling right)
                         )
                         (recursiveWeighted left || recursiveWeighted right)
+                        (recursiveOccurrence left || recursiveOccurrence right)
                         Nothing
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
@@ -274,19 +285,25 @@ enters recursion; a finite composition outside the boundary is a new choice
 and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating its terms, rather than taking
 an inner prefix from the QuickCheck size. Bound a recursive language with
-'upToSize' before making it atomic. Opaque generators have no size structure
-to change.
+'upToSize' before making it atomic, /outside/ the recursive definition:
+@atomic (upToSize n self)@ inside a 'recur' body asks for an atom whose
+cardinality depends on itself, and is rejected with
+'BoundedRecursiveOccurrence'. Opaque generators have no size structure to
+change.
 -}
 atomic :: ECTAGen gen a -> ECTAGen gen a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
     Transparent $ do
         recursive <- result
-        if numNestedMu (recursiveSupport recursive) == 0
-            -- No Mu means the size vector ends. This consumes that whole
-            -- finite vector without asking the caller for its largest size.
-            then atomicStatic <$> boundedStatic maxBound recursive
-            else Left UnboundedGenerator
+        if recursiveOccurrence recursive
+            then Left BoundedRecursiveOccurrence
+            else
+                if numNestedMu (recursiveSupport recursive) == 0
+                    -- No Mu means the size vector ends. This consumes that whole
+                    -- finite vector without asking the caller for its largest size.
+                    then atomicStatic <$> boundedStatic maxBound recursive
+                    else Left UnboundedGenerator
 atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
 {- | Build a recursive generator from its own language.
@@ -314,12 +331,25 @@ infinite Haskell value: building it never finishes, and the failure is a
 hang or @\<\<loop\>\>@ rather than anything this library can report. In the
 other direction, a body that never uses the argument is not recursive, and
 is returned as it is: a finite body stays a finite generator, with the
-cardinality and the inspection that come with it.
+cardinality and the inspection that come with it. A body that could not be
+built at all is returned with its own error, not as a recursive language.
+
+'upToSize' and 'atomic' cannot be applied to the argument, or to anything
+built from it: the bound would need the size classes this definition is still
+computing, and an atom over them would have a cardinality depending on itself.
+Both shapes are rejected with 'BoundedRecursiveOccurrence'. Bound the finished
+language from outside instead, as in @upToSize n (recur ...)@, and keep only
+finite atomic choices inside the body.
 
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has no
 smallest member; an unguarded definition is rejected with
-'UnguardedRecursion' rather than left to diverge. A recursive language also
+'UnguardedRecursion' rather than left to diverge. The check is per definition,
+so inside a nested 'recur' an occurrence of the /outer/ language must also sit
+under an application within the inner body. 'pure' is one source choice, so
+@pure f '<*>' self@ counts as guarded where @f '<$>' self@ does not - and
+@pure f '<*>' x@ has one more choice than @f '<$>' x@, so the two have
+different sizes and different ranks. A recursive language also
 needs a finite base member; a guarded cycle with no base is an 'EmptyGenerator'.
 Recursive structure is
 chosen from its counted size classes, so 'frequency' alternatives around a
@@ -330,9 +360,15 @@ each recursive size class without changing counts, sizes, or ranks.
 -}
 recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
 recur build
+    -- An opaque body cannot contain the occurrence, so it is not recursive.
+    | Opaque _ <- probeBody = probeBody
+    -- A body that failed to build reports its own error. Wrapping it in a
+    -- Cyclic would make every finite inspector say UnboundedGenerator before
+    -- looking inside, masking what actually went wrong.
+    | Left err <- probed = Transparent $ Left err
     -- A body that never reaches its own occurrence is an ordinary language,
     -- and handing it back keeps everything a finite generator can do.
-    | Right viewed <- recursiveView probeBody
+    | Right viewed <- probed
     , not $ usesOccurrence $ recursiveIndex viewed =
         probeBody
     | otherwise = Cyclic result
@@ -342,8 +378,10 @@ recur build
     -- pass over the definition, not over its language.
     bodyOf recursiveArgument = recursiveView $ build recursiveArgument
 
+    -- The placeholders stand for the occurrence, so bounding one is bounding
+    -- the language that is still being defined.
     placeholder node index sampling =
-        Recursive node index sampling False Nothing
+        Recursive node index sampling False True Nothing
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
@@ -381,6 +419,7 @@ recur build
                         tied
                         tiedSampling
                         (recursiveWeighted body)
+                        False
                         Nothing
 
 {- | Read an ECTA as a generator of the terms it accepts.
@@ -395,12 +434,17 @@ Equality constraints are not counted: they correlate an edge's children, so
 its count is the size of an intersection rather than a product, and an
 automaton carrying them is rejected with 'CannotCountConstrainedEdges'
 rather than miscounted.
+
+Ambiguity is not counted either. A node's count sums over its edges, which
+counts accepting runs, so a node with two edges accepting a common term would
+count that term twice and report it at two ranks. Such an automaton is
+rejected with 'AmbiguousAutomaton'.
 -}
 fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
 fromECTA node =
     Cyclic $ do
         index <- automatonIndex node
-        pure $ Recursive node index (uniformSampleIndex index) False $ Just id
+        pure $ Recursive node index (uniformSampleIndex index) False False $ Just id
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -411,8 +455,8 @@ needs:
 @
 expressions = ECTAGen.recurGrouped $ \self ->
     ECTAGen.frequencies
-        [ (1, atomsByType)
-        , (1, ECTAGen.apply (compile '<$>' binaryFunctionsBySignature) (self ':&' self ':&' 'ANil'))
+        [ (1, literalsByType)
+        , (1, ECTAGen.apply (compileBinary '<$>' binaryFunctionsBySignature) (self ':&' self ':&' 'ANil'))
         ]
 @
 
@@ -445,7 +489,10 @@ recurGrouped ::
     (Grouped gen key a -> Grouped gen key a) ->
     Grouped gen key a
 recurGrouped build
-    | Right groups <- recursiveGroups probeBody
+    -- As in 'recur': a body that failed to build reports its own error rather
+    -- than being wrapped in a family every finite inspector calls unbounded.
+    | Left err <- probed = Grouped $ Left err
+    | Right groups <- probed
     , not $ any (usesOccurrence . recursiveIndex . keyedRecursiveLanguage) groups =
         probeBody
     | otherwise = CyclicGrouped result
@@ -465,9 +512,11 @@ recurGrouped build
     keys = Map.keys keySet
     positions = Map.fromList $ zip keys [0 ..]
     positionOf key = Map.findWithDefault 0 key positions
+    -- The placeholders stand for the occurrence, so bounding one is bounding
+    -- the family that is still being defined.
     placeholder node index sampling masses =
         KeyedRecursive
-            (Recursive node index sampling False Nothing)
+            (Recursive node index sampling False True Nothing)
             masses
             False
     noMass = emptyMassIndex
@@ -598,6 +647,7 @@ recurGrouped build
                             (indexAt key)
                             (samplingAt key)
                             familyWeighted
+                            False
                             Nothing
                         )
                         (massAt key)
@@ -620,9 +670,19 @@ classes.
 This bounds recursion; it does not filter a finite language. A generator
 that is not recursive is returned unchanged, members larger than the bound
 included.
+
+Bounding the recursive occurrence inside the 'recur' or 'recurGrouped' body
+that defines it is rejected with 'BoundedRecursiveOccurrence': the bound would
+need the size classes the definition is still computing. Bound the finished
+language instead, as in @upToSize n (recur ...)@.
 -}
 upToSize :: Int -> ECTAGen gen a -> ECTAGen gen a
-upToSize bound (Cyclic result) = Transparent $ result >>= boundedStatic bound
+upToSize bound (Cyclic result) =
+    Transparent $ do
+        recursive <- result
+        if recursiveOccurrence recursive
+            then Left BoundedRecursiveOccurrence
+            else boundedStatic bound recursive
 upToSize _ generator = generator
 
 -- | Choose uniformly from a finite non-empty list.
@@ -716,6 +776,7 @@ mapWithKey transform (CyclicGrouped result) =
                 (mapIndex (transform key) $ recursiveIndex recursive)
                 (mapSampleIndex (transform key) $ recursiveSampling recursive)
                 (recursiveWeighted recursive)
+                (recursiveOccurrence recursive)
                 Nothing
             )
             (keyedRecursiveMasses group)
@@ -1005,6 +1066,37 @@ family admits.
 oneofGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
 oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alternatives]
 
+{- | Choose among grouped generators so that every member of the combined
+language is equally likely.
+
+Finite alternatives are combined in proportion to their exact cardinalities,
+the sum of their 'sizes'. An alternative with no members is dropped, as is one
+whose construction failed with 'EmptyGenerator'; any other failure is
+reported. A recursive family has no cardinality, and its size-class sampler
+already draws every member of a size class equally, so alternatives around one
+are combined with equal weights, as 'oneofGrouped' does.
+
+An alternative that is itself weighted keeps its own distribution, so members
+are equally likely exactly when each alternative is uniform.
+-}
+uniformlyGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
+uniformlyGrouped alternatives
+    | any isRecursiveGrouped alternatives = oneofGrouped alternatives
+    | otherwise = case traverse liveCardinality alternatives of
+        Left err -> Grouped $ Left err
+        Right counts ->
+            frequencies
+                [ (count, alternative)
+                | (Just count, alternative) <- zip counts alternatives
+                ]
+  where
+    liveCardinality alternative = case sizes alternative of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right groups ->
+            let total = sum groups
+             in Right $ if total > 0 then Just total else Nothing
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped gen key a -> ECTAGen gen a
 ungroup = atKey () . regroupBy (const ())
@@ -1055,6 +1147,7 @@ frequency alternatives
                                 ]
                             )
                             (any recursiveWeighted views)
+                            (any recursiveOccurrence views)
                             Nothing
                 else Left WeightedRecursiveAlternatives
     | otherwise =
@@ -1082,6 +1175,35 @@ within the selected size.
 -}
 oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
+
+{- | Choose among generators so that every member of the combined language is
+equally likely.
+
+Finite alternatives are combined in proportion to their cardinalities. An
+alternative with no members is dropped, as is one whose construction failed
+with 'EmptyGenerator'; any other failure is reported, including an opaque
+alternative, which has no cardinality to weight by. A recursive alternative
+makes this 'oneof': a recursive language has no cardinality either, and its
+size-class sampler already draws every member of a size class equally.
+
+An alternative that is itself weighted keeps its own distribution, so members
+are equally likely exactly when each alternative is uniform.
+-}
+uniformly :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
+uniformly alternatives
+    | any isRecursive alternatives = oneof alternatives
+    | otherwise = case traverse liveCardinality alternatives of
+        Left err -> Transparent $ Left err
+        Right counts ->
+            frequency
+                [ (count, alternative)
+                | (Just count, alternative) <- zip counts alternatives
+                ]
+  where
+    liveCardinality alternative = case cardinality alternative of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right count -> Right $ if count > 0 then Just count else Nothing
 
 -- | Generate two values whose projected keys agree.
 match ::
@@ -1240,8 +1362,8 @@ shrinkRank (Transparent (Right static)) rank
     outcomes = staticOutcomes static
 shrinkRank _ _ = []
 
-{- | Every member structurally smaller than the given rank's member, in size
-order, as replayable rank and value.
+{- | Every member of strictly smaller size than the given rank's member, in
+size order, as replayable rank and value.
 
 Size is the number of source choices in a member. The stream is lazy, so cap
 it before use; a smallest failing member found in it is globally minimal.
@@ -1254,13 +1376,15 @@ smallerMembers (Transparent (Right static)) rank
         smallerPlanMembers (outcomePlan outcomes) rank
   where
     outcomes = staticOutcomes static
--- Recursive ranks are size-major, so every smaller rank already decodes to
--- a member of at most the same size, and the members of strictly smaller
--- size are exactly the ranks below the current size class.
+-- Recursive ranks are size-major, so the members of strictly smaller size are
+-- exactly the ranks below the current size class. The rank is that class's
+-- offset plus the position, which is what 'unrank' reads back; the rank
+-- 'sizeClassSelect' reports is the plan's own, and the two differ whenever a
+-- size class came from a finite bucket.
 smallerMembers (Cyclic (Right recursive)) rank
     | Just (size, _) <- sizeClassOf index rank =
-        [ sizeClassSelect index smallerSize position
-        | smallerSize <- [1 .. size - 1]
+        [ (offset + position, snd $ sizeClassSelect index smallerSize position)
+        | (smallerSize, offset) <- zip [1 .. size - 1] (scanl (+) 0 (sizeClassCounts index))
         , position <- [0 .. Size.countAtSize index smallerSize - 1]
         ]
   where

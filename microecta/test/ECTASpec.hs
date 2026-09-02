@@ -415,15 +415,15 @@ spec = do
                     uv : _ -> Just uv
                     [] -> Nothing
             -- The enumerator reaches the left hole first, which is never "x".
-            length (getAllTermsPruneWith Nothing noExpansionPreference oracle twoHoleNode)
+            length (getAllTermsPruneWith "Mu" Nothing noExpansionPreference oracle twoHoleNode)
                 `shouldBe` 4
             -- Steering to the last candidate reaches the right hole first.
-            length (getAllTermsPruneWith Nothing preferLast oracle twoHoleNode)
+            length (getAllTermsPruneWith "Mu" Nothing preferLast oracle twoHoleNode)
                 `shouldBe` 2
 
         it "a preference outside the candidates is ignored" $ do
             let preferAbsent _ _ = Just (intToUVar 9999)
-            getAllTermsPruneWith () preferAbsent keepEverything twoHoleNode
+            getAllTermsPruneWith "Mu" () preferAbsent keepEverything twoHoleNode
                 `shouldBe` getAllTerms twoHoleNode
 
     describe "counted nested Mu" $ do

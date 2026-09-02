@@ -30,11 +30,11 @@ remaining binds choose one argument per signature component in order, and the
 block builds exactly the 'Data.ECTA.Gen.apply' join:
 
 @
-applicationGen children = ECTAGen.do
-    op <- binaryFunctionsBySignature
-    x <- children
-    y <- children
-    ECTAGen.pure (compile op x y)
+binaryLayer children = ECTAGen.do
+    operation <- binaryFunctionsBySignature
+    left <- children
+    right <- children
+    ECTAGen.pure (compileBinary operation left right)
 @
 -}
 module Data.ECTA.Gen.Do (
@@ -51,7 +51,7 @@ module Data.ECTA.Gen.Do (
 
 import Data.Kind (Type)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
-import Prelude (Ord)
+import Prelude (Ord, type (~))
 import qualified Prelude
 
 import Data.ECTA.Gen (
@@ -118,39 +118,44 @@ newtype Applying gen (pendingKeys :: [Type]) resultKey b
           Grouped gen resultKey result
         )
 
+-- The argument family's key is a fresh variable equated in the context rather
+-- than repeated in the head, so instance selection does not need it fixed
+-- already. An argument written as @keyed 0 ...@, whose key type is still open
+-- and would default to Integer, then resolves against the operation's
+-- signature the way it does when @apply@ is written out.
 instance
-    (Ord argKey, Ord resultKey) =>
+    (argKey ~ argKey', Ord argKey, Ord resultKey) =>
     GenApply
         (Grouped gen (Sig '[argKey] resultKey))
-        (Grouped gen argKey)
+        (Grouped gen argKey')
         (Grouped gen resultKey)
     where
     operations <*> argument = apply operations (argument :& ANil)
 
 instance
-    (Ord argKey, Ord resultKey) =>
+    (argKey ~ argKey', Ord argKey, Ord resultKey) =>
     GenApply
         (Grouped gen (Sig (argKey ': nextKey ': pendingKeys) resultKey))
-        (Grouped gen argKey)
+        (Grouped gen argKey')
         (Applying gen (nextKey ': pendingKeys) resultKey)
     where
     operations <*> argument =
         Applying (\rest -> apply operations (argument :& rest))
 
 instance
-    (Ord argKey) =>
+    (argKey ~ argKey', Ord argKey) =>
     GenApply
         (Applying gen '[argKey] resultKey)
-        (Grouped gen argKey)
+        (Grouped gen argKey')
         (Grouped gen resultKey)
     where
     Applying continue <*> argument = continue (argument :& ANil)
 
 instance
-    (Ord argKey) =>
+    (argKey ~ argKey', Ord argKey) =>
     GenApply
         (Applying gen (argKey ': nextKey ': pendingKeys) resultKey)
-        (Grouped gen argKey)
+        (Grouped gen argKey')
         (Applying gen (nextKey ': pendingKeys) resultKey)
     where
     Applying continue <*> argument =
@@ -164,6 +169,12 @@ type NotApplicativeMessage =
         ':$$: 'Text "    return is not recognized inside ECTAGen.do)."
         ':$$: 'Text "  * ApplicativeDo is not enabled in this module;"
         ':$$: 'Text "    qualified do-notation needs it alongside QualifiedDo."
+        ':$$: 'Text "  * A statement binds a strict pattern, as in"
+        ':$$: 'Text "    (a, b) <- match ...: ApplicativeDo needs a lazy one,"
+        ':$$: 'Text "    so write ~(a, b) <- match ... instead."
+        ':$$: 'Text "  * The block contains a let statement, which ApplicativeDo"
+        ':$$: 'Text "    has nowhere to place: bind the value in the final"
+        ':$$: 'Text "    ECTAGen.pure, or in a where clause."
         ':$$: 'Text "  * A later generator uses a value generated earlier."
         ':$$: 'Text "    ECTA generators are applicative, so choices are"
         ':$$: 'Text "    independent. Use match, relate, or apply, or embed"

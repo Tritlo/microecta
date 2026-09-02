@@ -7,6 +7,7 @@ module Utility.HashJoin (
 
 import Control.Monad.ST (ST, runST)
 import Data.Foldable (foldrM)
+import Data.Hashable (Hashable)
 
 import qualified Data.HashTable.ST.Cuckoo as HT
 
@@ -14,12 +15,12 @@ import qualified Data.HashTable.ST.Cuckoo as HT
 --- Hash join / clustering / nub
 --------------------------------
 
-{- | Remove duplicates by a stable identity hash.
+{- | Remove duplicates by a stable identity.
 
-Precondition: if @h x == h y@, then @x == y@. This is intended for interned
-values where the integer id is already a complete identity. The output order is
-reversed relative to first occurrence because callers only need set-like
-behavior.
+This is intended for interned values where the integer id is already a complete
+identity, so keeping one value per id keeps one per distinct value. The output
+order is reversed relative to first occurrence because callers only need
+set-like behavior.
 -}
 nubByIdSinglePass :: forall a. (a -> Int) -> [a] -> [a]
 nubByIdSinglePass _ [x] = [x]
@@ -47,31 +48,30 @@ maybeAddToHt v = \case
     Nothing -> (Just [v], ())
     Just vs -> (Just (v : vs), ())
 
-{- | Group values by hash.
+{- | Group values by a key.
 
-Precondition, as for 'nubByIdSinglePass': @h x == h y@ must imply @x == y@.
-Callers cluster interned values by an id-derived hash, so a collision would
-silently merge two distinct groups.
+The table is keyed by the key itself rather than by its hash, so values land in
+the same cluster exactly when their keys are equal. A colliding 'Hashable'
+instance costs a bucket probe and nothing else.
 -}
-clusterByHash :: (a -> Int) -> [a] -> [[a]]
-clusterByHash h ls = runST $ do
+clusterByHash :: (Hashable k) => (a -> k) -> [a] -> [[a]]
+clusterByHash key ls = runST $ do
     ht <- HT.new
-    mapM_ (\x -> HT.mutate ht (h x) (maybeAddToHt x)) ls
+    mapM_ (\x -> HT.mutate ht (key x) (maybeAddToHt x)) ls
     HT.foldM (\res (_, vs) -> return $ vs : res) [] ht
 
-{- | Join two lists by equal hash and combine matching pairs.
+{- | Join two lists by equal keys and combine matching pairs.
 
-Precondition, as for 'nubByIdSinglePass': @h x == h y@ must imply @x == y@.
-The combining function is only ever applied to genuinely matching pairs under
-that assumption; a collision would pair unrelated values.
+As for 'clusterByHash', the table is keyed by the key itself, so the combining
+function sees exactly the pairs whose keys are equal however the key hashes.
 -}
-hashJoin :: (a -> Int) -> (a -> a -> b) -> [a] -> [a] -> [b]
-hashJoin h j l1 l2 = runST $ do
+hashJoin :: (Hashable k) => (a -> k) -> (a -> a -> b) -> [a] -> [a] -> [b]
+hashJoin key j l1 l2 = runST $ do
     ht2 <- HT.new
-    mapM_ (\x -> HT.mutate ht2 (h x) (maybeAddToHt x)) l2
+    mapM_ (\x -> HT.mutate ht2 (key x) (maybeAddToHt x)) l2
     foldrM
         ( \x res -> do
-            maybeCluster <- HT.lookup ht2 (h x)
+            maybeCluster <- HT.lookup ht2 (key x)
             case maybeCluster of
                 Nothing -> return res
                 Just vs2 -> return $ foldr (\v2 acc -> j x v2 : acc) res vs2

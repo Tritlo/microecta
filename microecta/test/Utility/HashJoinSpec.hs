@@ -9,8 +9,9 @@ import Utility.HashJoin
 
 -----------------------------------------------------------------
 
--- All three helpers assume an injective hash, so 'id' is a faithful stand-in
--- for the interned-id hashes the engine actually passes them.
+-- 'clusterByHash' and 'hashJoin' key on the projection itself, and
+-- 'nubByIdSinglePass' takes an identity projection, so 'id' is a faithful
+-- stand-in for the interned keys the engine actually passes them.
 
 spec :: Spec
 spec = do

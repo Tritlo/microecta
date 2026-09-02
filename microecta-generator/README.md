@@ -33,7 +33,11 @@ than materializing their Cartesian products.
 `:==:` keeps both projections as data, so the match can group each input by
 its own key, encode the shared keys as an actual ECTA equality constraint,
 count the matching group products, and unrank directly into the selected
-group. `:&&:` conjoins several equalities. `match` accepts arbitrary value
+group. `:&&:` conjoins several equalities. This is the exact-uniform
+conditioning of [Claessen, Duregård and Pałka, *Generating Constrained Random
+Data with Uniform Distribution*, JFP 25,
+2015](https://doi.org/10.1017/S0956796815000143), with the condition reified as
+data rather than tested on samples. `match` accepts arbitrary value
 projections, so discovering its groups requires enumerating the input ranks;
 conditioning three or more generators is the grouped layer's job (`groupBy`
 and `apply`).
@@ -69,7 +73,10 @@ for later equality constraints. The operation family holds functions (`fmap`
 a compiling function onto it); the argument families arrive as an `Args`
 chain. `frequencies` chooses among grouped generators with relative weights,
 group by group, so alternated layers (for example expressions of depth at
-most n) stay grouped. `ungroup` returns an ordinary `ECTAGen` with
+most n) stay grouped. `uniformlyGrouped` combines grouped generators in
+proportion to their exact cardinalities, so every member of the union is
+equally likely, which is what a layered language wants; `uniformly` does the
+same for flat generators. `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 
@@ -84,39 +91,40 @@ Here each command language keeps its existing compact support. Only the two
 declared keys are stored.
 
 ```haskell
-binaryFunctionsBySignature :: Grouped (Sig '[Type, Type] Type) BinaryFunctionInstance
-binaryFunctionsBySignature = ECTAGen.groupBy signature (ECTAGen.elements functionInstances)
+binaryFunctionsBySignature :: Grouped BinarySignature BinaryFunctionInstance
+binaryFunctionsBySignature =
+  ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
 
-signature function =
-  argument1Type function :* argument2Type function :-> resultType function
+binarySignature instance_ =
+  firstArgumentType instance_
+    :* secondArgumentType instance_
+    :-> binaryResultType instance_
 
 literalsByType :: Grouped Type TypedExpression
 literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
-notFunctions :: Grouped (Sig '[Type] Type) (TypedExpression -> TypedExpression)
-notFunctions =
-  compileNot <$ ECTAGen.keyed (TBool :-> TBool) (ECTAGen.elements [()])
+unaryFunctionsBySignature :: Grouped UnarySignature (TypedExpression -> TypedExpression)
+unaryFunctionsBySignature =
+  compileNot <$ ECTAGen.keyed unarySignature (ECTAGen.elements [()])
 
-conditionalFunctions =
+conditionalFunctionsBySignature =
   compileConditional
-    <$> ECTAGen.groupBy
-      (\result -> TBool :* result :* result :-> result)
-      (ECTAGen.elements allTypes)
+    <$> ECTAGen.groupBy conditionalSignature (ECTAGen.elements allTypes)
 
 binaryLayer children =
   ECTAGen.apply
-    (compileApplication <$> binaryFunctionsBySignature)
+    (compileBinary <$> binaryFunctionsBySignature)
     (children :& children :& ANil)
 
 conditionalLayer children =
   ECTAGen.apply
-    conditionalFunctions
+    conditionalFunctionsBySignature
     (children :& children :& children :& ANil)
 ```
 
 The typed-expression example combines unary `Not`, binary functions, and
-ternary `IfExpression`. Its finite layers weight those three alternatives by
-their exact cardinalities, so every expression remains equally likely. Its
+ternary `IfExpression`. Its finite layers combine those three alternatives with
+`uniformlyGrouped`, so every expression remains equally likely. Its
 recursive layer uses equal structural alternatives, as recursive declarations
 require.
 
@@ -138,7 +146,7 @@ authentication = ECTAGen.do
   ECTAGen.pure (Authentication user method)
 
 conditionalLayer children = ECTAGen.do
-  build <- conditionalFunctions
+  build <- conditionalFunctionsBySignature
   condition <- children
   ifTrue <- children
   ifFalse <- children
@@ -146,8 +154,12 @@ conditionalLayer children = ECTAGen.do
 ```
 
 Impossible shapes fail at compile time with an explanation: a statement using
-an earlier bound value, an unqualified `pure` ending, a missing operation
-argument, or a fallible pattern.
+an earlier bound value, an unqualified `pure` ending, or a fallible pattern.
+A block that binds fewer arguments than its operation's signature arity is a
+type mismatch against `Applying`, whose haddock says what the remaining keys
+are. A statement whose result is a tuple, as `match` and `relate` give, must
+bind it lazily: `ApplicativeDo` rejects `(a, b) <- match ...` and accepts
+`~(a, b) <- match ...`.
 
 Every transparent generator samples compositionally by rank, including exact
 non-uniform `frequency` and conditioned joins; sampling never materializes the
@@ -187,14 +199,25 @@ empty trace contributes one choice, so size 41 represents forty commands.
 
 `Data.ECTA.Gen.QuickCheck` exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed. `forAll` checks a
-property and shrinks to the smallest failing member: candidates first search
-every structurally smaller member in size order (`smallerMembers`, capped),
-so the reported counterexample is globally size-minimal whenever the search
-reaches one - a guarantee ordinary shrinking cannot make. Structural
-component shrinking through `shrinkRank` follows as a fallback. Every
-candidate is a member of the generated language, and the failing rank is
-printed for deterministic replay with `unrank`. `sized` builds one generator per QuickCheck size (shared
-across samples), so layered generators can scale with the size parameter.
+property and shrinks to the smallest failing member. It first tests every
+member of strictly smaller size, in size order (`smallerMembers`, capped by
+`smallerMemberLimit`), so the reported counterexample is globally size-minimal
+whenever that search reaches one. Behind that it offers size-major structural
+shrinking through `shrinkRank`, which for a recursive generator reads its
+candidates from the form bounded at the current size, since bounding is what
+gives a recursive member components to shrink. Every candidate is a member of
+the generated language, and the failing rank is printed for deterministic
+replay with `unrank`. A generator with an opaque region has no ranks at all, so
+`forAll` tests it by sampling with no shrinking. `sized` builds and compiles
+one generator per QuickCheck size (shared across samples), so layered
+generators can scale with the size parameter.
+
+Greedy shrinkers - QuickCheck, Hedgehog, Hypothesis, falsify - stop at a local
+minimum. Bounded-exhaustive tools find a smallest counterexample by testing the
+whole space up to a bound ([Runciman, Naylor and Lindblad, *SmallCheck and Lazy
+SmallCheck*, Haskell 2008](https://doi.org/10.1145/1411286.1411292), and FEAT's
+exhaustive modes). `forAll` gets a size-minimal counterexample starting from a
+random one, by enumerating every member of strictly smaller size first.
 
 ```haskell
 import Data.ECTA.Gen.QuickCheck (ECTAGen)
@@ -248,6 +271,25 @@ tree above. Ranks are size-major, so `unrank tree 0` is the smallest member
 and every rank replays as usual, and the ECTA support is a `Mu` node: one
 finite automaton for infinitely many terms.
 
+The convolution is FEAT's ([Duregård, Jansson and Wang, *Feat: Functional
+Enumeration of Algebraic Types*, Haskell
+2012](https://doi.org/10.1145/2364506.2364515)), but the size measure is not:
+FEAT charges size wherever the definition says `pay`, while here every source
+choice costs one and nothing else does. "Size-major rank" is this package's own
+term for the resulting order. Counting a family by a size recurrence and
+drawing from those counts is the recursive method of Nijenhuis and Wilf,
+*Combinatorial Algorithms*, 2nd ed., 1978, and of [Flajolet, Zimmermann and Van
+Cutsem, *A Calculus for the Random Generation of Labelled Combinatorial
+Structures*, TCS 132, 1994](https://doi.org/10.1016/0304-3975(94)90226-7);
+turning a rank back into a member is unranking, as in [Martínez and Molinero,
+*A generic approach for the unranking of labeled combinatorial classes*, RSA
+19, 2001](https://doi.org/10.1002/rsa.10025).
+
+`pure` is one source choice like any other, so `pure f <*> x` has one more
+choice than `f <$> x`: the two have different sizes and therefore different
+ranks. It also counts as guarding recursion, so `pure f <*> self` is accepted
+where `f <$> self` is `UnguardedRecursion`.
+
 `upToSize n` bounds the language back to an ordinary finite generator over
 the members of size at most `n`, and `toGen` and `forAll` apply it from
 QuickCheck's size parameter. Size classes and structural alternatives are
@@ -256,7 +298,8 @@ selected from their member counts; weighted finite choices closed with
 ranks: the members of size at most `n` hold the same ranks under every bound
 large enough to contain them. A counterexample therefore replays under any
 larger bound, and `forAll` shrinks by walking whole size classes below the
-failing member.
+failing member and then, past its cap, by shrinking the components of the form
+bounded at the failing member's size.
 
 `atomic` treats every member of a finite generator as one source choice. This
 sets a domain-sized boundary inside a recursive language. For example, an
@@ -280,20 +323,29 @@ FTA becomes the finite command source, so QuickCheck's size acts on the outer
 trace instead of taking a second prefix inside each command. For an already
 finite generator, its cardinality and distribution also stay unchanged. Only
 the size and structural-shrinking boundary changes. A recursive input has
-infinitely many members, so bound it with `upToSize` before making it atomic.
-Opaque generators have no size structure and cannot be made atomic.
+infinitely many members, so bound it with `upToSize` before making it atomic --
+and do that *outside* the recursive definition. Neither `upToSize` nor `atomic`
+can be applied to the `recur` argument, or to anything built from it: the bound
+would need the size classes that definition is still computing, and an atom
+over them would have a cardinality depending on itself. Both shapes are
+rejected with `BoundedRecursiveOccurrence`. Opaque generators have no size
+structure and cannot be made atomic.
 
 The self-reference has to go through `recur`. A generator that names itself
 directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
 value: building it never finishes, and the failure is a hang rather than
 anything the library can report. In the other direction, a body that never
 uses the argument is not recursive, and is handed back as it is: a finite
-body stays a finite generator, cardinality and inspection included.
+body stays a finite generator, cardinality and inspection included. A body
+that could not be built at all reports its own error, rather than becoming a
+recursive language every finite inspector calls unbounded.
 
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
-`UnguardedRecursion` rather than left to hang. Structural alternatives around a
+`UnguardedRecursion` rather than left to hang. The check is per definition, so
+inside a nested `recur` an occurrence of the *outer* language must also sit
+under an application within the inner body. Structural alternatives around a
 recursive occurrence must carry equal weights; `oneof` is the combinator that
 already reads that way, and the size bound controls how large members get.
 `frequency` with unequal recursive-branch weights is rejected rather than
@@ -315,7 +367,7 @@ and equality constraints meet in one cycle:
 ```haskell
 expressions :: Grouped Type TypedExpression
 expressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.oneofGrouped [literalsByType, applicationGen self]
+    ECTAGen.oneofGrouped [literalsByType, applicationLayer self]
 
 anyExpression = ECTAGen.ungroup expressions
 intExpression = ECTAGen.atKey TInt expressions
@@ -364,6 +416,14 @@ the edge's count is the size of an intersection rather than a product of the
 children's counts; an automaton carrying them is rejected with
 `CannotCountConstrainedEdges` rather than miscounted.
 
+Ambiguity is not counted either. A node's count is the sum over its edges,
+which counts accepting *runs*, so a node with two edges that accept a common
+term would count that term twice and `unrank` would return it at two ranks.
+Every reachable node is checked, and an ambiguous automaton is rejected with
+`AmbiguousAutomaton`. Two edges overlap when they share a symbol and arity and
+every child position has a non-empty intersection, which without constraints
+is exactly when they share a term.
+
 `fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
@@ -374,6 +434,12 @@ ranks are those draws. The result supports exact inspection and constrained
 joins. Repeated draws remain repeated ranks and therefore retain their
 empirical weight. Reuse the returned generator when two choices must range over
 the same frozen universe.
+
+`freeze seed n native` is `pool` with the draws fixed by a seed, so it is an
+ordinary transparent generator rather than a `Gen` of one: it can be weighted
+by `uniformly`, keyed, joined, replayed, and shrunk, and its ranks are the same
+in every run under the same seed. The native generator runs at QuickCheck size
+30, the default of `generate`; use `resize` on it for another size.
 
 Every failure is an `ECTAGenError`. The derived `Show` names the case, and
 `explain` says what it means and which combinator resolves it; sampling a
@@ -393,7 +459,9 @@ is the shape to look for.
 `fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
 Opaque regions still compose and sample, but cannot be inspected with `pmf`;
 joining through one falls back to QuickCheck rejection. Opaque regions also
-have no replay rank. There is deliberately no `Monad` or `Selective` instance.
+have no replay rank, and `forAll` therefore tests a generator holding one by
+sampling alone, without shrinking. There is deliberately no `Monad` or
+`Selective` instance.
 This keeps inspectable applicative regions inside ECTA and makes the loss of
 structure explicit.
 
@@ -419,7 +487,8 @@ process-global tables, which are synchronized as of `microecta` 0.2.0.0.
 
 This matters here more than it sounds, because this is a testing library and
 test runners parallelize: `tasty` runs independent tests concurrently by
-default, and `hspec` does under `parallel`. A property drawing from an
+default when the test binary is linked with `-threaded` and run with `+RTS -N`,
+and `hspec` does under `parallel`. A property drawing from an
 `ECTAGen` can be run that way without anything in your code looking
 concurrent. Against earlier `microecta` that was silent corruption rather than
 a crash; see the concurrency note in `microecta`'s README.
@@ -440,20 +509,20 @@ depth 1's nodes and report a setup cost no first run can reproduce.
 
 | depth | engine | first expr | exprs/s | alloc/expr | setup mem | retained after 100k |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | ECTA | 0.04 ms | 2,218,918 | 3.6 KB | 6.0 KB | 38.0 KB |
-| 1 | handwritten | 0.03 ms | 552,279 | 14.1 KB | 3.1 KB | 41.6 KB |
-| 2 | ECTA | 0.06 ms | 1,828,388 | 3.8 KB | 48.8 KB | 57.8 KB |
-| 2 | handwritten | 0.04 ms | 197,621 | 38.2 KB | 6.3 KB | 106.0 KB |
-| 3 | ECTA | 0.09 ms | 986,359 | 5.8 KB | 64.7 KB | 159.9 KB |
-| 3 | handwritten | 0.10 ms | 67,269 | 112.3 KB | 50.1 KB | 354.6 KB |
-| 4 | ECTA | 0.15 ms | 370,664 | 12.8 KB | 102.6 KB | 396.7 KB |
-| 4 | handwritten | 0.57 ms | 21,981 | 335.8 KB | 83.9 KB | 1019.8 KB |
+| 1 | ECTA | 0.05 ms | 2,198,575 | 3.6 KB | 37.1 KB | 38.0 KB |
+| 1 | handwritten | 0.04 ms | 545,661 | 14.1 KB | 3.1 KB | 41.6 KB |
+| 2 | ECTA | 0.06 ms | 1,847,234 | 3.8 KB | 47.3 KB | 57.8 KB |
+| 2 | handwritten | 0.04 ms | 205,595 | 38.2 KB | 6.3 KB | 106.0 KB |
+| 3 | ECTA | 0.08 ms | 1,019,368 | 5.8 KB | 61.6 KB | 156.6 KB |
+| 3 | handwritten | 0.10 ms | 67,212 | 112.3 KB | 50.1 KB | 354.6 KB |
+| 4 | ECTA | 0.14 ms | 371,475 | 12.8 KB | 98.0 KB | 391.8 KB |
+| 4 | handwritten | 0.58 ms | 22,249 | 335.8 KB | 83.9 KB | 1019.8 KB |
 
 The ECTA generator draws 4x faster at depth 1 and 17x faster at depth 4,
 allocating 4x to 26x less, and the gap widens with depth because the
 handwritten generator's cost is per node while this one's is one decode per
-sample. On the same machine an empty generator runs at 14.3M draws/s and a
-single `chooseInt` at 2.6M, so at depth 1 the ECTA generator is already within
+sample. On the same machine an empty generator runs at 14.7M draws/s and a
+single `chooseInt` at 2.7M, so at depth 1 the ECTA generator is already within
 a small factor of one QuickCheck draw and cannot get much faster.
 
 Setup is not the tax it might look like. It is a fraction of a millisecond

@@ -54,12 +54,14 @@ module Data.ECTA.Gen.QuickCheck (
     fromIndexed,
     elements,
     pool,
+    freeze,
     fromECTA,
     fromGen,
 
     -- * Composing
     frequency,
     oneof,
+    uniformly,
     On (..),
     match,
     relate,
@@ -76,6 +78,7 @@ module Data.ECTA.Gen.QuickCheck (
     apply,
     frequencies,
     oneofGrouped,
+    uniformlyGrouped,
     ungroup,
 
     -- * Recursion
@@ -119,6 +122,8 @@ import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
 import qualified Test.QuickCheck as QC
+import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Random (mkQCGen)
 
 import Data.ECTA (Node)
 import Data.ECTA.Gen (
@@ -203,6 +208,19 @@ pool :: Int -> QC.Gen a -> QC.Gen (ECTAGen a)
 pool sampleCount native =
     elements <$> QC.vectorOf (max 0 sampleCount) native
 
+{- | 'pool' with the draws fixed by a seed.
+
+The native generator is run once, at QuickCheck size 30 (the default of
+'QC.generate'), so the result is an ordinary transparent generator: it can be
+weighted by 'uniformly', keyed, joined, replayed, and shrunk, and its ranks are
+the same in every run under the same seed. That is the trade against 'pool',
+which draws afresh each time its outer 'QC.Gen' runs. Use 'QC.resize' on the
+native generator for another size.
+-}
+freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
+freeze seed sampleCount native =
+    unGen (pool sampleCount native) (mkQCGen seed) 30
+
 {- | Read an ECTA as a generator of the terms it accepts.
 
 The automaton is the support and members are counted by size, so this draws
@@ -221,7 +239,8 @@ enters recursion; a finite composition outside the boundary is a new choice
 and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating it or taking an inner
 QuickCheck-size prefix. Bound a recursive language with 'upToSize' before
-making it atomic.
+making it atomic, /outside/ the recursive definition: applying either to the
+'recur' argument is rejected with 'BoundedRecursiveOccurrence'.
 -}
 atomic :: ECTAGen a -> ECTAGen a
 atomic = ECTA.atomic
@@ -239,7 +258,15 @@ otherwise it is an empty generator.
 
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
-being built.
+being built. 'upToSize' and 'atomic' cannot be applied to the argument, or to
+anything built from it; bound the finished language from outside instead.
+
+The guard check is per definition, so inside a nested 'recur' an occurrence of
+the /outer/ language must also sit under an application within the inner body.
+
+'pure' is one source choice, so @pure f '<*>' x@ has one more choice than
+@f '<$>' x@, and therefore different sizes and ranks; @pure f '<*>' self@
+counts as guarded where @f '<$>' self@ does not.
 -}
 recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 recur = ECTA.recur
@@ -337,6 +364,14 @@ family admits.
 oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped = ECTA.oneofGrouped
 
+{- | Choose among grouped generators so that every member of the combined
+language is equally likely: finite alternatives are combined in proportion to
+their exact cardinalities, and alternatives around a recursive family with
+equal weights.
+-}
+uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
+uniformlyGrouped = ECTA.uniformlyGrouped
+
 -- | Merge all retained groups while preserving their probability masses.
 ungroup :: Grouped key a -> ECTAGen a
 ungroup = ECTA.ungroup
@@ -353,6 +388,13 @@ recursive occurrence are rejected.
 -}
 oneof :: [ECTAGen a] -> ECTAGen a
 oneof = ECTA.oneof
+
+{- | Choose among generators so that every member of the combined language is
+equally likely: finite alternatives are combined in proportion to their
+cardinalities, and alternatives around a recursive one with equal weights.
+-}
+uniformly :: [ECTAGen a] -> ECTAGen a
+uniformly = ECTA.uniformly
 
 -- | Generate two values whose projected keys agree.
 match ::
@@ -405,8 +447,9 @@ unrank = ECTA.unrank
 shrinkRank :: ECTAGen a -> Integer -> [Integer]
 shrinkRank = ECTA.shrinkRank
 
-{- | Every member structurally smaller than the given rank's member, in size
-order, as replayable rank and value. The stream is lazy; cap it before use.
+{- | Every member of strictly smaller size than the given rank's member, in
+size order, as replayable rank and value. The stream is lazy; cap it before
+use.
 -}
 smallerMembers :: ECTAGen a -> Integer -> [(Integer, a)]
 smallerMembers = ECTA.smallerMembers
@@ -499,14 +542,19 @@ raise called err =
 {- | Check a property over a transparent generator, shrinking to the
 smallest failing member.
 
-Shrink candidates first search every structurally smaller member in size
-order, capped at 'smallerMemberLimit', so the result is the globally
-smallest failing member whenever the search reaches one. Structural
-component shrinking through 'shrinkRank' follows as a fallback, restricted
-to candidates of at most the current size so shrinking always terminates.
-Every candidate is a member of the generated language, and the failing rank
-is printed with the counterexample, so 'unrank' replays it
-deterministically.
+Shrink candidates first search every member of strictly smaller size, in size
+order, capped at 'smallerMemberLimit', so the result is the globally smallest
+failing member whenever the search reaches one. Component shrinking through
+'shrinkRank' follows as a fallback, restricted to candidates of at most the
+current size. For a recursive generator that fallback reads the candidates
+from the form bounded at the current size, since a recursive generator has no
+component shrinks of its own; bounding preserves ranks, so the candidates
+replay against the unbounded generator unchanged. Every candidate is a member
+of the generated language, and the failing rank is printed with the
+counterexample, so 'unrank' replays it deterministically.
+
+A generator with an opaque region has no ranks to shrink or replay, so it is
+tested by sampling alone, with no shrinking.
 -}
 forAll :: (QC.Testable prop, Show a) => ECTAGen a -> (a -> prop) -> QC.Property
 forAll = forAllWithLimit smallerMemberLimit
@@ -525,44 +573,53 @@ many members per shrink step.
 -}
 forAllWithLimit ::
     (QC.Testable prop, Show a) => Int -> ECTAGen a -> (a -> prop) -> QC.Property
-forAllWithLimit limit generator prop =
-    QC.forAllShrinkShow
-        (toGenWithRank generator)
-        shrinkCandidates
-        showRanked
-        (prop . snd)
+forAllWithLimit limit generator prop
+    | ECTA.isOpaque generator = QC.forAll (toGen generator) prop
+    | otherwise =
+        QC.forAllShrinkShow
+            (toGenWithRank generator)
+            shrinkCandidates
+            showRanked
+            (prop . snd)
   where
     shrinkCandidates (rank, _) = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
         currentSize = sizeOfRank generator rank
-        -- Bounding candidates by the current size is what makes a greedy
-        -- shrink loop terminate. A candidate whose size cannot be read is out
-        -- of range and is dropped by the 'unrank' guard below anyway.
+        -- 'shrinkRank' has no candidates for a recursive generator, so the
+        -- structural candidates come from the form bounded at the current
+        -- size, whose shrinking is size-major halving. Bounding preserves
+        -- ranks, and leaves a finite generator alone.
+        bounded = maybe generator (`ECTA.upToSize` generator) currentSize
+        -- Every 'shrinkRank' candidate already has a strictly smaller rank, so
+        -- this guard only stops a candidate from growing in size; it is not
+        -- what makes shrinking terminate. A candidate whose size cannot be
+        -- read is out of range and is dropped by the 'unrank' guard below.
         notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
             (Just candidateSize, Just size) -> candidateSize <= size
             _ -> True
         structural =
             [ (candidate, value)
-            | candidate <- shrinkRank generator rank
+            | candidate <- shrinkRank bounded rank
             , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
 
     showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
 
-{- | 'forAll' tests at most this many structurally smaller members per shrink
-step before falling back to component shrinking.
+{- | 'forAll' tests at most this many members of strictly smaller size per
+shrink step before falling back to component shrinking.
 -}
 smallerMemberLimit :: Int
 smallerMemberLimit = 1000
 
 {- | Build the generator from QuickCheck's size parameter.
 
-The generators for every size are built once and shared across samples, so a
-layered generator is not reconstructed on every draw.
+The generator for each size is built /and compiled/ once and shared across
+samples, so neither the generator nor its decode plan is reconstructed on every
+draw.
 -}
 sized :: (Int -> ECTAGen a) -> QC.Gen a
-sized build = QC.sized $ \size -> toGen $ towers !! max 0 size
+sized build = QC.sized $ \size -> towers !! max 0 size
   where
-    towers = map build [0 ..]
+    towers = map (toGen . build) [0 ..]

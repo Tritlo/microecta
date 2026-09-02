@@ -3,7 +3,10 @@
 [![Hackage](https://img.shields.io/hackage/v/microecta.svg)](https://hackage.haskell.org/package/microecta)
 
 `microecta` is a small equality-constrained tree automata library extracted
-from the [`ecta`](https://hackage.haskell.org/package/ecta) package.
+from the [`ecta`](https://hackage.haskell.org/package/ecta) package, whose
+design is described in Koppel, Guo, de Vries, Solar-Lezama and Polikarpova,
+[*Searching Entangled Program Spaces*, Proc. ACM Program. Lang. 6(ICFP),
+2022](https://doi.org/10.1145/3547622).
 
 It keeps the core ECTA engine and the tiny term-search compatibility layer used
 by downstream projects.
@@ -68,8 +71,9 @@ Useful operations:
 
 - `union` combines alternatives.
 - `intersect` keeps terms accepted by both automata.
-- `reducePartially` propagates equality constraints and removes impossible
-  alternatives.
+- `reducePartially` propagates equality constraints and removes the
+  alternatives those constraints locally rule out. It does not decide
+  emptiness: a fully reduced automaton can still accept nothing.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
 - `nodeRepresents` checks concrete term membership.
 - `matchesTemplate` checks a concrete term against an explicit `Template`.
@@ -78,6 +82,13 @@ Useful operations:
 - `getAllTerms` and `getAllTermsPrune` enumerate accepted terms. Both stop at
   an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
   `unfoldBounded` first to see past the recursion.
+
+Enumeration lists accepting *runs*, not distinct terms. An ambiguous node --
+two edges that accept a common term -- yields that term once per edge, so run
+`withoutRedundantEdges` first or deduplicate the result if you need each term
+once. And a constraint whose paths descend into a truncated `Mu` is dropped
+rather than checked, so a term containing the `Mu` marker is not evidence that
+the language below it is non-empty.
 
 Templates do not overload ordinary symbols. `Hole` matches a complete
 subtree, `TemplateNode` and `AnyNode` require exact arity, and
@@ -139,20 +150,31 @@ under the hole's `getUVarRepresentative` and settle it when the oracle is
 called with `Left fragment` for that UVar — which is guaranteed to happen
 before the branch completes.
 
-`getAllTermsPruneWith` adds a say in which hole is expanded next, so a parked
-check can be settled before the branch it will kill is enumerated:
+`getAllTermsPruneWith` takes the truncated-recursion symbol explicitly, as
+`getAllTermsWith` does, so an alphabet without an `IsString` instance can prune
+too. It also adds a say in which hole is expanded next, so a parked check can
+be settled before the branch it will kill is enumerated:
 
 ```haskell
 -- Expand a hole some parked check is waiting on, if one is available.
 resolveParkedFirst :: ExpansionOrder (IntMap [Term])
 resolveParkedFirst parked candidates =
   listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
+
+-- The recursion symbol comes first, so a datatype alphabet can prune too.
+prunedNats oracle =
+  getAllTermsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
 ```
 
 This steers order only. It cannot make a hole expandable early, and a UVar
 that is not among the candidates is ignored. For an oracle whose rejections
 are monotone — once a branch can be rejected it stays rejectable — it changes
 how much work is done, not which terms come out.
+
+A partial term reports an unexpanded hole as `UVarHole` and a recursive node
+enumeration has finished with as `TruncatedRecursion`. A recursive node whose
+equality constraints are still pending is a hole, not truncated recursion,
+because it may still be expanded.
 
 For repeated reduction, downstream code usually wants:
 
@@ -218,9 +240,10 @@ capabilities produced two different identities in 16 runs out of 20 -- no
 exception, no crash, just two values that are structurally equal and compare
 unequal, after which `Eq`, `Ord`, `Set` membership, memoization and `intersect`
 were all quietly wrong. That mattered most for a parallel test runner: `tasty`
-runs independent tests concurrently by default and `hspec` does under
-`parallel`, so a property could be run that way without anything in the user's
-code looking concurrent. The same probe now reports no disagreement in 25 runs.
+runs independent tests concurrently by default when the test binary is linked
+with `-threaded` and run with `+RTS -N`, and `hspec` does under `parallel`, so
+a property could be run that way without anything in the user's code looking
+concurrent. The same probe now reports no disagreement in 25 runs.
 
 Recursive-node shapes are computed before entering the interning cache and
 stored in the uninterned description. Hashing and equality reuse that shape,
@@ -284,15 +307,22 @@ structurally equal nodes interned either side of a clear get different `Id`s
 and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
 `Symbol` from before the clear is still reachable, which nothing can check.
 
-The real fix is a cache that holds its entries weakly, so unreferenced nodes are
-collected and the table pruned by finalisers. That is the standard treatment --
-[Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
-(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) -- and
-[`hashcons`](https://hackage.haskell.org/package/hashcons) implements it for
-Haskell with weak pointers and stable names. `microecta` does not do this, and
-neither does the [`intern`](https://hackage.haskell.org/package/intern) package
-it depends on for symbols, whose cache is also strong and monotonic. Moving to
-weak caches is a design change rather than a patch, so it is not in this
+The standard remedy for that retention is a cache that holds its entries
+weakly, so unreferenced nodes are collected and their table entries go with
+them. [Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
+(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) build exactly
+that on OCaml's weak arrays. In Haskell the mechanism is weak pointers and
+finalisers, from [Peyton Jones, Marlow and Elliott, *Stretching the Storage
+Manager: Weak Pointers and Stable Names in Haskell*, IFL
+1999](https://doi.org/10.1007/10722298_3).
+
+Haskell's one shipped attempt at a weak intern table was
+[`intern`](https://hackage.haskell.org/package/intern) 0.6, and 0.8 reverted it
+four days later: removing an entry from a finaliser races with a comparison
+already in flight over that entry. No maintained Haskell library ships weak
+hash-consing today. `microecta` does not do it, and neither does the `intern`
+package it depends on for symbols, whose cache is strong and monotonic. Moving
+to weak caches is a design change rather than a patch, so it is not in this
 release.
 
 The old dense `PathTrie` representation compiled poorly at `-O2`, to the point of

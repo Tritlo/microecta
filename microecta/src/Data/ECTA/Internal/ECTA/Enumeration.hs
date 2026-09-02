@@ -93,9 +93,10 @@ data TermFragment symbol
 {- | A label in a term that may still contain enumeration holes.
 
 Keeping holes outside the caller's alphabet prevents a real symbol from being
-mistaken for a rendered placeholder such as @v0@. 'TruncatedRecursion' records an
-unconstrained recursive node when the enumeration state is available to
-identify it.
+mistaken for a rendered placeholder such as @v0@. 'TruncatedRecursion' records a
+recursive node that enumeration has finished with: one carrying no suspended
+constraints, which is where enumeration stops. A recursive node that still has
+constraints pending is a 'UVarHole', because it may still be expanded.
 -}
 data PartialSymbol symbol
     = -- | A symbol from the ECTA's alphabet.
@@ -559,8 +560,13 @@ enumerateFully' ost order oracle = do
 {- | Expand a fragment even if it still contains unenumerated UVars.
 
 Unlike 'expandTermFrag', this is safe for diagnostics and oracle logging while
-enumeration is still in progress. Unexpanded non-recursive UVars become
-'UVarHole's, and recursive continuations become 'TruncatedRecursion'.
+enumeration is still in progress. Unexpanded UVars become 'UVarHole's, except a
+recursive one with no suspended constraints, which is where enumeration stops
+and which becomes 'TruncatedRecursion'.
+
+A recursive node whose constraints have not been settled is still pending
+expansion, so it is reported as a hole. An oracle that parks checks on holes
+would otherwise read it as final and settle a check that has not been decided.
 -}
 expandPartialTermFrag :: TermFragment symbol -> EnumerateM symbol (Term (PartialSymbol symbol))
 expandPartialTermFrag (TermFragmentNode symbol children) =
@@ -569,7 +575,7 @@ expandPartialTermFrag (TermFragmentUVar uv) = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandPartialTermFrag fragment
-        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term TruncatedRecursion []
+        UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Term TruncatedRecursion []
         _ -> return $ Term (UVarHole uv) []
 
 -- | Expand a complete term fragment into a concrete term.
@@ -648,6 +654,10 @@ oracle's own state under that hole's representative
 ('getUVarRepresentative'), and settle it when the oracle is called with
 @Left fragment@ for that UVar, which is guaranteed to happen before the branch
 completes. 'getAllTermsPruneWith' can bring that moment forward.
+
+Truncated recursion is reported as the @Mu@ marker in the caller's alphabet;
+'getAllTermsPruneWith' takes that symbol explicitly, so an alphabet without an
+'IsString' instance can prune too.
 -}
 getAllTermsPrune ::
     forall symbol a.
@@ -656,13 +666,19 @@ getAllTermsPrune ::
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     Node symbol ->
     [Term symbol]
-getAllTermsPrune ost = getAllTermsPruneWith ost noExpansionPreference
+getAllTermsPrune ost oracle = getAllTermsPruneWith "Mu" ost noExpansionPreference oracle
 
-{- | 'getAllTermsPrune' with a say in which UVar is expanded next.
+{- | 'getAllTermsPrune' with an explicit recursion symbol and a say in which
+UVar is expanded next.
 
-An oracle that parks checks on unexpanded holes can use this to reach those
-holes sooner: return the candidate the parked checks are waiting on, and a
-branch that a check would kill dies before the rest of it is enumerated.
+The first argument is the symbol standing for truncated recursion, as in
+'getAllTermsWith'; taking it here rather than through 'IsString' is what lets
+an ordinary datatype alphabet use the pruning API.
+
+An oracle that parks checks on unexpanded holes can use the 'ExpansionOrder' to
+reach those holes sooner: return the candidate the parked checks are waiting
+on, and a branch that a check would kill dies before the rest of it is
+enumerated.
 
 This is a hint about order, not about which terms are enumerated. It cannot
 make a UVar expandable early, and for an oracle whose rejections are monotone
@@ -672,14 +688,15 @@ sees UVars in will, of course, see the difference.
 -}
 getAllTermsPruneWith ::
     forall symbol a.
-    (Hashable symbol, Typeable symbol, IsString symbol) =>
+    (Hashable symbol, Typeable symbol) =>
+    symbol ->
     a ->
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     Node symbol ->
     [Term symbol]
-getAllTermsPruneWith ost order oracle n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith ost order oracle
+getAllTermsPruneWith recursionSymbol ost order oracle n =
+    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith recursionSymbol ost order oracle
 
 {- | Monadic form of 'getAllTermsPrune'.
 
@@ -687,19 +704,20 @@ Use this when the caller is already composing lower-level enumeration actions
 in 'EnumerateM'. Most callers should prefer 'getAllTermsPrune'.
 -}
 enumPrune :: forall symbol a. (Hashable symbol, Typeable symbol, IsString symbol) => a -> (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) -> EnumerateM symbol (Term symbol)
-enumPrune a = enumPruneWith a noExpansionPreference
+enumPrune a oracle = enumPruneWith "Mu" a noExpansionPreference oracle
 
--- | Monadic form of 'getAllTermsPruneWith'.
+-- | Monadic form of 'getAllTermsPruneWith', taking the recursion symbol first.
 enumPruneWith ::
     forall symbol a.
-    (Hashable symbol, Typeable symbol, IsString symbol) =>
+    (Hashable symbol, Typeable symbol) =>
+    symbol ->
     a ->
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol (Term symbol)
-enumPruneWith a order oracle = do
+enumPruneWith recursionSymbol a order oracle = do
     finished <- enumerateFully' a order oracle
-    if finished then expandUVar (intToUVar 0) else mzero
+    if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
 
 {- | Enumerate the terms an ECTA accepts, truncating at recursion.
 
@@ -712,6 +730,13 @@ recursive position is that marker - and an automaton that is /itself/ a bare
 To see past the recursion, unfold it first with 'unfoldBounded', or read the
 automaton with @microecta-generator@'s @fromECTA@, which counts and enumerates
 a recursive language by size.
+
+Two caveats. Enumeration lists accepting /runs/, not distinct terms, so an
+ambiguous node - two edges that accept a common term - yields that term once
+per edge. Use 'withoutRedundantEdges' first, or deduplicate the result, if you
+need each term once. And a constraint whose paths descend into a truncated
+'Mu' is dropped rather than checked, so a result term containing the marker is
+not evidence that the language below it is non-empty.
 -}
 getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Term symbol]
 getAllTerms = getAllTermsWith "Mu"

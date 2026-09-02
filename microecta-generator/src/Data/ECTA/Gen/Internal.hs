@@ -156,10 +156,20 @@ data ECTAGenError
       CannotCountConstrainedEdges
     | -- | An automaton has free recursive variables, so it is not a language.
       OpenAutomaton
+    | {- | An automaton has a node with two edges accepting a common term, so
+      its runs outnumber its terms and counting runs would count that term
+      twice.
+      -}
+      AmbiguousAutomaton
     | {- | A recursive definition reaches itself without passing through an
       application, so it has no smallest member and no size to count.
       -}
       UnguardedRecursion
+    | {- | @upToSize@ or @atomic@ was applied to the recursive occurrence
+      inside the body that is defining it, whose size classes are what the
+      definition is still computing.
+      -}
+      BoundedRecursiveOccurrence
     deriving (Eq, Show)
 
 {- | What one failure means, and what to do about it.
@@ -278,6 +288,26 @@ explain UnguardedRecursion =
         , "alternative that is the argument itself, such as oneof [leaf, self],"
         , "is the shape to look for."
         ]
+explain AmbiguousAutomaton =
+    guidance
+        [ "The automaton has a node with two edges that accept a common term, so"
+        , "it has more accepting runs than terms, and counting runs would count"
+        , "that term once per run."
+        , "Fix: make the alternatives disjoint, by splitting the shared part into"
+        , "its own edge or intersecting it away. withoutRedundantEdges only drops"
+        , "an alternative another one wholly subsumes, so it does not settle a"
+        , "partial overlap."
+        ]
+explain BoundedRecursiveOccurrence =
+    guidance
+        [ "upToSize or atomic was applied to the recursive occurrence inside the"
+        , "recur or recurGrouped body that defines it. The bound would need the"
+        , "size classes the definition is still computing, and an atom over them"
+        , "would have a cardinality depending on itself."
+        , "Fix: bound or close the language outside the knot, as in"
+        , "upToSize n (recur ...), and keep only finite atomic choices inside the"
+        , "body."
+        ]
 
 -- | One guidance message, one line per element.
 guidance :: [String] -> String
@@ -356,6 +386,14 @@ data Recursive a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
+    , recursiveOccurrence :: !Bool
+    {- ^ Whether this language is, or is built from, the argument of a
+    @recur@ or @recurGrouped@ body that is still being defined. Bounding such
+    a language is ill-founded — its size classes are what the definition is
+    computing — so 'boundedStatic' must not be reached through it. The flag is
+    set on the placeholders and cleared on the finished result, and is
+    therefore not the Boolean knot @usedOccurrence@ is.
+    -}
     , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
@@ -372,6 +410,7 @@ recursiveFromStatic static =
         index
         sampling
         weighted
+        False
         Nothing
   where
     outcomes = staticOutcomes static
@@ -1061,12 +1100,21 @@ offsetJoinGroups = go 0
 
 -- | Merge weighted static languages into one group.
 mergeBucketGroup :: [(Rational, Static a)] -> Either ECTAGenError (KeyedBucket a)
+-- One alternative is already the group, and rebuilding it through
+-- 'frequencyStatic' would drop its atomic marker.
+mergeBucketGroup [(mass, static)] | mass > 0 = Right $ KeyedBucket mass static
 mergeBucketGroup alternatives = do
     weightedAlternatives <- integerOutcomes alternatives
     pure $
         KeyedBucket
             (sum $ map fst alternatives)
-            (frequencyStatic weightedAlternatives)
+            -- All-atomic alternatives have size-one plans, so their merge is
+            -- still one source choice and stays atomic. A mixed merge is not.
+            (retainAtomic $ frequencyStatic weightedAlternatives)
+  where
+    retainAtomic
+        | all (staticAtomic . snd) alternatives = atomicStatic
+        | otherwise = id
 
 -- | Merge weighted joined components into normalized result-key groups.
 mergeComponentsByKey ::
@@ -1221,6 +1269,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
+            joinedOccurrence
             Nothing
         )
         joinedMasses
@@ -1246,6 +1295,9 @@ recursiveJoin componentIndex operation arguments =
     joinedMassWeighted =
         keyedRecursiveMassWeighted operation
             || recursiveChainMassWeighted arguments
+    joinedOccurrence =
+        recursiveOccurrence operationRecursive
+            || recursiveChainOccurrence arguments
 
 -- | The support of every matched recursive argument group, in order.
 recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
@@ -1315,6 +1367,12 @@ recursiveChainWeighted ChainNil = False
 recursiveChainWeighted (ChainCons recursive rest) =
     recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
 
+-- | Whether any recursive argument is still a recursive occurrence.
+recursiveChainOccurrence :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainOccurrence ChainNil = False
+recursiveChainOccurrence (ChainCons recursive rest) =
+    recursiveOccurrence (keyedRecursiveLanguage recursive) || recursiveChainOccurrence rest
+
 -- | Whether a recursive argument's key mass differs from structural counts.
 recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
 recursiveChainMassWeighted ChainNil = False
@@ -1341,6 +1399,7 @@ mergeRecursiveGroups alternatives =
                 index
                 (choiceMassSampleIndex indexedSamplers)
                 weighted
+                (any (recursiveOccurrence . keyedRecursiveLanguage) alternatives)
                 Nothing
             )
             masses

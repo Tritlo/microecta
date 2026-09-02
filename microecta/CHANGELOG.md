@@ -6,6 +6,16 @@ This is a major bump rather than 0.1.1.0 because the public API changed; see
 the entries marked breaking below. Existing code that only builds ECTAs,
 reduces them, or enumerates them needs no migration.
 
+* Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
+  it ships instead of rebuilding 0.7 beside its own boot library.
+* Key the edge joins on the symbol itself rather than on its hash.
+  `clusterByHash` and `hashJoin` took an `Int` projection and documented the
+  precondition that it be injective, and `intersect` and
+  `withoutRedundantEdges` passed them `hash . edgeSymbol`. A lawful `Hashable`
+  instance for a user alphabet may collide, and then `intersect {A} {B}`
+  returned `[B]` and `withoutRedundantEdges {A, B}` dropped an edge. Both
+  helpers now take a key projection of any `Hashable` key type and key the
+  table by the key, so the precondition is gone.
 * Fuse the expandable-variable scan into one pass over the UVar slots. The
   scan now collects candidates in an `IntSet`, resolves only suspended
   constraint targets through union-find, and writes path compression back
@@ -37,6 +47,12 @@ reduces them, or enumerates them needs no migration.
   an unconstrained recursive node with `TruncatedRecursion`. These fixed constructors
   keep partiality outside the caller's alphabet. These APIs no longer require
   `IsString`.
+* `expandPartialTermFrag` reports a recursive node that still carries suspended
+  constraints as a `UVarHole` rather than as `TruncatedRecursion`. Such a node
+  is still pending expansion, and an oracle that parks its checks on holes
+  would have read it as final and settled a check that had not been decided.
+  `TruncatedRecursion` now means what enumeration means by it: a recursive node
+  with no constraints left, which is where enumeration stops.
 * Remove `getTermFragForUVar`, which was partial and is now unused;
   `rootTermFrag` replaces its one caller.
 * `toPathTrie` reports its own precondition -- distinct paths, none a prefix of
@@ -72,7 +88,11 @@ reduces them, or enumerates them needs no migration.
   them when it is called for that UVar, and matches terms however it likes.
   Deciding which terms are interesting is no longer this library's business.
 * Add `getAllTermsPruneWith` and the `ExpansionOrder` it takes, which let a
-  caller say which of the currently expandable UVars to expand next. This
+  caller say which of the currently expandable UVars to expand next. It takes
+  the truncated-recursion symbol as its first argument, as `getAllTermsWith`
+  does, rather than requiring `IsString`, so an ordinary datatype alphabet can
+  prune; `enumPruneWith` matches it. `getAllTermsPrune` and `enumPrune` keep
+  `IsString` and pass `"Mu"`. This
   replaces the removed `usePruneHints` flag, which read the enumerator's own
   pending-check map and could not survive its removal, with an
   encoding-agnostic hook: an oracle that parks checks returns the candidate one
@@ -120,9 +140,11 @@ reduces them, or enumerates them needs no migration.
   are retained while the language is restricted.
 * Sharpen the concurrency warning with what actually happens. Building one
   structurally identical node from several threads produced two identities in
-  three runs out of eight, silently -- no exception. Both READMEs now say so,
-  and name the likeliest cause: a parallel test runner, which `tasty` is by
-  default and `hspec` is under `parallel`.
+  three runs out of eight, silently -- no exception. That is the first,
+  eight-run probe; the entry above reports the later 20-run one against the
+  synchronized tables. Both READMEs now say so, and name the likeliest cause: a
+  parallel test runner, which `tasty` is by default and `hspec` is under
+  `parallel`.
 * Add tests for `Application.TermSearch.*`, which had none: the type encoding,
   the canonical and prefixed type variables, `filterType` keeping exactly the
   terms of the requested type, and `reduceFully` reaching a fixpoint.
@@ -154,7 +176,7 @@ reduces them, or enumerates them needs no migration.
 * Add `dropEdgeConstraints` and `dropConstraints`, which drop equality
   constraints from an edge or a whole node. The result over-approximates the
   language, so it is for cases where the constraints are not what is being
-  studied. Ported from jkoppel/ecta 059cafa by James Koppel.
+  studied. Ported from jkoppel/ecta 059cafa by Jimmy Koppel.
 * Relax package lower bounds to less precise minor-version floors while keeping
   the existing upper bounds.
 * Move the package into the repository's two-package Cabal workspace without
