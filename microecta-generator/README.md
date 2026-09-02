@@ -594,22 +594,22 @@ Each successful FTA cell draws 100,000 samples.
 
 | depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 8 | naive | 0.03 ms | 548,859 | 13.9 KB | 33.6 KB | 35.8 KB |
-| 1 | 8 | bespoke | 0.02 ms | 813,504 | 9.9 KB | 1.6 KB | 34.8 KB |
-| 1 | 8 | FTA | 0.04 ms | 739,629 | 10.9 KB | 35.9 KB | 37.2 KB |
-| 2 | 128 | naive | 0.03 ms | 235,626 | 32.3 KB | 33.9 KB | 36.0 KB |
-| 2 | 128 | bespoke | 0.02 ms | 352,576 | 23.6 KB | 33.0 KB | 35.0 KB |
-| 2 | 128 | FTA | 0.04 ms | 317,910 | 25.8 KB | 40.2 KB | 45.6 KB |
-| 3 | 32,768 | naive | 0.04 ms | 110,228 | 69.2 KB | 34.4 KB | 36.5 KB |
-| 3 | 32,768 | bespoke | 0.03 ms | 161,212 | 50.9 KB | 33.5 KB | 35.5 KB |
-| 3 | 32,768 | FTA | 0.06 ms | 140,954 | 55.8 KB | 46.5 KB | 78.5 KB |
-| 4 | 2,147,483,648 | naive | 0.05 ms | 51,775 | 143.0 KB | 35.4 KB | 37.5 KB |
-| 4 | 2,147,483,648 | bespoke | 0.04 ms | 76,214 | 105.7 KB | 34.5 KB | 36.5 KB |
-| 4 | 2,147,483,648 | FTA | 0.08 ms | 67,158 | 115.6 KB | 57.2 KB | 209.7 KB |
+| 1 | 8 | naive | 0.02 ms | 654,446 | 11.1 KB | 33.6 KB | 35.8 KB |
+| 1 | 8 | bespoke | 0.02 ms | 808,100 | 9.9 KB | 1.6 KB | 34.8 KB |
+| 1 | 8 | FTA | 0.03 ms | 746,280 | 10.7 KB | 35.3 KB | 36.8 KB |
+| 2 | 128 | naive | 0.03 ms | 281,419 | 25.4 KB | 33.9 KB | 36.0 KB |
+| 2 | 128 | bespoke | 0.02 ms | 334,263 | 23.6 KB | 33.0 KB | 35.0 KB |
+| 2 | 128 | FTA | 0.03 ms | 309,879 | 25.3 KB | 39.1 KB | 45.0 KB |
+| 3 | 32,768 | naive | 0.03 ms | 131,340 | 54.0 KB | 34.4 KB | 36.5 KB |
+| 3 | 32,768 | bespoke | 0.03 ms | 155,084 | 50.9 KB | 33.5 KB | 35.5 KB |
+| 3 | 32,768 | FTA | 0.04 ms | 142,587 | 54.6 KB | 44.9 KB | 77.8 KB |
+| 4 | 2,147,483,648 | naive | 0.05 ms | 63,311 | 111.2 KB | 35.4 KB | 37.5 KB |
+| 4 | 2,147,483,648 | bespoke | 0.04 ms | 74,049 | 105.7 KB | 34.5 KB | 36.5 KB |
+| 4 | 2,147,483,648 | FTA | 0.06 ms | 68,013 | 113.1 KB | 54.8 KB | 208.8 KB |
 
 The control behaves as it should: all three approaches stay close because an
 ordinary FTA adds no semantic pruning to this language. The FTA decoder is
-within roughly 13% of the direct bespoke generator throughout.
+within roughly 9% of the direct bespoke generator throughout.
 
 ### ECTA: typed integer and Boolean expressions
 
@@ -619,28 +619,28 @@ failure; it is still large enough for stable normalized rates.
 
 | depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 42 | naive | 0.02 ms | 160,984 | 49.1 KB | 33.5 KB | 35.6 KB |
-| 1 | 42 | bespoke | 0.02 ms | 574,366 | 14.1 KB | 3.1 KB | 41.5 KB |
-| 1 | 42 | ECTA | 0.09 ms | 2,166,143 | 3.6 KB | 40.5 KB | 37.2 KB |
-| 2 | 27,054 | naive | 0.09 ms | 17,498 | 449.0 KB | 34.3 KB | 36.5 KB |
-| 2 | 27,054 | bespoke | 0.04 ms | 200,256 | 38.3 KB | 37.4 KB | 105.9 KB |
-| 2 | 27,054 | ECTA | 0.15 ms | 1,675,322 | 4.1 KB | 50.8 KB | 54.9 KB |
-| 3 | 8,887,065,932,466 | naive | 0.28 ms | 2,537 | 2.93 MB | 35.1 KB | 37.3 KB |
-| 3 | 8,887,065,932,466 | bespoke | 0.10 ms | 66,822 | 112.4 KB | 50.1 KB | 304.5 KB |
-| 3 | 8,887,065,932,466 | ECTA | 0.22 ms | 887,311 | 6.6 KB | 65.9 KB | 128.3 KB |
+| 1 | 42 | naive | 0.02 ms | 155,435 | 49.1 KB | 33.5 KB | 35.6 KB |
+| 1 | 42 | bespoke | 0.02 ms | 533,874 | 14.1 KB | 3.1 KB | 41.5 KB |
+| 1 | 42 | ECTA | 0.04 ms | 2,147,075 | 3.6 KB | 37.0 KB | 37.8 KB |
+| 2 | 27,054 | naive | 0.08 ms | 17,013 | 449.0 KB | 34.3 KB | 36.5 KB |
+| 2 | 27,054 | bespoke | 0.04 ms | 194,865 | 38.3 KB | 37.4 KB | 105.9 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,765,381 | 3.8 KB | 47.4 KB | 58.5 KB |
+| 3 | 8,887,065,932,466 | naive | 0.30 ms | 2,528 | 2.93 MB | 35.1 KB | 37.3 KB |
+| 3 | 8,887,065,932,466 | bespoke | 0.10 ms | 67,956 | 112.4 KB | 50.1 KB | 304.5 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.08 ms | 947,239 | 5.8 KB | 62.0 KB | 137.4 KB |
 | 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | naive | **timeout (30s)** | — | — | — | — |
-| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | bespoke | 0.60 ms | 22,230 | 335.9 KB | 83.9 KB | 850.4 KB |
-| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.40 ms | 332,127 | 15.3 KB | 104.5 KB | 296.1 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | bespoke | 0.60 ms | 21,942 | 335.9 KB | 83.9 KB | 850.4 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.14 ms | 367,532 | 12.8 KB | 98.7 KB | 334.4 KB |
 
-At depth three the ECTA decoder is about 350x faster than rejection and 13x
-faster than the bespoke generator, allocating about 455x and 17x less per
+At depth three the ECTA decoder is about 375x faster than rejection and 14x
+faster than the bespoke generator, allocating about 517x and 19x less per
 sample respectively. At depth four, rejection cannot complete the fixed cell;
-the ECTA remains about 15x faster than the bespoke implementation. The setup
-cost stays below half a millisecond because the finite dependency structure is
+the ECTA remains about 17x faster than the bespoke implementation. The setup
+cost stays below 0.15 ms because the finite dependency structure is
 compiled once and every later sample is one rank decode.
 
 Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
-2026-09-02. An empty generator ran at about 15.4M draws/s and one `chooseInt`
+2026-09-02. An empty generator ran at about 16.4M draws/s and one `chooseInt`
 at 2.7M draws/s during the ECTA run. Rates move a few percent between runs and
 with the QuickCheck and `random` versions in use. Reproduce one table, or all
 four repository tables, with:

@@ -287,45 +287,45 @@ harness skips its larger cells and reports `after timeout`.
 
 | length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 4 | naive | 0.02 ms | 578,272 | 13.6 KB | 32.7 KB | 34.7 KB |
-| 1 | 4 | bespoke | 0.02 ms | 2,384,700 | 3.4 KB | 2.0 KB | 35.2 KB |
-| 1 | 4 | LTA | 15.02 ms | 735,559 | 10.1 KB | 121.4 KB | 97.8 KB |
-| 2 | 22 | naive | 0.02 ms | 274,936 | 28.5 KB | 32.8 KB | 34.8 KB |
-| 2 | 22 | bespoke | 0.03 ms | 1,094,499 | 7.2 KB | 36.6 KB | 40.5 KB |
-| 2 | 22 | LTA | 170.99 ms | 420,950 | 16.6 KB | 126.0 KB | 102.4 KB |
-| 3 | 132 | naive | 0.02 ms | 163,278 | 48.4 KB | 32.9 KB | 34.9 KB |
-| 3 | 132 | bespoke | 0.04 ms | 737,724 | 10.5 KB | 38.4 KB | 71.8 KB |
-| 3 | 132 | LTA | 192.68 ms | 271,996 | 23.6 KB | 134.4 KB | 110.8 KB |
-| 4 | 556 | naive | 0.04 ms | 69,814 | 111.2 KB | 32.9 KB | 35.0 KB |
-| 4 | 556 | bespoke | 0.05 ms | 541,023 | 14.3 KB | 40.3 KB | 207.2 KB |
-| 4 | 556 | LTA | 231.26 ms | 205,382 | 30.0 KB | 144.7 KB | 121.1 KB |
+| 1 | 4 | naive | 0.02 ms | 586,393 | 13.6 KB | 32.7 KB | 34.7 KB |
+| 1 | 4 | bespoke | 0.02 ms | 2,263,878 | 3.4 KB | 2.0 KB | 35.2 KB |
+| 1 | 4 | LTA | 17.16 ms | 751,383 | 10.1 KB | 121.5 KB | 97.9 KB |
+| 2 | 22 | naive | 0.02 ms | 279,632 | 28.5 KB | 32.8 KB | 34.8 KB |
+| 2 | 22 | bespoke | 0.04 ms | 1,047,307 | 7.2 KB | 36.6 KB | 40.5 KB |
+| 2 | 22 | LTA | 170.60 ms | 434,991 | 16.6 KB | 126.4 KB | 102.8 KB |
+| 3 | 132 | naive | 0.02 ms | 161,902 | 48.4 KB | 32.9 KB | 34.9 KB |
+| 3 | 132 | bespoke | 0.04 ms | 743,345 | 10.5 KB | 38.4 KB | 71.8 KB |
+| 3 | 132 | LTA | 195.95 ms | 285,488 | 23.7 KB | 135.7 KB | 112.1 KB |
+| 4 | 556 | naive | 0.04 ms | 71,429 | 111.2 KB | 32.9 KB | 35.0 KB |
+| 4 | 556 | bespoke | 0.05 ms | 533,678 | 14.3 KB | 40.3 KB | 207.2 KB |
+| 4 | 556 | LTA | 233.53 ms | 219,306 | 30.2 KB | 147.3 KB | 123.7 KB |
 
 Lengths five through ten expose both scaling boundaries:
 
 | length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 5 | 3,104 | naive | 0.05 ms | 41,911 | 185.3 KB | 33.0 KB | 35.1 KB |
-| 5 | 3,104 | bespoke | 0.06 ms | 419,192 | 17.3 KB | 42.6 KB | 944.4 KB |
-| 5 | 3,104 | LTA | 251.57 ms | 169,950 | 36.2 KB | 154.2 KB | 130.5 KB |
-| 6 | 13,760 | naive | 0.07 ms | 20,300 | 383.2 KB | 33.1 KB | 35.2 KB |
-| 6 | 13,760 | bespoke | 0.06 ms | 329,427 | 21.4 KB | 44.0 KB | 4.18 MB |
-| 6 | 13,760 | LTA | 291.36 ms | 145,107 | 42.5 KB | 164.1 KB | 140.5 KB |
-| 7 | 73,528 | naive | 0.07 ms | 12,002 | 651.9 KB | 33.2 KB | 35.2 KB |
-| 7 | 73,528 | bespoke | 0.07 ms | 251,143 | 25.6 KB | 47.3 KB | 20.26 MB |
-| 7 | 73,528 | LTA | 311.73 ms | 124,512 | 49.4 KB | 176.5 KB | 152.8 KB |
-| 8 | 342,136 | naive | 0.08 ms | 6,107 | 1.24 MB | 33.3 KB | 35.3 KB |
-| 8 | 342,136 | bespoke | 0.08 ms | 166,756 | 32.1 KB | 47.6 KB | 72.82 MB |
-| 8 | 342,136 | LTA | 352.95 ms | 108,619 | 55.7 KB | 191.4 KB | 167.8 KB |
-| 9 | 1,783,112 | naive | 0.08 ms | 3,566 | 2.14 MB | 33.4 KB | 35.4 KB |
-| 9 | 1,783,112 | bespoke | 0.09 ms | 116,389 | 41.2 KB | 52.2 KB | 166.76 MB |
-| 9 | 1,783,112 | LTA | 372.90 ms | 98,781 | 62.0 KB | 204.0 KB | 180.4 KB |
+| 5 | 3,104 | naive | 0.05 ms | 42,595 | 185.3 KB | 33.0 KB | 35.1 KB |
+| 5 | 3,104 | bespoke | 0.06 ms | 438,754 | 17.3 KB | 42.6 KB | 944.4 KB |
+| 5 | 3,104 | LTA | 258.52 ms | 176,230 | 36.4 KB | 158.1 KB | 134.5 KB |
+| 6 | 13,760 | naive | 0.08 ms | 20,493 | 383.2 KB | 33.1 KB | 35.2 KB |
+| 6 | 13,760 | bespoke | 0.06 ms | 337,511 | 21.4 KB | 44.0 KB | 4.18 MB |
+| 6 | 13,760 | LTA | 291.39 ms | 151,257 | 42.7 KB | 169.5 KB | 145.9 KB |
+| 7 | 73,528 | naive | 0.08 ms | 11,968 | 651.9 KB | 33.2 KB | 35.2 KB |
+| 7 | 73,528 | bespoke | 0.08 ms | 256,367 | 25.6 KB | 47.3 KB | 20.26 MB |
+| 7 | 73,528 | LTA | 317.99 ms | 131,105 | 49.7 KB | 183.2 KB | 159.6 KB |
+| 8 | 342,136 | naive | 0.08 ms | 6,254 | 1.24 MB | 33.3 KB | 35.3 KB |
+| 8 | 342,136 | bespoke | 0.08 ms | 168,804 | 32.1 KB | 47.6 KB | 72.82 MB |
+| 8 | 342,136 | LTA | 359.07 ms | 115,144 | 56.1 KB | 199.6 KB | 176.0 KB |
+| 9 | 1,783,112 | naive | 0.08 ms | 3,553 | 2.14 MB | 33.4 KB | 35.4 KB |
+| 9 | 1,783,112 | bespoke | 0.09 ms | 118,239 | 41.2 KB | 52.2 KB | 166.76 MB |
+| 9 | 1,783,112 | LTA | 374.66 ms | 105,446 | 62.5 KB | 213.6 KB | 190.0 KB |
 | 10 | 8,567,224 | naive | **timeout (30s)** | — | — | — | — |
-| 10 | 8,567,224 | bespoke | 0.09 ms | 81,168 | 51.1 KB | 54.3 KB | 265.52 MB |
-| 10 | 8,567,224 | LTA | 414.58 ms | 89,463 | 69.2 KB | 216.5 KB | 192.9 KB |
+| 10 | 8,567,224 | bespoke | 0.09 ms | 83,180 | 51.1 KB | 54.3 KB | 265.52 MB |
+| 10 | 8,567,224 | LTA | 418.18 ms | 92,704 | 69.7 KB | 227.6 KB | 204.0 KB |
 
 Naive rejection therefore cracks at length ten for this fixed workload. Length
-nine only just completes: 3,566 traces/s means one 100,000-sample cell takes
-about 28.0 seconds, is 33x slower than bespoke generation, and allocates 2.14
+nine only just completes: 3,553 traces/s means one 100,000-sample cell takes
+about 28.1 seconds, is 33x slower than bespoke generation, and allocates 2.14
 MB per accepted trace. At length ten only about 0.25% of the raw command
 sequences are valid, so the next cell crosses the 30-second boundary.
 
@@ -343,12 +343,12 @@ That experiment isolates the real requirement from the paper. The current
 flagship therefore builds an LTA with state-indexed trace layers, runs semantic
 transition pruning, and counts the reduced graph before unranking.
 
-The result reaches length ten in 415 ms of setup while representing 8,567,224
-traces in about 217 KB. Sampling materializes one liquid term and decodes it to
+The result reaches length ten in 418 ms of setup while representing 8,567,224
+traces in about 228 KB. Sampling materializes one liquid term and decodes it to
 one `Trace`; it does not retain the language. At length ten this path produces
-89,463 traces/s, about 10% faster than the handwritten exact-uniform generator
+92,704 traces/s, about 11% faster than the handwritten exact-uniform generator
 on this workload, while naive rejection has already timed out. The remaining
-per-sample allocation—69.2 KB versus 51.1 KB bespoke—is the cost of constructing
+per-sample allocation—69.7 KB versus 51.1 KB bespoke—is the cost of constructing
 the selected `LiquidTerm` before decoding the Haskell trace, not of expanding
 the other 8.5 million members.
 
@@ -369,22 +369,22 @@ checked against the independent ECTA count.
 
 | depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 42 | ECTA | 0.11 ms | 1,946,283 | 3.7 KB | 40.6 KB | 37.3 KB |
-| 1 | 42 | LTA equality | 4.34 ms | 989,511 | 6.3 KB | 61.5 KB | 37.9 KB |
-| 2 | 27,054 | ECTA | 0.15 ms | 1,535,037 | 4.2 KB | 52.0 KB | 55.0 KB |
-| 2 | 27,054 | LTA equality | 4.85 ms | 425,559 | 13.8 KB | 63.1 KB | 39.5 KB |
-| 3 | 8,887,065,932,466 | ECTA | 0.20 ms | 742,087 | 7.1 KB | 68.4 KB | 130.3 KB |
-| 3 | 8,887,065,932,466 | LTA equality | 5.11 ms | 147,449 | 38.9 KB | 64.6 KB | 41.0 KB |
-| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.44 ms | 264,967 | 16.9 KB | 108.2 KB | 299.6 KB |
-| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 7.19 ms | 47,897 | 116.2 KB | 66.1 KB | 42.5 KB |
+| 1 | 42 | ECTA | 0.05 ms | 2,179,837 | 3.6 KB | 36.9 KB | 37.7 KB |
+| 1 | 42 | LTA equality | 4.24 ms | 1,147,908 | 6.5 KB | 61.7 KB | 38.0 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,704,884 | 3.8 KB | 47.3 KB | 58.4 KB |
+| 2 | 27,054 | LTA equality | 4.59 ms | 483,068 | 14.6 KB | 63.4 KB | 39.8 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.09 ms | 880,243 | 5.8 KB | 61.9 KB | 137.3 KB |
+| 3 | 8,887,065,932,466 | LTA equality | 4.66 ms | 170,889 | 41.4 KB | 65.1 KB | 41.5 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.14 ms | 319,270 | 12.8 KB | 98.6 KB | 334.3 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 5.44 ms | 54,354 | 124.2 KB | 66.9 KB | 43.3 KB |
 
-For equality alone, the ECTA is the right tool. Its setup stays below half a
-millisecond; the LTA pays about 4–7 ms to start Z3 and prune the guarded graph.
-The LTA sampler is 2.0x slower at depth one and 5.5x slower at depth four, with
-6.9x the per-sample allocation at depth four. That allocation is the cost of
+For equality alone, the ECTA is the right tool. Its setup stays below 0.15 ms;
+the LTA pays about 4–5.5 ms to start Z3 and prune the guarded graph. The LTA
+sampler is 1.9x slower at depth one and 5.9x slower at depth four, with 9.7x
+the per-sample allocation at depth four. That allocation is the cost of
 constructing an annotated `LiquidTerm` and decoding it to the same Haskell AST.
 The language itself remains symbolic: even the roughly 4.95e38-member
-depth-four language occupies only about 66 KB of LTA setup memory.
+depth-four language occupies only about 67 KB of LTA setup memory.
 
 Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
 2026-09-02. Reproduce either LTA table, or all four repository tables, from the
