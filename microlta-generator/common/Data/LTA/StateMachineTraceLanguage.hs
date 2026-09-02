@@ -51,6 +51,7 @@ module Data.LTA.StateMachineTraceLanguage (
 ) where
 
 import Control.Monad (foldM, guard)
+import qualified Data.Map.Strict as Map
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
@@ -214,11 +215,23 @@ handwrittenTraceGen length_ = generateFrom (max 0 length_) emptyState
 traceCount :: Int -> StackState -> Integer
 traceCount remaining before
     | remaining <= 0 = 1
-    | otherwise =
-        sum
-            [ traceCount (remaining - 1) after
-            | command <- commandValues
-            , Just (_, after) <- [modelStep before command]
+    | otherwise = Map.findWithDefault 0 before $ traceCountTables !! remaining
+
+-- | Dynamic-programming tables shared by counting and bespoke generation.
+traceCountTables :: [Map.Map StackState Integer]
+traceCountTables = iterate nextCounts initialCounts
+  where
+    initialCounts = Map.fromList [(state, 1) | state <- stackStates]
+    nextCounts counts =
+        Map.fromList
+            [ ( state
+              , sum
+                    [ Map.findWithDefault 0 after counts
+                    | command <- commandValues
+                    , Just (_, after) <- [modelStep state command]
+                    ]
+              )
+            | state <- stackStates
             ]
 
 -- | Replay an untyped command sequence into a fully predicted trace.

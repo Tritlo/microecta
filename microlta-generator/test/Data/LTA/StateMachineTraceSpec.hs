@@ -30,10 +30,14 @@ values compiled =
 spec :: Spec
 spec =
     describe "liquid typed stack-machine traces" $ do
-        it "matches the independent trace counts through the benchmark boundary" $ do
+        it "matches the independent trace counts through length four" $ do
             compiled <- traverse (compileOrFail . tracesOfLength) [1 .. 4]
             map LTA.cardinality compiled
                 `shouldBe` [traceCount length_ (StackState []) | length_ <- [1 .. 4]]
+
+        it "counts the deeper benchmark language without enumerating traces" $
+            [traceCount length_ (StackState []) | length_ <- [1 .. 10]]
+                `shouldBe` [4, 22, 132, 556, 3104, 13760, 73528, 342136, 1783112, 8567224]
 
         it "retains the dependent command sequences and rejects ill-typed ones" $ do
             compiled <- compileOrFail $ tracesOfLength 3

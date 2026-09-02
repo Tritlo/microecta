@@ -21,7 +21,7 @@ benchmark :: Benchmark Trace
 benchmark =
     Benchmark
         { benchmarkSizeName = "length"
-        , benchmarkSizes = [1 .. 4]
+        , benchmarkSizes = [1 .. 10]
         , benchmarkEngines = ["naive", "bespoke", "lta"]
         , benchmarkSampleCount = 100000
         , benchmarkMembers = \length_ -> traceCount length_ (StackState [])

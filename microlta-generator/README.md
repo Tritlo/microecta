@@ -197,29 +197,61 @@ Each successful cell draws 100,000 traces. It runs in a fresh process with a
 30-second wall-clock limit and is the median of three runs. The first-sample
 column includes all setup—in the LTA row, that means starting Z3, checking the
 guards and shrink implications, compiling the accepted language, and drawing
-once. Steady-state sampling is pure.
+once. Steady-state sampling is pure. After an engine times out at one length,
+the harness skips its larger cells and reports `after timeout`.
 
 | length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 4 | naive | 0.02 ms | 585,840 | 13.6 KB | 32.7 KB | 34.7 KB |
-| 1 | 4 | bespoke | 0.01 ms | 2,391,143 | 3.4 KB | 2.0 KB | 35.2 KB |
-| 1 | 4 | LTA | 7.10 ms | 2,334,540 | 3.4 KB | 62.8 KB | 39.1 KB |
-| 2 | 22 | naive | 0.02 ms | 278,497 | 28.5 KB | 32.8 KB | 34.8 KB |
-| 2 | 22 | bespoke | 0.02 ms | 1,049,307 | 7.2 KB | 34.1 KB | 40.5 KB |
-| 2 | 22 | LTA | 48.58 ms | 1,955,187 | 3.7 KB | 75.7 KB | 51.3 KB |
-| 3 | 132 | naive | 0.02 ms | 160,202 | 48.4 KB | 32.9 KB | 34.9 KB |
-| 3 | 132 | bespoke | 0.03 ms | 738,585 | 10.5 KB | 34.9 KB | 71.8 KB |
-| 3 | 132 | LTA | 563.00 ms | 1,305,960 | 4.1 KB | 133.7 KB | 106.7 KB |
-| 4 | 556 | naive | 0.04 ms | 69,257 | 111.2 KB | 32.9 KB | 35.0 KB |
-| 4 | 556 | bespoke | 0.05 ms | 527,348 | 14.3 KB | 35.9 KB | 207.2 KB |
-| 4 | 556 | LTA | 6,584.83 ms | 697,355 | 4.0 KB | 354.4 KB | 325.5 KB |
+| 1 | 4 | naive | 0.02 ms | 564,525 | 13.6 KB | 32.7 KB | 34.7 KB |
+| 1 | 4 | bespoke | 0.02 ms | 2,323,582 | 3.4 KB | 2.0 KB | 35.2 KB |
+| 1 | 4 | LTA | 7.10 ms | 2,318,088 | 3.4 KB | 62.8 KB | 39.1 KB |
+| 2 | 22 | naive | 0.02 ms | 274,848 | 28.5 KB | 32.8 KB | 34.8 KB |
+| 2 | 22 | bespoke | 0.04 ms | 1,066,610 | 7.2 KB | 36.6 KB | 40.5 KB |
+| 2 | 22 | LTA | 48.26 ms | 1,975,192 | 3.7 KB | 75.7 KB | 51.3 KB |
+| 3 | 132 | naive | 0.02 ms | 161,712 | 48.4 KB | 32.9 KB | 34.9 KB |
+| 3 | 132 | bespoke | 0.04 ms | 718,288 | 10.5 KB | 38.4 KB | 71.8 KB |
+| 3 | 132 | LTA | 545.55 ms | 1,308,455 | 4.1 KB | 133.7 KB | 106.7 KB |
+| 4 | 556 | naive | 0.04 ms | 68,003 | 111.2 KB | 32.9 KB | 35.0 KB |
+| 4 | 556 | bespoke | 0.06 ms | 508,934 | 14.3 KB | 40.3 KB | 207.2 KB |
+| 4 | 556 | LTA | 6,502.06 ms | 701,218 | 4.0 KB | 354.4 KB | 325.5 KB |
 
-The trade-off is clean. LTA setup grows from 7 ms to 6.6 seconds over these
-four lengths because solver work is front-loaded, but it remains below the
-30-second boundary. Once compiled, the length-four LTA is about 10x faster
-than whole-sequence rejection and 1.3x faster than the bespoke generator,
-while allocating about 28x and 3.6x less per sample respectively. Whether that
-setup amortizes is therefore visible rather than hidden.
+Lengths five through ten expose both scaling boundaries:
+
+| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 5 | 3,104 | naive | 0.05 ms | 41,957 | 185.3 KB | 33.0 KB | 35.1 KB |
+| 5 | 3,104 | bespoke | 0.06 ms | 414,705 | 17.3 KB | 42.6 KB | 944.4 KB |
+| 5 | 3,104 | LTA | **timeout (30s)** | — | — | — | — |
+| 6 | 13,760 | naive | 0.08 ms | 20,014 | 383.2 KB | 33.1 KB | 35.2 KB |
+| 6 | 13,760 | bespoke | 0.07 ms | 335,399 | 21.4 KB | 44.0 KB | 4.18 MB |
+| 6 | 13,760 | LTA | after timeout | — | — | — | — |
+| 7 | 73,528 | naive | 0.07 ms | 11,606 | 651.9 KB | 33.2 KB | 35.2 KB |
+| 7 | 73,528 | bespoke | 0.09 ms | 214,607 | 25.6 KB | 47.3 KB | 20.26 MB |
+| 7 | 73,528 | LTA | after timeout | — | — | — | — |
+| 8 | 342,136 | naive | 0.08 ms | 6,013 | 1.24 MB | 33.3 KB | 35.3 KB |
+| 8 | 342,136 | bespoke | 0.08 ms | 155,351 | 32.1 KB | 47.6 KB | 72.82 MB |
+| 8 | 342,136 | LTA | after timeout | — | — | — | — |
+| 9 | 1,783,112 | naive | 0.08 ms | 3,504 | 2.14 MB | 33.4 KB | 35.4 KB |
+| 9 | 1,783,112 | bespoke | 0.09 ms | 113,632 | 41.2 KB | 52.2 KB | 166.76 MB |
+| 9 | 1,783,112 | LTA | after timeout | — | — | — | — |
+| 10 | 8,567,224 | naive | **timeout (30s)** | — | — | — | — |
+| 10 | 8,567,224 | bespoke | 0.10 ms | 83,070 | 51.1 KB | 54.3 KB | 265.52 MB |
+| 10 | 8,567,224 | LTA | after timeout | — | — | — | — |
+
+Naive rejection therefore cracks at length ten for this fixed workload. Length
+nine only just completes: 3,504 traces/s means one 100,000-sample cell takes
+about 28.5 seconds, is 32x slower than bespoke generation, and allocates 2.14
+MB per accepted trace. At length ten only about 0.25% of the raw command
+sequences are valid, so the next cell crosses the 30-second boundary.
+
+The LTA exposes a different bottleneck first. Its complete length-five cell
+does not finish within 30 seconds, after first-sample setup had already grown
+from 7 ms at length one to 6.5 seconds at length four. At length four, once
+compiled, LTA sampling is still about 10x faster than rejection and 1.4x faster
+than bespoke generation while allocating 28x and 3.6x less. This points at the
+eager solver/compiler phase—particularly repeated equivalent state/command
+obligations—as the immediate engineering target, rather than the pure rank
+decoder.
 
 Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
 2026-09-02. Reproduce this table, or all three FTA/ECTA/LTA tables, from the

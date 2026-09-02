@@ -16,7 +16,7 @@ module GeneratorSpeedHarness (
     benchmarkMain,
 ) where
 
-import Control.Monad (forM_)
+import Control.Monad (foldM)
 import Data.List (intercalate, sort)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
@@ -98,17 +98,32 @@ driver Benchmark{benchmarkSizeName, benchmarkSizes, benchmarkEngines, benchmarkM
         "setup mem"
         "retained"
         "checksum"
-    forM_ benchmarkSizes $ \size ->
-        forM_ benchmarkEngines $ \engine -> do
-            result <- repeatedCells self engine size repeats
+    _ <- foldM (runSize self) [] benchmarkSizes
+    pure ()
+  where
+    runSize executablePath timedOut size =
+        foldM (runEngine executablePath size) timedOut benchmarkEngines
+
+    runEngine executablePath size timedOut engine
+        | engine `elem` timedOut = do
+            printf
+                "%7d  %42s  %-10s  %12s\n"
+                size
+                (show $ benchmarkMembers size)
+                engine
+                ("after timeout" :: String)
+            pure timedOut
+        | otherwise = do
+            result <- repeatedCells executablePath engine size repeats
             case result of
-                Nothing ->
+                Nothing -> do
                     printf
                         "%7d  %42s  %-10s  %12s\n"
                         size
                         (show $ benchmarkMembers size)
                         engine
                         ("timeout (30s)" :: String)
+                    pure $ engine : timedOut
                 Just cells -> do
                     let cell = median cells
                     printf
@@ -122,7 +137,8 @@ driver Benchmark{benchmarkSizeName, benchmarkSizes, benchmarkEngines, benchmarkM
                         (humanBytes $ setupBytes cell)
                         (humanBytes $ retainedBytes cell)
                         (checksum cell)
-  where
+                    pure timedOut
+
     reference label generator = do
         (elapsed, _) <- timed $ drawMany id generator referenceSampleCount
         printf

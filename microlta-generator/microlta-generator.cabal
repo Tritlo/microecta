@@ -131,6 +131,7 @@ benchmark state-machine-trace-speed
   build-depends:
     QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microlta >=0.1 && <0.2,
     microlta-generator,
