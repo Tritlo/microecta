@@ -1,10 +1,10 @@
 # microlta-generator
 
 `microlta-generator` is the Liquid Tree Automata adapter for the ranked engine
-in `microecta-generator`. Building the language is pure. `compile` is the one
-imperative boundary: it asks Liquid Fixpoint/Z3 which guarded witnesses are
-valid and which pool refinements imply one another, then returns a pure
-`Compiled` value.
+in `microecta-generator`. Building the language is pure. `compile` checks a
+surface-DSL language; `compileAutomaton` performs transition-level LTA pruning,
+then counts and unranks the reduced graph. Both use Liquid Fixpoint/Z3 only at
+the compilation boundary and return a pure `Compiled` value.
 
 ```haskell
 {-# LANGUAGE ApplicativeDo #-}
@@ -49,6 +49,26 @@ Right compiled <- LTA.compile solver liquidPairs
 quickCheck $ LTA.forAll compiled (uncurry (>=))
 replayed = LTA.select failingRank compiled
 ```
+
+Applicative construction retains a `Data.Tree.Gen` rank plan. A pair of
+languages with cardinalities `m` and `n` is represented by one `PlanAp` and a
+mixed-radix decoder, not a list of `m * n` outcomes. The surface `compile` path
+still walks those ranks when an arbitrary Haskell function such as
+`refinedNodeBy (a -> Refinement)` makes the refinement depend on an opaque
+value. That is an explicit generator-layer cost, not part of LTA semantics.
+
+The automaton path avoids that scan:
+
+```haskell
+Right compiled <- LTA.compileAutomaton solver automaton
+term <- LTA.select replayRank compiled
+```
+
+`microlta.prune` first removes invalid transitions from the LTA itself.
+Dynamic programming then computes state cardinalities, and the selected rank
+walks those counts to construct one accepted `LiquidTerm`. This is the same
+materialization boundary as MicroECTA: the graph stays symbolic; only the term
+being observed is materialized.
 
 The pool need not be part of a long-lived specification. It can be sampled and
 frozen only for one generation run:
@@ -114,9 +134,11 @@ applicationGuard result function argument =
     ]
 ```
 
-The compiler checks every frozen candidate once, removes those whose complete
-guard is false, and returns a pure language. This is semantic pruning at the
-finite QuickCheck boundary: invalid values never reach a property.
+The surface compiler checks every frozen candidate rank, removes those whose
+complete guard is false, and returns a pure language. This is useful when the
+specification starts from arbitrary Haskell pools. A language already expressed
+as an LTA should use `compileAutomaton`, so pruning happens on transitions
+instead.
 
 ## Flagship: typed state-machine traces
 
@@ -135,16 +157,21 @@ Pop        : Stack (a    ': s)         -> (a, Stack s)
 ```
 
 Those are explanatory signatures, not GADT constructors. The public Haskell
-values stay ordinary. The LTA stores the input state as each command root's
-refinement and its dependent output state as a child refinement. A trace node's
-result refinement is its final stack type:
+values stay ordinary. The actual specification is an acyclic LTA whose states
+are indexed by `(prefix length, output stack)`. Command input/output contracts
+are reusable child states. A layer proposes possible preceding states and
+result states; the liquid guard decides which transitions survive:
 
 ```haskell
-extendTrace previousTraces =
-  LTA.refinedNodeBy "step" (stateRefinement . traceFinalState) validStep $ LTA.do
-    previous <- previousTraces
-    command  <- commandContracts
-    LTA.pure (predictStep previous command)
+stepTransitions prefixLength output =
+  [ Transition "step" (stateRefinement output)
+      [ traceState (prefixLength - 1) input
+      , commandState contractRank
+      ]
+      (validStep (argument 0) (argument 1))
+  | input        <- stackStates
+  , contractRank <- [0 .. contractCount - 1]
+  ]
 
 validStep previous command =
   allOf
@@ -152,6 +179,8 @@ validStep previous command =
     , withActualFor previous (descendant command [0]) $
         descendant command [1] `isSubtypeOf` root
     ]
+
+Right compiled <- compileTracesOfLength solver length
 ```
 
 The first guard says that the preceding trace's output state inhabits the next
@@ -161,20 +190,22 @@ root. With the top stack type in the low bits, for example, pushing an integer
 has output `v = 2 * model + 1`, while `Add` accepts two leading integer tags and
 has output relation `model = 2 * v + 1`.
 
-The stack depth is bounded only to make the QuickCheck language finite. There
-is one symbolic schema per operation, not one transition per concrete
-input/output pair. This is where the LTA is materially clearer than an ECTA: a
-bounded ECTA could tabulate every stack shape, but it cannot state and reuse the
-dependent arithmetic transition itself.
+The stack depth is bounded only to keep the state space finite. There is one
+liquid schema per operation; candidate step transitions reference those schemas
+instead of expanding complete command sequences. The graph grows linearly with
+trace length. This is where the LTA is materially clearer than an ECTA: a
+bounded ECTA could tabulate every valid state pair, but it cannot state and
+reuse the dependent arithmetic transition itself.
 
 Following the
 [quickcheck-state-machine workflow](https://well-typed.com/blog/2019/01/qsm-in-depth/),
 the whole trace is generated before execution. Every retained event predicts
-its before-state, response space, and after-state. The specs enumerate all 132
-accepted traces of length three, replay every one through an independent
-abstract model and a separate concrete integer/Boolean interpreter, and verify
-that shrinking never violates a later command's stack precondition. The final
-QuickCheck property therefore has no implication or `suchThat` filter.
+its before-state, response space, and after-state. The specs ask Z3 to prune the
+LTA, check its independently computed cardinalities, enumerate all 132 accepted
+traces of length three, and replay each through an independent abstract model
+and a separate concrete integer/Boolean interpreter. A smaller surface-DSL
+variant also verifies guarded shrinking. The final QuickCheck property needs no
+implication or `suchThat` filter.
 
 ## Sampling performance
 
@@ -196,24 +227,24 @@ recurrence and checked against the compiled LTA cardinality in the specs.
 Each successful cell draws 100,000 traces. It runs in a fresh process with a
 30-second wall-clock limit and is the median of three runs. The first-sample
 column includes all setup—in the LTA row, that means starting Z3, checking the
-guards and shrink implications, compiling the accepted language, and drawing
-once. Steady-state sampling is pure. After an engine times out at one length,
-the harness skips its larger cells and reports `after timeout`.
+transition guards, pruning and counting the automaton, and drawing once.
+Steady-state sampling is pure. After an engine times out at one length, the
+harness skips its larger cells and reports `after timeout`.
 
 | length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 4 | naive | 0.02 ms | 564,525 | 13.6 KB | 32.7 KB | 34.7 KB |
 | 1 | 4 | bespoke | 0.02 ms | 2,323,582 | 3.4 KB | 2.0 KB | 35.2 KB |
-| 1 | 4 | LTA | 5.79 ms | 2,451,401 | 3.4 KB | 62.8 KB | 39.1 KB |
+| 1 | 4 | LTA | 14.40 ms | 790,420 | 10.1 KB | 124.4 KB | 100.8 KB |
 | 2 | 22 | naive | 0.02 ms | 274,848 | 28.5 KB | 32.8 KB | 34.8 KB |
 | 2 | 22 | bespoke | 0.04 ms | 1,066,610 | 7.2 KB | 36.6 KB | 40.5 KB |
-| 2 | 22 | LTA | 9.67 ms | 1,953,659 | 3.7 KB | 75.7 KB | 51.3 KB |
+| 2 | 22 | LTA | 202.30 ms | 444,077 | 16.6 KB | 127.4 KB | 103.8 KB |
 | 3 | 132 | naive | 0.02 ms | 161,712 | 48.4 KB | 32.9 KB | 34.9 KB |
 | 3 | 132 | bespoke | 0.04 ms | 718,288 | 10.5 KB | 38.4 KB | 71.8 KB |
-| 3 | 132 | LTA | 28.55 ms | 1,339,782 | 4.1 KB | 133.7 KB | 106.7 KB |
+| 3 | 132 | LTA | 261.13 ms | 293,086 | 23.7 KB | 134.9 KB | 111.3 KB |
 | 4 | 556 | naive | 0.04 ms | 68,003 | 111.2 KB | 32.9 KB | 35.0 KB |
 | 4 | 556 | bespoke | 0.06 ms | 508,934 | 14.3 KB | 40.3 KB | 207.2 KB |
-| 4 | 556 | LTA | 188.10 ms | 694,044 | 4.0 KB | 354.4 KB | 325.5 KB |
+| 4 | 556 | LTA | 322.16 ms | 222,366 | 30.2 KB | 145.1 KB | 121.5 KB |
 
 Lengths five through ten expose both scaling boundaries:
 
@@ -221,22 +252,22 @@ Lengths five through ten expose both scaling boundaries:
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 5 | 3,104 | naive | 0.05 ms | 41,957 | 185.3 KB | 33.0 KB | 35.1 KB |
 | 5 | 3,104 | bespoke | 0.06 ms | 414,705 | 17.3 KB | 42.6 KB | 944.4 KB |
-| 5 | 3,104 | LTA | 1,941.25 ms | 128,254 | 3.6 KB | 1.60 MB | 1.62 MB |
+| 5 | 3,104 | LTA | 378.14 ms | 184,494 | 36.4 KB | 156.0 KB | 132.4 KB |
 | 6 | 13,760 | naive | 0.08 ms | 20,014 | 383.2 KB | 33.1 KB | 35.2 KB |
 | 6 | 13,760 | bespoke | 0.07 ms | 335,399 | 21.4 KB | 44.0 KB | 4.18 MB |
-| 6 | 13,760 | LTA | **timeout (30s)** | — | — | — | — |
+| 6 | 13,760 | LTA | 434.78 ms | 157,962 | 42.7 KB | 167.4 KB | 143.8 KB |
 | 7 | 73,528 | naive | 0.07 ms | 11,606 | 651.9 KB | 33.2 KB | 35.2 KB |
 | 7 | 73,528 | bespoke | 0.09 ms | 214,607 | 25.6 KB | 47.3 KB | 20.26 MB |
-| 7 | 73,528 | LTA | after timeout | — | — | — | — |
+| 7 | 73,528 | LTA | 501.23 ms | 134,317 | 49.7 KB | 178.8 KB | 155.2 KB |
 | 8 | 342,136 | naive | 0.08 ms | 6,013 | 1.24 MB | 33.3 KB | 35.3 KB |
 | 8 | 342,136 | bespoke | 0.08 ms | 155,351 | 32.1 KB | 47.6 KB | 72.82 MB |
-| 8 | 342,136 | LTA | after timeout | — | — | — | — |
+| 8 | 342,136 | LTA | 558.05 ms | 118,761 | 56.1 KB | 190.2 KB | 166.6 KB |
 | 9 | 1,783,112 | naive | 0.08 ms | 3,504 | 2.14 MB | 33.4 KB | 35.4 KB |
 | 9 | 1,783,112 | bespoke | 0.09 ms | 113,632 | 41.2 KB | 52.2 KB | 166.76 MB |
-| 9 | 1,783,112 | LTA | after timeout | — | — | — | — |
+| 9 | 1,783,112 | LTA | 615.76 ms | 107,744 | 62.5 KB | 201.6 KB | 178.0 KB |
 | 10 | 8,567,224 | naive | **timeout (30s)** | — | — | — | — |
 | 10 | 8,567,224 | bespoke | 0.10 ms | 83,070 | 51.1 KB | 54.3 KB | 265.52 MB |
-| 10 | 8,567,224 | LTA | after timeout | — | — | — | — |
+| 10 | 8,567,224 | LTA | 674.08 ms | 95,806 | 69.7 KB | 212.9 KB | 189.3 KB |
 
 Naive rejection therefore cracks at length ten for this fixed workload. Length
 nine only just completes: 3,504 traces/s means one 100,000-sample cell takes
@@ -251,20 +282,63 @@ obligations for one compile and checking a generated witness directly, rather
 than first turning it into a singleton automaton, cuts length-four setup to 188
 ms and makes length five complete in 1.94 seconds.
 
-The next LTA limit is structural. Length six still times out because the
-applicative generator materializes `11^6 = 1,771,561` raw contract witnesses
-before retaining 13,760 valid traces. The next optimization should therefore
-compile the generator graph compositionally and discard invalid products at
-each node. This is separate from the pure rank decoder: at length five, the
-compiled LTA still samples 3.1x faster than rejection and allocates 52x less
-per trace, though the handwritten generator samples 3.2x faster.
+Replacing the outcome lists with `PlanAp` removes that allocation, but does not
+remove the work: the surface compiler still has to visit `11^6 = 1,771,561`
+ranks to discover 13,760 valid traces, so length six still exceeds 30 seconds.
+That experiment isolates the real requirement from the paper. The current
+flagship therefore builds an LTA with state-indexed trace layers, runs semantic
+transition pruning, and counts the reduced graph before unranking.
+
+The result reaches length ten in 674 ms of setup while representing 8,567,224
+traces in about 213 KB. Sampling materializes one liquid term and decodes it to
+one `Trace`; it does not retain the language. At length ten this path produces
+95,806 traces/s, slightly faster than the handwritten exact-uniform generator
+on this workload, while naive rejection has already timed out. The remaining
+per-sample allocation—69.7 KB versus 51.1 KB bespoke—is the cost of constructing
+the selected `LiquidTerm` before decoding the Haskell trace, not of expanding
+the other 8.5 million members.
+
+## Equality theory cost: ECTA versus LTA
+
+The typed-expression flagship also has a deliberately equivalent liquid
+encoding in
+[`Data.LTA.EqualityTypedExpressionLanguage`](common/Data/LTA/EqualityTypedExpressionLanguage.hs).
+`TInt` is the refinement `v = 0` and `TBool` is `v = 1`. Each application LTA
+contains candidate ground child states, and Z3 retains precisely those whose
+refinements imply the operation's expected input equalities. This expresses the
+same language as the ECTA's path-equality join without adding LTA-only power.
+
+This control uses the same rank order and fixed QuickCheck seed for both
+engines, draws 20,000 values per cell, and forces the complete expression tree.
+The checksum matched at every depth, in addition to the LTA cardinality being
+checked against the independent ECTA count.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | ECTA | 0.05 ms | 2,201,673 | 3.6 KB | 36.9 KB | 37.7 KB |
+| 1 | 42 | LTA equality | 4.12 ms | 1,171,372 | 6.5 KB | 61.7 KB | 38.0 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,734,004 | 3.8 KB | 47.3 KB | 58.4 KB |
+| 2 | 27,054 | LTA equality | 4.76 ms | 501,869 | 14.6 KB | 63.4 KB | 39.8 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.08 ms | 904,650 | 5.8 KB | 61.9 KB | 137.3 KB |
+| 3 | 8,887,065,932,466 | LTA equality | 5.16 ms | 174,110 | 41.4 KB | 65.1 KB | 41.5 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.14 ms | 332,635 | 12.8 KB | 98.6 KB | 334.3 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 5.65 ms | 58,200 | 124.2 KB | 66.9 KB | 43.3 KB |
+
+For equality alone, the ECTA is the right tool. Its setup stays below a
+millisecond; the LTA pays about 4–6 ms to start Z3 and prune the guarded graph.
+The LTA sampler is 1.9x slower at depth one and 5.7x slower at depth four, with
+9.7x the per-sample allocation at depth four. That allocation is the cost of
+constructing an annotated `LiquidTerm` and decoding it to the same Haskell AST.
+The language itself remains symbolic: even the roughly 4.95e38-member
+depth-four language occupies only about 67 KB of LTA setup memory.
 
 Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
-2026-09-02. Reproduce this table, or all three FTA/ECTA/LTA tables, from the
+2026-09-02. Reproduce either LTA table, or all four repository tables, from the
 repository root with:
 
 ```sh
 cabal bench microlta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microlta-generator:typed-expression-constraint-cost --enable-optimization=2
 ./scripts/benchmark-generators.sh
 ```
 

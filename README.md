@@ -7,7 +7,7 @@ This repository contains four Cabal packages:
 | [`microecta`](microecta/README.md) | A general FTA structure plus the equality-constrained tree automata core. |
 | [`microecta-generator`](microecta-generator/README.md) | Shared ranked FTA generation plus ECTA-specific combinators and QuickCheck integration. |
 | [`microlta`](microlta/) | Liquid tree automata using Liquid Fixpoint predicates and Z3 entailment. |
-| [`microlta-generator`](microlta-generator/) | Compile-once liquid generators with pruning, replay, semantic shrinking, and bounded recursion. |
+| [`microlta-generator`](microlta-generator/) | Rank, sample, replay, and shrink languages produced by liquid tree automata. |
 
 `Data.Tree.FTA` is the shared ranked-transition graph. `Data.Tree.FTA.Syntax`
 constructs ordinary FTAs; `Data.ECTA.FTA.Syntax` owns equality-constrained
@@ -19,8 +19,11 @@ on the generator package or on QuickCheck. `Data.Tree.Gen` provides exact
 finite ranks, backend-independent sampling, and shrinking, while
 `Data.Tree.FTA.Gen` either compiles an acyclic ordinary FTA or builds one with
 the `FTA.node`/`FTA.do` syntax before lowering it into that representation.
-`microlta-generator` checks liquid guards and pool-refinement implications once,
-then reuses this pure ranked layer for every sample, replay, and shrink.
+`microlta` prunes homogeneous semantic guards on the transition graph.
+`microlta-generator` counts and unranks that reduced LTA through the same pure
+ranked layer used by the other generators; only the selected term is
+materialized. Its surface DSL also supports finite Haskell pools and semantic
+shrinking when the input is not already an automaton.
 
 Enter `nix-shell` to put Z3 on `PATH`, then run the semantic entailment example:
 
@@ -29,12 +32,16 @@ cabal run liquid-pairs
 ```
 
 `microlta` implements refinement-labelled recognition, Boolean guards,
-actual-for-formal position substitutions, semantic intersection, similarity
-comparison, and recursive LTAs with the paper's acyclic-guard restriction.
-`microlta-generator` adds named guard syntax, finite or frozen QuickCheck pools,
-semantic pruning and shrinking, opt-in similarity minimisation, and explicitly
-bounded generation from recursive LTAs. It is an automata and generator library,
-not the Hegel component-based synthesizer from the paper.
+actual-for-formal position substitutions, transition-level semantic pruning,
+semantic intersection, similarity comparison, and recursive LTAs with the
+paper's acyclic-guard restriction. The current pruning pass handles positions
+with one homogeneous liquid root; it reports cases requiring the paper's full
+state-splitting intersection rather than enumerating terms silently.
+`microlta-generator` adds counting and unranking over finite acyclic LTAs,
+named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
+opt-in similarity minimisation, and explicitly bounded generation from
+recursive LTAs. It is an automata and generator library, not the Hegel
+component-based synthesizer from the paper.
 
 See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
 FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda
@@ -71,12 +78,16 @@ The three flagship languages are benchmarked against both naive
 recognition/rejection and a handwritten bespoke generator. Every comparison is
 uniform over the same exact language at each depth or trace length; cells run
 in fresh processes, include a cold first-sample measurement, and time out after
-30 seconds. The measured tables and methodology live in the
+30 seconds. A fourth control benchmark generates the typed-expression language
+with either ECTA path equality or LTA integer-equality refinements, isolating
+the practical cost of the liquid constraint theory. The measured tables and
+methodology live in the
 [`microecta-generator`](microecta-generator/README.md#sampling-performance) and
 [`microlta-generator`](microlta-generator/README.md#sampling-performance)
 READMEs.
 
-Generate all three FTA, ECTA, and LTA tables from the repository root with:
+Generate the three flagship tables and the ECTA-versus-LTA control table from
+the repository root with:
 
 ```sh
 ./scripts/benchmark-generators.sh

@@ -489,6 +489,11 @@ is exactly when they share a term.
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
 
+`Data.Tree.Gen.fromIndexedOnDemand` is the automaton-adapter variant. It keeps
+the same cardinality, ranks, and sampler but never tabulates a small indexed
+source while compiling its replay decoder. LTA counting uses it so the
+automaton remains a graph until one rank is selected.
+
 `pool n native` bridges a large or infinite QuickCheck source into this finite
 world. Its outer `Gen` samples `n` values once and returns an `ECTAGen` whose
 ranks are those draws. The result supports exact inspection and constrained
@@ -638,7 +643,7 @@ Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
 2026-09-02. An empty generator ran at about 15.3M draws/s and one `chooseInt`
 at 2.7M draws/s during the ECTA run. Rates move a few percent between runs and
 with the QuickCheck and `random` versions in use. Reproduce one table, or all
-three repository tables, with:
+four repository tables, with:
 
 ```sh
 cabal bench microecta-generator:untyped-expression-speed --enable-optimization=2
