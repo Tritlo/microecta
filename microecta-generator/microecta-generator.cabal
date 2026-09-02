@@ -69,12 +69,16 @@ common extensions
 
 library
   import: warnings, extensions
-  hs-source-dirs: src
+  hs-source-dirs:
+    common
+    src
+
   exposed-modules:
     Data.ECTA.Gen
     Data.ECTA.Gen.Do
     Data.ECTA.Gen.QuickCheck
     Data.ECTA.Gen.Sig
+    Data.ECTA.TypedExpressionLanguage
     Data.Tree.FTA.Gen
     Data.Tree.FTA.Gen.Do
     Data.Tree.FTA.Gen.QuickCheck

@@ -137,3 +137,33 @@ benchmark state-machine-trace-speed
     microlta-generator,
     process >=1.6 && <1.7,
     random >=1.2 && <1.4,
+
+benchmark typed-expression-constraint-cost
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionConstraintCost.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  default-language: Haskell2010
+  default-extensions:
+    NamedFieldPuns
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.LTA.EqualityTypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.21 && <5,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microecta-generator >=0.1 && <0.2,
+    microlta >=0.1 && <0.2,
+    microlta-generator,
+    process >=1.6 && <1.7,
+    random >=1.2 && <1.4,

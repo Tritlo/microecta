@@ -11,3 +11,4 @@ fi
 cabal bench microecta-generator:untyped-expression-speed --enable-optimization=2
 cabal bench microecta-generator:typed-expression-speed --enable-optimization=2
 cabal bench microlta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microlta-generator:typed-expression-constraint-cost --enable-optimization=2
