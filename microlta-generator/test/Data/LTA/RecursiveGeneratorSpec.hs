@@ -6,11 +6,12 @@ import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment (Entailment),
-    Guard (Top),
+    Guard (Same, Top),
     LiquidTerm (LiquidTerm),
     State (State),
     Verdict (Unknown),
     mkAutomaton,
+    path,
     pattern Transition,
  )
 import qualified Data.LTA.Gen.QuickCheck as LTA
@@ -68,6 +69,30 @@ spec =
             LTA.cardinality compiled `shouldBe` 3
             fmap LTA.generatedValue (LTA.select 2 compiled)
                 `shouldBe` Right (last $ values compiled)
+
+        it "does not count a residual syntactic equality guard as an FTA product" $
+            case mkAutomaton
+                (State 0)
+                [
+                    ( State 0
+                    ,
+                        [ Transition
+                            "pair"
+                            true
+                            [State 1, State 1]
+                            (Same (path [0]) (path [1]))
+                        ]
+                    )
+                , (State 1, [Transition "item" true [] Top])
+                ] of
+                Left err -> expectationFailure $ show err
+                Right automaton -> do
+                    result <- LTA.compileAutomaton unusedEntailment automaton
+                    case result of
+                        Left (LTA.ResidualGuard (State 0) (Same left right)) ->
+                            (left, right) `shouldBe` (path [0], path [1])
+                        Left err -> expectationFailure $ show err
+                        Right _ -> expectationFailure "counted a syntactically constrained product"
   where
     values compiled =
         [ LTA.generatedValue generated

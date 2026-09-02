@@ -59,6 +59,8 @@ module Data.LTA (
     accepts,
 ) where
 
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State.Strict (StateT, get, modify', runStateT)
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -305,22 +307,7 @@ data AutomatonError
 
 -- | A semantic obstacle encountered while pruning guarded transitions.
 data PruneError
-    = {- | A guard reaches a state with no remaining transition, so no term
-      can witness that position.
-      -}
-      EmptyGuardPosition !State !Path
-    | {- | The current small implementation cannot choose one refinement for
-      a position whose state has several distinct root refinements, or one
-      value name for a substitution position with several root symbols. The
-      full paper algorithm resolves this case by semantic intersection and
-      state splitting.
-      -}
-      NonHomogeneousGuardPosition !State !Path
-    | {- | Syntactic equality needs ECTA-style intersection rather than one
-      refinement summary per observed position.
-      -}
-      StructuralGuardNeedsIntersection !State
-    | -- | The solver could not decide a transition guard.
+    = -- | The solver could not decide a transition guard.
       PruneUnknown !State
     | -- | Pruning exposed an invalid automaton structure.
       InvalidPrunedAutomaton !AutomatonError
@@ -342,15 +329,18 @@ mkAutomaton initial rows = do
 {- | Remove semantically impossible transitions without enumerating terms.
 
 This is the transition-level boundary used by generated LTAs. A guard is
-discharged from the transition's own refinement and homogeneous refinement
-summaries at the finite positions it observes. Accepted guards become 'Top';
-dead transitions and states are eliminated to a fixed point.
+discharged by partitioning the transition sets at every finite position it
+observes. A partition is homogeneous in the refinement needed by ordinary
+entailment, or in both symbol and refinement where substitution names a value.
+Successful combinations become specialized states and 'Top' transitions;
+failed combinations and newly dead states are removed to a fixed point. This
+is the paper's semantic-intersection rule, expressed as explicit state
+splitting without materializing an accepted tree.
 
-The current implementation deliberately reports non-homogeneous observations
-and structural equality. Those are the cases where the paper's general
-semantic-intersection construction must split states instead of summarising a
-position by one refinement. Ordinary refinement guards, including dependent
-actual-for-formal substitution, do not materialize any accepted tree.
+Syntactic 'Same' constraints remain on the reduced LTA. A top-level conjunction
+still has its independent semantic atoms reduced first. Equality between
+arbitrary subtrees is not in general a regular tree language, so it cannot be
+erased into an ordinary FTA by state splitting alone.
 -}
 prune :: Entailment -> Automaton -> IO (Either PruneError Automaton)
 prune entailment automaton = loop $ automatonTransitions automaton
@@ -358,17 +348,21 @@ prune entailment automaton = loop $ automatonTransitions automaton
     initial = automatonInitial automaton
 
     loop table = do
-        checked <- traverseRows table $ Map.toList table
+        (checked, split) <-
+            runStateT
+                (traverseRows table $ Map.toList table)
+                (emptySplitBuild $ nextState table)
         case checked of
             Left err -> pure $ Left err
-            Right rows ->
-                let next = Map.fromList rows
-                 in if fmap length next == fmap length table
-                        then
-                            pure $
-                                first (InvalidPrunedAutomaton) $
-                                    mkAutomaton initial rows
-                        else loop next
+            Right rows -> do
+                let withSplits = Map.union (Map.fromList rows) (splitRows split)
+                    next = reachableTable initial withSplits
+                if next == table
+                    then
+                        pure $
+                            first InvalidPrunedAutomaton $
+                                mkAutomaton initial (Map.toList next)
+                    else loop next
 
     traverseRows _ [] = pure $ Right []
     traverseRows table ((state, transitions) : rest) = do
@@ -383,42 +377,132 @@ prune entailment automaton = loop $ automatonTransitions automaton
         | any (null . transitionsAt table) $ transitionChildren transition =
             pruneRow table state rest
         | otherwise = do
-            decision <- pruneTransition table state transition
+            decision <- pruneTransition entailment table state transition
             case decision of
                 Left err -> pure $ Left err
-                Right Nothing -> pruneRow table state rest
-                Right (Just retained) ->
-                    fmap (retained :) <$> pruneRow table state rest
+                Right retained ->
+                    fmap (retained <>) <$> pruneRow table state rest
 
     transitionsAt table state = Map.findWithDefault [] state table
 
-    pruneTransition table state transition
-        | hasStructuralGuard $ transitionGuard transition =
-            pure $ Left $ StructuralGuardNeedsIntersection state
-        | otherwise =
-            case traverse resolve positions of
-                Left (EmptyGuardPosition _ _) -> pure $ Right Nothing
-                Left err -> pure $ Left err
-                Right resolved -> do
-                    verdict <-
-                        evaluateGuard
-                            entailment
-                            (transitionGuard transition)
-                            (sparseTerm transition resolved)
-                    pure $ case verdict of
-                        Yes -> Right $ Just $ setTransitionGuard Top transition
-                        No -> Right Nothing
-                        Unknown -> Left $ PruneUnknown state
-      where
-        positions = Set.toList $ Set.fromList $ guardPaths $ transitionGuard transition
-        symbolPositions = Set.fromList $ symbolSensitivePaths $ transitionGuard transition
-        resolve target =
-            resolvePosition
-                (Set.member target symbolPositions)
-                table
-                state
-                transition
-                target
+-- | Split a semantic guard into the part reducible by LTA intersection and a residual syntactic guard.
+splitGuard :: Guard -> (Guard, Guard)
+splitGuard guard
+    | not $ containsSame guard = (guard, Top)
+splitGuard (And guards) =
+    (conjoin semantic, conjoin structural)
+  where
+    (semantic, structural) = foldr separate ([], []) guards
+    separate nested (semanticGuards, structuralGuards)
+        | containsSame nested = (semanticGuards, nested : structuralGuards)
+        | otherwise = (nested : semanticGuards, structuralGuards)
+splitGuard guard = (Top, guard)
+
+-- | Whether a guard contains syntactic equality, which cannot generally be compiled to an FTA.
+containsSame :: Guard -> Bool
+containsSame Top = False
+containsSame Bottom = False
+containsSame (Same _ _) = True
+containsSame (Entails _ _) = False
+containsSame (Satisfies _ _) = False
+containsSame (Substitute _ nested) = containsSame nested
+containsSame (Not nested) = containsSame nested
+containsSame (And guards) = any containsSame guards
+containsSame (Or guards) = any containsSame guards
+
+-- | Build a conjunction without leaving redundant Boolean structure.
+conjoin :: [Guard] -> Guard
+conjoin [] = Top
+conjoin [guard] = guard
+conjoin guards = And guards
+
+-- | How precisely one observed position must be partitioned.
+data ObservationNeed
+    = RefinementNeed
+    | LiquidSymbolNeed
+    deriving (Eq, Ord, Show)
+
+-- | Trie of the finite term positions inspected by one semantic guard.
+data PathPlan = PathPlan
+    { planObservation :: !(Maybe ObservationNeed)
+    , planChildren :: !(Map.Map Int PathPlan)
+    }
+    deriving (Eq, Ord, Show)
+
+-- | One value used to partition a state at an observed position.
+data Observation
+    = RefinementObservation !Refinement
+    | LiquidSymbolObservation !LiquidSymbol
+    deriving (Eq, Ord, Show)
+
+-- | One state whose language is homogeneous at every planned position.
+data StateVariant = StateVariant
+    { variantState :: !State
+    , variantSignature :: !(Map.Map [Int] Observation)
+    , variantSymbols :: !(Map.Map [Int] LiquidSymbol)
+    }
+
+-- | One candidate transition before equal observation signatures are regrouped.
+data TransitionVariant = TransitionVariant
+    { transitionVariantSignature :: !(Map.Map [Int] Observation)
+    , transitionVariantSymbols :: !(Map.Map [Int] LiquidSymbol)
+    , transitionVariantValue :: !Transition
+    }
+
+-- | Transitions that form one homogeneous split state.
+data VariantGroup = VariantGroup
+    { groupSignature :: !(Map.Map [Int] Observation)
+    , groupSymbols :: !(Map.Map [Int] LiquidSymbol)
+    , groupTransitions :: ![Transition]
+    }
+
+-- | Fresh states and memoized state partitions constructed during one pruning round.
+data SplitBuild = SplitBuild
+    { splitNextState :: !Int
+    , splitRows :: !(Map.Map State [Transition])
+    , splitMemo :: !(Map.Map (State, PathPlan) [StateVariant])
+    }
+
+-- | Initial state for one splitting round.
+emptySplitBuild :: Int -> SplitBuild
+emptySplitBuild firstFresh = SplitBuild firstFresh Map.empty Map.empty
+
+-- | One state identity beyond every state currently in the automaton.
+nextState :: Map.Map State [Transition] -> Int
+nextState table =
+    1 + maximum (-1 : [unState state | state <- Map.keys table])
+
+-- | Compile one transition's semantic guard by partitioning only its observed paths.
+pruneTransition ::
+    Entailment ->
+    Map.Map State [Transition] ->
+    State ->
+    Transition ->
+    StateT SplitBuild IO (Either PruneError [Transition])
+pruneTransition entailment table parent transition
+    | semanticGuard == Top = pure $ Right [setTransitionGuard residualGuard transition]
+    | otherwise = do
+        candidates <- transitionSpecializations table semanticGuard transition
+        check candidates
+  where
+    (semanticGuard, residualGuard) = splitGuard $ transitionGuard transition
+
+    check [] = pure $ Right []
+    check ((specialized, resolved) : rest) = do
+        verdict <-
+            liftIO $
+                evaluateGuard
+                    entailment
+                    semanticGuard
+                    (sparseTerm specialized $ map resolvedPosition $ Map.toList resolved)
+        case verdict of
+            Yes -> do
+                remaining <- check rest
+                pure $ fmap (setTransitionGuard residualGuard specialized :) remaining
+            No -> check rest
+            Unknown -> pure $ Left $ PruneUnknown parent
+
+    resolvedPosition (components, symbol) = (path components, symbol)
 
 -- | Replace a transition's guard without changing its ranked symbol or states.
 setTransitionGuard :: Guard -> Transition -> Transition
@@ -429,17 +513,173 @@ setTransitionGuard guard transition =
         (transitionChildren transition)
         guard
 
--- | Whether a guard needs structural ECTA intersection.
-hasStructuralGuard :: Guard -> Bool
-hasStructuralGuard Top = False
-hasStructuralGuard Bottom = False
-hasStructuralGuard (Same _ _) = True
-hasStructuralGuard (Entails _ _) = False
-hasStructuralGuard (Satisfies _ _) = False
-hasStructuralGuard (Substitute _ nested) = hasStructuralGuard nested
-hasStructuralGuard (Not nested) = hasStructuralGuard nested
-hasStructuralGuard (And guards) = any hasStructuralGuard guards
-hasStructuralGuard (Or guards) = any hasStructuralGuard guards
+-- | Every homogeneous child-state specialization required to evaluate one guard.
+transitionSpecializations ::
+    Map.Map State [Transition] ->
+    Guard ->
+    Transition ->
+    StateT SplitBuild IO [(Transition, Map.Map [Int] LiquidSymbol)]
+transitionSpecializations table guard transition = do
+    children <- specializeChildren table (planChildren plan) $ transitionChildren transition
+    pure
+        [ ( replaceTransitionChildren specializedChildren transition
+          , rootSymbols `Map.union` childSymbols
+          )
+        | (specializedChildren, _, childSymbols) <- children
+        ]
+  where
+    plan = planGuard guard
+    rootSymbols = case planObservation plan of
+        Nothing -> Map.empty
+        Just _ -> Map.singleton [] $ transitionLiquidSymbol transition
+
+-- | Partition one state's language by the observations in a path plan.
+specializeState ::
+    Map.Map State [Transition] ->
+    State ->
+    PathPlan ->
+    StateT SplitBuild IO [StateVariant]
+specializeState table state plan = do
+    build <- get
+    case Map.lookup (state, plan) $ splitMemo build of
+        Just variants -> pure variants
+        Nothing -> do
+            candidates <-
+                concat
+                    <$> traverse
+                        (specializeStateTransition table plan)
+                        (Map.findWithDefault [] state table)
+            variants <- traverse allocateVariant $ groupVariants candidates
+            modify' $ \updated ->
+                updated
+                    { splitMemo = Map.insert (state, plan) variants $ splitMemo updated
+                    }
+            pure variants
+
+-- | Specialize one transition inside a state being partitioned.
+specializeStateTransition ::
+    Map.Map State [Transition] ->
+    PathPlan ->
+    Transition ->
+    StateT SplitBuild IO [TransitionVariant]
+specializeStateTransition table plan transition = do
+    children <- specializeChildren table (planChildren plan) $ transitionChildren transition
+    pure
+        [ TransitionVariant
+            (rootSignature `Map.union` childSignature)
+            (rootSymbols `Map.union` childSymbols)
+            (replaceTransitionChildren specializedChildren transition)
+        | (specializedChildren, childSignature, childSymbols) <- children
+        ]
+  where
+    liquidSymbol = transitionLiquidSymbol transition
+    rootSignature = case planObservation plan of
+        Nothing -> Map.empty
+        Just need -> Map.singleton [] $ observe need liquidSymbol
+    rootSymbols = case planObservation plan of
+        Nothing -> Map.empty
+        Just _ -> Map.singleton [] liquidSymbol
+
+-- | Cartesian product of child variants, sharing every unobserved child state.
+specializeChildren ::
+    Map.Map State [Transition] ->
+    Map.Map Int PathPlan ->
+    [State] ->
+    StateT SplitBuild IO [([State], Map.Map [Int] Observation, Map.Map [Int] LiquidSymbol)]
+specializeChildren table plans children
+    | any invalid $ Map.keys plans = pure []
+    | otherwise = go 0 children
+  where
+    invalid index = index < 0 || index >= length children
+
+    go _ [] = pure [([], Map.empty, Map.empty)]
+    go index (child : rest) = do
+        variants <- case Map.lookup index plans of
+            Nothing -> pure [StateVariant child Map.empty Map.empty]
+            Just plan -> specializeState table child plan
+        suffixes <- go (index + 1) rest
+        pure
+            [ ( variantState variant : suffixStates
+              , prefixMap index (variantSignature variant) `Map.union` suffixSignature
+              , prefixMap index (variantSymbols variant) `Map.union` suffixSymbols
+              )
+            | variant <- variants
+            , (suffixStates, suffixSignature, suffixSymbols) <- suffixes
+            ]
+
+-- | Prefix every relative observation path by one child index.
+prefixMap :: Int -> Map.Map [Int] value -> Map.Map [Int] value
+prefixMap index = Map.mapKeysMonotonic (index :)
+
+-- | Allocate one fresh state for a homogeneous transition group.
+allocateVariant :: VariantGroup -> StateT SplitBuild IO StateVariant
+allocateVariant VariantGroup{groupSignature, groupSymbols, groupTransitions} = do
+    build <- get
+    let state = State $ splitNextState build
+    modify' $ \updated ->
+        updated
+            { splitNextState = splitNextState updated + 1
+            , splitRows = Map.insert state groupTransitions $ splitRows updated
+            }
+    pure $ StateVariant state groupSignature groupSymbols
+
+-- | Regroup transition candidates without disturbing first-seen rank order.
+groupVariants :: [TransitionVariant] -> [VariantGroup]
+groupVariants = foldl' insertVariant []
+  where
+    insertVariant [] variant = [singletonGroup variant]
+    insertVariant (group : rest) variant
+        | groupSignature group == transitionVariantSignature variant =
+            group
+                { groupTransitions =
+                    groupTransitions group <> [transitionVariantValue variant]
+                }
+                : rest
+        | otherwise = group : insertVariant rest variant
+
+    singletonGroup TransitionVariant{transitionVariantSignature, transitionVariantSymbols, transitionVariantValue} =
+        VariantGroup
+            transitionVariantSignature
+            transitionVariantSymbols
+            [transitionVariantValue]
+
+-- | Observation used to partition a state's transitions.
+observe :: ObservationNeed -> LiquidSymbol -> Observation
+observe RefinementNeed (LiquidSymbol _ refinement) = RefinementObservation refinement
+observe LiquidSymbolNeed symbol = LiquidSymbolObservation symbol
+
+-- | Construct the observation trie for every position read by a semantic guard.
+planGuard :: Guard -> PathPlan
+planGuard guard =
+    foldl'
+        (flip $ uncurry insertPlan)
+        emptyPlan
+        observations
+  where
+    sensitive = Set.fromList $ symbolSensitivePaths guard
+    observations =
+        [ ( unPath target
+          , if Set.member target sensitive then LiquidSymbolNeed else RefinementNeed
+          )
+        | target <- Set.toList $ Set.fromList $ guardPaths guard
+        ]
+
+-- | An observation plan containing no positions.
+emptyPlan :: PathPlan
+emptyPlan = PathPlan Nothing Map.empty
+
+-- | Insert or strengthen one observed position in a path trie.
+insertPlan :: [Int] -> ObservationNeed -> PathPlan -> PathPlan
+insertPlan [] need plan =
+    plan{planObservation = Just $ maybe need (max need) $ planObservation plan}
+insertPlan (index : rest) need plan =
+    plan
+        { planChildren =
+            Map.alter
+                (Just . insertPlan rest need . maybe emptyPlan id)
+                index
+                (planChildren plan)
+        }
 
 -- | Paths whose constructor symbol participates in substitution.
 symbolSensitivePaths :: Guard -> [Path]
@@ -457,58 +697,33 @@ symbolSensitivePaths (Not nested) = symbolSensitivePaths nested
 symbolSensitivePaths (And guards) = concatMap symbolSensitivePaths guards
 symbolSensitivePaths (Or guards) = concatMap symbolSensitivePaths guards
 
-{- | Resolve one observed position to a representative root liquid symbol.
+-- | Replace only the child states of one transition.
+replaceTransitionChildren :: [State] -> Transition -> Transition
+replaceTransitionChildren children transition =
+    Transition
+        (transitionSymbol transition)
+        (transitionRefinement transition)
+        children
+        (transitionGuard transition)
 
-Ordinary semantic guards require one refinement but do not inspect the
-constructor symbol. Substitution positions require both to be homogeneous,
-because the constructor symbol names the value substituted into the formula.
--}
-resolvePosition ::
-    Bool ->
-    Map.Map State [Transition] ->
-    State ->
-    Transition ->
-    Path ->
-    Either PruneError (Path, LiquidSymbol)
-resolvePosition needsSymbol table parent transition target =
-    case unPath target of
-        [] -> Right (target, transitionLiquidSymbol transition)
-        index : rest -> do
-            child <-
-                maybe
-                    (Left $ EmptyGuardPosition parent target)
-                    Right
-                    (atIndex index $ transitionChildren transition)
-            symbols <- symbolsAt table child rest
-            case Set.toList symbols of
-                [] -> Left $ EmptyGuardPosition parent target
-                [symbol] -> Right (target, symbol)
-                symbol : others
-                    | not needsSymbol && all (sameRefinement symbol) others ->
-                        Right (target, symbol)
-                    | otherwise -> Left $ NonHomogeneousGuardPosition parent target
+-- | Keep only states reachable from the initial state.
+reachableTable :: State -> Map.Map State [Transition] -> Map.Map State [Transition]
+reachableTable initial table =
+    Map.restrictKeys table $ visit Set.empty [initial]
   where
-    sameRefinement (LiquidSymbol _ expected) (LiquidSymbol _ actual) =
-        expected == actual
+    visit reached [] = reached
+    visit reached (state : rest)
+        | Set.member state reached = visit reached rest
+        | otherwise =
+            visit
+                (Set.insert state reached)
+                ( concatMap transitionChildren (Map.findWithDefault [] state table)
+                    <> rest
+                )
 
 -- | Liquid symbol carried by a transition.
 transitionLiquidSymbol :: Transition -> LiquidSymbol
 transitionLiquidSymbol (FTA.Transition symbol _ _) = symbol
-
--- | Possible liquid symbols at a fixed path below one state.
-symbolsAt :: Map.Map State [Transition] -> State -> [Int] -> Either PruneError (Set.Set LiquidSymbol)
-symbolsAt table state [] =
-    Right . Set.fromList $ map transitionLiquidSymbol $ Map.findWithDefault [] state table
-symbolsAt table state (index : rest) =
-    Set.unions
-        <$> traverse
-            descend
-            (Map.findWithDefault [] state table)
-  where
-    descend transition =
-        case atIndex index $ transitionChildren transition of
-            Nothing -> Right Set.empty
-            Just child -> symbolsAt table child rest
 
 -- | Build only the finite path trie needed by 'evaluateGuard'.
 sparseTerm :: Transition -> [(Path, LiquidSymbol)] -> LiquidTerm

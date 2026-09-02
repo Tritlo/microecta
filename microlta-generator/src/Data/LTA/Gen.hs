@@ -492,6 +492,7 @@ data GeneratorError
     | SolverUnknown
     | InvalidSupport !AutomatonError
     | InvalidPruning !PruneError
+    | ResidualGuard !State !Guard
     | RecursiveAutomaton
     | AmbiguousAutomaton !State
     deriving (Eq, Show)
@@ -533,6 +534,7 @@ compileAutomaton uncachedEntailment automaton = do
     reduced <- prune entailment automaton
     pure $ do
         acceptedSupport <- first InvalidPruning reduced
+        ensureUnconstrained acceptedSupport
         counts <- countAutomaton acceptedSupport
         ensureUnambiguous acceptedSupport $ Map.keys counts
         let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
@@ -543,6 +545,23 @@ compileAutomaton uncachedEntailment automaton = do
                         total
                         (generatedAt acceptedSupport counts)
         pure $ Compiled acceptedSupport ranked Map.empty
+
+{- | Require the pruned automaton to be an ordinary FTA before multiplying
+child cardinalities.
+
+Semantic guards are eliminated by LTA state splitting. Syntactic equality may
+remain because equality between arbitrary subtrees is not a regular tree
+language; it needs the ECTA counting path instead of an FTA product count.
+-}
+ensureUnconstrained :: Automaton -> Either GeneratorError ()
+ensureUnconstrained automaton =
+    case [ (state, transitionGuard transition)
+         | (state, transitions) <- Map.toList $ automatonTransitions automaton
+         , transition <- transitions
+         , transitionGuard transition /= Top
+         ] of
+        residual : _ -> Left $ uncurry ResidualGuard residual
+        [] -> Right ()
 
 {- | Change only the Haskell view of a compiled LTA member.
 
