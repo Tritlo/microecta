@@ -43,16 +43,17 @@ in a cycle, matching the paper's restriction that keeps solver obligations
 finite. `refinementRelation` and `semanticIntersection` expose the semantic
 comparison used by pruning and similarity minimisation.
 
-`prune solver automaton` is the first paper-style reduction pass. It discharges
-guards from transition refinements, replaces successful guards with `Top`, and
-removes failed or newly dead transitions to a fixed point. It works on the
-automaton graph: no accepted tree is constructed. The current small core
-handles semantic positions whose reachable transitions share one root
-refinement. Constructor symbols may differ because ordinary entailment does
-not inspect them; actual/formal substitution positions must also share the
-value-naming symbol. This covers ground-type states, dependent command schemas,
-and state-indexed trace layers. It reports `NonHomogeneousGuardPosition` where
-the full paper algorithm must perform semantic intersection and split states,
-and
-`StructuralGuardNeedsIntersection` where ECTA equality intersection is needed.
-Those errors are deliberate boundaries, not silent enumeration fallbacks.
+`prune solver automaton` is the paper's semantic-intersection reduction pass.
+For every semantic guard, it partitions the transition sets reached at the
+observed positions by refinement. Actual/formal positions are partitioned by
+both refinement and value-naming symbol. It then retains precisely the
+partition combinations whose entailment succeeds, replaces that semantic
+guard with `Top`, and removes newly dead transitions to a fixed point. Nested
+positions produce shared state splits; complete accepted terms are never
+constructed.
+
+Syntactic `Same` constraints remain on the resulting LTA because equality
+between arbitrary subtrees cannot generally be compiled into a regular FTA.
+When `Same` is one conjunct, independent semantic conjuncts are still reduced.
+The generator adapter consequently refuses to multiply child counts while such
+a residual guard remains; it never silently counts the unconstrained product.

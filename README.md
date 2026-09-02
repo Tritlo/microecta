@@ -19,7 +19,8 @@ on the generator package or on QuickCheck. `Data.Tree.Gen` provides exact
 finite ranks, backend-independent sampling, and shrinking, while
 `Data.Tree.FTA.Gen` either compiles an acyclic ordinary FTA or builds one with
 the `FTA.node`/`FTA.do` syntax before lowering it into that representation.
-`microlta` prunes homogeneous semantic guards on the transition graph.
+`microlta` prunes semantic guards by intersecting and splitting transition
+states along only the positions inspected by each guard.
 `microlta-generator` counts and unranks that reduced LTA through the same pure
 ranked layer used by the other generators; only the selected term is
 materialized. Its surface DSL also supports finite Haskell pools and semantic
@@ -34,9 +35,11 @@ cabal run liquid-pairs
 `microlta` implements refinement-labelled recognition, Boolean guards,
 actual-for-formal position substitutions, transition-level semantic pruning,
 semantic intersection, similarity comparison, and recursive LTAs with the
-paper's acyclic-guard restriction. The current pruning pass handles positions
-with one homogeneous liquid root; it reports cases requiring the paper's full
-state-splitting intersection rather than enumerating terms silently.
+paper's acyclic-guard restriction. The pruning pass implements the paper's
+directional semantic intersection by partitioning heterogeneous states on
+their observed refinements and substitution symbols. Syntactic `Same` guards
+remain as ECTA-style constraints rather than being mistaken for an ordinary
+FTA product.
 `microlta-generator` adds counting and unranking over finite acyclic LTAs,
 named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
 opt-in similarity minimisation, and explicitly bounded generation from
