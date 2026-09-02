@@ -3,6 +3,8 @@
 module Main (main) where
 
 import Control.Exception (evaluate)
+import Data.Function (on)
+import Data.List (sortBy)
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
@@ -20,6 +22,7 @@ import Application.TermSearch.Utils (
  )
 import Data.ECTA
 import Data.ECTA.Internal.ECTA.Operations (reduceEqConstraints)
+import Data.ECTA.Internal.Paths (PathTrie (..))
 import Data.ECTA.Paths
 import Data.ECTA.Term (Symbol (Symbol))
 
@@ -31,6 +34,7 @@ data Bench = Bench
 
 main :: IO ()
 main = do
+    preparePathOrderInputs
     multiplier <- parseMultiplier <$> getArgs
     putStrLn "benchmark,cpu_seconds,repeats,checksum"
     mapM_ (runBench multiplier) benchmarks
@@ -77,6 +81,33 @@ benchmarks =
         forceNode $ reduceFully (filterListIntSize3 i)
     , Bench "enumerate/reduced-filter-maybe-int-size-2" 80 $ \i ->
         forceInt $ length (take 64 (getAllTerms (reduceFully (filterMaybeIntSize2 i))))
+    , Bench "sort/path-eclasses/legacy-trie/small" 120 $ \i ->
+        forcePathEClasses $
+            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
+    , Bench "sort/path-eclasses/trie/small" 120 $ \i ->
+        forcePathEClasses $
+            sortBy (compare `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
+    , Bench "sort/path-eclasses/cached/small" 120 $ \i ->
+        forcePathEClasses $
+            sortBy compare (selectPathOrderInput smallPathOrderInputs i)
+    , Bench "sort/path-eclasses/legacy-trie/shared-prefix" 40 $ \i ->
+        forcePathEClasses $
+            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
+    , Bench "sort/path-eclasses/trie/shared-prefix" 40 $ \i ->
+        forcePathEClasses $
+            sortBy (compare `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
+    , Bench "sort/path-eclasses/cached/shared-prefix" 40 $ \i ->
+        forcePathEClasses $
+            sortBy compare (selectPathOrderInput sharedPrefixPathOrderInputs i)
+    , Bench "sort/path-eclasses/legacy-trie/divergent-branch" 120 $ \i ->
+        forcePathEClasses $
+            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
+    , Bench "sort/path-eclasses/trie/divergent-branch" 120 $ \i ->
+        forcePathEClasses $
+            sortBy (compare `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
+    , Bench "sort/path-eclasses/cached/divergent-branch" 120 $ \i ->
+        forcePathEClasses $
+            sortBy compare (selectPathOrderInput divergentBranchPathOrderInputs i)
     ]
 
 forceNode :: Node Symbol -> IO Int
@@ -92,8 +123,126 @@ forceEqConstraints =
         . map (sum . map (length . unPath) . unPathEClass)
         . unsafeGetEclasses
 
+-- | Force a sorted equality-class result through its cached path lists.
+forcePathEClasses :: [PathEClass] -> IO Int
+forcePathEClasses =
+    forceInt
+        . foldl' (\acc pec -> acc * 33 + pathEClassFingerprint (unPathEClass pec)) 5381
+  where
+    pathEClassFingerprint =
+        foldl' (\acc p -> acc * 33 + foldl' (\n i -> n * 33 + i) 5381 (unPath p)) 5381
+
 forceInt :: Int -> IO Int
 forceInt = evaluate
+
+-- | Force both views before timing so the benchmark measures comparison.
+preparePathOrderInputs :: IO ()
+preparePathOrderInputs = do
+    mapM_ forcePathEClasses allInputs
+    mapM_ forcePathTries allInputs
+  where
+    allInputs =
+        smallPathOrderInputs
+            ++ sharedPrefixPathOrderInputs
+            ++ divergentBranchPathOrderInputs
+
+    forcePathTries =
+        forceInt
+            . sum
+            . map (sum . map (sum . unPath) . fromPathTrie . getPathTrie)
+
+-- | Select one of several deterministic input permutations.
+selectPathOrderInput :: [[PathEClass]] -> Int -> [PathEClass]
+selectPathOrderInput inputs salt = inputs !! (salt `rem` length inputs)
+
+-- | Small equality classes with one common leading path.
+smallPathOrderInputs :: [[PathEClass]]
+smallPathOrderInputs = pathOrderInputs smallPathSets
+  where
+    smallPathSets =
+        [ [ path [0, 0, 0]
+          , path [1, n `div` 32, n `rem` 32]
+          , path [2, n `rem` 17, n `div` 17]
+          ]
+        | n <- [0 .. 255]
+        ]
+
+-- | Larger equality classes whose comparisons share sixteen paths.
+sharedPrefixPathOrderInputs :: [[PathEClass]]
+sharedPrefixPathOrderInputs = pathOrderInputs sharedPrefixPathSets
+  where
+    sharedPrefixPathSets =
+        [ [path [0, k, 0, 0] | k <- [0 .. 15]]
+            ++ [path [1, n `div` 16, n `rem` 16, 0]]
+        | n <- [0 .. 127]
+        ]
+
+-- | Equality classes containing the branching shape misordered by the legacy comparator.
+divergentBranchPathOrderInputs :: [[PathEClass]]
+divergentBranchPathOrderInputs = pathOrderInputs divergentBranchPathSets
+  where
+    divergentBranchPathSets =
+        concat
+            [ [ [path [0, k], path [0, k + 1]]
+              , [path [0, k], path [1, k]]
+              ]
+            | k <- [1, 3 .. 255]
+            ]
+
+-- | Build and deterministically permute equality classes outside timed work.
+pathOrderInputs :: [[Path]] -> [[PathEClass]]
+pathOrderInputs pathSets =
+    [ map snd $
+        sortBy (compare `on` fst) $
+            [ ((index * 73 + salt * 37) `rem` 257, pec)
+            | (index, pec) <- zip [(0 :: Int) ..] corpus
+            ]
+    | salt <- [0 .. 7]
+    ]
+  where
+    corpus = concatMap (unsafeGetEclasses . mkEqConstraints . (: [])) pathSets
+
+-- | The direct trie comparator used before 12c32b2. It is intentionally wrong.
+legacyComparePathTrie :: PathTrie -> PathTrie -> Ordering
+legacyComparePathTrie EmptyPathTrie EmptyPathTrie = EQ
+legacyComparePathTrie EmptyPathTrie _ = LT
+legacyComparePathTrie _ EmptyPathTrie = GT
+legacyComparePathTrie TerminalPathTrie TerminalPathTrie = EQ
+legacyComparePathTrie TerminalPathTrie _ = LT
+legacyComparePathTrie _ TerminalPathTrie = GT
+legacyComparePathTrie (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2) =
+    case compare i1 i2 of
+        EQ -> legacyComparePathTrie pt1 pt2
+        result -> result
+legacyComparePathTrie (PathTrieSingleChild i1 pt1) (PathTrie ((i2, pt2) : _)) =
+    case compare i1 i2 of
+        EQ -> case legacyComparePathTrie pt1 pt2 of
+            EQ -> LT
+            result -> result
+        result -> result
+legacyComparePathTrie (PathTrieSingleChild _ _) (PathTrie []) =
+    error "legacyComparePathTrie: invalid empty PathTrie children"
+legacyComparePathTrie left@(PathTrie _) right@(PathTrieSingleChild _ _) =
+    flipOrdering $ legacyComparePathTrie right left
+legacyComparePathTrie (PathTrie children1) (PathTrie children2) =
+    legacyComparePathTrieChildren children1 children2
+
+legacyComparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
+legacyComparePathTrieChildren [] [] = EQ
+legacyComparePathTrieChildren [] _ = LT
+legacyComparePathTrieChildren _ [] = GT
+legacyComparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
+    case compare i1 i2 of
+        LT -> LT
+        GT -> GT
+        EQ -> case legacyComparePathTrie pt1 pt2 of
+            EQ -> legacyComparePathTrieChildren rest1 rest2
+            result -> result
+
+flipOrdering :: Ordering -> Ordering
+flipOrdering LT = GT
+flipOrdering EQ = EQ
+flipOrdering GT = LT
 
 typeSearchNode :: Node Symbol
 typeSearchNode =
