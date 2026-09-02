@@ -23,6 +23,12 @@ rank order of the corresponding selectors exactly.
 data Plan a where
     -- | A leaf: a finite source decoded by index.
     PlanSelect :: !Integer -> (Integer -> a) -> Plan a
+    {- | A leaf whose decoder must remain on demand even when it is small.
+
+    Automaton enumerators use this so compiling a rank plan never constructs
+    accepted terms merely to fill the ordinary small-leaf lookup table.
+    -}
+    PlanSelectOnDemand :: !Integer -> (Integer -> a) -> Plan a
     -- | Map decoded values.
     PlanMap :: (b -> a) -> Plan b -> Plan a
     -- | Ordered alternatives; each pair is a branch cardinality and branch.
@@ -49,6 +55,7 @@ data RankDecoder a
 -- | The exact number of ranks a plan decodes.
 planCardinality :: Plan a -> Integer
 planCardinality (PlanSelect cardinality' _) = cardinality'
+planCardinality (PlanSelectOnDemand cardinality' _) = cardinality'
 planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
 planCardinality (PlanAp rightCardinality planF _) =
@@ -74,6 +81,7 @@ normalizePlan (PlanChoice branches) =
 normalizePlan (PlanAp rightCardinality planF planX) =
     PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
 normalizePlan plan@(PlanSelect _ _) = plan
+normalizePlan plan@(PlanSelectOnDemand _ _) = plan
 normalizePlan plan@(PlanSized _) = plan
 
 -- | Push one pending map down while normalizing below it.
@@ -81,6 +89,8 @@ pushMap :: (b -> a) -> Plan b -> Plan a
 pushMap transform (PlanMap inner plan) = pushMap (transform . inner) plan
 pushMap transform (PlanSelect cardinality' decode) =
     PlanSelect cardinality' (transform . decode)
+pushMap transform (PlanSelectOnDemand cardinality' decode) =
+    PlanSelectOnDemand cardinality' (transform . decode)
 pushMap transform (PlanChoice branches) =
     rebuildChoice $ concatMap flattenBranch branches
   where
@@ -141,6 +151,7 @@ compileRank (PlanSelect cardinality' decode)
                     [decode (toInteger index) | index <- [0 .. size - 1]]
          in unsafeAt table
     | otherwise = decode . toInteger
+compileRank (PlanSelectOnDemand _ decode) = decode . toInteger
 compileRank (PlanMap transform plan) =
     let decode = compileRank plan
      in \index ->
@@ -225,6 +236,7 @@ compileLargeRank (PlanSelect cardinality' decode)
                     [decode (toInteger index) | index <- [0 .. size - 1]]
          in unsafeAt table . fromInteger
     | otherwise = decode
+compileLargeRank (PlanSelectOnDemand _ decode) = decode
 compileLargeRank (PlanMap transform plan) =
     let decode = compileLocalRank plan
      in \index ->

@@ -49,6 +49,8 @@ smallestPlanRank = fmap snd . minimumMember
     minimumMember :: Plan b -> Maybe (Int, Integer)
     minimumMember (PlanSelect cardinality _) =
         if cardinality > 0 then Just (1, 0) else Nothing
+    minimumMember (PlanSelectOnDemand cardinality _) =
+        if cardinality > 0 then Just (1, 0) else Nothing
     minimumMember (PlanMap _ plan) = minimumMember plan
     minimumMember (PlanChoice branches) =
         minimumChoice 0 branches
@@ -94,6 +96,7 @@ shrinkPlanRank = go
   where
     go :: Plan b -> Integer -> [Integer]
     go (PlanSelect _ _) index = towardZero index
+    go (PlanSelectOnDemand _ _) index = towardZero index
     go (PlanMap _ plan) index = go plan index
     go (PlanChoice branches) index =
         case break (holdsRank index) (withOffsets branches) of
@@ -139,6 +142,7 @@ argument choices.
 -}
 planMemberSize :: Plan a -> Integer -> Int
 planMemberSize (PlanSelect _ _) _ = 1
+planMemberSize (PlanSelectOnDemand _ _) _ = 1
 planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =
     case dropWhile (not . holdsRank rank) (withOffsets branches) of

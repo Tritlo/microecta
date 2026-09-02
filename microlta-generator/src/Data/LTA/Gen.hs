@@ -32,6 +32,8 @@ module Data.LTA.Gen (
     support,
     validOutcomes,
     compile,
+    compileAutomaton,
+    mapCompiled,
     compiledSupport,
     compiledRanked,
     cardinality,
@@ -48,7 +50,6 @@ module Data.LTA.Gen (
 
 import Data.Bifunctor (first)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import qualified Data.IntMap.Strict as IntMap
 import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -58,11 +59,69 @@ import Data.LTA.Guard (GuardBuilder, buildGuard)
 import Data.LTA.Refinement (true)
 import qualified Data.Tree.Gen as Tree
 
--- | A finite weighted language paired with guarded witness trees and shrinks.
+{- | A finite weighted language paired with guarded witness trees and shrinks.
+
+The outcome language is an indexed rank plan. Applicative composition retains
+products as mixed-radix decoders, so constructing a generator does not allocate
+one 'Outcome' for every element of its Cartesian product.
+-}
 data LTAGen a = LTAGen
-    { generatorOutcomes :: [Outcome a]
-    , generatorShrinks :: Int -> [ShrinkCandidate]
+    { generatorOutcomes :: !(Finite (Outcome a))
+    , generatorShrinks :: Integer -> [ShrinkCandidate]
     }
+
+-- | A possibly empty wrapper around the shared non-empty ranked engine.
+data Finite a
+    = EmptyFinite
+    | RankedFinite !(Tree.Ranked a)
+
+instance Functor Finite where
+    fmap _ EmptyFinite = EmptyFinite
+    fmap function (RankedFinite ranked) = RankedFinite $ function <$> ranked
+
+instance Applicative Finite where
+    pure = RankedFinite . pure
+    EmptyFinite <*> _ = EmptyFinite
+    _ <*> EmptyFinite = EmptyFinite
+    RankedFinite functions <*> RankedFinite arguments =
+        RankedFinite $ functions <*> arguments
+
+-- | Build a finite indexed language from an ordinary atomic pool.
+finiteFromList :: [a] -> Finite a
+finiteFromList [] = EmptyFinite
+finiteFromList values =
+    case Tree.fromWeighted [(1, value) | value <- values] of
+        Right ranked -> RankedFinite ranked
+        Left err -> error $ "finiteFromList: " <> show err
+
+-- | Combine ranked branches without flattening their members.
+finiteOneof :: [Finite a] -> Finite a
+finiteOneof alternatives =
+    case [ranked | RankedFinite ranked <- alternatives] of
+        [] -> EmptyFinite
+        rankedAlternatives ->
+            case Tree.oneof rankedAlternatives of
+                Right ranked -> RankedFinite ranked
+                Left err -> error $ "finiteOneof: " <> show err
+
+-- | Exact number of ranks without enumerating their values.
+finiteCardinality :: Finite a -> Integer
+finiteCardinality EmptyFinite = 0
+finiteCardinality (RankedFinite ranked) = Tree.cardinality ranked
+
+-- | Decode one valid rank.
+finiteSelect :: Integer -> Finite a -> Either GeneratorError a
+finiteSelect rank EmptyFinite = Left $ SelectionOutOfRange rank 0
+finiteSelect rank (RankedFinite ranked) =
+    first fromRankedError $ Tree.unrank ranked rank
+
+-- | All valid ranks of a finite language.
+finiteRanks :: Finite a -> [Integer]
+finiteRanks finite = [0 .. finiteCardinality finite - 1]
+
+-- | Materialize a finite language only for an explicit support observer.
+enumerateFinite :: Finite a -> Either GeneratorError [a]
+enumerateFinite finite = traverse (`finiteSelect` finite) $ finiteRanks finite
 
 {- | One atom that can participate in refinement-based pool shrinking.
 
@@ -85,12 +144,14 @@ entries remain repeated ranks and retain empirical weight.
 pool :: [Refined a] -> LTAGen a
 pool entries =
     LTAGen
-        [ Outcome 1 value (Witness symbol refinement Top [])
-        | Refined value symbol refinement <- entries
-        ]
+        ( finiteFromList
+            [ Outcome 1 value (Witness symbol refinement Top [])
+            | Refined value symbol refinement <- entries
+            ]
+        )
         shrinkFrom
   where
-    shrinkFrom source = case drop source entries of
+    shrinkFrom source = case drop (fromInteger source) entries of
         Refined _ _ sourceRefinement : _ ->
             [ ShrinkCandidate
                 target
@@ -99,7 +160,7 @@ pool entries =
                     candidateRefinement
                     (target < source)
                 )
-            | (target, Refined _ _ candidateRefinement) <- zip [0 ..] entries
+            | (target, Refined _ _ candidateRefinement) <- zip [0 :: Integer ..] entries
             , target /= source
             ]
         [] -> []
@@ -148,8 +209,8 @@ leaf value symbol refinement = pool [refined value symbol refinement]
 
 -- | A generated child forest awaiting one root constructor.
 data Children a = Children
-    { childrenOutcomes :: [ForestOutcome a]
-    , childrenShrinks :: Int -> [ShrinkCandidate]
+    { childrenOutcomes :: !(Finite (ForestOutcome a))
+    , childrenShrinks :: Integer -> [ShrinkCandidate]
     }
 
 data ForestOutcome a = ForestOutcome
@@ -172,37 +233,37 @@ instance Functor LTAGen where
     fmap function generator =
         generator
             { generatorOutcomes =
-                [ outcome{outcomeValue = function (outcomeValue outcome)}
-                | outcome <- generatorOutcomes generator
-                ]
+                fmap
+                    (\outcome -> outcome{outcomeValue = function (outcomeValue outcome)})
+                    (generatorOutcomes generator)
             }
 
 instance Functor Children where
     fmap function childForest =
         childForest
             { childrenOutcomes =
-                [ outcome{forestValue = function (forestValue outcome)}
-                | outcome <- childrenOutcomes childForest
-                ]
+                fmap
+                    (\outcome -> outcome{forestValue = function (forestValue outcome)})
+                    (childrenOutcomes childForest)
             }
 
 instance Applicative Children where
-    pure value = Children [ForestOutcome 1 value []] (const [])
+    pure value = Children (pure $ ForestOutcome 1 value []) (const [])
 
     functions <*> arguments =
         Children
-            [ ForestOutcome
-                (forestWeight function * forestWeight argument)
-                (forestValue function $ forestValue argument)
-                (forestWitnesses function <> forestWitnesses argument)
-            | function <- functionOutcomes
-            , argument <- argumentOutcomes
-            ]
+            (combine <$> functionOutcomes <*> argumentOutcomes)
             shrinkProduct
       where
         functionOutcomes = childrenOutcomes functions
         argumentOutcomes = childrenOutcomes arguments
-        argumentCount = length argumentOutcomes
+        argumentCount = finiteCardinality argumentOutcomes
+
+        combine function argument =
+            ForestOutcome
+                (forestWeight function * forestWeight argument)
+                (forestValue function $ forestValue argument)
+                (forestWitnesses function <> forestWitnesses argument)
 
         shrinkProduct index
             | argumentCount <= 0 = []
@@ -223,13 +284,16 @@ instance Applicative Children where
 children :: LTAGen a -> Children a
 children generator =
     Children
-        [ ForestOutcome
+        ( toForest
+            <$> generatorOutcomes generator
+        )
+        (generatorShrinks generator)
+  where
+    toForest outcome =
+        ForestOutcome
             (outcomeWeight outcome)
             (outcomeValue outcome)
             [outcomeWitness outcome]
-        | outcome <- generatorOutcomes generator
-        ]
-        (generatorShrinks generator)
 
 -- | Apply one generated child-forest function to another child forest.
 applyChildren :: Children (a -> b) -> Children a -> Children b
@@ -273,16 +337,18 @@ refinedNodeBy ::
     LTAGen a
 refinedNodeBy symbol refinementOf guardBuilder layer =
     LTAGen
-        [ Outcome
-            (forestWeight outcome)
-            (forestValue outcome)
-            (Witness symbol (refinementOf $ forestValue outcome) guard $ forestWitnesses outcome)
-        | outcome <- childrenOutcomes childForest
-        ]
+        ( closeOutcome
+            <$> childrenOutcomes childForest
+        )
         (childrenShrinks childForest)
   where
     childForest = asChildren layer
     guard = buildGuard guardBuilder
+    closeOutcome outcome =
+        Outcome
+            (forestWeight outcome)
+            (forestValue outcome)
+            (Witness symbol (refinementOf $ forestValue outcome) guard $ forestWitnesses outcome)
 
 -- | Apply a unary constructor to every member of a language.
 unary :: (GuardBuilder guard) => (a -> b) -> Symbol -> Refinement -> guard -> LTAGen a -> LTAGen b
@@ -312,7 +378,7 @@ frequency alternatives = do
     mapM_ ensurePositive alternatives
     pure $
         LTAGen
-            (concatMap weightedOutcomes branches)
+            (finiteOneof $ map weightedOutcomes branches)
             (shrinkChoice branches)
   where
     branches = withOffsets alternatives
@@ -322,9 +388,9 @@ frequency alternatives = do
         | otherwise = Left (NonPositiveWeight weight)
 
     weightedOutcomes (_, weight, generator, _) =
-        [ outcome{outcomeWeight = weight * outcomeWeight outcome}
-        | outcome <- generatorOutcomes generator
-        ]
+        fmap
+            (\outcome -> outcome{outcomeWeight = weight * outcomeWeight outcome})
+            (generatorOutcomes generator)
 
 -- | Combine equally weighted alternatives.
 oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)
@@ -388,7 +454,9 @@ fromAutomatonUpToDepth maximumDepth automaton
 
 -- | Compile all candidates into one inspectable LTA support.
 support :: LTAGen a -> Either GeneratorError Automaton
-support = compileWitnesses . map outcomeWitness . generatorOutcomes
+support generator = do
+    outcomes <- enumerateFinite $ generatorOutcomes generator
+    compileWitnesses $ map outcomeWitness outcomes
 
 -- | Check every candidate, preserving weights for the accepted members.
 validOutcomes :: Entailment -> LTAGen a -> IO (Either GeneratorError [Generated a])
@@ -403,7 +471,7 @@ data Compiled a = Compiled
     -- ^ The LTA containing only accepted witnesses.
     , compiledRanked :: !(Tree.Ranked (Generated a))
     -- ^ Pure sampling and replay after solver compilation.
-    , compiledShrinkRanks :: !(IntMap.IntMap [Integer])
+    , compiledShrinkRanks :: !(Map.Map Integer [Integer])
     -- ^ Valid refinement and structural shrinks between accepted ranks.
     }
 
@@ -423,6 +491,9 @@ data GeneratorError
     | SelectionOutOfRange !Integer !Integer
     | SolverUnknown
     | InvalidSupport !AutomatonError
+    | InvalidPruning !PruneError
+    | RecursiveAutomaton
+    | AmbiguousAutomaton !State
     deriving (Eq, Show)
 
 -- | Discharge guards and refinement ordering once, producing a pure language.
@@ -446,6 +517,173 @@ compile uncachedEntailment generator = do
                             acceptedSupport
                             ranked
                             (buildShrinkTable generator accepted table)
+
+{- | Prune and rank a finite acyclic LTA without enumerating its terms.
+
+The core discharges guards per transition. The adapter then counts accepting
+runs by dynamic programming and builds a rank decoder over that table. Only
+'select' materializes the chosen 'LiquidTerm'. Recursive automata should first
+be unfolded to a finite state graph with the desired generation bound.
+Ambiguous automata are rejected so ranks continue to identify distinct terms,
+not accepting runs.
+-}
+compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled LiquidTerm))
+compileAutomaton uncachedEntailment automaton = do
+    entailment <- cacheEntailment uncachedEntailment
+    reduced <- prune entailment automaton
+    pure $ do
+        acceptedSupport <- first InvalidPruning reduced
+        counts <- countAutomaton acceptedSupport
+        ensureUnambiguous acceptedSupport $ Map.keys counts
+        let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
+        ranked <-
+            first fromRankedError $
+                Tree.fromIndexedOnDemand $
+                    Tree.Indexed
+                        total
+                        (generatedAt acceptedSupport counts)
+        pure $ Compiled acceptedSupport ranked Map.empty
+
+{- | Change only the Haskell view of a compiled LTA member.
+
+The accepted liquid term, stable rank, support automaton, and shrink graph are
+unchanged.
+-}
+mapCompiled :: (a -> b) -> Compiled a -> Compiled b
+mapCompiled transform compiled =
+    compiled
+        { compiledRanked = mapGenerated <$> compiledRanked compiled
+        }
+  where
+    mapGenerated generated =
+        generated{generatedValue = transform $ generatedValue generated}
+
+-- | Count every reachable state of an acyclic automaton once.
+countAutomaton :: Automaton -> Either GeneratorError (Map.Map State Integer)
+countAutomaton automaton =
+    snd <$> countState Set.empty Map.empty (automatonInitial automaton)
+  where
+    table = automatonTransitions automaton
+
+    countState visiting counts state =
+        case Map.lookup state counts of
+            Just count -> Right (count, counts)
+            Nothing
+                | Set.member state visiting -> Left RecursiveAutomaton
+                | otherwise -> do
+                    (transitionCounts, counted) <-
+                        countTransitions
+                            (Set.insert state visiting)
+                            counts
+                            (Map.findWithDefault [] state table)
+                    let count = sum transitionCounts
+                    pure (count, Map.insert state count counted)
+
+    countTransitions _ counts [] = Right ([], counts)
+    countTransitions visiting counts (transition : rest) = do
+        (count, withChildren) <- countChildren visiting counts $ transitionChildren transition
+        (restCounts, finished) <- countTransitions visiting withChildren rest
+        pure (count : restCounts, finished)
+
+    countChildren _ counts [] = Right (1, counts)
+    countChildren visiting counts (state : rest) = do
+        (count, withState) <- countState visiting counts state
+        (restCount, finished) <- countChildren visiting withState rest
+        pure (count * restCount, finished)
+
+{- | Reject an automaton whose ranks would denote accepting runs rather than
+distinct terms.
+
+For an acyclic FTA, two alternatives overlap exactly when their liquid symbols
+match and every corresponding pair of child-state languages intersects.
+-}
+ensureUnambiguous :: Automaton -> [State] -> Either GeneratorError ()
+ensureUnambiguous automaton = go
+  where
+    table = automatonTransitions automaton
+
+    go [] = Right ()
+    go (state : rest)
+        | any (uncurry transitionsOverlap) $ distinctPairs $ transitions state =
+            Left $ AmbiguousAutomaton state
+        | otherwise = go rest
+
+    transitions state = Map.findWithDefault [] state table
+
+    stateLanguagesOverlap left right
+        | Set.disjoint (rootSymbols left) (rootSymbols right) = False
+        | otherwise =
+            or
+                [ transitionsOverlap leftTransition rightTransition
+                | leftTransition <- transitions left
+                , rightTransition <- transitions right
+                ]
+
+    transitionsOverlap left right =
+        transitionSymbol left == transitionSymbol right
+            && transitionRefinement left == transitionRefinement right
+            && length leftChildren == length rightChildren
+            && and
+                ( zipWith
+                    (\leftChild rightChild -> not $ Set.disjoint (rootSymbols leftChild) (rootSymbols rightChild))
+                    leftChildren
+                    rightChildren
+                )
+            && and (zipWith stateLanguagesOverlap leftChildren rightChildren)
+      where
+        leftChildren = transitionChildren left
+        rightChildren = transitionChildren right
+
+    rootSymbols state =
+        Set.fromList
+            [ (transitionSymbol transition, transitionRefinement transition)
+            | transition <- transitions state
+            ]
+
+-- | Every unordered pair of distinct list elements.
+distinctPairs :: [a] -> [(a, a)]
+distinctPairs [] = []
+distinctPairs (value : rest) = map (\other -> (value, other)) rest <> distinctPairs rest
+
+-- | Decode one valid accepting-run rank into its concrete annotated term.
+generatedAt :: Automaton -> Map.Map State Integer -> Integer -> Generated LiquidTerm
+generatedAt automaton counts rank =
+    let term = decodeState (automatonInitial automaton) rank
+     in Generated 1 term term
+  where
+    table = automatonTransitions automaton
+
+    decodeState state stateRank =
+        case selectTransition stateRank $ Map.findWithDefault [] state table of
+            Just (transition, transitionRank) ->
+                LiquidTerm
+                    (transitionSymbol transition)
+                    (transitionRefinement transition)
+                    (decodeChildren transitionRank $ transitionChildren transition)
+            Nothing -> error "generatedAt: rank outside the counted LTA"
+
+    selectTransition _ [] = Nothing
+    selectTransition remaining (transition : rest)
+        | remaining < count = Just (transition, remaining)
+        | otherwise = selectTransition (remaining - count) rest
+      where
+        count = transitionCount transition
+
+    transitionCount transition =
+        product
+            [ Map.findWithDefault 0 child counts
+            | child <- transitionChildren transition
+            ]
+
+    decodeChildren _ [] = []
+    decodeChildren remaining (child : rest) =
+        let suffixCount =
+                product
+                    [ Map.findWithDefault 0 state counts
+                    | state <- rest
+                    ]
+            (childRank, restRank) = remaining `quotRem` suffixCount
+         in decodeState child childRank : decodeChildren restRank rest
 
 {- | Cache exact refinement queries for one compilation run.
 
@@ -480,7 +718,7 @@ shrinkRank :: Compiled a -> Integer -> [Integer]
 shrinkRank compiled rank
     | rank < 0 || rank >= cardinality compiled = []
     | otherwise =
-        IntMap.findWithDefault [] (fromInteger rank) (compiledShrinkRanks compiled)
+        Map.findWithDefault [] rank (compiledShrinkRanks compiled)
 
 -- | All transitively smaller accepted members reachable from one rank.
 smallerMembers :: Compiled a -> Integer -> [(Integer, Generated a)]
@@ -504,7 +742,7 @@ data Witness = Witness
     }
 
 data ShrinkCandidate = ShrinkCandidate
-    { shrinkCandidateIndex :: !Int
+    { shrinkCandidateIndex :: !Integer
     , shrinkCandidateCondition :: !ShrinkCondition
     }
 
@@ -512,19 +750,19 @@ data ShrinkCondition
     = AlwaysShrink
     | WeakenRefinement !Refinement !Refinement !Bool
 
-liftShrink :: (Int -> Int) -> ShrinkCandidate -> ShrinkCandidate
+liftShrink :: (Integer -> Integer) -> ShrinkCandidate -> ShrinkCandidate
 liftShrink transform candidate =
     candidate{shrinkCandidateIndex = transform $ shrinkCandidateIndex candidate}
 
-withOffsets :: [(Integer, LTAGen a)] -> [(Int, Integer, LTAGen a, Int)]
+withOffsets :: [(Integer, LTAGen a)] -> [(Integer, Integer, LTAGen a, Integer)]
 withOffsets = go 0
   where
     go _ [] = []
     go offset ((weight, generator) : rest) =
-        let count = length $ generatorOutcomes generator
+        let count = finiteCardinality $ generatorOutcomes generator
          in (offset, weight, generator, count) : go (offset + count) rest
 
-shrinkChoice :: [(Int, Integer, LTAGen a, Int)] -> Int -> [ShrinkCandidate]
+shrinkChoice :: [(Integer, Integer, LTAGen a, Integer)] -> Integer -> [ShrinkCandidate]
 shrinkChoice branches index = go [] branches
   where
     go _ [] = []
@@ -539,39 +777,44 @@ shrinkChoice branches index = go [] branches
                    ]
         | otherwise = go (earlier <> [branch]) rest
 
-type Accepted a = (Int, Outcome a, Generated a)
+type Accepted a = (Integer, Outcome a, Generated a)
 
 acceptedGenerated :: Accepted a -> Generated a
 acceptedGenerated (_, _, generated) = generated
 
 checkedOutcomes ::
     Entailment ->
-    [Outcome a] ->
+    Finite (Outcome a) ->
     IO (Either GeneratorError [Accepted a])
-checkedOutcomes entailment = go 0 []
+checkedOutcomes entailment outcomes = go 0 []
   where
-    go _ accepted [] = pure (Right $ reverse accepted)
-    go sourceIndex accepted (outcome : rest) =
-        case validateWitness (outcomeWitness outcome) of
-            Left err -> pure (Left err)
-            Right () -> do
-                verdict <- checkWitness entailment (outcomeWitness outcome)
-                case verdict of
-                    Yes ->
-                        go
-                            (sourceIndex + 1)
-                            ( ( sourceIndex
-                              , outcome
-                              , Generated
-                                    (outcomeWeight outcome)
-                                    (outcomeValue outcome)
-                                    (witnessTerm $ outcomeWitness outcome)
-                              )
-                                : accepted
-                            )
-                            rest
-                    No -> go (sourceIndex + 1) accepted rest
-                    Unknown -> pure (Left SolverUnknown)
+    total = finiteCardinality outcomes
+
+    go sourceIndex accepted
+        | sourceIndex >= total = pure (Right $ reverse accepted)
+        | otherwise =
+            case finiteSelect sourceIndex outcomes of
+                Left err -> pure (Left err)
+                Right outcome ->
+                    case validateWitness (outcomeWitness outcome) of
+                        Left err -> pure (Left err)
+                        Right () -> do
+                            verdict <- checkWitness entailment (outcomeWitness outcome)
+                            case verdict of
+                                Yes ->
+                                    go
+                                        (sourceIndex + 1)
+                                        ( ( sourceIndex
+                                          , outcome
+                                          , Generated
+                                                (outcomeWeight outcome)
+                                                (outcomeValue outcome)
+                                                (witnessTerm $ outcomeWitness outcome)
+                                          )
+                                            : accepted
+                                        )
+                                No -> go (sourceIndex + 1) accepted
+                                Unknown -> pure (Left SolverUnknown)
 
 {- | Check one generated witness directly against its own liquid guards.
 
@@ -657,7 +900,7 @@ requiredImplications generator =
         concatMap
             conditionPairs
             [ shrinkCandidateCondition candidate
-            | source <- [0 .. length (generatorOutcomes generator) - 1]
+            | source <- finiteRanks $ generatorOutcomes generator
             , candidate <- generatorShrinks generator source
             ]
   where
@@ -692,16 +935,16 @@ buildShrinkTable ::
     LTAGen a ->
     [Accepted a] ->
     ImplicationTable ->
-    IntMap.IntMap [Integer]
+    Map.Map Integer [Integer]
 buildShrinkTable generator accepted implications =
-    IntMap.fromList
+    Map.fromList
         [ (acceptedRank, nearestAccepted (Set.singleton sourceIndex) candidates)
         | (acceptedRank, (sourceIndex, _, _)) <- zip [0 ..] accepted
         , let candidates = generatorShrinks generator sourceIndex
         ]
   where
     acceptedRanks =
-        IntMap.fromList
+        Map.fromList
             [ (sourceIndex, toInteger acceptedRank)
             | (acceptedRank, (sourceIndex, _, _)) <- zip [0 :: Int ..] accepted
             ]
@@ -719,7 +962,7 @@ buildShrinkTable generator accepted implications =
         direct =
             [ acceptedRank
             | candidate <- eligible
-            , Just acceptedRank <- [IntMap.lookup (shrinkCandidateIndex candidate) acceptedRanks]
+            , Just acceptedRank <- [Map.lookup (shrinkCandidateIndex candidate) acceptedRanks]
             ]
         indirect =
             concat
@@ -728,7 +971,7 @@ buildShrinkTable generator accepted implications =
                     (generatorShrinks generator target)
                 | candidate <- eligible
                 , let target = shrinkCandidateIndex candidate
-                , IntMap.notMember target acceptedRanks
+                , Map.notMember target acceptedRanks
                 ]
 
 orderedNub :: [Integer] -> [Integer]

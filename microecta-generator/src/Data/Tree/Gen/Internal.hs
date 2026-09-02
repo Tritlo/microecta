@@ -10,6 +10,7 @@ module Data.Tree.Gen.Internal (
     Ranked,
     RankedError (..),
     fromIndexed,
+    fromIndexedOnDemand,
     fromWeighted,
     frequency,
     oneof,
@@ -103,6 +104,21 @@ fromIndexed Indexed{indexedCardinality, indexedSelect}
         Right $
             makeRanked
                 (PlanSelect indexedCardinality indexedSelect)
+                (uniformSampler indexedCardinality indexedSelect)
+
+{- | Build a ranked language whose members are decoded only when selected.
+
+Unlike 'fromIndexed', small sources are not tabulated while the rank decoder
+is compiled. Automaton adapters use this to keep term materialization at the
+enumeration boundary.
+-}
+fromIndexedOnDemand :: Indexed a -> Either RankedError (Ranked a)
+fromIndexedOnDemand Indexed{indexedCardinality, indexedSelect}
+    | indexedCardinality <= 0 = Left EmptyRanked
+    | otherwise =
+        Right $
+            makeRanked
+                (PlanSelectOnDemand indexedCardinality indexedSelect)
                 (uniformSampler indexedCardinality indexedSelect)
 
 {- | Build a ranked language whose members have positive relative weights.

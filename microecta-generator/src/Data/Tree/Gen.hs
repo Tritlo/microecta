@@ -10,6 +10,7 @@ module Data.Tree.Gen (
     RankedError (..),
     GenBackend (..),
     fromIndexed,
+    fromIndexedOnDemand,
     fromWeighted,
     frequency,
     oneof,

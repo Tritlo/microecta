@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 {- | Liquid tree automata over Liquid Fixpoint refinements.
@@ -50,9 +51,11 @@ module Data.LTA (
     transitionGuard,
     Automaton,
     AutomatonError (..),
+    PruneError (..),
     automatonInitial,
     automatonTransitions,
     mkAutomaton,
+    prune,
     accepts,
 ) where
 
@@ -300,6 +303,29 @@ data AutomatonError
     | InconsistentArity !Symbol !Int !Int
     deriving (Eq, Show)
 
+-- | A semantic obstacle encountered while pruning guarded transitions.
+data PruneError
+    = {- | A guard reaches a state with no remaining transition, so no term
+      can witness that position.
+      -}
+      EmptyGuardPosition !State !Path
+    | {- | The current small implementation cannot choose one refinement for
+      a position whose state has several distinct root refinements, or one
+      value name for a substitution position with several root symbols. The
+      full paper algorithm resolves this case by semantic intersection and
+      state splitting.
+      -}
+      NonHomogeneousGuardPosition !State !Path
+    | {- | Syntactic equality needs ECTA-style intersection rather than one
+      refinement summary per observed position.
+      -}
+      StructuralGuardNeedsIntersection !State
+    | -- | The solver could not decide a transition guard.
+      PruneUnknown !State
+    | -- | Pruning exposed an invalid automaton structure.
+      InvalidPrunedAutomaton !AutomatonError
+    deriving (Eq, Show)
+
 -- | Validate and construct an LTA, including guarded-cycle well-formedness.
 mkAutomaton :: State -> [(State, [Transition])] -> Either AutomatonError Automaton
 mkAutomaton initial rows = do
@@ -312,6 +338,221 @@ mkAutomaton initial rows = do
     fromFTAError (FTA.DanglingState state) = DanglingState state
     fromFTAError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
         InconsistentArity symbol expected actual
+
+{- | Remove semantically impossible transitions without enumerating terms.
+
+This is the transition-level boundary used by generated LTAs. A guard is
+discharged from the transition's own refinement and homogeneous refinement
+summaries at the finite positions it observes. Accepted guards become 'Top';
+dead transitions and states are eliminated to a fixed point.
+
+The current implementation deliberately reports non-homogeneous observations
+and structural equality. Those are the cases where the paper's general
+semantic-intersection construction must split states instead of summarising a
+position by one refinement. Ordinary refinement guards, including dependent
+actual-for-formal substitution, do not materialize any accepted tree.
+-}
+prune :: Entailment -> Automaton -> IO (Either PruneError Automaton)
+prune entailment automaton = loop $ automatonTransitions automaton
+  where
+    initial = automatonInitial automaton
+
+    loop table = do
+        checked <- traverseRows table $ Map.toList table
+        case checked of
+            Left err -> pure $ Left err
+            Right rows ->
+                let next = Map.fromList rows
+                 in if fmap length next == fmap length table
+                        then
+                            pure $
+                                first (InvalidPrunedAutomaton) $
+                                    mkAutomaton initial rows
+                        else loop next
+
+    traverseRows _ [] = pure $ Right []
+    traverseRows table ((state, transitions) : rest) = do
+        row <- pruneRow table state transitions
+        case row of
+            Left err -> pure $ Left err
+            Right retained ->
+                fmap ((state, retained) :) <$> traverseRows table rest
+
+    pruneRow _ _ [] = pure $ Right []
+    pruneRow table state (transition : rest)
+        | any (null . transitionsAt table) $ transitionChildren transition =
+            pruneRow table state rest
+        | otherwise = do
+            decision <- pruneTransition table state transition
+            case decision of
+                Left err -> pure $ Left err
+                Right Nothing -> pruneRow table state rest
+                Right (Just retained) ->
+                    fmap (retained :) <$> pruneRow table state rest
+
+    transitionsAt table state = Map.findWithDefault [] state table
+
+    pruneTransition table state transition
+        | hasStructuralGuard $ transitionGuard transition =
+            pure $ Left $ StructuralGuardNeedsIntersection state
+        | otherwise =
+            case traverse resolve positions of
+                Left (EmptyGuardPosition _ _) -> pure $ Right Nothing
+                Left err -> pure $ Left err
+                Right resolved -> do
+                    verdict <-
+                        evaluateGuard
+                            entailment
+                            (transitionGuard transition)
+                            (sparseTerm transition resolved)
+                    pure $ case verdict of
+                        Yes -> Right $ Just $ setTransitionGuard Top transition
+                        No -> Right Nothing
+                        Unknown -> Left $ PruneUnknown state
+      where
+        positions = Set.toList $ Set.fromList $ guardPaths $ transitionGuard transition
+        symbolPositions = Set.fromList $ symbolSensitivePaths $ transitionGuard transition
+        resolve target =
+            resolvePosition
+                (Set.member target symbolPositions)
+                table
+                state
+                transition
+                target
+
+-- | Replace a transition's guard without changing its ranked symbol or states.
+setTransitionGuard :: Guard -> Transition -> Transition
+setTransitionGuard guard transition =
+    Transition
+        (transitionSymbol transition)
+        (transitionRefinement transition)
+        (transitionChildren transition)
+        guard
+
+-- | Whether a guard needs structural ECTA intersection.
+hasStructuralGuard :: Guard -> Bool
+hasStructuralGuard Top = False
+hasStructuralGuard Bottom = False
+hasStructuralGuard (Same _ _) = True
+hasStructuralGuard (Entails _ _) = False
+hasStructuralGuard (Satisfies _ _) = False
+hasStructuralGuard (Substitute _ nested) = hasStructuralGuard nested
+hasStructuralGuard (Not nested) = hasStructuralGuard nested
+hasStructuralGuard (And guards) = any hasStructuralGuard guards
+hasStructuralGuard (Or guards) = any hasStructuralGuard guards
+
+-- | Paths whose constructor symbol participates in substitution.
+symbolSensitivePaths :: Guard -> [Path]
+symbolSensitivePaths Top = []
+symbolSensitivePaths Bottom = []
+symbolSensitivePaths (Same left right) = [left, right]
+symbolSensitivePaths (Entails _ _) = []
+symbolSensitivePaths (Satisfies _ _) = []
+symbolSensitivePaths (Substitute substitutions nested) =
+    concatMap substitutionPaths substitutions <> symbolSensitivePaths nested
+  where
+    substitutionPaths Substitution{substitutionActual, substitutionFormal} =
+        [substitutionActual, substitutionFormal]
+symbolSensitivePaths (Not nested) = symbolSensitivePaths nested
+symbolSensitivePaths (And guards) = concatMap symbolSensitivePaths guards
+symbolSensitivePaths (Or guards) = concatMap symbolSensitivePaths guards
+
+{- | Resolve one observed position to a representative root liquid symbol.
+
+Ordinary semantic guards require one refinement but do not inspect the
+constructor symbol. Substitution positions require both to be homogeneous,
+because the constructor symbol names the value substituted into the formula.
+-}
+resolvePosition ::
+    Bool ->
+    Map.Map State [Transition] ->
+    State ->
+    Transition ->
+    Path ->
+    Either PruneError (Path, LiquidSymbol)
+resolvePosition needsSymbol table parent transition target =
+    case unPath target of
+        [] -> Right (target, transitionLiquidSymbol transition)
+        index : rest -> do
+            child <-
+                maybe
+                    (Left $ EmptyGuardPosition parent target)
+                    Right
+                    (atIndex index $ transitionChildren transition)
+            symbols <- symbolsAt table child rest
+            case Set.toList symbols of
+                [] -> Left $ EmptyGuardPosition parent target
+                [symbol] -> Right (target, symbol)
+                symbol : others
+                    | not needsSymbol && all (sameRefinement symbol) others ->
+                        Right (target, symbol)
+                    | otherwise -> Left $ NonHomogeneousGuardPosition parent target
+  where
+    sameRefinement (LiquidSymbol _ expected) (LiquidSymbol _ actual) =
+        expected == actual
+
+-- | Liquid symbol carried by a transition.
+transitionLiquidSymbol :: Transition -> LiquidSymbol
+transitionLiquidSymbol (FTA.Transition symbol _ _) = symbol
+
+-- | Possible liquid symbols at a fixed path below one state.
+symbolsAt :: Map.Map State [Transition] -> State -> [Int] -> Either PruneError (Set.Set LiquidSymbol)
+symbolsAt table state [] =
+    Right . Set.fromList $ map transitionLiquidSymbol $ Map.findWithDefault [] state table
+symbolsAt table state (index : rest) =
+    Set.unions
+        <$> traverse
+            descend
+            (Map.findWithDefault [] state table)
+  where
+    descend transition =
+        case atIndex index $ transitionChildren transition of
+            Nothing -> Right Set.empty
+            Just child -> symbolsAt table child rest
+
+-- | Build only the finite path trie needed by 'evaluateGuard'.
+sparseTerm :: Transition -> [(Path, LiquidSymbol)] -> LiquidTerm
+sparseTerm transition resolved = build [] rootSymbol
+  where
+    rootSymbol = transitionLiquidSymbol transition
+
+    build prefix fallback =
+        let LiquidSymbol symbol refinement = maybe fallback id $ lookupAt prefix
+            childIndexes = Set.toAscList $ Set.fromList $ nextIndexes prefix
+            maximumChild = case childIndexes of
+                [] -> -1
+                _ -> maximum childIndexes
+         in LiquidTerm
+                symbol
+                refinement
+                [ build (prefix <> [index]) dummySymbol
+                | index <- [0 .. maximumChild]
+                ]
+
+    lookupAt prefix =
+        lookup
+            prefix
+            [ (unPath target, symbol)
+            | (target, symbol) <- resolved
+            ]
+
+    nextIndexes prefix =
+        [ next
+        | (target, _) <- resolved
+        , let components = unPath target
+        , take (length prefix) components == prefix
+        , next : _ <- [drop (length prefix) components]
+        ]
+
+    dummySymbol = LiquidSymbol (Symbol "__lta_unobserved") Fixpoint.PTrue
+
+-- | Safe zero-based list lookup.
+atIndex :: Int -> [a] -> Maybe a
+atIndex index values
+    | index < 0 = Nothing
+    | otherwise = case drop index values of
+        value : _ -> Just value
+        [] -> Nothing
 
 ensureConsistentSymbolArity :: Automaton -> Either AutomatonError ()
 ensureConsistentSymbolArity automaton = go Map.empty allTransitions
@@ -359,12 +600,6 @@ statesAtPath automaton parent transition target =
             , outgoing <- FTA.transitionsFrom automaton state
             , Just child <- [atIndex index $ FTA.transitionChildren outgoing]
             ]
-
-    atIndex index values
-        | index < 0 = Nothing
-        | otherwise = case drop index values of
-            value : _ -> Just value
-            [] -> Nothing
 
 -- | Decide whether an annotated term is accepted from the initial state.
 accepts :: Entailment -> Automaton -> LiquidTerm -> IO Verdict

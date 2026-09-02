@@ -174,6 +174,8 @@ sizeIndex (PlanSelect cardinality' decode) =
             "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sizeIndex: \
             \a leaf has no members of size "
                 <> show size
+sizeIndex (PlanSelectOnDemand cardinality' decode) =
+    sizeIndex $ PlanSelect cardinality' decode
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
     SizeIndex counts select selectInt minimumSize' False False
