@@ -2,6 +2,11 @@
 module Data.LTA.Gen.QuickCheck (
     module Data.LTA.Gen,
     module Data.LTA.Gen.Do,
+    OpaqueSource,
+    opaqueSource,
+    SampledChildren,
+    opaquePool,
+    sampledNode,
     samplePool,
     freeze,
     compileSampled,
@@ -16,10 +21,125 @@ import Test.QuickCheck.Random (mkQCGen)
 import Prelude hiding ((>>=))
 import qualified Prelude
 
-import Data.LTA (Entailment)
+import qualified Data.Map.Strict as Map
+
+import Data.LTA (Entailment, Guard (And, Satisfies), Refinement, Symbol, unPath)
 import Data.LTA.Gen
 import Data.LTA.Gen.Do
+import Data.LTA.Guard (GuardBuilder, buildGuard)
 import qualified Data.Tree.Gen.QuickCheck as Tree
+
+{- | A native generator that can use refinements demanded by its LTA context.
+
+The first callback receives every positive direct requirement pushed into this
+source. It may interpret them with 'QC.suchThat' or construct values directly.
+The other callbacks describe the sampled value as one refined LTA leaf.
+Compilation still checks the resulting refinement, so an incomplete or buggy
+pushdown can lose candidates but cannot admit an invalid one.
+-}
+data OpaqueSource a = OpaqueSource
+    { sourceGenerate :: [Refinement] -> QC.Gen a
+    , sourceSymbol :: a -> Symbol
+    , sourceRefinement :: a -> Refinement
+    }
+
+-- | Describe one refinement-aware opaque QuickCheck source.
+opaqueSource ::
+    ([Refinement] -> QC.Gen a) ->
+    (a -> Symbol) ->
+    (a -> Refinement) ->
+    OpaqueSource a
+opaqueSource = OpaqueSource
+
+{- | Direct child pools awaiting one surrounding LTA guard.
+
+The applicative instance preserves source order so the guard's first argument
+maps to the first pool, its second argument to the second pool, and so on.
+-}
+data SampledChildren a = SampledChildren
+    { sampledArity :: !Int
+    , sampleChildren :: Map.Map Int [Refinement] -> QC.Gen (Children a)
+    }
+
+instance Functor SampledChildren where
+    fmap transform sampled =
+        sampled
+            { sampleChildren = Prelude.fmap (Prelude.fmap transform) . sampleChildren sampled
+            }
+
+instance Applicative SampledChildren where
+    pure value = SampledChildren 0 $ const $ Prelude.pure $ Prelude.pure value
+
+    functions <*> arguments =
+        SampledChildren
+            (functionArity + argumentArity)
+            sampleBoth
+      where
+        functionArity = sampledArity functions
+        argumentArity = sampledArity arguments
+
+        sampleBoth requirements =
+            Prelude.fmap
+                applyChildren
+                (sampleChildren functions $ requirementsFor 0 functionArity requirements)
+                Prelude.<*> sampleChildren arguments (requirementsFor functionArity argumentArity requirements)
+
+-- | Freeze one refinement-aware source as one direct child pool.
+opaquePool :: Int -> OpaqueSource a -> SampledChildren a
+opaquePool sampleCount source =
+    SampledChildren 1 $ \requirements ->
+        children . pool . map annotate
+            <$> QC.vectorOf
+                (max 0 sampleCount)
+                (sourceGenerate source $ Map.findWithDefault [] 0 requirements)
+  where
+    annotate value =
+        refined
+            value
+            (sourceSymbol source value)
+            (sourceRefinement source value)
+
+{- | Sample direct opaque pools after pushing down required refinements.
+
+Only positive @Satisfies [child] refinement@ atoms, including those in a
+conjunction, are safe to push without seeing another child value. Semantic
+subtyping, substitution, disjunction, negation, and nested positions remain in
+the LTA and are checked normally during 'compile'.
+-}
+sampledNode ::
+    (GuardBuilder guard) =>
+    Symbol ->
+    guard ->
+    SampledChildren a ->
+    QC.Gen (LTAGen a)
+sampledNode symbol guardBuilder sampled =
+    node symbol guard <$> sampleChildren sampled (directRequirements guard)
+  where
+    guard = buildGuard guardBuilder
+
+-- | Rebase one slice of global child requirements onto a local applicative.
+requirementsFor ::
+    Int ->
+    Int ->
+    Map.Map Int [Refinement] ->
+    Map.Map Int [Refinement]
+requirementsFor offset count requirements =
+    Map.fromList
+        [ (index - offset, refinements)
+        | (index, refinements) <- Map.toList requirements
+        , index >= offset
+        , index < offset + count
+        ]
+
+-- | Refinements unconditionally required at direct child positions.
+directRequirements :: Guard -> Map.Map Int [Refinement]
+directRequirements (Satisfies target refinement) =
+    case unPath target of
+        [index] -> Map.singleton index [refinement]
+        _ -> Map.empty
+directRequirements (And guards) =
+    Map.unionsWith (<>) $ map directRequirements guards
+directRequirements _ = Map.empty
 
 {- | Freeze refined draws from a native QuickCheck generator into one pool.
 

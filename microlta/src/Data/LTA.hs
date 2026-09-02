@@ -24,6 +24,7 @@ module Data.LTA (
     Symbol (Symbol),
     Path,
     path,
+    unPath,
     Refinement,
     LiquidTerm (..),
     LiquidSymbol,

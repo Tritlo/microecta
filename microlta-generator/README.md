@@ -112,6 +112,53 @@ The same seed, size, and native generator produce the same pool ranks. Reuse a
 single frozen value at several child positions when they should range over one
 shared universe; use distinct seeds for independent pools.
 
+### Push direct refinements into opaque sampling
+
+Freezing first can waste most of a small native pool on values the LTA will
+immediately reject. An `OpaqueSource` receives the unconditional refinements
+required at its direct child position, so an adapter for the native value can
+move those requirements into `suchThat` before the pool is frozen:
+
+```haskell
+offsetSource =
+  LTA.opaqueSource
+    (\requirements ->
+      chooseInt (-128, 127) `suchThat` \offset ->
+        all (`offsetSatisfies` offset) requirements)
+    (fromString . ("offset-" <>) . show)
+    exactOffset
+
+sampledReads =
+  LTA.sampledNode "read-at" (\offset -> offset `requires` validOffset) $
+    PageRead <$> LTA.opaquePool 32 offsetSource
+```
+
+This leaves the range predicate in the LTA specification; it is not duplicated
+as a second handwritten generator contract. `offsetSatisfies` is the small
+boundary that interprets the refinements this opaque Haskell type understands.
+The library cannot generically evaluate a Liquid Fixpoint expression over an
+arbitrary Haskell value.
+
+Several `opaquePool` calls may be combined applicatively. `sampledNode` routes
+the first guard argument's requirements to the first pool, the second to the
+second, and so on. It deliberately pushes only positive, direct-child
+`requires` clauses (and conjunctions of them). Subtyping between children,
+substitution, disjunction, negation, and nested paths still need the assembled
+term and remain solver work.
+
+The optimization is not trusted: `compile` checks the exact refinement attached
+to every sampled value against the original guard with Z3. A partial adapter
+therefore leaves extra candidates for compilation to reject; an incorrect
+adapter can discard useful candidates but cannot admit an invalid one. As with
+any `suchThat`, use this only for reasonably dense predicates. Constructive
+native generation is preferable when rejection sampling would be sparse or
+unsatisfiable.
+
+The executable
+[`OpaquePoolSpec`](test/Data/LTA/OpaquePoolSpec.hs) compares this with the
+freeze-first route on a partial page read, checks every retained offset, and
+uses a two-pool division example to verify positional routing.
+
 ## What the LTA adds
 
 An FTA says which constructor shapes exist. An ECTA additionally says that two

@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Hspec (hspec)
 
 import qualified Data.LTA.DependentApplicationSpec
+import qualified Data.LTA.OpaquePoolSpec
 import qualified Data.LTA.PreconditionTypedExpressionSpec
 import qualified Data.LTA.QuickCheckSyntaxSpec
 import qualified Data.LTA.RecursiveGeneratorSpec
@@ -15,6 +16,7 @@ main :: IO ()
 main =
     hspec $ do
         Data.LTA.QuickCheckSyntaxSpec.spec
+        Data.LTA.OpaquePoolSpec.spec
         Data.LTA.RecursiveGeneratorSpec.spec
         Data.LTA.SafeBufferSpec.spec
         Data.LTA.PreconditionTypedExpressionSpec.spec

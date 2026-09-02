@@ -3,8 +3,9 @@ name: microlta-generator
 version: 0.1.0.0
 synopsis: Finite generators backed by liquid tree automata
 description:
-  Qualified-do LTA generators with frozen pools, semantic pruning and
-  shrinking, core-backed pool minimisation, bounded recursion, and exact replay.
+  Qualified-do LTA generators with refinement-aware frozen pools, semantic
+  pruning and shrinking, core-backed pool minimisation, bounded recursion, and
+  exact replay.
 
 homepage: https://github.com/Tritlo/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
@@ -87,6 +88,7 @@ test-suite unit-tests
 
   other-modules:
     Data.LTA.DependentApplicationSpec
+    Data.LTA.OpaquePoolSpec
     Data.LTA.PreconditionTypedExpressionSpec
     Data.LTA.QuickCheckSyntaxSpec
     Data.LTA.RecursiveGeneratorSpec
