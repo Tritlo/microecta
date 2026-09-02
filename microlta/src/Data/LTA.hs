@@ -104,7 +104,8 @@ data Guard
     deriving (Eq, Show)
 
 {- | Replace the variable named at the formal path with the variable named at
-the actual path while evaluating a semantic guard.
+the actual path while evaluating a semantic guard. The instantiated refinement
+carried by the actual subtree is added to each resulting entailment antecedent.
 
 This is the paper's @[actual/formal]@ position substitution. Both positions are
 relative to the root of the guarded transition.
@@ -215,7 +216,10 @@ evaluateGuard entailment guard term = go guard
             (Just leftTerm, Just rightTerm) ->
                 entails
                     entailment
-                    (applySubstitutions substitutions $ liquidRefinement leftTerm)
+                    ( withActualAssumptions substitutions $
+                        applySubstitutions substitutions $
+                            liquidRefinement leftTerm
+                    )
                     (applySubstitutions substitutions $ liquidRefinement rightTerm)
             _ -> pure No
     evaluateWith substitutions (Satisfies target requirement) =
@@ -223,7 +227,10 @@ evaluateGuard entailment guard term = go guard
             Just targetTerm ->
                 entails
                     entailment
-                    (applySubstitutions substitutions $ liquidRefinement targetTerm)
+                    ( withActualAssumptions substitutions $
+                        applySubstitutions substitutions $
+                            liquidRefinement targetTerm
+                    )
                     (applySubstitutions substitutions requirement)
             Nothing -> pure No
     evaluateWith substitutions (Substitute additions nested) =
@@ -394,20 +401,48 @@ termAt target = go (unPath target)
             child : _ -> go rest child
             [] -> Nothing
 
-type ResolvedSubstitution = (Fixpoint.Symbol, Refinement)
+data ResolvedSubstitution = ResolvedSubstitution
+    { resolvedReplacement :: !(Fixpoint.Symbol, Fixpoint.Expr)
+    , resolvedActualAssumption :: !Refinement
+    }
 
 resolveSubstitution :: LiquidTerm -> Substitution -> Maybe ResolvedSubstitution
 resolveSubstitution term Substitution{substitutionActual, substitutionFormal} = do
-    LiquidTerm{liquidSymbol = Symbol actualName} <- termAt substitutionActual term
+    LiquidTerm{liquidSymbol = Symbol actualName, liquidRefinement = actualRefinement} <-
+        termAt substitutionActual term
     LiquidTerm{liquidSymbol = Symbol formalName} <- termAt substitutionFormal term
+    let actualSymbol = Fixpoint.symbol actualName
+        actualVariable = Fixpoint.EVar actualSymbol
     pure
-        ( Fixpoint.symbol formalName
-        , Fixpoint.EVar $ Fixpoint.symbol actualName
-        )
+        ResolvedSubstitution
+            { resolvedReplacement = (Fixpoint.symbol formalName, actualVariable)
+            , resolvedActualAssumption =
+                Fixpoint.subst1 actualRefinement (refinementValueSymbol, actualVariable)
+            }
+
+-- | Conventional value variable used by public microlta refinements.
+refinementValueSymbol :: Fixpoint.Symbol
+refinementValueSymbol = Fixpoint.symbol ("v" :: String)
 
 applySubstitutions :: [ResolvedSubstitution] -> Refinement -> Refinement
 applySubstitutions substitutions refinement =
-    foldl Fixpoint.subst1 refinement substitutions
+    foldl apply refinement substitutions
+  where
+    apply predicate ResolvedSubstitution{resolvedReplacement} =
+        Fixpoint.subst1 predicate resolvedReplacement
+
+{- | Add the instantiated refinement of every actual argument to an entailment
+antecedent.
+
+Substitution changes a formal name to the actual term's symbol. This assumption
+connects that symbol back to the refinement carried by the actual subtree, so
+dependent results compose through non-leaf nodes as well as named pool entries.
+-}
+withActualAssumptions :: [ResolvedSubstitution] -> Refinement -> Refinement
+withActualAssumptions substitutions predicate =
+    Fixpoint.pAnd $
+        map (applySubstitutions substitutions . resolvedActualAssumption) substitutions
+            <> [predicate]
 
 negateVerdict :: Verdict -> Verdict
 negateVerdict Yes = No

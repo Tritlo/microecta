@@ -28,6 +28,11 @@ jobs:
           cabal-version: "3.16.1.0"
           cabal-update: true
 
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
+
       - name: Configure build plan
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
 
@@ -86,15 +91,14 @@ jobs:
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta-generator
 
       - name: Test the Liquid Tree Automata example
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes z3
-          cabal v2-run liquid-pairs
+        run: cabal v2-run liquid-pairs
 
       - name: Validate release artifacts
         run: |
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
+          scripts/release.sh microlta --check-only
+          scripts/release.sh microlta-generator --check-only
 
       - name: Benchmark
         if: matrix.ghc == '9.14.1'

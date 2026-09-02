@@ -1,29 +1,26 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-{- | Qualified applicative do-notation for LTA child forests.
+{- | Qualified applicative do-notation for ordinary FTA child forests.
 
-Enable @ApplicativeDo@ and @QualifiedDo@, then close the block with
-'Data.LTA.Gen.node':
+Enable @ApplicativeDo@ and @QualifiedDo@, then close every block with
+'Data.Tree.FTA.Gen.node':
 
 @
-pairs = LTA.node "pair" subtypePair $ LTA.do
-    left <- choices
-    right <- choices
-    LTA.pure (left, right)
-
-subtypePair actual expected = isSubtypeOf actual expected
+pair = FTA.node "pair" $ FTA.do
+    left <- atoms
+    right <- atoms
+    FTA.pure (left, right)
 @
 
-Every bind contributes one child witness. Later generators cannot depend on
-earlier values; such a block is not an applicative tree constructor.
+Every bind contributes one direct constructor child. Later child generators
+cannot depend on values bound earlier.
 -}
-module Data.LTA.Gen.Do (
+module Data.Tree.FTA.Gen.Do (
     GenApply (..),
     fmap,
     pure,
@@ -36,54 +33,53 @@ module Data.LTA.Gen.Do (
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import qualified Prelude
 
-import Data.LTA.Gen (
+import Data.Tree.FTA.Gen (
     Children,
-    LTAGen,
+    FTAGen,
     applyChildren,
     children,
  )
 
--- | Map either a child language or an accumulated child forest.
+-- | Map an FTA language or an accumulated child forest.
 fmap :: (Prelude.Functor f) => (a -> b) -> f a -> f b
 fmap = Prelude.fmap
 
--- | Build a constructor with no children.
-pure :: a -> Children a
+-- | Build a constructor result with no children.
+pure :: a -> Children symbol a
 pure = Prelude.pure
 
 -- | Synonym for 'pure'.
-return :: a -> Children a
+return :: a -> Children symbol a
 return = Prelude.pure
 
--- | Applicative application across child languages and accumulated forests.
+-- | Applicative application across FTA languages and child forests.
 class GenApply f g h | f g -> h where
     -- | Combine independently generated child positions.
     (<*>) :: f (a -> b) -> g a -> h b
 
-instance GenApply LTAGen LTAGen Children where
+instance GenApply (FTAGen symbol) (FTAGen symbol) (Children symbol) where
     functions <*> arguments =
         applyChildren (children functions) (children arguments)
 
-instance GenApply LTAGen Children Children where
+instance GenApply (FTAGen symbol) (Children symbol) (Children symbol) where
     functions <*> arguments =
         applyChildren (children functions) arguments
 
-instance GenApply Children LTAGen Children where
+instance GenApply (Children symbol) (FTAGen symbol) (Children symbol) where
     functions <*> arguments =
         applyChildren functions (children arguments)
 
-instance GenApply Children Children Children where
+instance GenApply (Children symbol) (Children symbol) (Children symbol) where
     (<*>) = applyChildren
 
 type NotApplicativeMessage =
-    'Text "This LTA.do block cannot be desugared applicatively."
+    'Text "This FTA.do block cannot be desugared applicatively."
         ':$$: 'Text "Later child generators cannot depend on earlier values."
-        ':$$: 'Text "End the block with LTA.pure and put value-dependent"
-        ':$$: 'Text "relationships in the node's liquid Guard instead."
+        ':$$: 'Text "End the block with FTA.pure and close it with FTA.node."
 
 type CannotFailMessage =
-    'Text "A pattern in this LTA.do block can fail."
-        ':$$: 'Text "Bind a total pattern; liquid guards filter complete witnesses."
+    'Text "A pattern in this FTA.do block can fail."
+        ':$$: 'Text "Bind a total pattern instead."
 
 -- | Rejected at compile time: child construction is applicative.
 (>>=) :: (Unsatisfiable NotApplicativeMessage) => generator -> continuation -> result

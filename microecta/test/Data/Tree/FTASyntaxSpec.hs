@@ -2,9 +2,10 @@ module Data.Tree.FTASyntaxSpec (spec) where
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
+import qualified Data.ECTA.FTA.Syntax as ECTA
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Syntax as Syntax
+import qualified Data.Tree.FTA as Automaton
+import qualified Data.Tree.FTA.Syntax as FTA
 import Data.Tree.Term (Term (Term))
 
 data State = Expression | Atom
@@ -14,30 +15,30 @@ spec :: Spec
 spec =
     describe "shared FTA construction syntax" $ do
         it "builds an ordinary recursive FTA without unit annotations" $
-            case Syntax.automaton
+            case FTA.automaton
                 Expression
-                [ Syntax.row
+                [ FTA.row
                     Expression
-                    [ Syntax.transition "zero" []
-                    , Syntax.transition "add" [Expression, Expression]
+                    [ FTA.transition "zero" []
+                    , FTA.transition "add" [Expression, Expression]
                     ]
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    FTA.accepts automaton (Term "zero" []) `shouldBe` True
-                    FTA.accepts
+                    Automaton.accepts automaton (Term "zero" []) `shouldBe` True
+                    Automaton.accepts
                         automaton
                         (Term "add" [Term "zero" [], Term "zero" []])
                         `shouldBe` True
 
         it "uses the same rows for an ECTA equality annotation" $ do
             let equalChildren = mkEqConstraints [[path [0], path [1]]]
-            case Syntax.automaton
+            case ECTA.automaton
                 Expression
-                [ Syntax.row Expression [Syntax.guarded "pair" [Atom, Atom] equalChildren]
-                , Syntax.row Atom [Syntax.guarded "value" [] EmptyConstraints]
+                [ ECTA.row Expression [ECTA.transition "pair" [Atom, Atom] equalChildren]
+                , ECTA.row Atom [ECTA.transition "value" [] EmptyConstraints]
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->
-                    map FTA.transitionGuard (FTA.transitionsFrom automaton Expression)
+                    map Automaton.transitionGuard (Automaton.transitionsFrom automaton Expression)
                         `shouldBe` [equalChildren]

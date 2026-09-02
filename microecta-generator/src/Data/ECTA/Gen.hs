@@ -21,6 +21,8 @@ module Data.ECTA.Gen (
     fromBackend,
 
     -- * Composing
+    NodeLayer (..),
+    node,
     frequency,
     oneof,
     uniformly,
@@ -171,6 +173,46 @@ data ECTAGen gen a
     = Transparent !(Either ECTAGenError (Static a))
     | Cyclic !(Either ECTAGenError (Recursive a))
     | Opaque !(gen (Either ECTAGenError a))
+
+{- | A generated child layer that can be closed with one visible constructor
+label.
+
+Instances cover ordinary and grouped ECTA generators. The grouped instance
+keeps its result key and equality constraints while replacing the generator's
+private join symbol with the supplied domain symbol.
+-}
+class NodeLayer layer where
+    -- | Replace an open layer's private root with a domain constructor.
+    closeNode :: Symbol -> layer a -> layer a
+
+-- | Close an applicative child description with one domain constructor.
+node :: (NodeLayer layer) => Symbol -> layer a -> layer a
+node = closeNode
+
+instance NodeLayer (ECTAGen gen) where
+    closeNode symbol (Transparent result) =
+        Transparent $ fmap (labelStatic symbol) result
+    closeNode symbol (Cyclic result) =
+        Cyclic $ fmap (labelRecursive symbol) result
+    closeNode _ opaque@(Opaque _) = opaque
+
+instance NodeLayer (Grouped gen key) where
+    closeNode symbol (Grouped result) =
+        Grouped $ fmap (fmap labelBucket) result
+      where
+        labelBucket bucket =
+            bucket
+                { keyedBucketStatic =
+                    labelStatic symbol $ keyedBucketStatic bucket
+                }
+    closeNode symbol (CyclicGrouped result) =
+        CyclicGrouped $ fmap (fmap labelGroup) result
+      where
+        labelGroup group =
+            group
+                { keyedRecursiveLanguage =
+                    labelRecursive symbol $ keyedRecursiveLanguage group
+                }
 
 {- | View any inspectable generator as a recursive one.
 
@@ -380,8 +422,8 @@ recur build
 
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the language that is still being defined.
-    placeholder node index sampling =
-        Recursive node index sampling False True Nothing
+    placeholder supportNode index sampling =
+        Recursive supportNode index sampling False True Nothing
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
@@ -441,10 +483,10 @@ count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
 fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
-fromECTA node =
+fromECTA supportNode =
     Cyclic $ do
-        index <- automatonIndex node
-        pure $ Recursive node index (uniformSampleIndex index) False False $ Just id
+        index <- automatonIndex supportNode
+        pure $ Recursive supportNode index (uniformSampleIndex index) False False $ Just id
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -514,9 +556,9 @@ recurGrouped build
     positionOf key = Map.findWithDefault 0 key positions
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the family that is still being defined.
-    placeholder node index sampling masses =
+    placeholder supportNode index sampling masses =
         KeyedRecursive
-            (Recursive node index sampling False True Nothing)
+            (Recursive supportNode index sampling False True Nothing)
             masses
             False
     noMass = emptyMassIndex

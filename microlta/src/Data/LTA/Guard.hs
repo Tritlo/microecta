@@ -93,7 +93,8 @@ isSameTermAs (Position left) (Position right) =
     Same (path $ map fromIntegral left) (path $ map fromIntegral right)
 
 {- | Check a guard after substituting the actual position's symbol for the
-formal position's symbol in every refinement predicate.
+formal position's symbol in every refinement predicate. The evaluator also
+assumes that symbol satisfies the refinement carried by the actual subtree.
 -}
 withActualFor :: Position -> Position -> Guard -> Guard
 withActualFor actual formal = withActualsFor [(actual, formal)]

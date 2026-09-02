@@ -27,6 +27,8 @@ module Data.ECTA.Gen.Internal (
     pureStatic,
     indexedStatic,
     applyStatic,
+    labelStatic,
+    labelRecursive,
     frequencyStatic,
     atomicStatic,
     mapStatic,
@@ -88,6 +90,9 @@ import qualified Data.Text as Text
 import Data.ECTA (
     Edge (Edge),
     Node (Node),
+    edgeChildren,
+    edgeEcs,
+    edgeSymbol,
     mkEdge,
     reducePartially,
  )
@@ -105,7 +110,7 @@ import Data.ECTA.Gen.Internal.Size (
     sizeIndex,
  )
 import Data.ECTA.Gen.Sig (Sig (..))
-import Data.ECTA.Paths (mkEqConstraints, path)
+import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
 import Data.Tree.Gen.Internal (Indexed (..))
 
@@ -768,6 +773,125 @@ applyStatic functions values =
                 outcomeValueAt valueOutcomes valueIndex
 
     splitIndex index = index `quotRem` valueCardinality
+
+{- | Close an applicative or grouped child layer with one user-facing node
+label.
+
+The generator engine uses private symbols while a child product is still open.
+Closing it removes that scaffolding from the root term: applicative spines
+become direct children, grouped joins retain their equality constraints, and
+choice wrappers distribute the new label over their alternatives.
+-}
+labelStatic :: Symbol -> Static a -> Static a
+labelStatic symbol static =
+    static
+        { staticSupport = labelSupport symbol $ staticSupport static
+        , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
+        }
+
+-- | Close one recursive child layer with a user-facing node label.
+labelRecursive :: Symbol -> Recursive a -> Recursive a
+labelRecursive symbol recursive =
+    recursive
+        { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
+        , recursiveTerm = fmap (labelTerm symbol .) $ recursiveTerm recursive
+        }
+
+labelOutcomeTerms :: Symbol -> OutcomeIndex a -> OutcomeIndex a
+labelOutcomeTerms symbol outcomes =
+    outcomes
+        { outcomeSelect = \index -> labelOutcome symbol <$> outcomeSelect outcomes index
+        }
+
+-- | Relabel the retained term of one finite outcome.
+labelOutcome :: Symbol -> Outcome a -> Outcome a
+labelOutcome symbol outcome =
+    outcome{outcomeTerm = labelTerm symbol $ outcomeTerm outcome}
+
+-- | Close one private applicative term spine with a domain constructor.
+labelTerm :: Symbol -> Term Symbol -> Term Symbol
+labelTerm symbol term@(Term internal children)
+    | internal == joinNSymbol = Term symbol children
+    | isFrequencySymbol internal
+    , [child] <- children =
+        labelTerm symbol child
+    | internal == pureSymbol = Term symbol []
+    | Just arguments <- applicationTermChildren term = Term symbol arguments
+    | otherwise = Term symbol [term]
+
+-- | Recognize the children of one private applicative term spine.
+applicationTermChildren :: Term Symbol -> Maybe [Term Symbol]
+applicationTermChildren (Term internal [functions, argument])
+    | internal == applySymbol =
+        Just $ applicationLeftChildren functions <> [argument]
+applicationTermChildren _ = Nothing
+
+-- | Flatten the already-applied left portion of an applicative term spine.
+applicationLeftChildren :: Term Symbol -> [Term Symbol]
+applicationLeftChildren term@(Term internal children)
+    | internal == pureSymbol && null children = []
+    | Just arguments <- applicationTermChildren term = arguments
+    | otherwise = [term]
+
+-- | Close one private support root while preserving its constraints.
+labelSupport :: Symbol -> Node Symbol -> Node Symbol
+labelSupport symbol support@(Node edges)
+    | not (null edges)
+    , all isFrequencyEdge edges =
+        Node
+            [ labelled
+            | edge <- edges
+            , child <- edgeChildren edge
+            , labelled <- rootEdges $ labelSupport symbol child
+            ]
+    | [edge] <- edges
+    , edgeSymbol edge == joinNSymbol =
+        Node [mkEdge symbol (edgeChildren edge) (edgeEcs edge)]
+    | isPureSupport support = Node [Edge symbol []]
+    | Just arguments <- applicationSupportChildren support =
+        Node [Edge symbol arguments]
+    | otherwise = Node [Edge symbol [support]]
+labelSupport symbol support = Node [Edge symbol [support]]
+
+-- | Read the alternatives from one ordinary support node.
+rootEdges :: Node Symbol -> [Edge Symbol]
+rootEdges (Node edges) = edges
+rootEdges _ = []
+
+-- | Recognize the children of one private applicative support spine.
+applicationSupportChildren :: Node Symbol -> Maybe [Node Symbol]
+applicationSupportChildren (Node [edge])
+    | edgeSymbol edge == applySymbol
+    , edgeEcs edge == EmptyConstraints
+    , [functions, argument] <- edgeChildren edge =
+        Just $ applicationLeftSupport functions <> [argument]
+applicationSupportChildren _ = Nothing
+
+-- | Flatten the already-applied left portion of a support spine.
+applicationLeftSupport :: Node Symbol -> [Node Symbol]
+applicationLeftSupport support
+    | isPureSupport support = []
+    | Just arguments <- applicationSupportChildren support = arguments
+    | otherwise = [support]
+
+-- | Whether a support node is the nullary private applicative identity.
+isPureSupport :: Node Symbol -> Bool
+isPureSupport (Node [edge]) =
+    edgeSymbol edge == pureSymbol
+        && null (edgeChildren edge)
+        && edgeEcs edge == EmptyConstraints
+isPureSupport _ = False
+
+-- | Whether an edge is one private single-child choice wrapper.
+isFrequencyEdge :: Edge Symbol -> Bool
+isFrequencyEdge edge =
+    isFrequencySymbol (edgeSymbol edge)
+        && length (edgeChildren edge) == 1
+        && edgeEcs edge == EmptyConstraints
+
+-- | Whether a symbol names one private choice wrapper.
+isFrequencySymbol :: Symbol -> Bool
+isFrequencySymbol (Symbol name) = "$ecta-gen/frequency/" `Text.isPrefixOf` name
 
 -- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic :: [(Integer, Static a)] -> Static a

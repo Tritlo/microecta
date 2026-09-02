@@ -6,7 +6,9 @@ import qualified Data.LTA.DependentApplicationSpec
 import qualified Data.LTA.PreconditionTypedExpressionSpec
 import qualified Data.LTA.QuickCheckSyntaxSpec
 import qualified Data.LTA.RecursiveGeneratorSpec
+import qualified Data.LTA.SafeBufferSpec
 import qualified Data.LTA.SimilarityMinimizationSpec
+import qualified Data.LTA.StateMachineTraceSpec
 import qualified Data.LTA.SubsumptionTypedExpressionSpec
 
 main :: IO ()
@@ -14,7 +16,9 @@ main =
     hspec $ do
         Data.LTA.QuickCheckSyntaxSpec.spec
         Data.LTA.RecursiveGeneratorSpec.spec
+        Data.LTA.SafeBufferSpec.spec
         Data.LTA.PreconditionTypedExpressionSpec.spec
         Data.LTA.SubsumptionTypedExpressionSpec.spec
         Data.LTA.SimilarityMinimizationSpec.spec
+        Data.LTA.StateMachineTraceSpec.spec
         Data.LTA.DependentApplicationSpec.spec

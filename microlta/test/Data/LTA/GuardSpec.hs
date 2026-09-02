@@ -2,9 +2,18 @@ module Data.LTA.GuardSpec (spec) where
 
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.LTA (Entailment (Entailment), Guard (Satisfies), LiquidTerm (LiquidTerm), Verdict (..), evaluateGuard, path)
+import Data.LTA (
+    Entailment (Entailment),
+    Guard (Entails, Satisfies, Substitute),
+    LiquidTerm (LiquidTerm),
+    Substitution (Substitution),
+    Verdict (..),
+    evaluateGuard,
+    path,
+ )
 import Data.LTA.Guard (buildGuard, requires)
-import Data.LTA.Refinement (true, (.>=.))
+import Data.LTA.LiquidFixpoint (withZ3)
+import Data.LTA.Refinement (true, (.+.), (.==.), (.>=.))
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A small decidable implication table keeps syntax tests independent of Z3.
@@ -33,3 +42,29 @@ spec =
                 guard = buildGuard $ \denominator -> denominator `requires` nonNegative
                 term = LiquidTerm "divide" true [LiquidTerm "n" true []]
             evaluateGuard tableEntailment guard term >>= (`shouldBe` No)
+
+        it "connects a substituted node symbol to that node's refinement" $ do
+            let model :: Fixpoint.Expr
+                model = Fixpoint.EVar $ Fixpoint.symbol ("model" :: String)
+                declarations =
+                    [ (Fixpoint.symbol name, Fixpoint.FInt)
+                    | name <- ["v", "model", "previous"] :: [String]
+                    ]
+                guard =
+                    Substitute
+                        [Substitution (path [0]) (path [1, 0])]
+                        (Entails (path [1, 1]) (path []))
+                term =
+                    LiquidTerm
+                        "step"
+                        (value .==. (1 :: Int))
+                        [ LiquidTerm "previous" (value .==. (0 :: Int)) []
+                        , LiquidTerm
+                            "command"
+                            true
+                            [ LiquidTerm "model" true []
+                            , LiquidTerm "post-state" (value .==. (model .+. (1 :: Int))) []
+                            ]
+                        ]
+            withZ3 declarations $ \solver ->
+                evaluateGuard solver guard term >>= (`shouldBe` Yes)

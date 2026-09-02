@@ -59,6 +59,8 @@ module Data.ECTA.Gen.QuickCheck (
     fromGen,
 
     -- * Composing
+    NodeLayer (..),
+    node,
     frequency,
     oneof,
     uniformly,
@@ -130,9 +132,11 @@ import Data.ECTA.Gen (
     Args (..),
     ECTAGenError (..),
     Indexed (..),
+    NodeLayer (..),
     On (..),
     Sig (..),
     explain,
+    node,
     sigResult,
  )
 import qualified Data.ECTA.Gen as ECTA

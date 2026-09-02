@@ -10,7 +10,7 @@ import qualified Test.QuickCheck as QC
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (isSubtypeOf)
 import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (true, (.==.), (.>=.))
+import Data.LTA.Refinement ((.==.), (.>=.))
 
 main :: IO ()
 main =
@@ -24,7 +24,6 @@ main =
             pairs =
                 LTA.node
                     "pair"
-                    true
                     (\actual expected -> actual `isSubtypeOf` expected)
                     $ LTA.do
                         left <- choices

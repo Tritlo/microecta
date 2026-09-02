@@ -81,14 +81,14 @@ atoms =
 -- | A unary operation whose argument must establish non-negativity.
 nonNegativeExpressions :: LTA.LTAGen RefinedExpression
 nonNegativeExpressions =
-    LTA.node "sqrt" true (\argument -> argument `requires` nonNegative) $ LTA.do
+    LTA.node "sqrt" (\argument -> argument `requires` nonNegative) $ LTA.do
         argument <- atoms
         LTA.pure $ RefinedExpression (SquareRoot $ expression argument) true
 
 -- | Division expressions whose denominator proves it is non-zero.
 divisions :: LTA.LTAGen RefinedExpression
 divisions =
-    LTA.node "divide" true divisionGuard $ LTA.do
+    LTA.node "divide" divisionGuard $ LTA.do
         numerator <- atoms
         denominator <- atoms
         LTA.pure $
@@ -102,7 +102,7 @@ divisionGuard _ denominator = denominator `requires` nonZero
 -- | Every ordered atom pair where the left refinement is a subtype of the right.
 subtypePairs :: LTA.LTAGen (RefinedExpression, RefinedExpression)
 subtypePairs =
-    LTA.node "ascribe" true (\actual expected -> actual `isSubtypeOf` expected) $ LTA.do
+    LTA.node "ascribe" (\actual expected -> actual `isSubtypeOf` expected) $ LTA.do
         actual <- atoms
         expected <- atoms
         LTA.pure (actual, expected)
@@ -116,7 +116,7 @@ the formal variable before comparing the dependent output with the result.
 -}
 dependentApplications :: LTA.LTAGen RefinedExpression
 dependentApplications =
-    LTA.node "app" true applicationGuard $ LTA.do
+    LTA.node "app" applicationGuard $ LTA.do
         result <- resultTypes
         _function <- incrementFunction
         argument <- namedArguments
@@ -155,7 +155,7 @@ namedArguments =
 
 incrementFunction :: LTA.LTAGen ()
 incrementFunction =
-    LTA.node "increment" true unconstrained $ LTA.do
+    LTA.node "increment" unconstrained $ LTA.do
         _formal <- LTA.leaf () "n" true
         _input <- LTA.leaf () "input" nonNegative
         _output <- LTA.leaf () "output" (value .==. (variable "n" .+. (1 :: Int)))

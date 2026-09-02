@@ -1,6 +1,7 @@
 -- | A Z3-backed 'Entailment' implemented with Liquid Fixpoint's SMT API.
 module Data.LTA.LiquidFixpoint (
     withZ3,
+    withZ3Assuming,
 ) where
 
 import Control.Concurrent.MVar (modifyMVar, newMVar, withMVar)
@@ -16,7 +17,23 @@ import Language.Fixpoint.Types.Config (SMTSolver (Z3), defConfig, solver)
 
 -- | Run actions using one reusable Z3 process and a fixed declaration set.
 withZ3 :: [(Fixpoint.Symbol, Fixpoint.Sort)] -> (Entailment -> IO a) -> IO a
-withZ3 declarations action =
+withZ3 declarations = withZ3Assuming declarations []
+
+{- | Run entailment queries under a fixed collection of ambient assumptions.
+
+This models the surrounding Liquid typing environment. For example, an input
+named @bufferLength@ may be declared as an integer and assumed equal to three;
+position substitution can then prove that an index lies below that particular
+buffer length. The declarations must include every free name used by the
+refinements, including term symbols that become actual values in a position
+substitution.
+-}
+withZ3Assuming ::
+    [(Fixpoint.Symbol, Fixpoint.Sort)] ->
+    [Fixpoint.Pred] ->
+    (Entailment -> IO a) ->
+    IO a
+withZ3Assuming declarations assumptions action =
     bracket acquire release $ \contextVar ->
         action (Entailment $ query contextVar)
   where
@@ -33,7 +50,8 @@ withZ3 declarations action =
       where
         check = SMT.smtBracket "microlta entailment" $ do
             SMT.smtDecls declarations
-            SMT.smtAssertDecl (Fixpoint.pAnd [antecedent, Fixpoint.PNot consequent])
+            SMT.smtAssertDecl $
+                Fixpoint.pAnd (assumptions <> [antecedent, Fixpoint.PNot consequent])
             SMT.command SMTTypes.CheckSat
 
     responseVerdict SMTTypes.Unsat = pure Yes

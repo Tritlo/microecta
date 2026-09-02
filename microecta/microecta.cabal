@@ -79,6 +79,7 @@ library
     Application.TermSearch.Utils
     Data.ECTA
     Data.ECTA.FTA
+    Data.ECTA.FTA.Syntax
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type

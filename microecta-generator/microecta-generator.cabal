@@ -76,6 +76,8 @@ library
     Data.ECTA.Gen.QuickCheck
     Data.ECTA.Gen.Sig
     Data.Tree.FTA.Gen
+    Data.Tree.FTA.Gen.Do
+    Data.Tree.FTA.Gen.QuickCheck
     Data.Tree.Gen
     Data.Tree.Gen.QuickCheck
 
@@ -116,6 +118,8 @@ test-suite unit-tests
     Data.ECTA.RecursiveGenSpec
     Data.ECTA.TypedExpressionGenSpec
     Data.ECTA.TypedExpressionLanguage
+    Data.Tree.FTA.GenSpec
+    Data.Tree.FTA.UntypedExpressionLanguage
 
   build-depends:
     QuickCheck >=2.14 && <2.19,
@@ -137,10 +141,37 @@ benchmark typed-expression-speed
     -rtsopts
     -with-rtsopts=-T
 
-  other-modules: Data.ECTA.TypedExpressionLanguage
+  other-modules:
+    Data.ECTA.TypedExpressionLanguage
+    GeneratorSpeedHarness
+
   build-depends:
     QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
+    microecta-generator,
+    process >=1.6 && <1.7,
+    random >=1.2 && <1.4,
+
+benchmark untyped-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: UntypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.Tree.FTA.UntypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    base >=4.21 && <5,
+    microecta >=0.2.0.0 && <0.3,
     microecta-generator,
     process >=1.6 && <1.7,
     random >=1.2 && <1.4,

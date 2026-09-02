@@ -6,6 +6,10 @@ This is a major bump rather than 0.1.1.0 because the public API changed; see
 the entries marked breaking below. Existing code that only builds ECTAs,
 reduces them, or enumerates them needs no migration.
 
+* Add `Data.Tree.FTA`, a constraint-neutral ranked-transition graph shared by
+  ordinary FTAs, ECTAs, and LTAs. `Data.Tree.FTA.Syntax` authors plain rows,
+  while `Data.ECTA.FTA.Syntax` owns equality-constrained transitions; the FTA
+  namespace no longer needs a constraint-theory-specific escape hatch.
 * Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
   it ships instead of rebuilding 0.7 beside its own boot library.
 * Key the edge joins on the symbol itself rather than on its hash.

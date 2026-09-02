@@ -20,6 +20,8 @@ module Data.LTA.Gen (
 
     -- * Tree constructors
     node,
+    refinedNode,
+    refinedNodeBy,
     unary,
     binary,
     frequency,
@@ -39,7 +41,7 @@ module Data.LTA.Gen (
 
     -- * Qualified-do support
     Children,
-    NodeLayer,
+    NodeLayer (..),
     children,
     applyChildren,
 ) where
@@ -52,6 +54,7 @@ import qualified Data.Set as Set
 
 import Data.LTA
 import Data.LTA.Guard (GuardBuilder, buildGuard)
+import Data.LTA.Refinement (true)
 import qualified Data.Tree.Gen as Tree
 
 -- | A finite weighted language paired with guarded witness trees and shrinks.
@@ -235,15 +238,44 @@ applyChildren = (<*>)
 
 With @ApplicativeDo@ and @QualifiedDo@, use this as:
 
-@node symbol refinement guard $ LTA.do ...@
+@node symbol guard $ LTA.do ...@
+
+The result refinement defaults to the universally accepting refinement. Use
+'refinedNode' when the constructor establishes a more precise result.
 -}
-node :: (NodeLayer layer, GuardBuilder guard) => Symbol -> Refinement -> guard -> layer a -> LTAGen a
-node symbol refinement guardBuilder layer =
+node :: (NodeLayer layer, GuardBuilder guard) => Symbol -> guard -> layer a -> LTAGen a
+node symbol = refinedNodeBy symbol (const true)
+
+-- | Add a constructor with an explicit result refinement and liquid guard.
+refinedNode ::
+    (NodeLayer layer, GuardBuilder guard) =>
+    Symbol ->
+    Refinement ->
+    guard ->
+    layer a ->
+    LTAGen a
+refinedNode symbol refinement = refinedNodeBy symbol (const refinement)
+
+{- | Add a constructor whose result refinement is computed from each generated
+value.
+
+This is useful for compositional refined languages: an operation such as
+append can retain a symbolic result length derived from its selected children,
+so a later node can use that result in another liquid guard.
+-}
+refinedNodeBy ::
+    (NodeLayer layer, GuardBuilder guard) =>
+    Symbol ->
+    (a -> Refinement) ->
+    guard ->
+    layer a ->
+    LTAGen a
+refinedNodeBy symbol refinementOf guardBuilder layer =
     LTAGen
         [ Outcome
             (forestWeight outcome)
             (forestValue outcome)
-            (Witness symbol refinement guard $ forestWitnesses outcome)
+            (Witness symbol (refinementOf $ forestValue outcome) guard $ forestWitnesses outcome)
         | outcome <- childrenOutcomes childForest
         ]
         (childrenShrinks childForest)
@@ -254,7 +286,7 @@ node symbol refinement guardBuilder layer =
 -- | Apply a unary constructor to every member of a language.
 unary :: (GuardBuilder guard) => (a -> b) -> Symbol -> Refinement -> guard -> LTAGen a -> LTAGen b
 unary function symbol refinement guard generator =
-    node symbol refinement guard (function <$> generator)
+    refinedNode symbol refinement guard (function <$> generator)
 
 -- | Apply a binary constructor to the Cartesian product of two languages.
 binary ::
@@ -267,7 +299,7 @@ binary ::
     LTAGen b ->
     LTAGen c
 binary function symbol refinement guard left right =
-    node symbol refinement guard $
+    refinedNode symbol refinement guard $
         applyChildren
             (children $ function <$> left)
             (children right)
@@ -339,7 +371,7 @@ fromAutomatonUpToDepth maximumDepth automaton
 
     closeTransition :: Transition -> Children [LiquidTerm] -> LTAGen LiquidTerm
     closeTransition transition childForest =
-        node
+        refinedNode
             (transitionSymbol transition)
             (transitionRefinement transition)
             (transitionGuard transition)
