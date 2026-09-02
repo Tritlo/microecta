@@ -47,6 +47,7 @@ module Data.LTA.Gen (
 ) where
 
 import Data.Bifunctor (first)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (nub)
 import qualified Data.Map.Strict as Map
@@ -391,7 +392,8 @@ support = compileWitnesses . map outcomeWitness . generatorOutcomes
 
 -- | Check every candidate, preserving weights for the accepted members.
 validOutcomes :: Entailment -> LTAGen a -> IO (Either GeneratorError [Generated a])
-validOutcomes entailment generator =
+validOutcomes uncachedEntailment generator = do
+    entailment <- cacheEntailment uncachedEntailment
     fmap (fmap $ map acceptedGenerated) $
         checkedOutcomes entailment (generatorOutcomes generator)
 
@@ -425,7 +427,8 @@ data GeneratorError
 
 -- | Discharge guards and refinement ordering once, producing a pure language.
 compile :: Entailment -> LTAGen a -> IO (Either GeneratorError (Compiled a))
-compile entailment generator = do
+compile uncachedEntailment generator = do
+    entailment <- cacheEntailment uncachedEntailment
     checked <- checkedOutcomes entailment (generatorOutcomes generator)
     case checked of
         Left err -> pure (Left err)
@@ -443,6 +446,26 @@ compile entailment generator = do
                             acceptedSupport
                             ranked
                             (buildShrinkTable generator accepted table)
+
+{- | Cache exact refinement queries for one compilation run.
+
+Applicative generator products repeat the same local liquid obligations across
+many complete witnesses. The entailment boundary is deterministic for a fixed
+solver environment, so one verdict can safely serve every identical request
+during this compile without making the cache part of the public API.
+-}
+cacheEntailment :: Entailment -> IO Entailment
+cacheEntailment (Entailment decide) = do
+    verdicts <- newIORef Map.empty
+    pure $ Entailment $ \antecedent consequent -> do
+        cache <- readIORef verdicts
+        let obligation = (antecedent, consequent)
+        case Map.lookup obligation cache of
+            Just verdict -> pure verdict
+            Nothing -> do
+                verdict <- decide antecedent consequent
+                modifyIORef' verdicts $ Map.insert obligation verdict
+                pure verdict
 
 -- | Exact number of accepted, replayable outcomes.
 cardinality :: Compiled a -> Integer
@@ -529,10 +552,10 @@ checkedOutcomes entailment = go 0 []
   where
     go _ accepted [] = pure (Right $ reverse accepted)
     go sourceIndex accepted (outcome : rest) =
-        case compileWitnesses [outcomeWitness outcome] of
+        case validateWitness (outcomeWitness outcome) of
             Left err -> pure (Left err)
-            Right automaton -> do
-                verdict <- accepts entailment automaton (witnessTerm $ outcomeWitness outcome)
+            Right () -> do
+                verdict <- checkWitness entailment (outcomeWitness outcome)
                 case verdict of
                     Yes ->
                         go
@@ -549,6 +572,58 @@ checkedOutcomes entailment = go 0 []
                             rest
                     No -> go (sourceIndex + 1) accepted rest
                     Unknown -> pure (Left SolverUnknown)
+
+{- | Check one generated witness directly against its own liquid guards.
+
+The old path first expanded every witness into a singleton automaton, then
+recognized the same tree through that automaton. Generated witnesses already
+fix every transition and child, so the structural recognition work is
+tautological; only child validity and guards can reject them.
+-}
+checkWitness :: Entailment -> Witness -> IO Verdict
+checkWitness entailment witness = do
+    childrenVerdict <- checkChildren (witnessChildren witness)
+    case childrenVerdict of
+        No -> pure No
+        _ -> do
+            guardVerdict <- evaluateGuard entailment (witnessGuard witness) (witnessTerm witness)
+            pure $ andVerdicts childrenVerdict guardVerdict
+  where
+    checkChildren [] = pure Yes
+    checkChildren (child : rest) = do
+        childVerdict <- checkWitness entailment child
+        case childVerdict of
+            No -> pure No
+            _ -> andVerdicts childVerdict <$> checkChildren rest
+
+    andVerdicts No _ = No
+    andVerdicts _ No = No
+    andVerdicts Unknown _ = Unknown
+    andVerdicts _ Unknown = Unknown
+    andVerdicts Yes Yes = Yes
+
+{- | Preserve singleton-automaton arity validation without constructing one.
+
+All states allocated from a finite witness are present and acyclic, leaving
+inconsistent reuse of one ranked symbol as the only possible structural error.
+-}
+validateWitness :: Witness -> Either GeneratorError ()
+validateWitness rootWitness = go Map.empty [rootWitness]
+  where
+    go _ [] = Right ()
+    go arities (witness : rest) =
+        let symbol = witnessSymbol witness
+            actual = length $ witnessChildren witness
+         in case Map.lookup symbol arities of
+                Nothing ->
+                    go
+                        (Map.insert symbol actual arities)
+                        (witnessChildren witness <> rest)
+                Just expected
+                    | expected == actual -> go arities (witnessChildren witness <> rest)
+                    | otherwise ->
+                        Left . InvalidSupport $
+                            InconsistentArity symbol expected actual
 
 compileAccepted ::
     [Accepted a] ->

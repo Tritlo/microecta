@@ -204,16 +204,16 @@ the harness skips its larger cells and reports `after timeout`.
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 4 | naive | 0.02 ms | 564,525 | 13.6 KB | 32.7 KB | 34.7 KB |
 | 1 | 4 | bespoke | 0.02 ms | 2,323,582 | 3.4 KB | 2.0 KB | 35.2 KB |
-| 1 | 4 | LTA | 7.10 ms | 2,318,088 | 3.4 KB | 62.8 KB | 39.1 KB |
+| 1 | 4 | LTA | 5.79 ms | 2,451,401 | 3.4 KB | 62.8 KB | 39.1 KB |
 | 2 | 22 | naive | 0.02 ms | 274,848 | 28.5 KB | 32.8 KB | 34.8 KB |
 | 2 | 22 | bespoke | 0.04 ms | 1,066,610 | 7.2 KB | 36.6 KB | 40.5 KB |
-| 2 | 22 | LTA | 48.26 ms | 1,975,192 | 3.7 KB | 75.7 KB | 51.3 KB |
+| 2 | 22 | LTA | 9.67 ms | 1,953,659 | 3.7 KB | 75.7 KB | 51.3 KB |
 | 3 | 132 | naive | 0.02 ms | 161,712 | 48.4 KB | 32.9 KB | 34.9 KB |
 | 3 | 132 | bespoke | 0.04 ms | 718,288 | 10.5 KB | 38.4 KB | 71.8 KB |
-| 3 | 132 | LTA | 545.55 ms | 1,308,455 | 4.1 KB | 133.7 KB | 106.7 KB |
+| 3 | 132 | LTA | 28.55 ms | 1,339,782 | 4.1 KB | 133.7 KB | 106.7 KB |
 | 4 | 556 | naive | 0.04 ms | 68,003 | 111.2 KB | 32.9 KB | 35.0 KB |
 | 4 | 556 | bespoke | 0.06 ms | 508,934 | 14.3 KB | 40.3 KB | 207.2 KB |
-| 4 | 556 | LTA | 6,502.06 ms | 701,218 | 4.0 KB | 354.4 KB | 325.5 KB |
+| 4 | 556 | LTA | 188.10 ms | 694,044 | 4.0 KB | 354.4 KB | 325.5 KB |
 
 Lengths five through ten expose both scaling boundaries:
 
@@ -221,10 +221,10 @@ Lengths five through ten expose both scaling boundaries:
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 5 | 3,104 | naive | 0.05 ms | 41,957 | 185.3 KB | 33.0 KB | 35.1 KB |
 | 5 | 3,104 | bespoke | 0.06 ms | 414,705 | 17.3 KB | 42.6 KB | 944.4 KB |
-| 5 | 3,104 | LTA | **timeout (30s)** | — | — | — | — |
+| 5 | 3,104 | LTA | 1,941.25 ms | 128,254 | 3.6 KB | 1.60 MB | 1.62 MB |
 | 6 | 13,760 | naive | 0.08 ms | 20,014 | 383.2 KB | 33.1 KB | 35.2 KB |
 | 6 | 13,760 | bespoke | 0.07 ms | 335,399 | 21.4 KB | 44.0 KB | 4.18 MB |
-| 6 | 13,760 | LTA | after timeout | — | — | — | — |
+| 6 | 13,760 | LTA | **timeout (30s)** | — | — | — | — |
 | 7 | 73,528 | naive | 0.07 ms | 11,606 | 651.9 KB | 33.2 KB | 35.2 KB |
 | 7 | 73,528 | bespoke | 0.09 ms | 214,607 | 25.6 KB | 47.3 KB | 20.26 MB |
 | 7 | 73,528 | LTA | after timeout | — | — | — | — |
@@ -244,14 +244,20 @@ about 28.5 seconds, is 32x slower than bespoke generation, and allocates 2.14
 MB per accepted trace. At length ten only about 0.25% of the raw command
 sequences are valid, so the next cell crosses the 30-second boundary.
 
-The LTA exposes a different bottleneck first. Its complete length-five cell
-does not finish within 30 seconds, after first-sample setup had already grown
-from 7 ms at length one to 6.5 seconds at length four. At length four, once
-compiled, LTA sampling is still about 10x faster than rejection and 1.4x faster
-than bespoke generation while allocating 28x and 3.6x less. This points at the
-eager solver/compiler phase—particularly repeated equivalent state/command
-obligations—as the immediate engineering target, rather than the pure rank
-decoder.
+The first benchmark run made repeated solver work visible: length four took
+6.50 seconds to compile and length five timed out, despite only 115 distinct
+entailment requests among 34,073 requests at length four. Caching exact
+obligations for one compile and checking a generated witness directly, rather
+than first turning it into a singleton automaton, cuts length-four setup to 188
+ms and makes length five complete in 1.94 seconds.
+
+The next LTA limit is structural. Length six still times out because the
+applicative generator materializes `11^6 = 1,771,561` raw contract witnesses
+before retaining 13,760 valid traces. The next optimization should therefore
+compile the generator graph compositionally and discard invalid products at
+each node. This is separate from the pure rank decoder: at length five, the
+compiled LTA still samples 3.1x faster than rejection and allocates 52x less
+per trace, though the handwritten generator samples 3.2x faster.
 
 Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
 2026-09-02. Reproduce this table, or all three FTA/ECTA/LTA tables, from the
