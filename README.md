@@ -39,8 +39,9 @@ and recursive LTAs with the paper's acyclic-guard restriction. The pruning pass
 partitions heterogeneous states on their observed refinements and substitution
 symbols. Similarity is inferred from a source-language subtyping relation;
 minimization removes supertype transitions and redirects incoming state edges
-to their retained subtype representatives. Syntactic `Same` guards remain as
-ECTA-style constraints rather than being mistaken for an ordinary FTA product.
+to their retained subtype representatives. For syntactic `Same`, pruning uses
+the ordinary FTA product to discard disjoint sub-languages, then retains the
+ECTA-style equality constraint so independently chosen subtrees stay equal.
 `microlta-generator` adds counting and unranking over finite acyclic LTAs,
 named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
 an opt-in pool adapter over the core similarity pass, and explicitly bounded

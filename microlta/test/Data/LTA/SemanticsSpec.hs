@@ -8,7 +8,7 @@ import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment,
-    Guard (Entails, Satisfies, Substitute, Top),
+    Guard (Entails, Same, Satisfies, Substitute, Top),
     LiquidTerm (LiquidTerm),
     MinimizeError (SharedSimilarityTarget),
     RefinementRelation (..),
@@ -18,7 +18,7 @@ import Data.LTA (
     Subtyping,
     Transition,
     TransitionId (TransitionId),
-    Verdict (Yes),
+    Verdict (No, Yes),
     accepts,
     automatonTransitions,
     minimize,
@@ -88,6 +88,54 @@ spec =
         it "partitions substitution positions by their value-naming symbol" $
             withZ3 declarations $ \solver ->
                 checkPrunedLanguage solver substitutedOutputs substitutionTerms 2
+
+        it "uses FTA product intersection to narrow syntactic equality" $
+            withZ3 declarations $ \solver ->
+                case syntacticPairs of
+                    Left err -> expectationFailure $ show err
+                    Right original -> do
+                        result <- prune solver original
+                        case result of
+                            Left err -> expectationFailure $ show err
+                            Right reduced ->
+                                case Map.findWithDefault [] (State 0) $ automatonTransitions reduced of
+                                    [root] ->
+                                        case transitionChildren root of
+                                            leftState : _ -> do
+                                                map
+                                                    transitionSymbol
+                                                    (Map.findWithDefault [] leftState $ automatonTransitions reduced)
+                                                    `shouldBe` ["shared"]
+                                                traverse (accepts solver reduced) syntacticPairTerms
+                                                    >>= (`shouldBe` [Yes, No, No])
+                                            [] -> expectationFailure "pair transition lost its children"
+                                    roots -> expectationFailure $ "unexpected root row: " <> show roots
+
+        it "applies syntactic intersection below a nested position" $
+            withZ3 declarations $ \solver ->
+                case nestedSyntacticPairs of
+                    Left err -> expectationFailure $ show err
+                    Right original -> do
+                        result <- prune solver original
+                        case result of
+                            Left err -> expectationFailure $ show err
+                            Right reduced ->
+                                case Map.findWithDefault [] (State 0) $ automatonTransitions reduced of
+                                    [root] ->
+                                        case transitionChildren root of
+                                            leftState : _ ->
+                                                case Map.findWithDefault [] leftState $ automatonTransitions reduced of
+                                                    [box] ->
+                                                        case transitionChildren box of
+                                                            [nestedState] ->
+                                                                map
+                                                                    transitionSymbol
+                                                                    (Map.findWithDefault [] nestedState $ automatonTransitions reduced)
+                                                                    `shouldBe` ["shared"]
+                                                            children -> expectationFailure $ "unexpected box children: " <> show children
+                                                    row -> expectationFailure $ "unexpected nested row: " <> show row
+                                            [] -> expectationFailure "pair transition lost its children"
+                                    roots -> expectationFailure $ "unexpected root row: " <> show roots
 
         it "infers transition similarity and removes the supertype" $
             withZ3 declarations $ \solver ->
@@ -204,6 +252,59 @@ substitutedOutputs =
                 [ Transition "output-x" (value .==. variable "x") [] Top
                 , Transition "output-y" (value .==. variable "y") [] Top
                 ]
+            )
+        ]
+
+-- | Two overlapping structural languages tied by syntactic equality.
+syntacticPairs :: Either AutomatonError Automaton
+syntacticPairs =
+    mkAutomaton
+        (State 0)
+        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ Same (path [0]) (path [1])])
+        ,
+            ( State 1
+            , [Transition "left" Fixpoint.PTrue [] Top, Transition "shared" Fixpoint.PTrue [] Top]
+            )
+        ,
+            ( State 2
+            , [Transition "shared" Fixpoint.PTrue [] Top, Transition "right" Fixpoint.PTrue [] Top]
+            )
+        ]
+
+-- | One accepted equal pair followed by two rejected unequal pairs.
+syntacticPairTerms :: [LiquidTerm]
+syntacticPairTerms =
+    [ pair "shared" "shared"
+    , pair "left" "shared"
+    , pair "shared" "right"
+    ]
+  where
+    pair left right =
+        LiquidTerm
+            "pair"
+            Fixpoint.PTrue
+            [LiquidTerm left Fixpoint.PTrue [], LiquidTerm right Fixpoint.PTrue []]
+
+-- | The same structural overlap reached below a wrapper on the left.
+nestedSyntacticPairs :: Either AutomatonError Automaton
+nestedSyntacticPairs =
+    mkAutomaton
+        (State 0)
+        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ Same (path [0, 0]) (path [1])])
+        ,
+            ( State 1
+            ,
+                [ Transition "box" Fixpoint.PTrue [State 3] Top
+                , Transition "empty" Fixpoint.PTrue [] Top
+                ]
+            )
+        ,
+            ( State 2
+            , [Transition "shared" Fixpoint.PTrue [] Top, Transition "right" Fixpoint.PTrue [] Top]
+            )
+        ,
+            ( State 3
+            , [Transition "left" Fixpoint.PTrue [] Top, Transition "shared" Fixpoint.PTrue [] Top]
             )
         ]
 

@@ -37,6 +37,12 @@ plain =
     ]
 ```
 
+`Data.Tree.FTA.intersect` constructs the ordinary reachable product, including
+for recursive automata. It pairs transition annotations rather than assigning
+them a meaning. A constraint theory can instead use `intersectWith` to define
+compatible symbols and combine annotations; this is the operation used by the
+LTA `P-Syn-Eq` pruning rule.
+
 `Data.ECTA.FTA.toFTA` exposes an ECTA through this structure, retaining each
 edge's `EqConstraints` as its transition annotation. Handwritten constrained
 rows use `Data.ECTA.FTA.Syntax.transition`; ordinary FTA syntax does not expose

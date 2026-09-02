@@ -44,20 +44,22 @@ finite. `semanticIntersection` exposes Equation 4 directly: it retains the
 antecedent transition only when that refinement entails the consequent. It is
 directional, not a symmetric logical meet.
 
-`prune solver automaton` is the paper's semantic-intersection reduction pass.
-For every semantic guard, it partitions the transition sets reached at the
-observed positions by refinement. Actual/formal positions are partitioned by
-both refinement and value-naming symbol. It then retains precisely the
-partition combinations whose entailment succeeds, replaces that semantic
-guard with `Top`, and removes newly dead transitions to a fixed point. Nested
-positions produce shared state splits; complete accepted terms are never
-constructed.
+`prune solver automaton` implements both rules behind the paper's pruning pass.
+For `P-Syn-Eq`, it uses the ordinary `Data.Tree.FTA.intersectWith` product to
+narrow the first position to the structural language also admitted at the
+second. For `P-Sem-Ent`, it partitions transition sets at the observed positions
+by refinement; actual/formal positions are partitioned by both refinement and
+value-naming symbol. It retains precisely the combinations whose entailment
+succeeds, replaces that semantic guard with `Top`, and removes newly dead
+transitions to a fixed point. Nested positions produce shared state splits;
+complete accepted terms are never constructed.
 
-Syntactic `Same` constraints remain on the resulting LTA because equality
-between arbitrary subtrees cannot generally be compiled into a regular FTA.
-When `Same` is one conjunct, independent semantic conjuncts are still reduced.
-The generator adapter consequently refuses to multiply child counts while such
-a residual guard remains; it never silently counts the unconstrained product.
+Syntactic `Same` constraints remain on the resulting LTA. Product intersection
+can remove disjoint choices, but equality between two independently selected
+arbitrary subtrees is not in general a regular tree language. When `Same` is one
+conjunct, independent semantic conjuncts are still reduced. The generator
+adapter consequently refuses to multiply child counts while such a residual
+guard remains; it never silently counts the unconstrained product.
 
 ## Similarity and minimization
 

@@ -319,6 +319,8 @@ data AutomatonError
 data PruneError
     = -- | The solver could not decide a transition guard.
       PruneUnknown !State
+    | -- | Product construction violated an FTA invariant.
+      InvalidSyntacticIntersection
     | -- | Pruning exposed an invalid automaton structure.
       InvalidPrunedAutomaton !AutomatonError
     deriving (Eq, Show)
@@ -587,13 +589,19 @@ failed combinations and newly dead states are removed to a fixed point. This
 is the paper's semantic-intersection rule, expressed as explicit state
 splitting without materializing an accepted tree.
 
-Syntactic 'Same' constraints remain on the reduced LTA. A top-level conjunction
-still has its independent semantic atoms reduced first. Equality between
-arbitrary subtrees is not in general a regular tree language, so it cannot be
-erased into an ordinary FTA by state splitting alone.
+For a required syntactic 'Same' atom, the paper's ordinary FTA product
+intersection narrows the first position to terms also admitted at the second.
+The atom remains on the reduced LTA: intersection can discard disjoint
+sub-languages, but equality between two independently chosen arbitrary subtrees
+is not in general a regular tree language. A top-level conjunction still has
+its independent semantic atoms reduced as well.
 -}
 prune :: Entailment -> Automaton -> IO (Either PruneError Automaton)
-prune entailment automaton = loop $ automatonTransitions automaton
+prune entailment automaton = do
+    syntactic <- pruneSyntacticEqualities automaton
+    case syntactic of
+        Left err -> pure $ Left err
+        Right narrowed -> loop $ automatonTransitions narrowed
   where
     initial = automatonInitial automaton
 
@@ -634,6 +642,256 @@ prune entailment automaton = loop $ automatonTransitions automaton
                     fmap (retained <>) <$> pruneRow table state rest
 
     transitionsAt table state = Map.findWithDefault [] state table
+
+-- | Apply the paper's P-Syn-Eq narrowing once before semantic pruning.
+pruneSyntacticEqualities :: Automaton -> IO (Either PruneError Automaton)
+pruneSyntacticEqualities automaton = do
+    (checked, build) <-
+        runStateT
+            (traverseRows $ Map.toList original)
+            (emptySplitBuild $ nextState original)
+    pure $ do
+        rows <- checked
+        first InvalidPrunedAutomaton $
+            mkAutomaton
+                (automatonInitial automaton)
+                (Map.toList $ Map.union (Map.fromList rows) (splitRows build))
+  where
+    original = automatonTransitions automaton
+
+    traverseRows [] = pure $ Right []
+    traverseRows ((state, transitions) : rest) = do
+        row <- traverseTransitions transitions
+        case row of
+            Left err -> pure $ Left err
+            Right narrowed ->
+                fmap ((state, narrowed) :) <$> traverseRows rest
+
+    traverseTransitions [] = pure $ Right []
+    traverseTransitions (transition : rest) = do
+        narrowed <- applyEqualities [transition] $ requiredEqualities $ transitionGuard transition
+        case narrowed of
+            Left err -> pure $ Left err
+            Right retained ->
+                fmap (retained <>) <$> traverseTransitions rest
+
+    applyEqualities transitions [] = pure $ Right transitions
+    applyEqualities transitions ((left, right) : rest)
+        | left == right = applyEqualities transitions rest
+        | otherwise = do
+            narrowed <- traverse (pruneEquality original left right) transitions
+            case sequence narrowed of
+                Left err -> pure $ Left err
+                Right retained -> applyEqualities (concat retained) rest
+
+-- | Positive equalities required by a guard, excluding disjunction and negation.
+requiredEqualities :: Guard -> [(Path, Path)]
+requiredEqualities (Same left right) = [(left, right)]
+requiredEqualities (Substitute _ nested) = requiredEqualities nested
+requiredEqualities (And guards) = concatMap requiredEqualities guards
+requiredEqualities _ = []
+
+-- | Narrow one transition at the left side of a required equality.
+pruneEquality ::
+    Map.Map State [Transition] ->
+    Path ->
+    Path ->
+    Transition ->
+    StateT SplitBuild IO (Either PruneError [Transition])
+pruneEquality original left right transition = do
+    current <- effectiveTable original
+    rightStates <- statesAtTransitionPath current transition $ unPath right
+    if Set.null rightStates
+        then pure $ Right []
+        else case unPath left of
+            [] -> intersectRoot rightStates
+            leftPath -> intersectBelow current leftPath rightStates
+  where
+    intersectRoot rightStates = do
+        leftState <- allocateRow [transition]
+        narrowed <- intersectWithStates original leftState rightStates
+        case narrowed of
+            Left err -> pure $ Left err
+            Right state -> do
+                table <- effectiveTable original
+                pure $ Right $ Map.findWithDefault [] state table
+
+    intersectBelow current leftPath rightStates =
+        case statesAtTransitionPathPure current transition leftPath of
+            leftStates
+                | Set.null leftStates -> pure $ Right []
+                | otherwise -> do
+                    replacements <- traverse replacement $ Set.toAscList leftStates
+                    case sequence replacements of
+                        Left err -> pure $ Left err
+                        Right pairs -> do
+                            rewritten <- rewriteTransitionPath original leftPath (Map.fromList pairs) transition
+                            pure $ Right $ maybe [] pure rewritten
+      where
+        replacement leftState = do
+            narrowed <- intersectWithStates original leftState rightStates
+            pure $ fmap (\state -> (leftState, state)) narrowed
+
+-- | Intersect one state with the union of the supplied right-hand states.
+intersectWithStates ::
+    Map.Map State [Transition] ->
+    State ->
+    Set.Set State ->
+    StateT SplitBuild IO (Either PruneError State)
+intersectWithStates original leftState rightStates = do
+    intersections <- traverse (intersectStatePair original leftState) $ Set.toAscList rightStates
+    case sequence intersections of
+        Left err -> pure $ Left err
+        Right states -> Right <$> unionStates original states
+
+-- | Construct and install a structural product rooted at two LTA states.
+intersectStatePair ::
+    Map.Map State [Transition] ->
+    State ->
+    State ->
+    StateT SplitBuild IO (Either PruneError State)
+intersectStatePair original leftState rightState = do
+    table <- effectiveTable original
+    case (FTA.mkFTA leftState $ Map.toList table, FTA.mkFTA rightState $ Map.toList table) of
+        (Right left, Right right) ->
+            case FTA.intersectWith matchSymbol combineGuards left right of
+                Left _ -> pure $ Left InvalidSyntacticIntersection
+                Right productAutomaton -> Right <$> installProduct productAutomaton
+        _ -> pure $ Left InvalidSyntacticIntersection
+  where
+    matchSymbol (LiquidSymbol leftSymbol leftRefinement) (LiquidSymbol rightSymbol _)
+        | leftSymbol == rightSymbol = Just $ LiquidSymbol leftSymbol leftRefinement
+        | otherwise = Nothing
+
+-- | Conjoin the constraints carried by two structurally intersected transitions.
+combineGuards :: Guard -> Guard -> Guard
+combineGuards Top right = right
+combineGuards left Top = left
+combineGuards left right
+    | left == right = left
+    | otherwise = And [left, right]
+
+-- | Install reachable product rows, reusing any pair already constructed.
+installProduct ::
+    FTA.FTA (FTA.ProductState State State) LiquidSymbol Guard ->
+    StateT SplitBuild IO State
+installProduct productAutomaton = do
+    build <- get
+    let productStates = FTA.states productAutomaton
+        missing = filter (`Map.notMember` splitProducts build) productStates
+        fresh = map State [splitNextState build ..]
+        allocated = Map.fromList $ zip missing fresh
+        products = Map.union (splitProducts build) allocated
+        installed =
+            Map.fromList
+                [ (stateFor productState products, map (mapTransition products) $ FTA.transitionsFrom productAutomaton productState)
+                | productState <- missing
+                ]
+    modify' $ \updated ->
+        updated
+            { splitNextState = splitNextState updated + length missing
+            , splitRows = Map.union installed $ splitRows updated
+            , splitProducts = products
+            }
+    pure $ stateFor (FTA.initialState productAutomaton) products
+  where
+    stateFor productState products = products Map.! productState
+
+    mapTransition products (FTA.Transition symbol children guard) =
+        FTA.Transition symbol (map (`stateFor` products) children) guard
+
+-- | Form a union state without copying descendants.
+unionStates :: Map.Map State [Transition] -> [State] -> StateT SplitBuild IO State
+unionStates original states =
+    case Set.toAscList $ Set.fromList states of
+        [state] -> pure state
+        unique -> do
+            table <- effectiveTable original
+            allocateRow $ concatMap (\state -> Map.findWithDefault [] state table) unique
+
+-- | Allocate one fresh state with the supplied outgoing row.
+allocateRow :: [Transition] -> StateT SplitBuild IO State
+allocateRow transitions = do
+    build <- get
+    let state = State $ splitNextState build
+    modify' $ \updated ->
+        updated
+            { splitNextState = splitNextState updated + 1
+            , splitRows = Map.insert state transitions $ splitRows updated
+            }
+    pure state
+
+-- | Include all rows allocated earlier in this syntactic pruning phase.
+effectiveTable :: Map.Map State [Transition] -> StateT SplitBuild IO (Map.Map State [Transition])
+effectiveTable original = do
+    build <- get
+    pure $ Map.union (splitRows build) original
+
+-- | States reached at one path under a particular transition.
+statesAtTransitionPath ::
+    Map.Map State [Transition] ->
+    Transition ->
+    [Int] ->
+    StateT SplitBuild IO (Set.Set State)
+statesAtTransitionPath _ transition [] = Set.singleton <$> allocateRow [transition]
+statesAtTransitionPath table transition target =
+    pure $ statesAtTransitionPathPure table transition target
+
+-- | Pure non-root case of 'statesAtTransitionPath'.
+statesAtTransitionPathPure ::
+    Map.Map State [Transition] ->
+    Transition ->
+    [Int] ->
+    Set.Set State
+statesAtTransitionPathPure _ _ [] = Set.empty
+statesAtTransitionPathPure table transition (index : rest) =
+    descend rest $ maybe Set.empty Set.singleton $ atIndex index $ transitionChildren transition
+  where
+    descend [] current = current
+    descend (childIndex : remaining) current =
+        descend remaining . Set.fromList $
+            [ child
+            | state <- Set.toList current
+            , outgoing <- Map.findWithDefault [] state table
+            , child <- maybe [] pure $ atIndex childIndex $ transitionChildren outgoing
+            ]
+
+-- | Clone the context above a path and replace each endpoint state.
+rewriteTransitionPath ::
+    Map.Map State [Transition] ->
+    [Int] ->
+    Map.Map State State ->
+    Transition ->
+    StateT SplitBuild IO (Maybe Transition)
+rewriteTransitionPath _ [] _ transition = pure $ Just transition
+rewriteTransitionPath original (index : rest) replacements transition =
+    case atIndex index $ transitionChildren transition of
+        Nothing -> pure Nothing
+        Just child -> do
+            rewritten <- rewriteStatePath original rest replacements child
+            pure $ fmap (replaceChild index transition) rewritten
+
+-- | Clone all viable transitions on one path down to a replacement endpoint.
+rewriteStatePath ::
+    Map.Map State [Transition] ->
+    [Int] ->
+    Map.Map State State ->
+    State ->
+    StateT SplitBuild IO (Maybe State)
+rewriteStatePath _ [] replacements state = pure $ Map.lookup state replacements
+rewriteStatePath original components replacements state = do
+    table <- effectiveTable original
+    rewritten <- traverse (rewriteTransitionPath original components replacements) $ Map.findWithDefault [] state table
+    Just <$> allocateRow [transition | Just transition <- rewritten]
+
+-- | Replace one known-valid child position.
+replaceChild :: Int -> Transition -> State -> Transition
+replaceChild index transition child =
+    replaceTransitionChildren
+        (take index children <> [child] <> drop (index + 1) children)
+        transition
+  where
+    children = transitionChildren transition
 
 -- | Split a semantic guard into the part reducible by LTA intersection and a residual syntactic guard.
 splitGuard :: Guard -> (Guard, Guard)
@@ -711,11 +969,12 @@ data SplitBuild = SplitBuild
     { splitNextState :: !Int
     , splitRows :: !(Map.Map State [Transition])
     , splitMemo :: !(Map.Map (State, PathPlan) [StateVariant])
+    , splitProducts :: !(Map.Map (FTA.ProductState State State) State)
     }
 
 -- | Initial state for one splitting round.
 emptySplitBuild :: Int -> SplitBuild
-emptySplitBuild firstFresh = SplitBuild firstFresh Map.empty Map.empty
+emptySplitBuild firstFresh = SplitBuild firstFresh Map.empty Map.empty Map.empty
 
 -- | One state identity beyond every state currently in the automaton.
 nextState :: Map.Map State [Transition] -> Int

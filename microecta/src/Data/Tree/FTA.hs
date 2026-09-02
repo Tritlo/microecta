@@ -9,11 +9,14 @@ is merely a transition annotation: use @()@ for an ordinary FTA,
 an LTA. Constraint theories stay in their own packages.
 
 Cycles are valid and describe infinite tree languages. Consumers that require
-a finite language can inspect 'cycleState'.
+a finite language can inspect 'cycleState'. 'intersect' constructs the standard
+reachable product; 'intersectWith' lets a constraint layer decide how matching
+symbols and transition annotations combine.
 -}
 module Data.Tree.FTA (
     FTA,
     PlainFTA,
+    ProductState (..),
     Transition (..),
     FTAError (..),
     initialState,
@@ -25,6 +28,8 @@ module Data.Tree.FTA (
     cycleState,
     mapGuards,
     stripGuards,
+    intersect,
+    intersectWith,
     accepts,
 ) where
 
@@ -58,6 +63,15 @@ data FTA state symbol guard = FTA
 
 -- | An ordinary FTA with no transition constraints.
 type PlainFTA state symbol = FTA state symbol ()
+
+-- | A state in the product of two tree automata.
+data ProductState left right = ProductState
+    { productLeftState :: !left
+    -- ^ State contributed by the left automaton.
+    , productRightState :: !right
+    -- ^ State contributed by the right automaton.
+    }
+    deriving (Eq, Ord, Show)
 
 -- | A structural error found while constructing an FTA.
 data FTAError state symbol
@@ -167,6 +181,69 @@ mapGuards transform FTA{initialState, transitionTable} =
 -- | Forget transition annotations, yielding an ordinary FTA.
 stripGuards :: FTA state symbol guard -> PlainFTA state symbol
 stripGuards = mapGuards (const ())
+
+{- | Intersect two automata with the same ranked alphabet.
+
+Only reachable product states are constructed. Transition annotations from the
+two operands are paired; use 'intersectWith' when the constraint theory has a
+more useful way to combine them. Applying 'stripGuards' to the result of two
+plain FTAs recovers a 'PlainFTA'.
+-}
+intersect ::
+    (Ord leftState, Ord rightState, Ord symbol) =>
+    FTA leftState symbol leftGuard ->
+    FTA rightState symbol rightGuard ->
+    Either
+        (FTAError (ProductState leftState rightState) symbol)
+        (FTA (ProductState leftState rightState) symbol (leftGuard, rightGuard))
+intersect = intersectWith sameSymbol (,)
+  where
+    sameSymbol left right
+        | left == right = Just left
+        | otherwise = Nothing
+
+{- | Product intersection with explicit symbol matching and guard composition.
+
+The symbol callback returns the result label for compatible transitions and
+'Nothing' for disjoint ones. Children are intersected position by position.
+The result is validated because a callback may map differently ranked input
+symbols to the same output symbol.
+-}
+intersectWith ::
+    (Ord leftState, Ord rightState, Ord resultSymbol) =>
+    (leftSymbol -> rightSymbol -> Maybe resultSymbol) ->
+    (leftGuard -> rightGuard -> resultGuard) ->
+    FTA leftState leftSymbol leftGuard ->
+    FTA rightState rightSymbol rightGuard ->
+    Either
+        (FTAError (ProductState leftState rightState) resultSymbol)
+        (FTA (ProductState leftState rightState) resultSymbol resultGuard)
+intersectWith matchSymbol combineGuard left right =
+    mkFTA initial $ build Set.empty [initial] []
+  where
+    initial = ProductState (initialState left) (initialState right)
+
+    build _ [] rows = reverse rows
+    build visited (productState : pending) rows
+        | Set.member productState visited = build visited pending rows
+        | otherwise =
+            build
+                (Set.insert productState visited)
+                (concatMap transitionChildren outgoing <> pending)
+                ((productState, outgoing) : rows)
+      where
+        outgoing = intersectState productState
+
+    intersectState (ProductState leftState rightState) =
+        [ Transition
+            resultSymbol
+            (zipWith ProductState leftChildren rightChildren)
+            (combineGuard leftGuard rightGuard)
+        | Transition leftSymbol leftChildren leftGuard <- transitionsFrom left leftState
+        , Transition rightSymbol rightChildren rightGuard <- transitionsFrom right rightState
+        , length leftChildren == length rightChildren
+        , Just resultSymbol <- [matchSymbol leftSymbol rightSymbol]
+        ]
 
 -- | Decide whether an ordinary FTA accepts a concrete term.
 accepts :: (Ord state, Eq symbol) => PlainFTA state symbol -> Term symbol -> Bool
