@@ -34,17 +34,18 @@ cabal run liquid-pairs
 
 `microlta` implements refinement-labelled recognition, Boolean guards,
 actual-for-formal position substitutions, transition-level semantic pruning,
-semantic intersection, similarity comparison, and recursive LTAs with the
-paper's acyclic-guard restriction. The pruning pass implements the paper's
-directional semantic intersection by partitioning heterogeneous states on
-their observed refinements and substitution symbols. Syntactic `Same` guards
-remain as ECTA-style constraints rather than being mistaken for an ordinary
-FTA product.
+directional semantic intersection, automaton-level `Similarity` and `Minimize`,
+and recursive LTAs with the paper's acyclic-guard restriction. The pruning pass
+partitions heterogeneous states on their observed refinements and substitution
+symbols. Similarity is inferred from a source-language subtyping relation;
+minimization removes supertype transitions and redirects incoming state edges
+to their retained subtype representatives. Syntactic `Same` guards remain as
+ECTA-style constraints rather than being mistaken for an ordinary FTA product.
 `microlta-generator` adds counting and unranking over finite acyclic LTAs,
 named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
-opt-in similarity minimisation, and explicitly bounded generation from
-recursive LTAs. It is an automata and generator library, not the Hegel
-component-based synthesizer from the paper.
+an opt-in pool adapter over the core similarity pass, and explicitly bounded
+generation from recursive LTAs. It is an automata and generator library, not
+the Hegel component-based synthesizer from the paper.
 
 See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
 FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda

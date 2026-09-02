@@ -52,6 +52,17 @@ module Data.LTA (
     Automaton,
     AutomatonError (..),
     PruneError (..),
+    TransitionId (..),
+    Subtyping (..),
+    refinementSubtypingBy,
+    Similarity,
+    SimilarityError (..),
+    similarity,
+    similarityPairs,
+    MinimizeError (..),
+    minimize,
+    ReductionError (..),
+    reduce,
     automatonInitial,
     automatonTransitions,
     mkAutomaton,
@@ -162,8 +173,9 @@ data RefinementRelation
 
 {- | Compare two refinements by asking for implication in both directions.
 
-This is the semantic comparison used by LTA intersection and similarity
-minimisation. Solver uncertainty remains explicit.
+This four-way view is useful to clients that need to inspect an ordering.
+Pruning and similarity themselves use directional entailment, matching the
+paper's judgments. Solver uncertainty remains explicit.
 -}
 refinementRelation :: Entailment -> Refinement -> Refinement -> IO RefinementRelation
 refinementRelation entailment left right = do
@@ -178,30 +190,28 @@ refinementRelation entailment left right = do
 
 -- | Result of the paper's semantic intersection on refinement transitions.
 data SemanticIntersection
-    = -- | The intersection retains this more-specific refinement.
-      MoreSpecific !Refinement
+    = -- | Entailment holds, so the antecedent transition is retained.
+      RetainedAntecedent !Refinement
     | -- | The semantic entailment constraint cannot relate the transitions.
       BottomIntersection
     | -- | The solver could not decide the required relation.
       IntersectionUnknown
     deriving (Eq, Show)
 
-{- | Intersect two refinement transitions by keeping their most-specific
-representative when one subsumes the other.
+{- | Apply the paper's directional semantic intersection to two refinements.
 
-This is the semantic-intersection rule used while pruning an LTA, not general
-logical conjunction: overlapping but incomparable predicates yield
-'BottomIntersection'.
+The first refinement is the antecedent transition at @p1@ and the second is the
+consequent at @p2@. If @p1@ entails @p2@, the operation retains @p1@; it never
+reverses the query to retain @p2@. This is Equation 4, not logical conjunction
+or a symmetric meet.
 -}
 semanticIntersection :: Entailment -> Refinement -> Refinement -> IO SemanticIntersection
-semanticIntersection entailment left right = do
-    relation <- refinementRelation entailment left right
-    pure $ case relation of
-        Equivalent -> MoreSpecific left
-        StrictSubtype -> MoreSpecific left
-        StrictSupertype -> MoreSpecific right
-        Incomparable -> BottomIntersection
-        RelationUnknown -> IntersectionUnknown
+semanticIntersection entailment antecedent consequent = do
+    verdict <- entails entailment antecedent consequent
+    pure $ case verdict of
+        Yes -> RetainedAntecedent antecedent
+        No -> BottomIntersection
+        Unknown -> IntersectionUnknown
 
 -- | Evaluate a guard against one candidate term.
 evaluateGuard :: Entailment -> Guard -> LiquidTerm -> IO Verdict
@@ -312,6 +322,246 @@ data PruneError
     | -- | Pruning exposed an invalid automaton structure.
       InvalidPrunedAutomaton !AutomatonError
     deriving (Eq, Show)
+
+{- | Stable address of a transition in one automaton snapshot.
+
+The state is the transition's target state; the ordinal is its zero-based
+position in that state's transition row. The paper writes the same target on
+the right of a bottom-up transition arrow.
+-}
+data TransitionId = TransitionId
+    { transitionTargetState :: !State
+    , transitionOrdinal :: !Int
+    }
+    deriving (Eq, Ord, Show)
+
+{- | Source-language subtyping used by the paper's @Similarity@ procedure.
+
+The callback receives the current automaton and compares the type sub-automata
+associated with two program transitions. 'refinementSubtypingBy' is the smaller
+adapter for a frontend that stores its complete type refinement on the program
+transition itself.
+-}
+newtype Subtyping = Subtyping
+    { isTransitionSubtypeOf :: Automaton -> Transition -> Transition -> IO Verdict
+    }
+
+{- | Compare transition refinements after a structural type classification.
+
+The projection supplies the non-liquid part of the type shape. Two transitions
+are comparable only when both project to the same class; 'Nothing' excludes a
+transition from similarity inference. This corresponds to the syntactic part
+of the paper's @SubType@ relation, while implication checks its refinement.
+-}
+refinementSubtypingBy ::
+    (Eq key) =>
+    Entailment ->
+    (Transition -> Maybe key) ->
+    Subtyping
+refinementSubtypingBy entailment classify =
+    Subtyping $ \_ subtype supertype ->
+        case (classify subtype, classify supertype) of
+            (Just subtypeClass, Just supertypeClass)
+                | subtypeClass == supertypeClass ->
+                    entails
+                        entailment
+                        (transitionRefinement subtype)
+                        (transitionRefinement supertype)
+            _ -> pure No
+
+-- | Directed transition pairs inferred by the paper's @Similarity@ procedure.
+newtype Similarity = Similarity
+    { unSimilarity :: [(TransitionId, TransitionId)]
+    }
+    deriving (Eq, Show)
+
+-- | A source-language subtyping query that could not be decided.
+data SimilarityError
+    = SimilarityUnknown !TransitionId !TransitionId
+    deriving (Eq, Show)
+
+{- | Infer directed @(subtype, supertype)@ transition pairs.
+
+Every unordered transition pair is considered once. If both directions hold,
+the earlier transition is the representative, making equivalence deterministic
+without introducing a cycle into the similarity set. A known direction is
+usable even if its converse is unknown; an unresolved possible direction is
+reported rather than treated as false.
+-}
+similarity :: Subtyping -> Automaton -> IO (Either SimilarityError Similarity)
+similarity subtyping automaton = go [] $ unorderedPairs $ locatedTransitions automaton
+  where
+    go related [] = pure $ Right $ Similarity $ reverse related
+    go related (((leftId, left) :&: (rightId, right)) : rest) = do
+        leftToRight <- isTransitionSubtypeOf subtyping automaton left right
+        case leftToRight of
+            Yes -> go ((leftId, rightId) : related) rest
+            No -> do
+                rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
+                case rightToLeft of
+                    Yes -> go ((rightId, leftId) : related) rest
+                    No -> go related rest
+                    Unknown -> pure $ Left $ SimilarityUnknown rightId leftId
+            Unknown -> do
+                rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
+                case rightToLeft of
+                    Yes -> go ((rightId, leftId) : related) rest
+                    No -> pure $ Left $ SimilarityUnknown leftId rightId
+                    Unknown -> pure $ Left $ SimilarityUnknown leftId rightId
+
+-- | Inspect the inferred @(subtype, supertype)@ transition pairs.
+similarityPairs :: Similarity -> [(TransitionId, TransitionId)]
+similarityPairs = unSimilarity
+
+-- | Structural failure while applying the paper's @Minimize@ procedure.
+data MinimizeError
+    = -- | The similarity set was inferred for a different transition table.
+      StaleSimilarity !TransitionId
+    | -- | A caller-provided relation contains a directed cycle.
+      CyclicSimilarity ![TransitionId]
+    | {- | A redirected target contains another surviving transition. The
+      paper's construction gives a representative transition its own target
+      state; without that invariant, redirecting the state would also discard
+      unrelated alternatives.
+      -}
+      SharedSimilarityTarget !State
+    | -- | One removed target state was assigned two different representatives.
+      ConflictingSimilarityTargets !State ![State]
+    | -- | Minimization exposed an invalid automaton structure.
+      InvalidMinimizedAutomaton !AutomatonError
+    deriving (Eq, Show)
+
+{- | Remove supertype transitions and redirect incoming state edges.
+
+This is the paper's M-Trans rule over the complete similarity set. When several
+incomparable subtypes dominate the same transition, the first inferred pair is
+the deterministic representative. Transitive dominators are resolved before
+rewriting, all removals happen together, and the automaton's initial state is
+left unchanged just as the paper leaves its final-state set unchanged.
+-}
+minimize :: Automaton -> Similarity -> Either MinimizeError Automaton
+minimize automaton (Similarity related) = do
+    mapM_ ensureCurrent $ concatMap pairMembers related
+    resolved <- traverse resolveSupertype $ Map.keys dominators
+    redirects <- buildRedirects resolved
+    first InvalidMinimizedAutomaton $
+        mkAutomaton
+            (automatonInitial automaton)
+            (Map.toList $ fmap (map $ redirectTransition redirects) retained)
+  where
+    table = automatonTransitions automaton
+    current = Map.fromList $ locatedTransitions automaton
+    dominators = foldl' rememberDominator Map.empty related
+    removed = Map.keysSet dominators
+
+    pairMembers (subtype, supertype) = [subtype, supertype]
+
+    ensureCurrent identifier
+        | Map.member identifier current = Right ()
+        | otherwise = Left $ StaleSimilarity identifier
+
+    rememberDominator known (subtype, supertype) =
+        Map.insertWith keepEarlier supertype subtype known
+
+    keepEarlier _ earlier = earlier
+
+    resolveSupertype supertype = do
+        representative <- resolve Set.empty supertype
+        pure (supertype, representative)
+
+    resolve visited identifier
+        | Set.member identifier visited =
+            Left $ CyclicSimilarity $ Set.toAscList $ Set.insert identifier visited
+        | otherwise =
+            case Map.lookup identifier dominators of
+                Nothing -> Right identifier
+                Just representative ->
+                    resolve (Set.insert identifier visited) representative
+
+    buildRedirects resolved =
+        Map.fromList <$> traverse validateRedirect grouped
+      where
+        grouped =
+            Map.toAscList $
+                Map.fromListWith
+                    Set.union
+                    [ (source, Set.singleton destination)
+                    | (supertype, representative) <- resolved
+                    , let source = transitionTargetState supertype
+                    , let destination = transitionTargetState representative
+                    , source /= destination
+                    ]
+
+        validateRedirect (source, destinations)
+            | Set.size destinations > 1 =
+                Left $ ConflictingSimilarityTargets source $ Set.toAscList destinations
+            | rowHasSurvivor source = Left $ SharedSimilarityTarget source
+            | otherwise = Right (source, Set.findMin destinations)
+
+    rowHasSurvivor state =
+        or
+            [ Set.notMember (TransitionId state ordinal) removed
+            | ordinal <- [0 .. length (Map.findWithDefault [] state table) - 1]
+            ]
+
+    retained =
+        Map.mapWithKey
+            ( \state transitions ->
+                [ transition
+                | (ordinal, transition) <- zip [0 ..] transitions
+                , Set.notMember (TransitionId state ordinal) removed
+                ]
+            )
+            table
+
+-- | Failure in the paper's prune-similarity-minimize reduction phase.
+data ReductionError
+    = ReductionPrune !PruneError
+    | ReductionSimilarity !SimilarityError
+    | ReductionMinimize !MinimizeError
+    deriving (Eq, Show)
+
+{- | Apply one complete LTA reduction phase to a static automaton.
+
+The paper interleaves transition discovery with this phase. This library leaves
+source-language exploration to a frontend, but keeps the reduction order
+itself: semantic pruning, similarity inference, then minimization.
+-}
+reduce :: Entailment -> Subtyping -> Automaton -> IO (Either ReductionError Automaton)
+reduce entailment subtyping automaton = do
+    pruned <- prune entailment automaton
+    case pruned of
+        Left err -> pure $ Left $ ReductionPrune err
+        Right reduced -> do
+            inferred <- similarity subtyping reduced
+            pure $ do
+                related <- first ReductionSimilarity inferred
+                first ReductionMinimize $ minimize reduced related
+
+-- | Rewrite every incoming edge that targeted a removed supertype state.
+redirectTransition :: Map.Map State State -> Transition -> Transition
+redirectTransition redirects transition =
+    replaceTransitionChildren
+        (map redirect $ transitionChildren transition)
+        transition
+  where
+    redirect state = Map.findWithDefault state state redirects
+
+-- | Every transition paired with its stable address, in table order.
+locatedTransitions :: Automaton -> [(TransitionId, Transition)]
+locatedTransitions automaton =
+    [ (TransitionId state ordinal, transition)
+    | (state, transitions) <- Map.toAscList $ automatonTransitions automaton
+    , (ordinal, transition) <- zip [0 ..] transitions
+    ]
+
+-- | An unordered pair without exposing a tuple nested inside the recursion pattern.
+data Pair a = a :&: a
+
+-- | Every unordered pair of distinct list elements, preserving first-seen order.
+unorderedPairs :: [a] -> [Pair a]
+unorderedPairs [] = []
+unorderedPairs (value : rest) = map (value :&:) rest <> unorderedPairs rest
 
 -- | Validate and construct an LTA, including guarded-cycle well-formedness.
 mkAutomaton :: State -> [(State, [Transition])] -> Either AutomatonError Automaton

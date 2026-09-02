@@ -53,6 +53,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.String (fromString)
 
 import Data.LTA
 import Data.LTA.Guard (GuardBuilder, buildGuard)
@@ -166,42 +167,55 @@ pool entries =
         [] -> []
 
 {- | Retain the most specific semantic representatives in each similarity
-class, following the LTA paper's similarity minimisation rule.
+class through the core LTA @Similarity@ and @Minimize@ procedures.
 
-The projection defines which values are candidates for merging. Within one
-class, a strict subtype replaces its supertype; equivalent refinements keep the
-earlier entry. Incomparable entries are all retained. This operation is opt-in:
-ordinary QuickCheck pools should keep syntactically distinct values when broad
-coverage matters more than semantic representative reduction.
+The pool is represented as a one-state LTA whose transition refinements are the
+entry annotations. The projection supplies the non-liquid type class used by
+'refinementSubtypingBy'. Within one class, a subtype replaces its supertype;
+equivalent refinements keep the earlier entry. Incomparable entries remain.
+This operation is opt-in: ordinary QuickCheck pools should keep syntactically
+distinct values when broad coverage matters more than semantic representatives.
 -}
 minimizePoolBy ::
-    (Ord key) =>
+    (Eq key) =>
     Entailment ->
     (a -> key) ->
     [Refined a] ->
     IO (Either GeneratorError (LTAGen a))
 minimizePoolBy _ _ [] = pure $ Left EmptyGenerator
-minimizePoolBy entailment similarityKey entries = do
-    survivors <- traverse survives $ zip [0 :: Int ..] entries
-    pure $ pool . map snd . filter fst <$> sequence survivors
+minimizePoolBy entailment similarityKey entries =
+    case mkAutomaton poolState [(poolState, poolTransitions)] of
+        Left err -> pure $ Left $ InvalidSupport err
+        Right automaton -> do
+            inferred <- similarity (refinementSubtypingBy entailment classify) automaton
+            pure $ do
+                related <- first InvalidSimilarity inferred
+                reduced <- first InvalidMinimization $ minimize automaton related
+                let retained =
+                        Set.fromList
+                            [ transitionSymbol transition
+                            | transition <- Map.findWithDefault [] poolState $ automatonTransitions reduced
+                            ]
+                pure . pool $
+                    [ entry
+                    | (symbol, entry) <- zip poolSymbols entries
+                    , Set.member symbol retained
+                    ]
   where
-    survives indexed@(_, entry) = do
-        dominated <- traverse (dominates indexed) $ zip [0 :: Int ..] entries
-        pure $ do
-            decisions <- sequence dominated
-            pure (not $ or decisions, entry)
+    poolState = State 0
+    poolSymbols = map poolSymbol [0 :: Int .. length entries - 1]
+    poolTransitions =
+        [ Transition symbol refinement [] Top
+        | (symbol, Refined _ _ refinement) <- zip poolSymbols entries
+        ]
+    classes =
+        Map.fromList
+            [ (symbol, similarityKey value)
+            | (symbol, Refined value _ _) <- zip poolSymbols entries
+            ]
+    classify transition = Map.lookup (transitionSymbol transition) classes
 
-    dominates (index, Refined value _ refinement) (candidateIndex, Refined candidate _ candidateRefinement)
-        | index == candidateIndex = pure $ Right False
-        | similarityKey value /= similarityKey candidate = pure $ Right False
-        | otherwise = do
-            relation <- refinementRelation entailment candidateRefinement refinement
-            pure $ case relation of
-                StrictSubtype -> Right True
-                Equivalent -> Right (candidateIndex < index)
-                StrictSupertype -> Right False
-                Incomparable -> Right False
-                RelationUnknown -> Left SolverUnknown
+    poolSymbol index = fromString $ "__microlta_pool_" <> show index
 
 -- | Build a singleton refined leaf.
 leaf :: a -> Symbol -> Refinement -> LTAGen a
@@ -492,6 +506,8 @@ data GeneratorError
     | SolverUnknown
     | InvalidSupport !AutomatonError
     | InvalidPruning !PruneError
+    | InvalidSimilarity !SimilarityError
+    | InvalidMinimization !MinimizeError
     | ResidualGuard !State !Guard
     | RecursiveAutomaton
     | AmbiguousAutomaton !State

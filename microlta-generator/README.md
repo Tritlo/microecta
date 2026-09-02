@@ -429,19 +429,22 @@ Weights influence sampling but do not duplicate replay ranks. Transition
 refinements are part of the support alphabet, so replay cannot invent a new
 annotation for an existing constructor.
 
-Similarity minimisation is separate and opt-in because dropping a syntactically
-different value is often the wrong trade-off for testing. Declare the
-similarity class when semantic representatives are what you want:
+Similarity minimisation remains separate and opt-in because dropping a
+syntactically different value is often the wrong trade-off for testing. Declare
+the non-liquid type class when semantic representatives are what you want:
 
 ```haskell
 Right representatives <-
   LTA.minimizePoolBy solver operationKind candidates
 ```
 
-Within each class, a strict subtype replaces its supertype, equivalent entries
-keep the earlier rank, and incomparable entries remain. This mirrors the LTA
-paper's minimisation rule without silently reducing ordinary QuickCheck
-coverage.
+`minimizePoolBy` represents the entries as a one-state LTA, invokes the core
+`similarity` and `minimize` procedures, then turns the retained transitions back
+into a pool. Within each class, a subtype replaces its supertype, equivalent
+entries keep the earlier rank, and incomparable entries remain. The generator
+therefore does not carry a second imitation of LTA minimization; it is an
+adapter over the automaton operation. Ordinary pools are never reduced
+implicitly.
 
 ## Recursive LTAs
 

@@ -4,7 +4,8 @@ version: 0.1.0.0
 synopsis: Small liquid tree automata core
 description:
   Liquid tree automata with refinement-labelled transitions, position
-  substitutions, recursive-state validation, and Z3 entailment.
+  substitutions, semantic pruning and minimization, recursive-state validation,
+  and Z3 entailment.
 
 homepage: https://github.com/Tritlo/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
@@ -80,6 +81,7 @@ test-suite unit-tests
 
   build-depends:
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     hspec >=2.11 && <2.12,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microlta,

@@ -4,7 +4,7 @@ version: 0.1.0.0
 synopsis: Finite generators backed by liquid tree automata
 description:
   Qualified-do LTA generators with frozen pools, semantic pruning and
-  shrinking, similarity minimisation, bounded recursion, and exact replay.
+  shrinking, core-backed pool minimisation, bounded recursion, and exact replay.
 
 homepage: https://github.com/Tritlo/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues

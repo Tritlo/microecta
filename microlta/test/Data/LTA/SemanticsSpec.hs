@@ -2,24 +2,37 @@ module Data.LTA.SemanticsSpec (spec) where
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
+import qualified Data.Map.Strict as Map
+
 import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment,
     Guard (Entails, Satisfies, Substitute, Top),
     LiquidTerm (LiquidTerm),
+    MinimizeError (SharedSimilarityTarget),
     RefinementRelation (..),
     SemanticIntersection (..),
     State (State),
     Substitution (Substitution),
+    Subtyping,
     Transition,
+    TransitionId (TransitionId),
     Verdict (Yes),
     accepts,
+    automatonTransitions,
+    minimize,
     mkAutomaton,
     path,
     prune,
+    reduce,
     refinementRelation,
+    refinementSubtypingBy,
     semanticIntersection,
+    similarity,
+    similarityPairs,
+    transitionChildren,
+    transitionSymbol,
     pattern Transition,
  )
 import Data.LTA.LiquidFixpoint (withZ3)
@@ -47,11 +60,17 @@ spec =
                 refinementRelation solver (value .>=. (0 :: Int)) (value ./=. (0 :: Int))
                     >>= (`shouldBe` Incomparable)
 
-        it "keeps the more-specific transition during semantic intersection" $
+        it "retains the antecedent when semantic intersection succeeds" $
             withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
                 let exactZero = value .==. (0 :: Int)
                 semanticIntersection solver exactZero (value .>=. (0 :: Int))
-                    >>= (`shouldBe` MoreSpecific exactZero)
+                    >>= (`shouldBe` RetainedAntecedent exactZero)
+
+        it "does not reverse a directional semantic intersection" $
+            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
+                let exactZero = value .==. (0 :: Int)
+                semanticIntersection solver (value .>=. (0 :: Int)) exactZero
+                    >>= (`shouldBe` BottomIntersection)
 
         it "reduces incomparable semantic transitions to bottom" $
             withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
@@ -69,6 +88,53 @@ spec =
         it "partitions substitution positions by their value-naming symbol" $
             withZ3 declarations $ \solver ->
                 checkPrunedLanguage solver substitutedOutputs substitutionTerms 2
+
+        it "infers transition similarity and removes the supertype" $
+            withZ3 declarations $ \solver ->
+                case similarAtoms of
+                    Left err -> expectationFailure $ show err
+                    Right automaton -> do
+                        inferred <- similarity (atomSubtyping solver) automaton
+                        case inferred of
+                            Left err -> expectationFailure $ show err
+                            Right related -> do
+                                similarityPairs related
+                                    `shouldBe` [(TransitionId (State 0) 1, TransitionId (State 0) 0)]
+                                case minimize automaton related of
+                                    Left err -> expectationFailure $ show err
+                                    Right reduced ->
+                                        map
+                                            transitionSymbol
+                                            (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
+                                            `shouldBe` ["natural"]
+
+        it "redirects incoming edges to the retained subtype target" $
+            withZ3 declarations $ \solver ->
+                case separatedSimilarAtoms of
+                    Left err -> expectationFailure $ show err
+                    Right automaton -> do
+                        reducedResult <- reduce solver (atomSubtyping solver) automaton
+                        case reducedResult of
+                            Left err -> expectationFailure $ show err
+                            Right reduced -> do
+                                map
+                                    transitionChildren
+                                    (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
+                                    `shouldBe` [[State 1], [State 1]]
+                                Map.findWithDefault [] (State 2) (automatonTransitions reduced)
+                                    `shouldBe` []
+
+        it "rejects redirection from a state with unrelated alternatives" $
+            withZ3 declarations $ \solver ->
+                case sharedSupertypeState of
+                    Left err -> expectationFailure $ show err
+                    Right automaton -> do
+                        inferred <- similarity (atomSubtyping solver) automaton
+                        case inferred of
+                            Left err -> expectationFailure $ show err
+                            Right related ->
+                                minimize automaton related
+                                    `shouldBe` Left (SharedSimilarityTarget $ State 2)
 
 -- | Compare recognition before and after pruning, including the expected accepted count.
 checkPrunedLanguage ::
@@ -211,3 +277,63 @@ declarations =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
     | name <- ["v", "x", "y", "n"] :: [String]
     ]
+
+-- | Similarity for integer atom transitions; structural nodes are excluded.
+atomSubtyping :: Entailment -> Subtyping
+atomSubtyping solver = refinementSubtypingBy solver classify
+  where
+    classify transition
+        | transitionSymbol transition `elem` ["unknown", "natural"] = Just ("integer" :: String)
+        | otherwise = Nothing
+
+-- | Two refinements sharing one target state, as in an alternative row.
+similarAtoms :: Either AutomatonError Automaton
+similarAtoms =
+    mkAutomaton
+        (State 0)
+        [
+            ( State 0
+            ,
+                [ Transition "unknown" Fixpoint.PTrue [] Top
+                , Transition "natural" (value .>=. (0 :: Int)) [] Top
+                ]
+            )
+        ]
+
+-- | Paper-style representatives with one target state per program transition.
+separatedSimilarAtoms :: Either AutomatonError Automaton
+separatedSimilarAtoms =
+    mkAutomaton
+        (State 0)
+        [
+            ( State 0
+            ,
+                [ Transition "specific-box" Fixpoint.PTrue [State 1] Top
+                , Transition "general-box" Fixpoint.PTrue [State 2] Top
+                ]
+            )
+        , (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] Top])
+        , (State 2, [Transition "unknown" Fixpoint.PTrue [] Top])
+        ]
+
+-- | Invalid minimization shape: the supertype target also owns another term.
+sharedSupertypeState :: Either AutomatonError Automaton
+sharedSupertypeState =
+    mkAutomaton
+        (State 0)
+        [
+            ( State 0
+            ,
+                [ Transition "specific-box" Fixpoint.PTrue [State 1] Top
+                , Transition "general-box" Fixpoint.PTrue [State 2] Top
+                ]
+            )
+        , (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] Top])
+        ,
+            ( State 2
+            ,
+                [ Transition "unknown" Fixpoint.PTrue [] Top
+                , Transition "other" Fixpoint.PTrue [] Top
+                ]
+            )
+        ]
