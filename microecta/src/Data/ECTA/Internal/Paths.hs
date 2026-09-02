@@ -218,9 +218,102 @@ pathTrieHasAtLeastTwoPaths = go False
     pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
     pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
 
+-- | A pending sibling branch and the path depth at which it diverges.
+data PathTrieChoice = PathTrieChoice !Int ![(Int, PathTrie)]
+
 -- | Order tries by the lexicographic list of paths they represent.
 instance Ord PathTrie where
-    compare = compare `on` fromPathTrie
+    compare = comparePathTries
+
+-- | Compare two tries without materialising their path lists.
+comparePathTries :: PathTrie -> PathTrie -> Ordering
+comparePathTries EmptyPathTrie EmptyPathTrie = EQ
+comparePathTries EmptyPathTrie _ = LT
+comparePathTries _ EmptyPathTrie = GT
+comparePathTries left right = comparePathTrieBranches 0 [] left [] right
+
+-- | Compare the suffixes of two paths whose prefixes are equal.
+comparePathTrieBranches :: Int -> [PathTrieChoice] -> PathTrie -> [PathTrieChoice] -> PathTrie -> Ordering
+comparePathTrieBranches _ _ EmptyPathTrie _ _ =
+    error "comparePathTries: invalid empty child"
+comparePathTrieBranches _ _ _ _ EmptyPathTrie =
+    error "comparePathTries: invalid empty child"
+comparePathTrieBranches _ choices1 TerminalPathTrie choices2 TerminalPathTrie =
+    comparePathTrieChoices choices1 choices2
+comparePathTrieBranches _ _ TerminalPathTrie _ _ = LT
+comparePathTrieBranches _ _ _ _ TerminalPathTrie = GT
+comparePathTrieBranches depth choices1 (PathTrieSingleChild i1 pt1) choices2 (PathTrieSingleChild i2 pt2) =
+    case compare i1 i2 of
+        EQ -> comparePathTrieBranches (depth + 1) choices1 pt1 choices2 pt2
+        result -> result
+comparePathTrieBranches _ _ (PathTrieSingleChild _ _) _ (PathTrie []) =
+    error "comparePathTries: invalid empty child list"
+comparePathTrieBranches depth choices1 (PathTrieSingleChild i1 pt1) choices2 (PathTrie ((i2, pt2) : rest2)) =
+    case compare i1 i2 of
+        EQ ->
+            comparePathTrieBranches
+                (depth + 1)
+                choices1
+                pt1
+                (rememberPathTrieChoice depth rest2 choices2)
+                pt2
+        result -> result
+comparePathTrieBranches _ _ (PathTrie []) _ _ =
+    error "comparePathTries: invalid empty child list"
+comparePathTrieBranches depth choices1 (PathTrie ((i1, pt1) : rest1)) choices2 (PathTrieSingleChild i2 pt2) =
+    case compare i1 i2 of
+        EQ ->
+            comparePathTrieBranches
+                (depth + 1)
+                (rememberPathTrieChoice depth rest1 choices1)
+                pt1
+                choices2
+                pt2
+        result -> result
+comparePathTrieBranches _ _ _ _ (PathTrie []) =
+    error "comparePathTries: invalid empty child list"
+comparePathTrieBranches depth choices1 (PathTrie ((i1, pt1) : rest1)) choices2 (PathTrie ((i2, pt2) : rest2)) =
+    case compare i1 i2 of
+        EQ ->
+            comparePathTrieBranches
+                (depth + 1)
+                (rememberPathTrieChoice depth rest1 choices1)
+                pt1
+                (rememberPathTrieChoice depth rest2 choices2)
+                pt2
+        result -> result
+
+{- | Compare the next paths after two equal paths have ended.
+
+A choice at greater depth keeps more of the common path, so it sorts before a
+choice that changes an earlier component. This is the case the legacy
+structural comparator handled incorrectly.
+-}
+comparePathTrieChoices :: [PathTrieChoice] -> [PathTrieChoice] -> Ordering
+comparePathTrieChoices [] [] = EQ
+comparePathTrieChoices [] _ = LT
+comparePathTrieChoices _ [] = GT
+comparePathTrieChoices (PathTrieChoice _ [] : _) _ =
+    error "comparePathTries: invalid empty choice"
+comparePathTrieChoices _ (PathTrieChoice _ [] : _) =
+    error "comparePathTries: invalid empty choice"
+comparePathTrieChoices (PathTrieChoice depth1 ((i1, pt1) : rest1) : outer1) (PathTrieChoice depth2 ((i2, pt2) : rest2) : outer2) =
+    case compare depth2 depth1 of
+        EQ -> case compare i1 i2 of
+            EQ ->
+                comparePathTrieBranches
+                    (depth1 + 1)
+                    (rememberPathTrieChoice depth1 rest1 outer1)
+                    pt1
+                    (rememberPathTrieChoice depth2 rest2 outer2)
+                    pt2
+            result -> result
+        result -> result
+
+-- | Retain a non-empty sibling list as a future traversal choice.
+rememberPathTrieChoice :: Int -> [(Int, PathTrie)] -> [PathTrieChoice] -> [PathTrieChoice]
+rememberPathTrieChoice _ [] choices = choices
+rememberPathTrieChoice depth siblings choices = PathTrieChoice depth siblings : choices
 
 {- | Build a trie from a set of paths.
 
