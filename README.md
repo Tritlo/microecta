@@ -38,11 +38,13 @@ cabal build all -j1
 cabal test all -j1
 ```
 
-The examples in the two entry-point modules are executable. Run them with
+The examples in the public entry-point modules are executable. Run them with
 [`doctest`](https://hackage.haskell.org/package/doctest):
 
 ```sh
 cabal install doctest
 cabal repl --with-repl=doctest lib:microecta
 cabal repl --with-repl=doctest lib:microecta-generator
+cabal repl --with-repl=doctest lib:microlta
+cabal repl --with-repl=doctest lib:microlta-generator
 ```

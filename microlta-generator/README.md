@@ -66,6 +66,18 @@ to the current finite compiler before its guards reject any of them. Larger
 languages will eventually need symbolic or incremental compilation rather than
 enumerating that Cartesian product.
 
+For replay across process runs, fix each pool with a seed, just as in
+`microecta-generator`:
+
+```haskell
+lefts  = LTA.freeze 20260902 32 nativeRefinedInt
+rights = LTA.freeze 20260903 8  nativeRefinedInt
+```
+
+The same seed, size, and native generator produce the same pool ranks. Reuse a
+single frozen value at several child positions when they should range over one
+shared universe; use distinct seeds for independent pools.
+
 ## Refinement shrinking and pools
 
 A refined pool contributes potential local replacements. Compilation asks Z3

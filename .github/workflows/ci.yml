@@ -56,6 +56,8 @@ jobs:
         run: |
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
+          (cd microlta && cabal check)
+          (cd microlta-generator && cabal check)
 
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
@@ -80,6 +82,14 @@ jobs:
             --install-method=copy --installdir="$HOME/.local/bin"
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta-generator
+
+      - name: Test the Liquid Tree Automata example
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
+          cabal v2-run liquid-pairs
 
       - name: Validate release artifacts
         run: |

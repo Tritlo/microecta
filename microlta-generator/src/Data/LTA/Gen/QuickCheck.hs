@@ -3,6 +3,7 @@ module Data.LTA.Gen.QuickCheck (
     module Data.LTA.Gen,
     module Data.LTA.Gen.Do,
     samplePool,
+    freeze,
     compileSampled,
     toGen,
     toGenWithRank,
@@ -10,6 +11,8 @@ module Data.LTA.Gen.QuickCheck (
 ) where
 
 import qualified Test.QuickCheck as QC
+import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import Prelude hiding ((>>=))
 import qualified Prelude
 
@@ -27,6 +30,16 @@ refinement implication determines shrinking when the language is compiled.
 samplePool :: Int -> QC.Gen (Refined a) -> QC.Gen (LTAGen a)
 samplePool sampleCount native =
     pool <$> QC.vectorOf (max 0 sampleCount) native
+
+{- | 'samplePool' with the draws fixed by a seed.
+
+The native generator is run once at QuickCheck size 30, matching
+'QC.generate'. The resulting pool has the same members and ranks in every run
+under the same seed. Use 'QC.resize' on the native generator for another size.
+-}
+freeze :: Int -> Int -> QC.Gen (Refined a) -> LTAGen a
+freeze seed sampleCount native =
+    unGen (samplePool sampleCount native) (mkQCGen seed) 30
 
 {- | Freeze every sampled pool once, then compile the resulting language.
 

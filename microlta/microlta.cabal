@@ -51,7 +51,7 @@ library
 
   build-depends:
     base >=4.21 && <5,
-    containers >=0.7 && <0.8,
+    containers >=0.7 && <0.9,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microecta >=0.2.0.0 && <0.3,
     mtl >=2.3 && <2.4,
