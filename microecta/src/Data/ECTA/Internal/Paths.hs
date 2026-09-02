@@ -57,11 +57,6 @@ import Utility.Fixpoint
 --------------------------- Misc / general ----------------------------
 -----------------------------------------------------------------------
 
-flipOrdering :: Ordering -> Ordering
-flipOrdering GT = LT
-flipOrdering LT = GT
-flipOrdering EQ = EQ
-
 -----------------------------------------------------------------------
 -------------------------------- Paths --------------------------------
 -----------------------------------------------------------------------
@@ -223,42 +218,9 @@ pathTrieHasAtLeastTwoPaths = go False
     pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
     pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
 
--- | Compare sparse child lists as if they were dense vectors with empty cells.
-comparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
-comparePathTrieChildren [] [] = EQ
-comparePathTrieChildren [] _ = LT
-comparePathTrieChildren _ [] = GT
-comparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
-    case compare i1 i2 of
-        LT -> LT
-        GT -> GT
-        EQ -> case compare pt1 pt2 of
-            EQ -> comparePathTrieChildren rest1 rest2
-            res -> res
-
+-- | Order tries by the lexicographic list of paths they represent.
 instance Ord PathTrie where
-    compare EmptyPathTrie EmptyPathTrie = EQ
-    compare EmptyPathTrie _ = LT
-    compare _ EmptyPathTrie = GT
-    compare TerminalPathTrie TerminalPathTrie = EQ
-    compare TerminalPathTrie _ = LT
-    compare _ TerminalPathTrie = GT
-    compare (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2)
-        | i1 < i2 = LT
-        | i1 > i2 = GT
-        | otherwise = compare pt1 pt2
-    compare (PathTrieSingleChild i1 pt1) (PathTrie ((i2, pt2) : _)) =
-        case compare i1 i2 of
-            LT -> LT
-            GT -> GT
-            EQ -> case compare pt1 pt2 of
-                LT -> LT
-                GT -> GT
-                EQ -> LT -- children2 must have a second nonempty
-    compare (PathTrieSingleChild _ _) (PathTrie []) =
-        error "compare: invalid empty PathTrie children"
-    compare a@(PathTrie _) b@(PathTrieSingleChild _ _) = flipOrdering $ compare b a
-    compare (PathTrie children1) (PathTrie children2) = comparePathTrieChildren children1 children2
+    compare = compare `on` fromPathTrie
 
 {- | Build a trie from a set of paths.
 

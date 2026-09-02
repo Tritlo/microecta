@@ -86,6 +86,11 @@ spec = do
                     compare (toPathTrie $ nub ps1) (toPathTrie $ nub ps2)
                         == compare (sort $ nub ps1) (sort $ nub ps2)
 
+        it "compares a later sibling before a deeper child" $ do
+            let left = toPathTrie [path [0, 1], path [0, 2]]
+                right = toPathTrie [path [0, 1], path [1]]
+            compare left right `shouldBe` LT
+
         it "PathTrie-based hasSubsumingMember same as list-based implementation" $ do
             property $ \pt1 pt2 ->
                 let pec1 = PathEClass (fromPathTrie pt1)
