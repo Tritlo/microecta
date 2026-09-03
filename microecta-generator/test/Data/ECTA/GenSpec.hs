@@ -3,10 +3,11 @@
 
 module Data.ECTA.GenSpec (spec) where
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Data.String (fromString)
-import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
+import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldReturn, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
@@ -211,6 +212,37 @@ spec = do
         it "relates different key types against the declared predicate" $ do
             ECTAGen.cardinality relatedAccess `shouldBe` Right 5
             ECTAGen.pmf relatedAccess `shouldBe` Right expectedAccessPmf
+
+        it "evaluates an effectful relation once per live key pair" $ do
+            calls <- newIORef (0 :: Int)
+            related <-
+                ECTAGen.relateM
+                    even
+                    even
+                    ( \leftKey rightKey -> do
+                        modifyIORef' calls (+ 1)
+                        pure (Right (leftKey == rightKey) :: Either () Bool)
+                    )
+                    (ECTAGen.elements [0 .. 3 :: Int])
+                    (ECTAGen.elements [10 .. 13 :: Int])
+            readIORef calls `shouldReturn` 4
+            fmap ECTAGen.cardinality related `shouldBe` Right (Right 8)
+
+        it "evaluates an n-ary relation once per live key tuple" $ do
+            calls <- newIORef (0 :: Int)
+            related <-
+                ECTAGen.relateN
+                    ( \keys -> do
+                        modifyIORef' calls (+ 1)
+                        pure (Right (and $ zipWith (==) keys $ drop 1 keys) :: Either () Bool)
+                    )
+                    [ ECTAGen.groupBy even $ ECTAGen.elements [0 .. 3 :: Int]
+                    , ECTAGen.groupBy even $ ECTAGen.elements [10 .. 13 :: Int]
+                    , ECTAGen.groupBy even $ ECTAGen.elements [20 .. 23 :: Int]
+                    ]
+            readIORef calls `shouldReturn` 8
+            fmap (ECTAGen.cardinality . ECTAGen.ungroup) related
+                `shouldBe` Right (Right 16)
 
         it "preserves and conditions source weights across related groups" $
             ECTAGen.pmf

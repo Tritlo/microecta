@@ -67,6 +67,7 @@ module Data.ECTA.Gen.QuickCheck (
     On (..),
     match,
     relate,
+    relateM,
 
     -- * The grouped layer
     Sig (..),
@@ -82,6 +83,9 @@ module Data.ECTA.Gen.QuickCheck (
     oneofGrouped,
     uniformlyGrouped,
     ungroup,
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
 
     -- * Recursion
     atomic,
@@ -191,6 +195,43 @@ type ECTAGen = ECTA.ECTAGen QuickCheckBackend
 
 -- | An ECTA generator classified by a projected key used to match ECTA paths.
 type Grouped key = ECTA.Grouped QuickCheckBackend key
+
+-- | Compile an effectful relation once per live projected key pair.
+relateM ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    ECTAGen left ->
+    ECTAGen right ->
+    IO (Either relationError (ECTAGen (left, right)))
+relateM = ECTA.relateM
+
+-- | Compile an effectful relation over two already-grouped languages.
+relateGroupsM ::
+    (Ord resultKey) =>
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    (leftKey -> rightKey -> resultKey) ->
+    Grouped leftKey left ->
+    Grouped rightKey right ->
+    IO (Either relationError (Grouped resultKey (left, right)))
+relateGroupsM = ECTA.relateGroupsM
+
+-- | Compile one relation over a homogeneous list of grouped arguments.
+relateN ::
+    (Ord key) =>
+    ([key] -> IO (Either relationError Bool)) ->
+    [Grouped key a] ->
+    IO (Either relationError (Grouped [key] [a]))
+relateN = ECTA.relateN
+
+-- | Select already-grouped languages with one effectful decision per key.
+filterGroupsM ::
+    (Ord key) =>
+    (key -> IO (Either relationError Bool)) ->
+    Grouped key a ->
+    IO (Either relationError (Grouped key a))
+filterGroupsM = ECTA.filterGroupsM
 
 -- | Lift one finite indexed source into transparent ECTA structure.
 fromIndexed :: Indexed a -> ECTAGen a

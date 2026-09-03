@@ -110,6 +110,15 @@ An opaque input uses rejection filtering. `match` remains the shorter and
 faster operation for equality because it intersects the two key maps without
 testing their Cartesian product.
 
+`relateM` is the compile-time, effectful form for finite transparent inputs.
+It groups each input once, invokes the callback once per live key pair, and
+then uses the same equality join. `relateGroupsM` starts from already grouped
+languages and therefore never enumerates their members; this is the boundary
+used by the LTA compiler to turn solver-approved refinement tuples into a pure
+ECTA rank plan. `relateN` generalizes that operation to homogeneous n-ary key
+tuples, and `filterGroupsM` performs an effectful selection over an existing
+key space without visiting the members below each key.
+
 `Grouped key a` is the explicit grouping-preserving path for nested or very
 large languages. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
