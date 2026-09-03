@@ -2,7 +2,13 @@ module Data.LTA.SubstitutionSpec (spec) where
 
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.LTA (Entailment (Entailment), Guard, LiquidTerm (LiquidTerm), Verdict (..), evaluateGuard)
+import Data.LTA (
+    Entailment (Entailment),
+    LiquidConstraint,
+    LiquidTerm (LiquidTerm),
+    Verdict (..),
+    evaluateConstraint,
+ )
 import Data.LTA.Guard (buildGuard, isSubtypeOf, withActualFor, withActualsFor)
 import Data.LTA.Refinement (true, (.==.))
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -14,7 +20,7 @@ equalityEntailment = Entailment $ \antecedent consequent ->
 variable :: String -> Fixpoint.Expr
 variable = Fixpoint.EVar . Fixpoint.symbol
 
-dependentGuard :: Guard
+dependentGuard :: LiquidConstraint
 dependentGuard =
     buildGuard $ \resultType functionOutput actual formal ->
         withActualFor actual formal $
@@ -35,7 +41,7 @@ spec =
                         , LiquidTerm "x" true []
                         , LiquidTerm "n" true []
                         ]
-            evaluateGuard equalityEntailment dependentGuard term >>= (`shouldBe` Yes)
+            evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` Yes)
 
         it "keeps different actual arguments distinct" $ do
             let expected = variable "v" .==. variable "y"
@@ -49,7 +55,7 @@ spec =
                         , LiquidTerm "x" true []
                         , LiquidTerm "n" true []
                         ]
-            evaluateGuard equalityEntailment dependentGuard term >>= (`shouldBe` No)
+            evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` No)
 
         it "substitutes several actual arguments in one dependent result" $ do
             let expected = variable "v" .==. Fixpoint.EBin Fixpoint.Plus (variable "x") (variable "y")
@@ -70,4 +76,4 @@ spec =
                         , LiquidTerm "y" true []
                         , LiquidTerm "m" true []
                         ]
-            evaluateGuard equalityEntailment guard term >>= (`shouldBe` Yes)
+            evaluateConstraint equalityEntailment guard term >>= (`shouldBe` Yes)

@@ -99,7 +99,7 @@ safeDivision =
     denominator <- integers
     LTA.pure (Divide numerator denominator)
 
-divisionGuard :: Position -> Position -> Guard
+divisionGuard :: Position -> Position -> LiquidConstraint
 divisionGuard _ denominator = denominator `requires` nonZero
 ```
 

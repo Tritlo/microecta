@@ -24,10 +24,15 @@ module Data.LTA.Guard (
 ) where
 
 import Data.LTA (
-    Guard (And, Entails, Not, Or, Same, Satisfies, Substitute, Top),
+    Guard (Entails, Not, Or, Same, Satisfies, Substitute),
+    LiquidConstraint (constraintGuard),
     Refinement,
     Substitution (Substitution),
+    combineConstraints,
+    constraintAsGuard,
     path,
+    semanticConstraint,
+    unconstrainedConstraint,
  )
 import Numeric.Natural (Natural)
 
@@ -39,10 +44,10 @@ root :: Position
 root = Position []
 
 -- | A transition with no liquid constraint.
-unconstrained :: Guard
-unconstrained = Top
+unconstrained :: LiquidConstraint
+unconstrained = unconstrainedConstraint
 
-{- | A guard or a function over consecutive constructor arguments.
+{- | A constraint or a function over consecutive constructor arguments.
 
 For example, @\actual expected -> actual `isSubtypeOf` expected@ receives
 arguments zero and one without exposing those indices at the call site.
@@ -51,17 +56,20 @@ class GuardBuilder guard where
     {- | Build a guard starting at the supplied argument index.
     Most callers should use 'buildGuard'.
     -}
-    buildGuardFrom :: Natural -> guard -> Guard
+    buildGuardFrom :: Natural -> guard -> LiquidConstraint
+
+instance GuardBuilder LiquidConstraint where
+    buildGuardFrom _ = id
 
 instance GuardBuilder Guard where
-    buildGuardFrom _ = id
+    buildGuardFrom _ = semanticConstraint
 
 instance (GuardBuilder guard) => GuardBuilder (Position -> guard) where
     buildGuardFrom index continue =
         buildGuardFrom (index + 1) (continue $ argument index)
 
--- | Turn a raw or argument-building guard into a concrete LTA guard.
-buildGuard :: (GuardBuilder guard) => guard -> Guard
+-- | Turn a raw or argument-building guard into a concrete LTA constraint.
+buildGuard :: (GuardBuilder guard) => guard -> LiquidConstraint
 buildGuard = buildGuardFrom 0
 
 -- | Select a zero-based constructor argument.
@@ -77,32 +85,40 @@ descendant (Position prefix) suffix = Position (prefix <> suffix)
 For a division node, for example, @denominator `requires` nonZero@ states the
 precondition directly; it does not need a synthetic predicate child.
 -}
-requires :: Position -> Refinement -> Guard
-requires (Position target) = Satisfies (path $ map fromIntegral target)
+requires :: Position -> Refinement -> LiquidConstraint
+requires (Position target) refinement =
+    semanticConstraint $ Satisfies (path $ map fromIntegral target) refinement
 
 -- | Require the left position's refinement to be a subtype of the right one.
-isSubtypeOf :: Position -> Position -> Guard
+isSubtypeOf :: Position -> Position -> LiquidConstraint
 isSubtypeOf (Position subtype) (Position supertype) =
-    Entails
-        (path $ map fromIntegral subtype)
-        (path $ map fromIntegral supertype)
+    semanticConstraint $
+        Entails
+            (path $ map fromIntegral subtype)
+            (path $ map fromIntegral supertype)
 
--- | Require both positions to contain the same unrefined term.
-isSameTermAs :: Position -> Position -> Guard
+-- | Require both positions to contain the same annotated LTA term.
+isSameTermAs :: Position -> Position -> LiquidConstraint
 isSameTermAs (Position left) (Position right) =
-    Same (path $ map fromIntegral left) (path $ map fromIntegral right)
+    semanticConstraint $
+        Same
+            (path $ map fromIntegral left)
+            (path $ map fromIntegral right)
 
 {- | Check a guard after substituting the actual position's symbol for the
 formal position's symbol in every refinement predicate. The evaluator also
 assumes that symbol satisfies the refinement carried by the actual subtree.
 -}
-withActualFor :: Position -> Position -> Guard -> Guard
+withActualFor :: Position -> Position -> LiquidConstraint -> LiquidConstraint
 withActualFor actual formal = withActualsFor [(actual, formal)]
 
 -- | Apply several actual-for-formal substitutions to one semantic guard.
-withActualsFor :: [(Position, Position)] -> Guard -> Guard
-withActualsFor substitutions =
-    Substitute $ map substitution substitutions
+withActualsFor :: [(Position, Position)] -> LiquidConstraint -> LiquidConstraint
+withActualsFor substitutions constraint =
+    constraint
+        { constraintGuard =
+            Substitute (map substitution substitutions) $ constraintGuard constraint
+        }
   where
     substitution (Position actual, Position formal) =
         Substitution
@@ -110,21 +126,21 @@ withActualsFor substitutions =
             (path $ map fromIntegral formal)
 
 -- | Conjoin a collection of guard requirements.
-allOf :: [Guard] -> Guard
-allOf = And
+allOf :: [LiquidConstraint] -> LiquidConstraint
+allOf = foldr combineConstraints unconstrainedConstraint
 
--- | Accept when at least one guard requirement holds.
-anyOf :: [Guard] -> Guard
-anyOf = Or
+-- | Accept when at least one complete LTA constraint holds.
+anyOf :: [LiquidConstraint] -> LiquidConstraint
+anyOf = semanticConstraint . Or . map constraintAsGuard
 
--- | Negate one guard requirement.
-notGuard :: Guard -> Guard
-notGuard = Not
+-- | Negate one complete LTA constraint, including syntactic equality.
+notGuard :: LiquidConstraint -> LiquidConstraint
+notGuard = semanticConstraint . Not . constraintAsGuard
 
 -- | Require the refinement at the left position to imply the right one.
-refines :: Position -> Position -> Guard
+refines :: Position -> Position -> LiquidConstraint
 refines = isSubtypeOf
 
--- | Require both positions to contain the same unrefined term.
-sameAs :: Position -> Position -> Guard
+-- | Require both positions to contain the same annotated LTA term.
+sameAs :: Position -> Position -> LiquidConstraint
 sameAs = isSameTermAs

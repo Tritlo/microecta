@@ -6,13 +6,15 @@ import Data.LTA (
     Automaton,
     AutomatonError (CyclicGuardReference),
     Entailment (Entailment),
-    Guard (Satisfies, Top),
+    Guard (Satisfies),
     LiquidTerm (LiquidTerm),
     State (State),
     Verdict (Yes),
     accepts,
     mkAutomaton,
     path,
+    semanticConstraint,
+    unconstrainedConstraint,
     pattern Transition,
  )
 import Data.LTA.Refinement (true)
@@ -27,11 +29,11 @@ recursiveLists =
         [
             ( State 0
             ,
-                [ Transition "nil" true [] Top
-                , Transition "cons" true [State 1, State 0] Top
+                [ Transition "nil" true [] unconstrainedConstraint
+                , Transition "cons" true [State 1, State 0] unconstrainedConstraint
                 ]
             )
-        , (State 1, [Transition "item" true [] Top])
+        , (State 1, [Transition "item" true [] unconstrainedConstraint])
         ]
 
 spec :: Spec
@@ -49,8 +51,8 @@ spec =
         it "allows a guard to inspect an acyclic sibling of a recursive child" $
             case mkAutomaton
                 (State 0)
-                [ (State 0, [Transition "wrap" true [State 0, State 1] (Satisfies (path [1]) true)])
-                , (State 1, [Transition "checked" true [] Top])
+                [ (State 0, [Transition "wrap" true [State 0, State 1] (semanticConstraint $ Satisfies (path [1]) true)])
+                , (State 1, [Transition "checked" true [] unconstrainedConstraint])
                 ] of
                 Right _ -> pure ()
                 Left err -> expectationFailure $ show err
@@ -58,6 +60,6 @@ spec =
         it "rejects a guard that points into a recursive state" $
             mkAutomaton
                 (State 0)
-                [ (State 0, [Transition "loop" true [State 0] (Satisfies (path [0]) true)])
+                [ (State 0, [Transition "loop" true [State 0] (semanticConstraint $ Satisfies (path [0]) true)])
                 ]
                 `shouldBe` Left (CyclicGuardReference (State 0) (path [0]))

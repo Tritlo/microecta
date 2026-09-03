@@ -4,14 +4,16 @@ import Test.Hspec (Spec, describe, it, shouldBe)
 
 import Data.LTA (
     Entailment (Entailment),
-    Guard (Entails, Satisfies, Substitute),
+    Guard (Entails, Same, Satisfies, Substitute),
     LiquidTerm (LiquidTerm),
     Substitution (Substitution),
     Verdict (..),
+    evaluateConstraint,
     evaluateGuard,
     path,
+    semanticConstraint,
  )
-import Data.LTA.Guard (buildGuard, requires)
+import Data.LTA.Guard (anyOf, buildGuard, isSameTermAs, notGuard, requires)
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (true, (.+.), (.==.), (.>=.))
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -34,14 +36,31 @@ spec =
             let nonNegative = value .>=. (0 :: Int)
                 guard = buildGuard $ \denominator -> denominator `requires` nonNegative
                 term = LiquidTerm "divide" true [LiquidTerm "n" nonNegative []]
-            guard `shouldBe` Satisfies (path [0]) nonNegative
-            evaluateGuard tableEntailment guard term >>= (`shouldBe` Yes)
+            guard `shouldBe` semanticConstraint (Satisfies (path [0]) nonNegative)
+            evaluateConstraint tableEntailment guard term >>= (`shouldBe` Yes)
 
         it "rejects a child whose refinement does not establish the requirement" $ do
             let nonNegative = value .>=. (0 :: Int)
                 guard = buildGuard $ \denominator -> denominator `requires` nonNegative
                 term = LiquidTerm "divide" true [LiquidTerm "n" true []]
-            evaluateGuard tableEntailment guard term >>= (`shouldBe` No)
+            evaluateConstraint tableEntailment guard term >>= (`shouldBe` No)
+
+        it "keeps syntactic equality inside the full Boolean constraint language" $ do
+            let same = buildGuard $ \left right -> left `isSameTermAs` right
+                different = notGuard same
+                equalTerm = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "x" true []]
+                differentTerm = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+                differentlyRefinedTerm =
+                    LiquidTerm
+                        "pair"
+                        true
+                        [LiquidTerm "x" true [], LiquidTerm "x" (value .==. (1 :: Int)) []]
+                equalityOrRequirement = anyOf [same, buildGuard $ \left -> left `requires` true]
+            same `shouldBe` semanticConstraint (Same (path [0]) (path [1]))
+            evaluateConstraint tableEntailment same differentlyRefinedTerm >>= (`shouldBe` No)
+            evaluateConstraint tableEntailment different equalTerm >>= (`shouldBe` No)
+            evaluateConstraint tableEntailment different differentTerm >>= (`shouldBe` Yes)
+            evaluateConstraint tableEntailment equalityOrRequirement differentTerm >>= (`shouldBe` Yes)
 
         it "connects a substituted node symbol to that node's refinement" $ do
             let model :: Fixpoint.Expr

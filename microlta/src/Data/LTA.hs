@@ -3,13 +3,12 @@
 
 {- | Liquid tree automata over Liquid Fixpoint refinements.
 
-An LTA transition has a ranked symbol, child states, and a Boolean guard over
-paths into the candidate term. 'Same' retains ECTA's syntactic equality, while
-'Entails' asks whether the refinement at one path implies the refinement at
-another. 'Satisfies' compares a path with a literal requirement, avoiding
-phantom constant children. 'Substitute' applies the paper's actual-for-formal
-position substitutions before semantic checks. Refinements are Liquid Fixpoint
-expressions.
+An LTA transition has a ranked symbol, child states, and the paper's Boolean
+constraint language over paths into the candidate term. 'Same' is syntactic
+equality and 'Entails' is semantic refinement implication. 'Satisfies' compares
+a path with a literal requirement, avoiding phantom constant children.
+'Substitute' applies the paper's actual-for-formal position substitutions before
+semantic checks. Refinements are Liquid Fixpoint expressions.
 
 Recursive automata are accepted. As required by the LTA construction, a guard
 may only inspect positions whose states are acyclic; recursive states can still
@@ -27,13 +26,20 @@ module Data.LTA (
     unPath,
     Refinement,
     LiquidTerm (..),
-    LiquidSymbol,
+    LiquidSymbol (..),
     eraseRefinements,
 
     -- * Guards
     Substitution (..),
     Guard (..),
+    LiquidConstraint (..),
+    unconstrainedConstraint,
+    semanticConstraint,
+    equalityConstraint,
+    combineConstraints,
+    constraintAsGuard,
     guardPaths,
+    constraintPaths,
     Verdict (..),
     Entailment (..),
     RefinementRelation (..),
@@ -41,6 +47,8 @@ module Data.LTA (
     SemanticIntersection (..),
     semanticIntersection,
     evaluateGuard,
+    evaluateGuardWith,
+    evaluateConstraint,
 
     -- * Automata
     State (..),
@@ -49,10 +57,14 @@ module Data.LTA (
     transitionSymbol,
     transitionRefinement,
     transitionChildren,
+    transitionConstraint,
+    transitionEqualities,
     transitionGuard,
     Automaton,
+    EqualityAutomaton,
     AutomatonError (..),
     PruneError (..),
+    EnumerationError (..),
     TransitionId (..),
     Subtyping (..),
     refinementSubtypingBy,
@@ -64,20 +76,40 @@ module Data.LTA (
     minimize,
     ReductionError (..),
     reduce,
+    automatonStates,
+    automatonAlphabet,
+    automatonFinalStates,
     automatonInitial,
     automatonTransitions,
+    transitionsAt,
     mkAutomaton,
+    mkAutomatonWithFinals,
+    lowerToEqualityAutomaton,
+    pruneToECTA,
+    pruneSemantics,
     prune,
     accepts,
+    denotationAtMost,
 ) where
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, get, modify', runStateT)
 import Data.Bifunctor (first)
+import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.ECTA.Paths (Path, path, unPath)
+import Data.ECTA.Paths (
+    EqConstraints (EmptyConstraints),
+    Path,
+    combineEqConstraints,
+    constraintsAreContradictory,
+    mkEqConstraints,
+    path,
+    subsumptionOrderedEclasses,
+    unPath,
+    unPathEClass,
+ )
 import Data.ECTA.Term (Symbol (Symbol), Term (Term))
 import qualified Data.Tree.FTA as FTA
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -104,7 +136,7 @@ data Guard
       Top
     | -- | The guard that always fails.
       Bottom
-    | -- | Require the two paths to contain the same unrefined term.
+    | -- | Require the two paths to contain the same annotated LTA term.
       Same !Path !Path
     | -- | Require the refinement at the first path to imply the second.
       Entails !Path !Path
@@ -119,6 +151,56 @@ data Guard
     | -- | Logical disjunction.
       Or ![Guard]
     deriving (Eq, Show)
+
+{- | A complete LTA constraint with an optional normalized equality cache.
+
+The authoritative semantics is the full Boolean 'Guard', including 'Same'. The
+equality field is a compiled positive-conjunction form used by the MicroECTA
+optimization. 'constraintAsGuard' always recovers the complete paper-level
+constraint, so the split representation cannot erase Boolean equality.
+-}
+data LiquidConstraint = LiquidConstraint
+    { constraintEqualities :: !EqConstraints
+    , constraintGuard :: !Guard
+    }
+    deriving (Eq, Show)
+
+-- | A transition with neither equality nor liquid obligations.
+unconstrainedConstraint :: LiquidConstraint
+unconstrainedConstraint = LiquidConstraint EmptyConstraints Top
+
+-- | Lift one semantic guard into an LTA transition constraint.
+semanticConstraint :: Guard -> LiquidConstraint
+semanticConstraint = LiquidConstraint EmptyConstraints
+
+-- | Lift normalized positive equalities into an LTA transition constraint.
+equalityConstraint :: EqConstraints -> LiquidConstraint
+equalityConstraint equalities = LiquidConstraint equalities Top
+
+-- | Conjoin equality classes and semantic obligations.
+combineConstraints :: LiquidConstraint -> LiquidConstraint -> LiquidConstraint
+combineConstraints
+    (LiquidConstraint leftEqualities leftGuard)
+    (LiquidConstraint rightEqualities rightGuard) =
+        LiquidConstraint
+            (combineEqConstraints leftEqualities rightEqualities)
+            (combineGuards leftGuard rightGuard)
+
+-- | Recover the complete paper-level Boolean constraint.
+constraintAsGuard :: LiquidConstraint -> Guard
+constraintAsGuard LiquidConstraint{constraintEqualities, constraintGuard} =
+    combineGuards (equalitiesAsGuard constraintEqualities) constraintGuard
+
+-- | Reify normalized positive ECTA equalities as ordinary LTA atoms.
+equalitiesAsGuard :: EqConstraints -> Guard
+equalitiesAsGuard equalities =
+    case subsumptionOrderedEclasses equalities of
+        Nothing -> Bottom
+        Just classes -> conjoin $ concatMap classEqualities classes
+  where
+    classEqualities eclass = case unPathEClass eclass of
+        anchor : rest -> map (Same anchor) rest
+        [] -> []
 
 {- | Replace the variable named at the formal path with the variable named at
 the actual path while evaluating a semantic guard. The instantiated refinement
@@ -148,6 +230,16 @@ guardPaths (Substitute substitutions nested) =
 guardPaths (Not nested) = guardPaths nested
 guardPaths (And guards) = concatMap guardPaths guards
 guardPaths (Or guards) = concatMap guardPaths guards
+
+-- | Every term position inspected by either transition constraint theory.
+constraintPaths :: LiquidConstraint -> [Path]
+constraintPaths LiquidConstraint{constraintEqualities, constraintGuard} =
+    equalityPaths constraintEqualities <> guardPaths constraintGuard
+  where
+    equalityPaths equalities =
+        case subsumptionOrderedEclasses equalities of
+            Nothing -> []
+            Just classes -> concatMap unPathEClass classes
 
 -- | A three-valued decision. Solver uncertainty is never silently made false.
 data Verdict = Yes | No | Unknown
@@ -216,41 +308,76 @@ semanticIntersection entailment antecedent consequent = do
 
 -- | Evaluate a guard against one candidate term.
 evaluateGuard :: Entailment -> Guard -> LiquidTerm -> IO Verdict
-evaluateGuard entailment guard term = go guard
+evaluateGuard entailment guard term =
+    evaluateGuardWithSame entailment lookupObservation sameAt guard
+  where
+    lookupObservation target = do
+        observed <- termAt target term
+        pure (liquidSymbol observed, liquidRefinement observed)
+
+    sameAt left right = do
+        leftTerm <- termAt left term
+        rightTerm <- termAt right term
+        pure $ leftTerm == rightTerm
+
+{- | Evaluate a semantic guard from sparse observations of its referenced paths.
+
+The callback returns the unrefined constructor symbol and refinement at one
+path. Sparse observations cannot decide equality of complete subtrees, so a
+'Same' atom yields 'Unknown'. An optimizer must either reject that fast path or
+supply a complete-term equality oracle; it must never approximate equality from
+root observations.
+-}
+evaluateGuardWith ::
+    Entailment ->
+    (Path -> Maybe (Symbol, Refinement)) ->
+    Guard ->
+    IO Verdict
+evaluateGuardWith entailment lookupObservation =
+    evaluateGuardWithSame entailment lookupObservation (\_ _ -> Nothing)
+
+-- | Shared evaluator with an optional complete-subtree equality oracle.
+evaluateGuardWithSame ::
+    Entailment ->
+    (Path -> Maybe (Symbol, Refinement)) ->
+    (Path -> Path -> Maybe Bool) ->
+    Guard ->
+    IO Verdict
+evaluateGuardWithSame entailment lookupObservation sameAt guard = go guard
   where
     go = evaluateWith []
 
     evaluateWith _ Top = pure Yes
     evaluateWith _ Bottom = pure No
     evaluateWith _ (Same left right) =
-        pure $ case (termAt left term, termAt right term) of
-            (Just leftTerm, Just rightTerm)
-                | eraseRefinements leftTerm == eraseRefinements rightTerm -> Yes
-            _ -> No
+        pure $ case sameAt left right of
+            Just True -> Yes
+            Just False -> No
+            Nothing -> Unknown
     evaluateWith substitutions (Entails antecedent consequent) =
-        case (termAt antecedent term, termAt consequent term) of
-            (Just leftTerm, Just rightTerm) ->
+        case (lookupObservation antecedent, lookupObservation consequent) of
+            (Just (_, leftRefinement), Just (_, rightRefinement)) ->
                 entails
                     entailment
                     ( withActualAssumptions substitutions $
                         applySubstitutions substitutions $
-                            liquidRefinement leftTerm
+                            leftRefinement
                     )
-                    (applySubstitutions substitutions $ liquidRefinement rightTerm)
+                    (applySubstitutions substitutions rightRefinement)
             _ -> pure No
     evaluateWith substitutions (Satisfies target requirement) =
-        case termAt target term of
-            Just targetTerm ->
+        case lookupObservation target of
+            Just (_, targetRefinement) ->
                 entails
                     entailment
                     ( withActualAssumptions substitutions $
                         applySubstitutions substitutions $
-                            liquidRefinement targetTerm
+                            targetRefinement
                     )
                     (applySubstitutions substitutions requirement)
             Nothing -> pure No
     evaluateWith substitutions (Substitute additions nested) =
-        case traverse (resolveSubstitution term) additions of
+        case traverse (resolveSubstitutionWith lookupObservation) additions of
             Just resolved -> evaluateWith (resolved <> substitutions) nested
             Nothing -> pure No
     evaluateWith substitutions (Not nested) =
@@ -260,6 +387,13 @@ evaluateGuard entailment guard term = go guard
     evaluateWith substitutions (Or guards) =
         orM (map (evaluateWith substitutions) guards)
 
+-- | Evaluate both the ECTA equality classes and liquid guard of a transition.
+evaluateConstraint :: Entailment -> LiquidConstraint -> LiquidTerm -> IO Verdict
+evaluateConstraint entailment constraint term
+    | satisfiesEqualities (constraintEqualities constraint) term =
+        evaluateGuard entailment (constraintGuard constraint) term
+    | otherwise = pure No
+
 -- | An integer identity for one LTA state.
 newtype State = State {unState :: Int}
     deriving (Eq, Ord, Show)
@@ -268,46 +402,108 @@ newtype State = State {unState :: Int}
 data LiquidSymbol = LiquidSymbol !Symbol !Refinement
     deriving (Eq, Ord, Show)
 
--- | One refinement-labelled, guarded alternative from an LTA state.
-type Transition = FTA.Transition State LiquidSymbol Guard
+-- | One refinement-labelled, constrained alternative from an LTA state.
+type Transition = FTA.Transition State LiquidSymbol LiquidConstraint
 
 -- | Construct or match an LTA transition.
-pattern Transition :: Symbol -> Refinement -> [State] -> Guard -> Transition
-pattern Transition symbol refinement children guard =
-    FTA.Transition (LiquidSymbol symbol refinement) children guard
+pattern Transition :: Symbol -> Refinement -> [State] -> LiquidConstraint -> Transition
+pattern Transition symbol refinement children constraint =
+    FTA.Transition (LiquidSymbol symbol refinement) children constraint
 
 {-# COMPLETE Transition #-}
 
 -- | Symbol at the root of a transition.
-transitionSymbol :: Transition -> Symbol
+transitionSymbol :: FTA.Transition State LiquidSymbol constraint -> Symbol
 transitionSymbol (FTA.Transition (LiquidSymbol symbol _) _ _) = symbol
 
 -- | Refinement formula at the root of a transition.
-transitionRefinement :: Transition -> Refinement
+transitionRefinement :: FTA.Transition State LiquidSymbol constraint -> Refinement
 transitionRefinement (FTA.Transition (LiquidSymbol _ refinement) _ _) = refinement
 
 -- | Child states of a transition, from left to right.
-transitionChildren :: Transition -> [State]
+transitionChildren :: FTA.Transition State LiquidSymbol constraint -> [State]
 transitionChildren = FTA.transitionChildren
 
--- | Liquid guard attached to a transition.
+-- | Complete equality and semantic constraint attached to a transition.
+transitionConstraint :: Transition -> LiquidConstraint
+transitionConstraint = FTA.transitionGuard
+
+-- | ECTA equality classes attached to a transition.
+transitionEqualities :: Transition -> EqConstraints
+transitionEqualities = constraintEqualities . transitionConstraint
+
+-- | Liquid semantic guard attached to a transition.
 transitionGuard :: Transition -> Guard
-transitionGuard = FTA.transitionGuard
+transitionGuard = constraintGuard . transitionConstraint
 
 -- | A validated LTA, possibly with recursive states.
-type Automaton = FTA.FTA State LiquidSymbol Guard
+type Automaton = FTA.FTA State LiquidSymbol LiquidConstraint
+
+-- | The ECTA-shaped result of discharging every semantic guard in an LTA.
+type EqualityAutomaton = FTA.FTA State LiquidSymbol EqConstraints
 
 -- | Initial state of an LTA.
-automatonInitial :: Automaton -> State
+automatonInitial :: FTA.FTA State LiquidSymbol constraint -> State
 automatonInitial = FTA.initialState
 
+{- | States of the normalized LTA.
+
+The implementation uses the standard top-down presentation of the paper's
+bottom-up transition relation. Its initial state is the single normalized
+accepting state.
+-}
+automatonStates :: FTA.FTA State LiquidSymbol constraint -> Set.Set State
+automatonStates = Set.fromList . FTA.states
+
+-- | Finite ranked alphabet actually used by an automaton.
+automatonAlphabet :: FTA.FTA State LiquidSymbol constraint -> Set.Set LiquidSymbol
+automatonAlphabet automaton =
+    Set.fromList
+        [ FTA.transitionSymbol transition
+        | transitions <- Map.elems $ automatonTransitions automaton
+        , transition <- transitions
+        ]
+
+{- | Accepting states after explicit many-final-state normalization.
+
+Use 'mkAutomatonWithFinals' to construct the paper's arbitrary @Qf@. It copies
+the outgoing alternatives of those states into one fresh accepting state, so
+this accessor returns that language-equivalent singleton.
+-}
+automatonFinalStates :: FTA.FTA State LiquidSymbol constraint -> Set.Set State
+automatonFinalStates = Set.singleton . automatonInitial
+
 -- | Complete transition table of an LTA.
-automatonTransitions :: Automaton -> Map.Map State [Transition]
+automatonTransitions :: FTA.FTA State LiquidSymbol constraint -> Map.Map State [FTA.Transition State LiquidSymbol constraint]
 automatonTransitions = FTA.transitionTable
+
+{- | Transitions reachable at a position below one transition (Definition 5).
+
+The empty position denotes the supplied transition. A non-empty position first
+selects one child state and then unions the alternatives encountered at each
+subsequent component. An invalid component denotes the empty set.
+-}
+transitionsAt :: Automaton -> Transition -> Path -> [Transition]
+transitionsAt automaton transition target =
+    case unPath target of
+        [] -> [transition]
+        index : rest ->
+            maybe [] (descend rest) $ atIndex index $ transitionChildren transition
+  where
+    descend [] state = FTA.transitionsFrom automaton state
+    descend (index : rest) state =
+        concat
+            [ maybe [] (descend rest) $ atIndex index $ transitionChildren outgoing
+            | outgoing <- FTA.transitionsFrom automaton state
+            ]
 
 -- | A structural error found while constructing an automaton.
 data AutomatonError
     = MissingInitialState !State
+    | -- | The paper requires at least one accepting state.
+      NoFinalStates
+    | -- | A declared accepting state has no transition row.
+      MissingFinalState !State
     | DanglingState !State
     | {- | A guard position reaches a recursive state, which would produce an
       unbounded logical obligation during semantic operations.
@@ -322,8 +518,16 @@ data PruneError
       PruneUnknown !State
     | -- | Product construction violated an FTA invariant.
       InvalidSyntacticIntersection
+    | -- | ECTA lowering was requested while a non-equality LTA guard remained.
+      ResidualLTAConstraint !State !Guard
     | -- | Pruning exposed an invalid automaton structure.
       InvalidPrunedAutomaton !AutomatonError
+    deriving (Eq, Show)
+
+-- | Failure while computing the bounded denotation from Figure 6.
+data EnumerationError
+    = -- | The solver could not decide a guard on one candidate transition.
+      EnumerationUnknown !State
     deriving (Eq, Show)
 
 {- | Stable address of a transition in one automaton snapshot.
@@ -341,8 +545,8 @@ data TransitionId = TransitionId
 {- | Source-language subtyping used by the paper's @Similarity@ procedure.
 
 The callback receives the current automaton and compares the type sub-automata
-associated with two program transitions. 'refinementSubtypingBy' is the smaller
-adapter for a frontend that stores its complete type refinement on the program
+associated with two program transitions. 'refinementSubtypingBy' is a compact
+adapter for encodings that store the complete type refinement on the program
 transition itself.
 -}
 newtype Subtyping = Subtyping
@@ -430,6 +634,11 @@ data MinimizeError
       SharedSimilarityTarget !State
     | -- | One removed target state was assigned two different representatives.
       ConflictingSimilarityTargets !State ![State]
+    | {- | A cross-state merge would strand the normalized final state.
+      The paper's construction only minimizes program transitions below its
+      distinguished goal transition.
+      -}
+      FinalSimilarityTarget !State
     | -- | Minimization exposed an invalid automaton structure.
       InvalidMinimizedAutomaton !AutomatonError
     deriving (Eq, Show)
@@ -498,6 +707,7 @@ minimize automaton (Similarity related) = do
         validateRedirect (source, destinations)
             | Set.size destinations > 1 =
                 Left $ ConflictingSimilarityTargets source $ Set.toAscList destinations
+            | source == automatonInitial automaton = Left $ FinalSimilarityTarget source
             | rowHasSurvivor source = Left $ SharedSimilarityTarget source
             | otherwise = Right (source, Set.findMin destinations)
 
@@ -526,9 +736,8 @@ data ReductionError
 
 {- | Apply one complete LTA reduction phase to a static automaton.
 
-The paper interleaves transition discovery with this phase. This library leaves
-source-language exploration to a frontend, but keeps the reduction order
-itself: semantic pruning, similarity inference, then minimization.
+This keeps the paper's reduction order: semantic pruning, similarity inference,
+then minimization.
 -}
 reduce :: Entailment -> Subtyping -> Automaton -> IO (Either ReductionError Automaton)
 reduce entailment subtyping automaton = do
@@ -579,26 +788,104 @@ mkAutomaton initial rows = do
     fromFTAError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
         InconsistentArity symbol expected actual
 
-{- | Remove semantically impossible transitions without enumerating terms.
+{- | Construct the paper's LTA with an arbitrary non-empty final-state set.
+
+Internally, multiple final states are normalized to one fresh state whose row
+is the union of their outgoing transitions. This preserves
+@union [JqK | q <- Qf]@ from Figure 6 without adding epsilon transitions or
+changing any constructor in the ranked alphabet. A singleton set needs no
+normalization.
+-}
+mkAutomatonWithFinals ::
+    [State] ->
+    [(State, [Transition])] ->
+    Either AutomatonError Automaton
+mkAutomatonWithFinals [] _ = Left NoFinalStates
+mkAutomatonWithFinals finals rows =
+    case missingFinals of
+        missing : _ -> Left $ MissingFinalState missing
+        [] -> case uniqueFinals of
+            [final] -> mkAutomaton final rows
+            _ -> mkAutomaton normalizedFinal ((normalizedFinal, finalTransitions) : rows)
+  where
+    table = Map.fromListWith (flip (<>)) rows
+    uniqueFinals = Set.toAscList $ Set.fromList finals
+    missingFinals = filter (`Map.notMember` table) uniqueFinals
+    normalizedFinal = State $ 1 + maximum (-1 : map unState (Map.keys table))
+    finalTransitions = concatMap (table Map.!) uniqueFinals
+
+{- | Remove semantically impossible transitions and lower the result to ECTA.
 
 This is the transition-level boundary used by generated LTAs. A guard is
 discharged by partitioning the transition sets at every finite position it
 observes. A partition is homogeneous in the refinement needed by ordinary
 entailment, or in both symbol and refinement where substitution names a value.
-Successful combinations become specialized states and 'Top' transitions;
-failed combinations and newly dead states are removed to a fixed point. This
-is the paper's semantic-intersection rule, expressed as explicit state
-splitting without materializing an accepted tree.
+Successful combinations become specialized states; failed combinations and
+newly dead states are removed to a fixed point. The returned automaton retains
+only normalized ECTA equality classes. This is the paper's semantic-intersection
+rule, expressed as explicit state splitting without materializing an accepted
+tree.
 
-For a required syntactic 'Same' atom, the paper's ordinary FTA product
-intersection narrows the first position to terms also admitted at the second.
-The atom remains on the reduced LTA: intersection can discard disjoint
+For a required syntactic equality, the paper's ordinary FTA product intersection
+narrows the first position to terms also admitted at the second. The equality
+class remains on the returned ECTA: intersection can discard disjoint
 sub-languages, but equality between two independently chosen arbitrary subtrees
-is not in general a regular tree language. A top-level conjunction still has
-its independent semantic atoms reduced as well.
+is not in general a regular tree language.
 -}
+pruneToECTA :: Entailment -> Automaton -> IO (Either PruneError EqualityAutomaton)
+pruneToECTA entailment automaton = do
+    reduced <- prune entailment automaton
+    pure $ reduced >>= lowerToEqualityAutomaton
+
+-- | Compatibility name for 'pruneToECTA'.
+pruneSemantics :: Entailment -> Automaton -> IO (Either PruneError EqualityAutomaton)
+pruneSemantics = pruneToECTA
+
+{- | Lower a reduced LTA to ECTA when every residual guard is positive equality.
+
+This is an optimization, not LTA semantics. It succeeds for 'Top', 'Same', and
+conjunctions of those atoms, combining them with any already-normalized
+'EqConstraints'. Negated, disjunctive, or semantic guards remain LTAs and cause
+an explicit failure.
+-}
+lowerToEqualityAutomaton :: Automaton -> Either PruneError EqualityAutomaton
+lowerToEqualityAutomaton automaton = do
+    rows <- traverse lowerRow $ Map.toList $ automatonTransitions automaton
+    case FTA.mkFTA (automatonInitial automaton) rows of
+        Left err -> Left $ InvalidPrunedAutomaton $ fromFTAError err
+        Right lowered -> Right lowered
+  where
+    lowerRow (state, transitions) =
+        fmap (\lowered -> (state, lowered)) $ traverse (lowerTransition state) transitions
+
+    lowerTransition state (FTA.Transition symbol children constraint) = do
+        equalities <- constraintEqualitiesOnly state constraint
+        pure $ FTA.Transition symbol children equalities
+
+    fromFTAError (FTA.MissingInitialState state) = MissingInitialState state
+    fromFTAError (FTA.DanglingState state) = DanglingState state
+    fromFTAError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
+        InconsistentArity symbol expected actual
+
+-- | Extract the ECTA fragment of one complete LTA constraint.
+constraintEqualitiesOnly :: State -> LiquidConstraint -> Either PruneError EqConstraints
+constraintEqualitiesOnly state LiquidConstraint{constraintEqualities, constraintGuard} =
+    combineEqConstraints constraintEqualities <$> guardEqualities constraintGuard
+  where
+    guardEqualities Top = Right EmptyConstraints
+    guardEqualities (Same left right) = Right $ mkEqConstraints [[left, right]]
+    guardEqualities (And guards) = foldr combine (Right EmptyConstraints) guards
+    guardEqualities residual = Left $ ResidualLTAConstraint state residual
+
+    combine guard rest = combineEqConstraints <$> guardEqualities guard <*> rest
+
+-- | Apply the paper's pruning rules and retain the resulting LTA.
 prune :: Entailment -> Automaton -> IO (Either PruneError Automaton)
-prune entailment automaton = do
+prune = pruneConstrained
+
+-- | Internal fixed-point pruning while both constraint fields are available.
+pruneConstrained :: Entailment -> Automaton -> IO (Either PruneError Automaton)
+pruneConstrained entailment automaton = do
     syntactic <- pruneSyntacticEqualities automaton
     case syntactic of
         Left err -> pure $ Left err
@@ -633,7 +920,7 @@ prune entailment automaton = do
 
     pruneRow _ _ [] = pure $ Right []
     pruneRow table state (transition : rest)
-        | any (null . transitionsAt table) $ transitionChildren transition =
+        | any (null . transitionsFromTable table) $ transitionChildren transition =
             pruneRow table state rest
         | otherwise = do
             decision <- pruneTransition entailment table state transition
@@ -642,7 +929,7 @@ prune entailment automaton = do
                 Right retained ->
                     fmap (retained <>) <$> pruneRow table state rest
 
-    transitionsAt table state = Map.findWithDefault [] state table
+    transitionsFromTable table state = Map.findWithDefault [] state table
 
 -- | Apply the paper's P-Syn-Eq narrowing once before semantic pruning.
 pruneSyntacticEqualities :: Automaton -> IO (Either PruneError Automaton)
@@ -670,11 +957,14 @@ pruneSyntacticEqualities automaton = do
 
     traverseTransitions [] = pure $ Right []
     traverseTransitions (transition : rest) = do
-        narrowed <- applyEqualities [transition] $ requiredEqualities $ transitionGuard transition
-        case narrowed of
-            Left err -> pure $ Left err
-            Right retained ->
-                fmap (retained <>) <$> traverseTransitions rest
+        if constraintsAreContradictory $ transitionEqualities transition
+            then traverseTransitions rest
+            else do
+                narrowed <- applyEqualities [transition] $ requiredConstraintEqualities $ transitionConstraint transition
+                case narrowed of
+                    Left err -> pure $ Left err
+                    Right retained ->
+                        fmap (retained <>) <$> traverseTransitions rest
 
     applyEqualities transitions [] = pure $ Right transitions
     applyEqualities transitions ((left, right) : rest)
@@ -685,12 +975,26 @@ pruneSyntacticEqualities automaton = do
                 Left err -> pure $ Left err
                 Right retained -> applyEqualities (concat retained) rest
 
--- | Positive equalities required by a guard, excluding disjunction and negation.
-requiredEqualities :: Guard -> [(Path, Path)]
-requiredEqualities (Same left right) = [(left, right)]
-requiredEqualities (Substitute _ nested) = requiredEqualities nested
-requiredEqualities (And guards) = concatMap requiredEqualities guards
-requiredEqualities _ = []
+-- | One spanning set of path pairs for each normalized ECTA equality class.
+requiredEqualityPairs :: EqConstraints -> [(Path, Path)]
+requiredEqualityPairs equalities =
+    case subsumptionOrderedEclasses equalities of
+        Nothing -> []
+        Just classes -> concatMap pairs classes
+  where
+    pairs eclass = case unPathEClass eclass of
+        anchor : rest -> map (\other -> (anchor, other)) rest
+        [] -> []
+
+-- | Positive syntactic equalities eligible for the paper's P-Syn-Eq rule.
+requiredConstraintEqualities :: LiquidConstraint -> [(Path, Path)]
+requiredConstraintEqualities LiquidConstraint{constraintEqualities, constraintGuard} =
+    requiredEqualityPairs constraintEqualities <> positiveEqualities constraintGuard
+  where
+    positiveEqualities Top = []
+    positiveEqualities (Same left right) = [(left, right)]
+    positiveEqualities (And guards) = concatMap positiveEqualities guards
+    positiveEqualities _ = []
 
 -- | Narrow one transition at the left side of a required equality.
 pruneEquality ::
@@ -755,16 +1059,16 @@ intersectStatePair original leftState rightState = do
     table <- effectiveTable original
     case (FTA.mkFTA leftState $ Map.toList table, FTA.mkFTA rightState $ Map.toList table) of
         (Right left, Right right) ->
-            case FTA.intersectWith matchSymbol combineGuards left right of
+            case FTA.intersectWith matchSymbol combineConstraints left right of
                 Left _ -> pure $ Left InvalidSyntacticIntersection
                 Right productAutomaton -> Right <$> installProduct productAutomaton
         _ -> pure $ Left InvalidSyntacticIntersection
   where
-    matchSymbol (LiquidSymbol leftSymbol leftRefinement) (LiquidSymbol rightSymbol _)
-        | leftSymbol == rightSymbol = Just $ LiquidSymbol leftSymbol leftRefinement
+    matchSymbol left right
+        | left == right = Just left
         | otherwise = Nothing
 
--- | Conjoin the constraints carried by two structurally intersected transitions.
+-- | Conjoin two semantic guards.
 combineGuards :: Guard -> Guard -> Guard
 combineGuards Top right = right
 combineGuards left Top = left
@@ -772,9 +1076,40 @@ combineGuards left right
     | left == right = left
     | otherwise = And [left, right]
 
+-- | Split independently reducible semantic conjuncts from syntactic equality.
+splitGuard :: Guard -> (Guard, Guard)
+splitGuard guard
+    | not $ containsSame guard = (guard, Top)
+splitGuard (And guards) =
+    (conjoin semantic, conjoin structural)
+  where
+    (semantic, structural) = foldr separate ([], []) guards
+    separate nested (semanticGuards, structuralGuards)
+        | containsSame nested = (semanticGuards, nested : structuralGuards)
+        | otherwise = (nested : semanticGuards, structuralGuards)
+splitGuard guard = (Top, guard)
+
+-- | Whether a Boolean constraint contains syntactic equality.
+containsSame :: Guard -> Bool
+containsSame Top = False
+containsSame Bottom = False
+containsSame (Same _ _) = True
+containsSame (Entails _ _) = False
+containsSame (Satisfies _ _) = False
+containsSame (Substitute _ nested) = containsSame nested
+containsSame (Not nested) = containsSame nested
+containsSame (And guards) = any containsSame guards
+containsSame (Or guards) = any containsSame guards
+
+-- | Build a conjunction without redundant Boolean structure.
+conjoin :: [Guard] -> Guard
+conjoin [] = Top
+conjoin [guard] = guard
+conjoin guards = And guards
+
 -- | Install reachable product rows, reusing any pair already constructed.
 installProduct ::
-    FTA.FTA (FTA.ProductState State State) LiquidSymbol Guard ->
+    FTA.FTA (FTA.ProductState State State) LiquidSymbol LiquidConstraint ->
     StateT SplitBuild IO State
 installProduct productAutomaton = do
     build <- get
@@ -894,37 +1229,6 @@ replaceChild index transition child =
   where
     children = transitionChildren transition
 
--- | Split a semantic guard into the part reducible by LTA intersection and a residual syntactic guard.
-splitGuard :: Guard -> (Guard, Guard)
-splitGuard guard
-    | not $ containsSame guard = (guard, Top)
-splitGuard (And guards) =
-    (conjoin semantic, conjoin structural)
-  where
-    (semantic, structural) = foldr separate ([], []) guards
-    separate nested (semanticGuards, structuralGuards)
-        | containsSame nested = (semanticGuards, nested : structuralGuards)
-        | otherwise = (nested : semanticGuards, structuralGuards)
-splitGuard guard = (Top, guard)
-
--- | Whether a guard contains syntactic equality, which cannot generally be compiled to an FTA.
-containsSame :: Guard -> Bool
-containsSame Top = False
-containsSame Bottom = False
-containsSame (Same _ _) = True
-containsSame (Entails _ _) = False
-containsSame (Satisfies _ _) = False
-containsSame (Substitute _ nested) = containsSame nested
-containsSame (Not nested) = containsSame nested
-containsSame (And guards) = any containsSame guards
-containsSame (Or guards) = any containsSame guards
-
--- | Build a conjunction without leaving redundant Boolean structure.
-conjoin :: [Guard] -> Guard
-conjoin [] = Top
-conjoin [guard] = guard
-conjoin guards = And guards
-
 -- | How precisely one observed position must be partitioned.
 data ObservationNeed
     = RefinementNeed
@@ -1021,7 +1325,7 @@ setTransitionGuard guard transition =
         (transitionSymbol transition)
         (transitionRefinement transition)
         (transitionChildren transition)
-        guard
+        (transitionConstraint transition){constraintGuard = guard}
 
 -- | Every homogeneous child-state specialization required to evaluate one guard.
 transitionSpecializations ::
@@ -1214,7 +1518,7 @@ replaceTransitionChildren children transition =
         (transitionSymbol transition)
         (transitionRefinement transition)
         children
-        (transitionGuard transition)
+        (transitionConstraint transition)
 
 -- | Keep only states reachable from the initial state.
 reachableTable :: State -> Map.Map State [Transition] -> Map.Map State [Transition]
@@ -1305,7 +1609,7 @@ ensureGuardedPositionsAcyclic automaton =
         [ (referenced, target)
         | (state, transitions) <- Map.toList $ automatonTransitions automaton
         , transition <- transitions
-        , target <- guardPaths $ transitionGuard transition
+        , target <- constraintPaths $ transitionConstraint transition
         , referenced <- Set.toList $ statesAtPath automaton state transition target
         , Set.member referenced cyclic
         ]
@@ -1348,8 +1652,115 @@ accepts entailment automaton =
             case childrenVerdict of
                 No -> pure No
                 _ -> do
-                    guardVerdict <- evaluateGuard entailment (transitionGuard transition) term
-                    pure (andVerdict childrenVerdict guardVerdict)
+                    constraintVerdict <- evaluateConstraint entailment (transitionConstraint transition) term
+                    pure (andVerdict childrenVerdict constraintVerdict)
+
+{- | Materialize the Figure 6 denotation up to a tree-height bound.
+
+A leaf has height zero. The bound makes this reference interpreter total for
+cyclic LTAs as well as acyclic ones. Results are deduplicated because the paper
+defines a set of terms even when several runs accept the same tree. This is the
+authoritative, deliberately simple semantics oracle; generator backends are
+optimizations and should be checked against it on bounded inputs.
+-}
+denotationAtMost ::
+    Entailment ->
+    Int ->
+    Automaton ->
+    IO (Either EnumerationError [LiquidTerm])
+denotationAtMost entailment maximumHeight automaton
+    | maximumHeight < 0 = pure $ Right []
+    | otherwise = fmap fst $ runStateT (enumerateFrom maximumHeight $ automatonInitial automaton) Map.empty
+  where
+    table = automatonTransitions automaton
+
+    enumerateFrom ::
+        Int ->
+        State ->
+        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+    enumerateFrom remaining state = do
+        cache <- get
+        case Map.lookup (state, remaining) cache of
+            Just terms -> pure $ Right terms
+            Nothing -> do
+                result <- enumerateTransitions remaining state $ Map.findWithDefault [] state table
+                case result of
+                    Left err -> pure $ Left err
+                    Right terms -> do
+                        let unique = nub terms
+                        modify' $ Map.insert (state, remaining) unique
+                        pure $ Right unique
+
+    enumerateTransitions ::
+        Int ->
+        State ->
+        [Transition] ->
+        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+    enumerateTransitions _ _ [] = pure $ Right []
+    enumerateTransitions remaining state (transition : rest) = do
+        current <- enumerateTransition remaining state transition
+        case current of
+            Left err -> pure $ Left err
+            Right terms -> fmap (fmap (terms <>)) $ enumerateTransitions remaining state rest
+
+    enumerateTransition ::
+        Int ->
+        State ->
+        Transition ->
+        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+    enumerateTransition remaining state transition
+        | null children = checkCandidates state transition [[]]
+        | remaining == 0 = pure $ Right []
+        | otherwise = do
+            choices <- traverse (enumerateFrom $ remaining - 1) children
+            case sequence choices of
+                Left err -> pure $ Left err
+                Right childTerms -> checkCandidates state transition $ cartesian childTerms
+      where
+        children = transitionChildren transition
+
+    checkCandidates ::
+        State ->
+        Transition ->
+        [[LiquidTerm]] ->
+        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+    checkCandidates _ _ [] = pure $ Right []
+    checkCandidates state transition (children : rest) = do
+        let term =
+                LiquidTerm
+                    (transitionSymbol transition)
+                    (transitionRefinement transition)
+                    children
+        verdict <- liftIO $ evaluateConstraint entailment (transitionConstraint transition) term
+        case verdict of
+            Yes -> fmap (fmap (term :)) $ checkCandidates state transition rest
+            No -> checkCandidates state transition rest
+            Unknown -> pure $ Left $ EnumerationUnknown state
+
+    cartesian :: [[value]] -> [[value]]
+    cartesian [] = [[]]
+    cartesian (choices : rest) =
+        [ choice : suffix
+        | choice <- choices
+        , suffix <- cartesian rest
+        ]
+
+-- | Check positive ECTA equality classes against the complete LTA term shape.
+satisfiesEqualities :: EqConstraints -> LiquidTerm -> Bool
+satisfiesEqualities equalities term =
+    case subsumptionOrderedEclasses equalities of
+        Nothing -> False
+        Just classes -> all classSatisfied classes
+  where
+    classSatisfied eclass = case unPathEClass eclass of
+        [] -> True
+        firstPath : rest ->
+            case termAt firstPath term of
+                Nothing -> False
+                Just expected ->
+                    all
+                        (\target -> termAt target term == Just expected)
+                        rest
 
 termAt :: Path -> LiquidTerm -> Maybe LiquidTerm
 termAt target = go (unPath target)
@@ -1366,11 +1777,13 @@ data ResolvedSubstitution = ResolvedSubstitution
     , resolvedActualAssumption :: !Refinement
     }
 
-resolveSubstitution :: LiquidTerm -> Substitution -> Maybe ResolvedSubstitution
-resolveSubstitution term Substitution{substitutionActual, substitutionFormal} = do
-    LiquidTerm{liquidSymbol = Symbol actualName, liquidRefinement = actualRefinement} <-
-        termAt substitutionActual term
-    LiquidTerm{liquidSymbol = Symbol formalName} <- termAt substitutionFormal term
+resolveSubstitutionWith ::
+    (Path -> Maybe (Symbol, Refinement)) ->
+    Substitution ->
+    Maybe ResolvedSubstitution
+resolveSubstitutionWith lookupObservation Substitution{substitutionActual, substitutionFormal} = do
+    (Symbol actualName, actualRefinement) <- lookupObservation substitutionActual
+    (Symbol formalName, _) <- lookupObservation substitutionFormal
     let actualSymbol = Fixpoint.symbol actualName
         actualVariable = Fixpoint.EVar actualSymbol
     pure

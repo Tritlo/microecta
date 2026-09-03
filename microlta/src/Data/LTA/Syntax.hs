@@ -3,14 +3,15 @@
 {- | Handwritten construction syntax parallel to "Data.Tree.FTA.Syntax".
 
 The only LTA-specific additions are the transition refinement and a
-'GuardBuilder', so constructor arguments in a liquid guard receive names rather
-than numeric paths.
+'GuardBuilder', so constructor arguments in a liquid constraint receive names
+rather than numeric paths.
 -}
 module Data.LTA.Syntax (
     Row,
     row,
     transition,
     automaton,
+    automatonWithFinals,
 ) where
 
 import Data.LTA (
@@ -21,6 +22,7 @@ import Data.LTA (
     Symbol,
     Transition,
     mkAutomaton,
+    mkAutomatonWithFinals,
     pattern Transition,
  )
 import Data.LTA.Guard (GuardBuilder, buildGuard)
@@ -32,7 +34,7 @@ type Row = (State, [Transition])
 row :: State -> [Transition] -> Row
 row = (,)
 
--- | Build a refinement-labelled transition from a named guard expression.
+-- | Build a refinement-labelled transition from a named constraint expression.
 transition ::
     (GuardBuilder guard) =>
     Symbol ->
@@ -46,3 +48,7 @@ transition symbol refinement children guard =
 -- | Validate a handwritten LTA.
 automaton :: State -> [Row] -> Either AutomatonError Automaton
 automaton = mkAutomaton
+
+-- | Validate an LTA with the paper's arbitrary non-empty final-state set.
+automatonWithFinals :: [State] -> [Row] -> Either AutomatonError Automaton
+automatonWithFinals = mkAutomatonWithFinals

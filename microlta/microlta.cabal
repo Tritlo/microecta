@@ -47,6 +47,7 @@ library
 
   exposed-modules:
     Data.LTA
+    Data.LTA.ECTA
     Data.LTA.Guard
     Data.LTA.LiquidFixpoint
     Data.LTA.Refinement
@@ -84,4 +85,5 @@ test-suite unit-tests
     containers >=0.7 && <0.9,
     hspec >=2.11 && <2.12,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microecta >=0.2.0.0 && <0.3,
     microlta,
