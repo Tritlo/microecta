@@ -43,6 +43,8 @@ module Data.LTA.StateMachineTraceLanguage (
     tracesOfLength,
     traceAutomaton,
     compileTracesOfLength,
+    compileTraceAutomatonMaterialized,
+    compileTraceAutomatonFused,
     tracesUpTo,
     naiveTraceGen,
     qsmTraceGen,
@@ -67,12 +69,13 @@ import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment,
-    Guard (Top),
+    LiquidConstraint,
     LiquidTerm (..),
     Refinement,
     State (State),
     Symbol,
     mkAutomaton,
+    unconstrainedConstraint,
     pattern Transition,
  )
 import qualified Data.LTA.Gen.QuickCheck as LTA
@@ -178,21 +181,40 @@ solverAssumptions =
 
 -- | The empty trace starts with an empty operand stack.
 initialTrace :: LTA.LTAGen Trace
-initialTrace =
+initialTrace = finishTracePrefix <$> initialTracePrefix
+
+-- | Internal difference-list form used while composing trace generators.
+data TracePrefix = TracePrefix
+    { prefixEvents :: [Event] -> [Event]
+    , prefixFinalState :: !StackState
+    }
+
+-- | Empty trace prefix before the public value is decoded.
+initialTracePrefix :: LTA.LTAGen TracePrefix
+initialTracePrefix =
     LTA.refinedNode "start" (stateRefinement emptyState) unconstrained $
-        LTA.pure (Trace [] emptyState)
+        LTA.pure (TracePrefix id emptyState)
 
 {- | Generate traces with exactly the requested number of commands through
 the compositional surface DSL.
 
-This remains useful for small examples of @LTA.do@. The flagship benchmark
-uses 'compileTracesOfLength', whose source of truth is the finite-state LTA in
-'traceAutomaton' and which never scans the Cartesian command language.
+This is the source of truth for the relational qualified-do benchmark.
+'compileTracesOfLength' retains this applicative recipe, groups prefixes by
+their output-state refinement, and never scans the Cartesian command language.
 -}
 tracesOfLength :: Int -> LTA.LTAGen Trace
-tracesOfLength length_
-    | length_ <= 0 = initialTrace
-    | otherwise = extendTrace $ tracesOfLength (length_ - 1)
+tracesOfLength = fmap finishTracePrefix . tracePrefixesOfLength
+
+-- | Build exact-length prefixes without repeatedly appending event lists.
+tracePrefixesOfLength :: Int -> LTA.LTAGen TracePrefix
+tracePrefixesOfLength length_
+    | length_ <= 0 = initialTracePrefix
+    | otherwise = extendTrace $ tracePrefixesOfLength (length_ - 1)
+
+-- | Decode the internal difference-list representation once at the root.
+finishTracePrefix :: TracePrefix -> Trace
+finishTracePrefix TracePrefix{prefixEvents, prefixFinalState} =
+    Trace (prefixEvents []) prefixFinalState
 
 {- | Build the unpruned LTA for one exact trace length.
 
@@ -209,7 +231,7 @@ traceAutomaton requestedLength =
     initialState = State 0
     rootRow
         | traceLength == 0 =
-            (initialState, [Transition "start" (stateRefinement emptyState) [] Top])
+            (initialState, [Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint])
         | otherwise =
             ( initialState
             , concatMap (stepTransitions traceLength) stackStates
@@ -218,7 +240,7 @@ traceAutomaton requestedLength =
         [ ( traceState prefixLength output
           , if prefixLength == 0
                 then
-                    [ Transition "start" (stateRefinement emptyState) [] Top
+                    [ Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint
                     | output == emptyState
                     ]
                 else stepTransitions prefixLength output
@@ -232,9 +254,9 @@ traceAutomaton requestedLength =
             [ (commandState contractRank, [contractTransition contract])
             | (contractRank, contract) <- zip [0 ..] commandContractValues
             ]
-                <> [(formalState, [Transition "model" stateRange [] Top])]
+                <> [(formalState, [Transition "model" stateRange [] unconstrainedConstraint])]
                 <> [ ( postState contractRank
-                     , [Transition "post-state" (contractPostState contract) [] Top]
+                     , [Transition "post-state" (contractPostState contract) [] unconstrainedConstraint]
                      )
                    | (contractRank, contract) <- zip [0 ..] commandContractValues
                    ]
@@ -256,7 +278,7 @@ traceAutomaton requestedLength =
             (contractSymbol contract)
             (contractInputSpace contract)
             [formalState, postState $ findContractIndex contract]
-            Top
+            unconstrainedConstraint
 
     findContractIndex selected =
         case lookup selected $ zip commandContractValues [0 ..] of
@@ -292,16 +314,25 @@ traceAutomaton requestedLength =
             Just index -> index
             Nothing -> error "traceAutomaton: unknown stack state"
 
-{- | Compile one exact trace LTA, then expose it as a QuickCheck generator.
+{- | Compile one exact trace surface language as relational ECTA joins.
 
-Z3 prunes guarded transitions in the automaton. Dynamic counting and unranking
-stay in the generator adapter, and only a selected rank is decoded to 'Trace'.
+Z3 decides compatibility once per live tuple of prefix and command groups.
+Dynamic counting and unranking stay in the ECTA generator layer; complete
+traces are not visited during compilation.
 -}
 compileTracesOfLength ::
     Entailment ->
     Int ->
     IO (Either LTA.GeneratorError (LTA.Compiled Trace))
 compileTracesOfLength entailment traceLength =
+    LTA.compileRelational entailment $ tracesOfLength traceLength
+
+-- | Compile the finite-state trace LTA through an intermediate 'LiquidTerm'.
+compileTraceAutomatonMaterialized ::
+    Entailment ->
+    Int ->
+    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+compileTraceAutomatonMaterialized entailment traceLength =
     case traceAutomaton traceLength of
         Left err -> pure $ Left $ LTA.InvalidSupport err
         Right automaton ->
@@ -311,7 +342,55 @@ compileTracesOfLength entailment traceLength =
     decodeTrace term =
         case traceFromLiquidTerm term of
             Just trace -> trace
-            Nothing -> error "compileTracesOfLength: pruned LTA produced an invalid trace term"
+            Nothing -> error "compileTraceAutomatonMaterialized: invalid trace term"
+
+-- | Compile the finite-state trace LTA directly into domain values.
+compileTraceAutomatonFused ::
+    Entailment ->
+    Int ->
+    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+compileTraceAutomatonFused entailment traceLength =
+    case traceAutomaton traceLength of
+        Left err -> pure $ Left $ LTA.InvalidSupport err
+        Right automaton ->
+            fmap (fmap $ LTA.mapCompiled decodedTrace) $
+                LTA.compileAutomatonWith entailment decodeTraceNode automaton
+
+-- | Values carried by the homogeneous bottom-up automaton fold.
+data DecodedTraceNode
+    = DecodedTrace ([Event] -> [Event]) !StackState
+    | DecodedCommand !Command
+    | DecodedScaffolding
+
+-- | Fold one pruned trace transition without constructing a 'LiquidTerm'.
+decodeTraceNode :: Symbol -> Refinement -> [DecodedTraceNode] -> DecodedTraceNode
+decodeTraceNode "start" refinement []
+    | refinement == stateRefinement emptyState = DecodedTrace id emptyState
+decodeTraceNode "step" refinement [DecodedTrace events before, DecodedCommand command] =
+    case modelStep before command of
+        Just (response, after)
+            | refinement == stateRefinement after ->
+                DecodedTrace
+                    (events . (Event before command response after :))
+                    after
+        _ -> error "decodeTraceNode: pruned step has an invalid state transition"
+decodeTraceNode symbol _ [_, _] =
+    case lookup symbol commandSymbols of
+        Just command -> DecodedCommand command
+        Nothing -> DecodedScaffolding
+decodeTraceNode _ _ _ = DecodedScaffolding
+
+-- | Constructor labels for the reusable command schemas.
+commandSymbols :: [(Symbol, Command)]
+commandSymbols =
+    [ (contractSymbol contract, contractCommand contract)
+    | contract <- commandContractValues
+    ]
+
+-- | Extract the trace promised by the automaton's initial state.
+decodedTrace :: DecodedTraceNode -> Trace
+decodedTrace (DecodedTrace events finalState) = Trace (events []) finalState
+decodedTrace _ = error "compileTraceAutomatonFused: initial state did not decode to a trace"
 
 -- | Generate every trace up to a maximum length, shortest first for shrinking.
 tracesUpTo :: Int -> Either LTA.GeneratorError (LTA.LTAGen Trace)
@@ -584,12 +663,34 @@ traceIsValid trace =
             Nothing -> False
 
 -- | Add one solver-checked transition to an existing trace language.
-extendTrace :: LTA.LTAGen Trace -> LTA.LTAGen Trace
+extendTrace :: LTA.LTAGen TracePrefix -> LTA.LTAGen TracePrefix
 extendTrace previousTraces =
-    LTA.refinedNodeBy "step" (stateRefinement . traceFinalState) validStep $ LTA.do
-        previous <- previousTraces
-        command <- commandContracts
-        LTA.pure $ predictStep previous command
+    LTA.refinedNodeByRoots
+        "step"
+        (stateRefinement . prefixFinalState)
+        stepRefinementFromRoots
+        validStep
+        $ LTA.do
+            previous <- previousTraces
+            command <- commandContracts
+            LTA.pure $ predictPrefixStep previous command
+
+-- | Compute the next state tag from the two direct child relation groups.
+stepRefinementFromRoots :: [LTA.RootObservation] -> Refinement
+stepRefinementFromRoots [previous, command] =
+    case (stateForRefinement $ LTA.observedRefinement previous, lookup (LTA.observedSymbol command) commandSymbols) of
+        (Just before, Just selectedCommand) ->
+            case modelStep before selectedCommand of
+                Just (_, after) -> stateRefinement after
+                Nothing -> stateRefinement before
+        _ -> error "stepRefinementFromRoots: malformed trace relation group"
+stepRefinementFromRoots _ =
+    error "stepRefinementFromRoots: a step must have previous-trace and command children"
+
+-- | Recover the finite stack state represented by one exact root refinement.
+stateForRefinement :: Refinement -> Maybe StackState
+stateForRefinement refinement =
+    lookup refinement [(stateRefinement state, state) | state <- stackStates]
 
 {- | Check one dependent state transition.
 
@@ -598,7 +699,7 @@ substituted for the command's formal @model@. The command's post-state formula
 must then imply the new trace root. No numeric child indices leak into the
 constructor call.
 -}
-validStep :: Position -> Position -> Guard
+validStep :: Position -> Position -> LiquidConstraint
 validStep previous command =
     allOf
         [ previous `isSubtypeOf` command
@@ -606,20 +707,15 @@ validStep previous command =
             descendant command [1] `isSubtypeOf` root
         ]
 
-{- | Construct the predicted Haskell event for one raw generator candidate.
-
-Invalid candidates still need an ordinary value while the applicative product
-is assembled. Their placeholder event is unobservable: 'validStep' rejects the
-candidate before it enters the compiled language.
--}
-predictStep :: Trace -> Command -> Trace
-predictStep previous command =
-    let before = traceFinalState previous
+-- | Extend a trace prefix in O(1), using a placeholder for rejected candidates.
+predictPrefixStep :: TracePrefix -> Command -> TracePrefix
+predictPrefixStep previous command =
+    let before = prefixFinalState previous
         (response, after) = case modelStep before command of
             Just prediction -> prediction
             Nothing -> (Accepted, before)
-     in Trace
-            (traceEvents previous <> [Event before command response after])
+     in TracePrefix
+            (prefixEvents previous . (Event before command response after :))
             after
 
 {- | Dependent command contracts over the formal input state @model@.

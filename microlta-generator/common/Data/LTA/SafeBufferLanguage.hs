@@ -35,7 +35,7 @@ module Data.LTA.SafeBufferLanguage (
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA (Guard, Refinement)
+import Data.LTA (LiquidConstraint, Refinement)
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (
     Position,
@@ -138,7 +138,7 @@ safeReads = LTA.node "read-at" validRead $ LTA.do
     LTA.pure $ ReadAt (bufferExpression buffer) index
 
 -- | Substitute the selected buffer length into the function precondition.
-validRead :: Position -> Position -> Position -> Guard
+validRead :: Position -> Position -> Position -> LiquidConstraint
 validRead buffer function index =
     withActualFor buffer (descendant function [0]) $
         index `isSubtypeOf` descendant function [1]
@@ -208,7 +208,7 @@ appendFunction = LTA.node "append-function" unconstrained $ LTA.do
     LTA.pure ()
 
 -- | Substitute both selected operand lengths into append's result refinement.
-validAppend :: Position -> Position -> Position -> Position -> Guard
+validAppend :: Position -> Position -> Position -> Position -> LiquidConstraint
 validAppend result function left right =
     withActualsFor
         [ (left, descendant function [0])
@@ -223,7 +223,7 @@ safeHeads = LTA.node "head" hasElement $ LTA.do
     LTA.pure $ ReadHead $ bufferExpression buffer
 
 -- | Require the chosen buffer to prove that a head element exists.
-hasElement :: Position -> Guard
+hasElement :: Position -> LiquidConstraint
 hasElement buffer = buffer `requires` positive
 
 -- | Source and solver-checked appended buffers available to later operations.

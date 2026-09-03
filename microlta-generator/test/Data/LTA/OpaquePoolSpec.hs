@@ -6,7 +6,7 @@ import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
-import Data.LTA (Entailment, Guard, Refinement)
+import Data.LTA (Entailment, LiquidConstraint, Refinement)
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (Position, requires)
 import Data.LTA.LiquidFixpoint (withZ3)
@@ -110,7 +110,7 @@ divisorSource =
         exactOffset
 
 -- | Constrain only the second constructor argument.
-divisionGuard :: Position -> Position -> Guard
+divisionGuard :: Position -> Position -> LiquidConstraint
 divisionGuard _ denominator = denominator `requires` nonZero
 
 -- | Sample two independent pools under one positional guard.

@@ -2,16 +2,18 @@ module Data.LTA.RecursiveGeneratorSpec (spec) where
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
+import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment (Entailment),
-    Guard (Same, Top),
     LiquidTerm (LiquidTerm),
     State (State),
     Verdict (Unknown),
+    equalityConstraint,
     mkAutomaton,
     path,
+    unconstrainedConstraint,
     pattern Transition,
  )
 import qualified Data.LTA.Gen.QuickCheck as LTA
@@ -24,11 +26,11 @@ recursiveLists =
         [
             ( State 0
             ,
-                [ Transition "nil" true [] Top
-                , Transition "cons" true [State 1, State 0] Top
+                [ Transition "nil" true [] unconstrainedConstraint
+                , Transition "cons" true [State 1, State 0] unconstrainedConstraint
                 ]
             )
-        , (State 1, [Transition "item" true [] Top])
+        , (State 1, [Transition "item" true [] unconstrainedConstraint])
         ]
 
 unusedEntailment :: Entailment
@@ -56,12 +58,12 @@ spec =
 
         it "unfolds every recursive list through the requested depth" $ do
             compiled <- compileAtDepth 2
-            let item = LiquidTerm "item" true []
+            let listItem = LiquidTerm "item" true []
                 nil = LiquidTerm "nil" true []
             values compiled
                 `shouldBe` [ nil
-                           , LiquidTerm "cons" true [item, nil]
-                           , LiquidTerm "cons" true [item, LiquidTerm "cons" true [item, nil]]
+                           , LiquidTerm "cons" true [listItem, nil]
+                           , LiquidTerm "cons" true [listItem, LiquidTerm "cons" true [listItem, nil]]
                            ]
 
         it "keeps deterministic replay ranks after unfolding" $ do
@@ -70,7 +72,7 @@ spec =
             fmap LTA.generatedValue (LTA.select 2 compiled)
                 `shouldBe` Right (last $ values compiled)
 
-        it "does not count a residual syntactic equality guard as an FTA product" $
+        it "routes a residual equality through MicroECTA instead of an FTA product" $
             case mkAutomaton
                 (State 0)
                 [
@@ -80,20 +82,32 @@ spec =
                             "pair"
                             true
                             [State 1, State 1]
-                            (Same (path [0]) (path [1]))
+                            (equalityConstraint sameChildren)
                         ]
                     )
-                , (State 1, [Transition "item" true [] Top])
+                ,
+                    ( State 1
+                    ,
+                        [ Transition "item-a" true [] unconstrainedConstraint
+                        , Transition "item-b" true [] unconstrainedConstraint
+                        ]
+                    )
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
                     result <- LTA.compileAutomaton unusedEntailment automaton
                     case result of
-                        Left (LTA.ResidualGuard (State 0) (Same left right)) ->
-                            (left, right) `shouldBe` (path [0], path [1])
                         Left err -> expectationFailure $ show err
-                        Right _ -> expectationFailure "counted a syntactically constrained product"
+                        Right compiled -> do
+                            LTA.cardinality compiled `shouldBe` 2
+                            map (fmap LTA.generatedValue . (`LTA.select` compiled)) [0, 1]
+                                `shouldBe` map Right [pair itemA, pair itemB]
   where
+    sameChildren = mkEqConstraints [[path [0], path [1]]]
+    itemA = LiquidTerm "item-a" true []
+    itemB = LiquidTerm "item-b" true []
+    pair item = LiquidTerm "pair" true [item, item]
+
     values compiled =
         [ LTA.generatedValue generated
         | rank <- [0 .. LTA.cardinality compiled - 1]

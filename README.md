@@ -11,8 +11,9 @@ This repository contains four Cabal packages:
 
 `Data.Tree.FTA` is the shared ranked-transition graph. `Data.Tree.FTA.Syntax`
 constructs ordinary FTAs; `Data.ECTA.FTA.Syntax` owns equality-constrained
-transitions, while `Data.LTA.Syntax` owns refinement-labelled transitions and
-liquid guards. Constraint theories remain in their own namespaces.
+transitions, while `Data.LTA.Syntax` owns refinement-labelled transitions whose
+guards use the paper's complete Boolean LTA constraint language. Constraint
+theories remain in their own namespaces.
 
 `microecta-generator` depends on `microecta`; the core package does not depend
 on the generator package or on QuickCheck. `Data.Tree.Gen` provides exact
@@ -20,11 +21,19 @@ finite ranks, backend-independent sampling, and shrinking, while
 `Data.Tree.FTA.Gen` either compiles an acyclic ordinary FTA or builds one with
 the `FTA.node`/`FTA.do` syntax before lowering it into that representation.
 `microlta` prunes semantic guards by intersecting and splitting transition
-states along only the positions inspected by each guard.
-`microlta-generator` counts and unranks that reduced LTA through the same pure
-ranked layer used by the other generators; only the selected term is
-materialized. Its surface DSL also supports finite Haskell pools and semantic
-shrinking when the input is not already an automaton.
+states along only the positions inspected by each guard. The authoritative
+result remains an LTA. A separately named optimization can lower residual
+positive equality conjunctions to ECTA; constraints outside that fragment
+remain LTAs. `microlta-generator` can additionally retain
+the surface DSL's applicative structure, ask the solver once per live tuple of
+refinement groups, and lower the accepted tuples through MicroECTA's indexed
+joins. Sampling is pure and does not enumerate the Cartesian product. The DSL
+also supports finite Haskell pools and semantic shrinking.
+
+The semantic hierarchy is therefore concrete: an FTA has no constraints, an
+ECTA has positive path equalities, and an LTA has the full Boolean equality and
+entailment language from the paper. Relational generation is an optional
+backend for a restricted fragment, not the definition of an LTA.
 
 Enter `nix-shell` to put Z3 on `PATH`, then run the semantic entailment example:
 
@@ -39,14 +48,17 @@ and recursive LTAs with the paper's acyclic-guard restriction. The pruning pass
 partitions heterogeneous states on their observed refinements and substitution
 symbols. Similarity is inferred from a source-language subtyping relation;
 minimization removes supertype transitions and redirects incoming state edges
-to their retained subtype representatives. For syntactic `Same`, pruning uses
-the ordinary FTA product to discard disjoint sub-languages, then retains the
-ECTA-style equality constraint so independently chosen subtrees stay equal.
+to their retained subtype representatives. Syntactic `isSameTermAs` remains a
+`Same` atom in the LTA. Pruning uses the ordinary FTA product to discard
+disjoint sub-languages. Only the separate ECTA lowering pass turns eligible
+positive equality conjunctions into `EqConstraints`; Boolean equality remains
+in the LTA.
+`denotationAtMost` provides a deliberately materializing Figure 6 reference
+semantics.
 `microlta-generator` adds counting and unranking over finite acyclic LTAs,
 named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
 an opt-in pool adapter over the core similarity pass, and explicitly bounded
-generation from recursive LTAs. It is an automata and generator library, not
-the Hegel component-based synthesizer from the paper.
+generation from recursive LTAs.
 
 See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
 FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda

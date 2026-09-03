@@ -31,13 +31,13 @@ import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment,
-    Guard (Top),
     LiquidTerm (..),
     Refinement,
     State (State),
     Symbol,
     Transition,
     mkAutomaton,
+    unconstrainedConstraint,
     pattern Transition,
  )
 import qualified Data.LTA.Gen as LTA
@@ -101,12 +101,12 @@ expressionTransitions depth result =
 -- | The two literal leaves inhabiting each ground type.
 literalTransitions :: Type -> [Transition]
 literalTransitions TInt =
-    [ Transition "int-0" (typeEquality TInt) [] Top
-    , Transition "int-1" (typeEquality TInt) [] Top
+    [ Transition "int-0" (typeEquality TInt) [] unconstrainedConstraint
+    , Transition "int-1" (typeEquality TInt) [] unconstrainedConstraint
     ]
 literalTransitions TBool =
-    [ Transition "bool-false" (typeEquality TBool) [] Top
-    , Transition "bool-true" (typeEquality TBool) [] Top
+    [ Transition "bool-false" (typeEquality TBool) [] unconstrainedConstraint
+    , Transition "bool-true" (typeEquality TBool) [] unconstrainedConstraint
     ]
 
 -- | Every actual child type; the liquid guard keeps only Boolean arguments.

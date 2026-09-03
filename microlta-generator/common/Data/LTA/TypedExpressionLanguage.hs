@@ -22,7 +22,7 @@ module Data.LTA.TypedExpressionLanguage (
 
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA (Guard, Refinement, Symbol)
+import Data.LTA (LiquidConstraint, Refinement, Symbol)
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (Position, allOf, descendant, isSubtypeOf, requires, unconstrained, withActualFor)
 import Data.LTA.Refinement (true, (.+.), (./=.), (.==.), (.>=.))
@@ -96,7 +96,7 @@ divisions =
                 (Divide (expression numerator) (expression denominator))
                 true
 
-divisionGuard :: Position -> Position -> Guard
+divisionGuard :: Position -> Position -> LiquidConstraint
 divisionGuard _ denominator = denominator `requires` nonZero
 
 -- | Every ordered atom pair where the left refinement is a subtype of the right.

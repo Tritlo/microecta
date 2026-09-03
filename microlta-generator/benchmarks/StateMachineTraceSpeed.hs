@@ -1,12 +1,12 @@
-{- | Compare four exact-uniform generators and one QSM-style baseline.
+{- | Compare six exact-uniform generators and one QSM-style baseline.
 
 The naive generator rejects whole raw command sequences, the bespoke generator
 tracks exact suffix counts in Haskell, the QSM-style generator chooses a valid
 next command from the current model, the ranked control hand-codes one global
-rank decoder, and the LTA generator compiles dependent transition contracts
-with Z3 before rank-decoding accepted traces. Every engine except QSM-style
-online generation is exact-uniform; QSM has the same support but intentionally
-uses a different distribution.
+rank decoder, and three LTA rows separate relational qualified-do compilation,
+materialized automaton decoding, and fused automaton decoding. Every engine
+except QSM-style online generation is exact-uniform; QSM has the same support
+but intentionally uses a different distribution.
 -}
 module Main (main) where
 
@@ -26,7 +26,15 @@ benchmark =
     Benchmark
         { benchmarkSizeName = "length"
         , benchmarkSizes = [1 .. 10] <> [12, 16, 20, 30, 40]
-        , benchmarkEngines = ["naive", "qsm-online", "bespoke", "ranked", "lta"]
+        , benchmarkEngines =
+            [ "naive"
+            , "qsm-online"
+            , "bespoke"
+            , "ranked"
+            , "lta-do"
+            , "lta-materialized"
+            , "lta-fused"
+            ]
         , benchmarkSampleCount = 20000
         , benchmarkMembers = \length_ -> traceCount length_ (StackState [])
         , benchmarkPrepare = prepare
@@ -39,11 +47,24 @@ prepare "naive" length_ = pure $ naiveTraceGen length_
 prepare "qsm-online" length_ = pure $ qsmTraceGen length_
 prepare "bespoke" length_ = pure $ handwrittenTraceGen length_
 prepare "ranked" length_ = pure $ rankedTraceGen length_
-prepare "lta" length_ =
+prepare "lta" length_ = prepare "lta-do" length_
+prepare "lta-do" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         result <- compileTracesOfLength solver length_
         case result of
             Left err -> fail $ "could not compile LTA benchmark: " <> show err
+            Right compiled -> pure $ LTA.toGen compiled
+prepare "lta-materialized" length_ =
+    withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+        result <- compileTraceAutomatonMaterialized solver length_
+        case result of
+            Left err -> fail $ "could not compile materialized LTA benchmark: " <> show err
+            Right compiled -> pure $ LTA.toGen compiled
+prepare "lta-fused" length_ =
+    withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+        result <- compileTraceAutomatonFused solver length_
+        case result of
+            Left err -> fail $ "could not compile fused LTA benchmark: " <> show err
             Right compiled -> pure $ LTA.toGen compiled
 prepare engine _ = fail $ "unknown engine: " <> engine
 

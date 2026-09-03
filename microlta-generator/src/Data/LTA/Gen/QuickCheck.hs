@@ -23,7 +23,14 @@ import qualified Prelude
 
 import qualified Data.Map.Strict as Map
 
-import Data.LTA (Entailment, Guard (And, Satisfies), Refinement, Symbol, unPath)
+import Data.LTA (
+    Entailment,
+    Guard (And, Satisfies),
+    LiquidConstraint (constraintGuard),
+    Refinement,
+    Symbol,
+    unPath,
+ )
 import Data.LTA.Gen
 import Data.LTA.Gen.Do
 import Data.LTA.Guard (GuardBuilder, buildGuard)
@@ -132,14 +139,17 @@ requirementsFor offset count requirements =
         ]
 
 -- | Refinements unconditionally required at direct child positions.
-directRequirements :: Guard -> Map.Map Int [Refinement]
-directRequirements (Satisfies target refinement) =
+directRequirements :: LiquidConstraint -> Map.Map Int [Refinement]
+directRequirements = semanticRequirements . constraintGuard
+
+semanticRequirements :: Guard -> Map.Map Int [Refinement]
+semanticRequirements (Satisfies target refinement) =
     case unPath target of
         [index] -> Map.singleton index [refinement]
         _ -> Map.empty
-directRequirements (And guards) =
-    Map.unionsWith (<>) $ map directRequirements guards
-directRequirements _ = Map.empty
+semanticRequirements (And guards) =
+    Map.unionsWith (<>) $ map semanticRequirements guards
+semanticRequirements _ = Map.empty
 
 {- | Freeze refined draws from a native QuickCheck generator into one pool.
 

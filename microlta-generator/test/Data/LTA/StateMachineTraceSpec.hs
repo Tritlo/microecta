@@ -48,6 +48,37 @@ spec =
             [traceCount length_ (StackState []) | length_ <- [1 .. 10]]
                 `shouldBe` [4, 22, 132, 556, 3104, 13760, 73528, 342136, 1783112, 8567224]
 
+        it "compiles the qualified-do surface beyond the old length-six wall" $ do
+            compiled <- compileTraceOrFail 10
+            LTA.cardinality compiled `shouldBe` traceCount 10 (StackState [])
+
+        it "retains valid structural shrinks from the relational ECTA plan" $ do
+            compiled <- compileTraceOrFail 3
+            let candidates =
+                    [ candidate
+                    | source <- [0 .. LTA.cardinality compiled - 1]
+                    , candidate <- LTA.shrinkRank compiled source
+                    ]
+            candidates `shouldSatisfy` not . null
+            candidates `shouldSatisfy` all (\rank -> rank >= 0 && rank < LTA.cardinality compiled)
+            let shrunk =
+                    [ LTA.generatedValue member
+                    | candidate <- candidates
+                    , Right member <- [LTA.select candidate compiled]
+                    ]
+            shrunk `shouldSatisfy` all traceIsValid
+
+        it "keeps materialized and fused automaton decoders extensionally equal" $
+            withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+                materialized <- compileTraceAutomatonMaterialized solver 4
+                fused <- compileTraceAutomatonFused solver 4
+                case (materialized, fused) of
+                    (Right materializedCompiled, Right fusedCompiled) -> do
+                        LTA.cardinality fusedCompiled `shouldBe` LTA.cardinality materializedCompiled
+                        values fusedCompiled `shouldBe` values materializedCompiled
+                    (Left err, _) -> expectationFailure $ show err
+                    (_, Left err) -> expectationFailure $ show err
+
         it "retains the dependent command sequences and rejects ill-typed ones" $ do
             compiled <- compileTraceOrFail 3
             LTA.cardinality compiled `shouldBe` 132

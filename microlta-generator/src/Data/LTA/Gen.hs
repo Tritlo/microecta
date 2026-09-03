@@ -1,3 +1,5 @@
+{-# LANGUAGE GADTs #-}
+
 {- | Finite generators whose support is a liquid tree automaton.
 
 'pool' supplies refined atoms. 'node' adds one constructor around an
@@ -8,6 +10,7 @@ once, then returns pure sampling, replay, and shrinking.
 module Data.LTA.Gen (
     LTAGen,
     Compiled,
+    CompiledSupport (..),
     GeneratorError (..),
     Generated (..),
 
@@ -22,6 +25,8 @@ module Data.LTA.Gen (
     node,
     refinedNode,
     refinedNodeBy,
+    refinedNodeByRoots,
+    RootObservation (..),
     unary,
     binary,
     frequency,
@@ -32,7 +37,9 @@ module Data.LTA.Gen (
     support,
     validOutcomes,
     compile,
+    compileRelational,
     compileAutomaton,
+    compileAutomatonWith,
     mapCompiled,
     compiledSupport,
     compiledRanked,
@@ -55,9 +62,14 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.String (fromString)
 
+import qualified Data.ECTA as ECTA.Core
+import qualified Data.ECTA.Gen.QuickCheck as ECTA
+import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import Data.LTA
+import qualified Data.LTA.ECTA as LTAECTA
 import Data.LTA.Guard (GuardBuilder, buildGuard)
 import Data.LTA.Refinement (true)
+import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.Gen as Tree
 
 {- | A finite weighted language paired with guarded witness trees and shrinks.
@@ -69,7 +81,39 @@ one 'Outcome' for every element of its Cartesian product.
 data LTAGen a = LTAGen
     { generatorOutcomes :: !(Finite (Outcome a))
     , generatorShrinks :: Integer -> [ShrinkCandidate]
+    , generatorRecipe :: !(Maybe (Recipe a))
     }
+
+-- | Compositional source retained for solver-compiled grouped generation.
+data Recipe a where
+    PoolRecipe :: [Refined a] -> Recipe a
+    MapRecipe :: (a -> b) -> Recipe a -> Recipe b
+    NodeRecipe :: Symbol -> NodeRefinement a -> LiquidConstraint -> ChildRecipe a -> Recipe a
+    ChoiceRecipe :: [(Integer, Recipe a)] -> Recipe a
+
+-- | Whether a node refinement is known before decoding its domain value.
+data NodeRefinement a
+    = FixedRefinement !Refinement
+    | ComputedRefinement (a -> Refinement)
+    | RootComputedRefinement (a -> Refinement) ([RootObservation] -> Refinement)
+
+-- | Symbol and refinement identifying one direct child relation group.
+data RootObservation = RootObservation
+    { observedSymbol :: !Symbol
+    , observedRefinement :: !Refinement
+    }
+    deriving (Eq, Ord, Show)
+
+-- | The free applicative child spine preserved by qualified do notation.
+data ChildRecipe a where
+    PureChildRecipe :: a -> ChildRecipe a
+    OneChildRecipe :: Recipe a -> ChildRecipe a
+    ApplyChildRecipe :: ChildRecipe (a -> b) -> ChildRecipe a -> ChildRecipe b
+
+-- | Map a child forest without adding another generated child position.
+fmapChildRecipe :: (a -> b) -> ChildRecipe a -> ChildRecipe b
+fmapChildRecipe function recipe =
+    ApplyChildRecipe (PureChildRecipe function) recipe
 
 -- | A possibly empty wrapper around the shared non-empty ranked engine.
 data Finite a
@@ -146,11 +190,12 @@ pool :: [Refined a] -> LTAGen a
 pool entries =
     LTAGen
         ( finiteFromList
-            [ Outcome 1 value (Witness symbol refinement Top [])
+            [ Outcome 1 value (Witness symbol refinement unconstrainedConstraint [])
             | Refined value symbol refinement <- entries
             ]
         )
         shrinkFrom
+        (Just $ PoolRecipe entries)
   where
     shrinkFrom source = case drop (fromInteger source) entries of
         Refined _ _ sourceRefinement : _ ->
@@ -205,7 +250,7 @@ minimizePoolBy entailment similarityKey entries =
     poolState = State 0
     poolSymbols = map poolSymbol [0 :: Int .. length entries - 1]
     poolTransitions =
-        [ Transition symbol refinement [] Top
+        [ Transition symbol refinement [] unconstrainedConstraint
         | (symbol, Refined _ _ refinement) <- zip poolSymbols entries
         ]
     classes =
@@ -225,6 +270,7 @@ leaf value symbol refinement = pool [refined value symbol refinement]
 data Children a = Children
     { childrenOutcomes :: !(Finite (ForestOutcome a))
     , childrenShrinks :: Integer -> [ShrinkCandidate]
+    , childrenRecipe :: !(Maybe (ChildRecipe a))
     }
 
 data ForestOutcome a = ForestOutcome
@@ -250,6 +296,7 @@ instance Functor LTAGen where
                 fmap
                     (\outcome -> outcome{outcomeValue = function (outcomeValue outcome)})
                     (generatorOutcomes generator)
+            , generatorRecipe = MapRecipe function <$> generatorRecipe generator
             }
 
 instance Functor Children where
@@ -259,15 +306,17 @@ instance Functor Children where
                 fmap
                     (\outcome -> outcome{forestValue = function (forestValue outcome)})
                     (childrenOutcomes childForest)
+            , childrenRecipe = fmap (fmapChildRecipe function) $ childrenRecipe childForest
             }
 
 instance Applicative Children where
-    pure value = Children (pure $ ForestOutcome 1 value []) (const [])
+    pure value = Children (pure $ ForestOutcome 1 value []) (const []) (Just $ PureChildRecipe value)
 
     functions <*> arguments =
         Children
             (combine <$> functionOutcomes <*> argumentOutcomes)
             shrinkProduct
+            (ApplyChildRecipe <$> childrenRecipe functions <*> childrenRecipe arguments)
       where
         functionOutcomes = childrenOutcomes functions
         argumentOutcomes = childrenOutcomes arguments
@@ -302,6 +351,7 @@ children generator =
             <$> generatorOutcomes generator
         )
         (generatorShrinks generator)
+        (OneChildRecipe <$> generatorRecipe generator)
   where
     toForest outcome =
         ForestOutcome
@@ -323,7 +373,7 @@ The result refinement defaults to the universally accepting refinement. Use
 'refinedNode' when the constructor establishes a more precise result.
 -}
 node :: (NodeLayer layer, GuardBuilder guard) => Symbol -> guard -> layer a -> LTAGen a
-node symbol = refinedNodeBy symbol (const true)
+node symbol = refinedNode symbol true
 
 -- | Add a constructor with an explicit result refinement and liquid guard.
 refinedNode ::
@@ -333,7 +383,7 @@ refinedNode ::
     guard ->
     layer a ->
     LTAGen a
-refinedNode symbol refinement = refinedNodeBy symbol (const refinement)
+refinedNode symbol refinement = closeNode symbol (FixedRefinement refinement) (const refinement)
 
 {- | Add a constructor whose result refinement is computed from each generated
 value.
@@ -349,12 +399,45 @@ refinedNodeBy ::
     guard ->
     layer a ->
     LTAGen a
-refinedNodeBy symbol refinementOf guardBuilder layer =
+refinedNodeBy symbol refinementOf = closeNode symbol (ComputedRefinement refinementOf) refinementOf
+
+{- | Compute a node refinement from both its value and its child root groups.
+
+The first projection is used by the complete-witness compiler. The second is
+used once per relational group and must agree with the first for every value in
+that group. This makes result-state propagation explicit without enumerating
+the values hidden under a group.
+-}
+refinedNodeByRoots ::
+    (NodeLayer layer, GuardBuilder guard) =>
+    Symbol ->
+    (a -> Refinement) ->
+    ([RootObservation] -> Refinement) ->
+    guard ->
+    layer a ->
+    LTAGen a
+refinedNodeByRoots symbol refinementOf refinementOfRoots =
+    closeNode
+        symbol
+        (RootComputedRefinement refinementOf refinementOfRoots)
+        refinementOf
+
+-- | Shared node constructor for fixed and value-computed refinements.
+closeNode ::
+    (NodeLayer layer, GuardBuilder guard) =>
+    Symbol ->
+    NodeRefinement a ->
+    (a -> Refinement) ->
+    guard ->
+    layer a ->
+    LTAGen a
+closeNode symbol nodeRefinement refinementOf guardBuilder layer =
     LTAGen
         ( closeOutcome
             <$> childrenOutcomes childForest
         )
         (childrenShrinks childForest)
+        (NodeRecipe symbol nodeRefinement guard <$> childrenRecipe childForest)
   where
     childForest = asChildren layer
     guard = buildGuard guardBuilder
@@ -394,6 +477,7 @@ frequency alternatives = do
         LTAGen
             (finiteOneof $ map weightedOutcomes branches)
             (shrinkChoice branches)
+            (ChoiceRecipe <$> traverse recipeAlternative alternatives)
   where
     branches = withOffsets alternatives
 
@@ -405,6 +489,9 @@ frequency alternatives = do
         fmap
             (\outcome -> outcome{outcomeWeight = weight * outcomeWeight outcome})
             (generatorOutcomes generator)
+
+    recipeAlternative (weight, generator) =
+        fmap (\recipe -> (weight, recipe)) $ generatorRecipe generator
 
 -- | Combine equally weighted alternatives.
 oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)
@@ -455,7 +542,7 @@ fromAutomatonUpToDepth maximumDepth automaton
         refinedNode
             (transitionSymbol transition)
             (transitionRefinement transition)
-            (transitionGuard transition)
+            (transitionConstraint transition)
             ( makeTerm
                 <$> childForest
             )
@@ -479,21 +566,33 @@ validOutcomes uncachedEntailment generator = do
     fmap (fmap $ map acceptedGenerated) $
         checkedOutcomes entailment (generatorOutcomes generator)
 
+-- | The support retained by either compilation path.
+data CompiledSupport
+    = -- | Semantic pruning produced an equality-annotated generic FTA.
+      EqualitySupport !EqualityAutomaton
+    | -- | A grouped relational plan produced native hash-consed ECTA support.
+      RelationalSupport !(ECTA.Core.Node Symbol)
+
 -- | Solver-checked support paired with its pure ranked language and shrinks.
 data Compiled a = Compiled
-    { compiledSupport :: !Automaton
-    -- ^ The LTA containing only accepted witnesses.
+    { compiledSupport :: !CompiledSupport
+    -- ^ The equality-layer support after every semantic guard is discharged.
     , compiledRanked :: !(Tree.Ranked (Generated a))
     -- ^ Pure sampling and replay after solver compilation.
     , compiledShrinkRanks :: !(Map.Map Integer [Integer])
     -- ^ Valid refinement and structural shrinks between accepted ranks.
+    , compiledPlanShrinks :: !(Integer -> [Integer])
+    -- ^ On-demand shrinks retained by a symbolic relational rank plan.
     }
 
 -- | A checked generator member and its relative sampling weight.
 data Generated a = Generated
     { generatedWeight :: !Integer
     , generatedValue :: a
-    , generatedTerm :: !LiquidTerm
+    , generatedTerm :: LiquidTerm
+    {- ^ The annotated witness. Automaton decoders build this lazily so sampling
+    a mapped domain value does not pay for an intermediate 'LiquidTerm'.
+    -}
     }
     deriving (Eq, Show)
 
@@ -508,7 +607,15 @@ data GeneratorError
     | InvalidPruning !PruneError
     | InvalidSimilarity !SimilarityError
     | InvalidMinimization !MinimizeError
-    | ResidualGuard !State !Guard
+    | InvalidECTAGenerator !ECTA.ECTAGenError
+    | -- | The reduced equality fragment could not be represented by MicroECTA.
+      InvalidEqualityView !LTAECTA.EqualityViewError
+    | RelationalPlanUnavailable
+    | RelationalComputedRefinement !Symbol
+    | RelationalEqualityUnsupported !EqConstraints
+    | -- | The sparse relational shortcut cannot inspect complete subtrees.
+      RelationalSyntacticEqualityUnsupported !Guard
+    | ResidualEquality !State !EqConstraints
     | RecursiveAutomaton
     | AmbiguousAutomaton !State
     deriving (Eq, Show)
@@ -531,36 +638,405 @@ compile uncachedEntailment generator = do
                     table <- implications
                     pure $
                         Compiled
-                            acceptedSupport
+                            (EqualitySupport acceptedSupport)
                             ranked
                             (buildShrinkTable generator accepted table)
+                            (const [])
 
-{- | Prune and rank a finite acyclic LTA without enumerating its terms.
+{- | Compile a compositional LTA generator as solver-approved ECTA joins.
 
-The core discharges guards per transition. The adapter then counts accepting
-runs by dynamic programming and builds a rank decoder over that table. Only
-'select' materializes the chosen 'LiquidTerm'. Recursive automata should first
-be unfolded to a finite state graph with the desired generation bound.
-Ambiguous automata are rejected so ranks continue to identify distinct terms,
-not accepting runs.
+Unlike 'compile', this path never scans the complete applicative witness
+product. It retains qualified-do child structure, groups each child language by
+the finite observations used by its parent guard, asks the solver once per live
+observation tuple, and lowers accepted tuples through
+'ECTA.relateGroupsM'. Fixed result refinements are known at that boundary;
+'refinedNodeBy' remains on the general witness compiler because an arbitrary
+Haskell projection may vary inside one relational group.
+-}
+compileRelational :: Entailment -> LTAGen a -> IO (Either GeneratorError (Compiled a))
+compileRelational uncachedEntailment generator =
+    case generatorRecipe generator of
+        Nothing -> pure $ Left RelationalPlanUnavailable
+        Just recipe
+            | not $ uniformlyWeightedRecipe recipe ->
+                pure $ Left RelationalPlanUnavailable
+            | otherwise -> do
+                entailment <- cacheEntailment uncachedEntailment
+                compiled <- compileRecipe entailment [path []] recipe
+                pure $ do
+                    grouped <- compiled
+                    let flattened = ECTA.ungroup grouped
+                    total <- first InvalidECTAGenerator $ ECTA.cardinality flattened
+                    ectaSupport <- first InvalidECTAGenerator $ ECTA.support flattened
+                    ranked <-
+                        first fromRankedError $
+                            Tree.fromIndexedOnDemand $
+                                Tree.Indexed total (relationalGeneratedAt flattened)
+                    pure $
+                        Compiled
+                            (RelationalSupport ectaSupport)
+                            ranked
+                            Map.empty
+                            (ECTA.shrinkRank flattened)
+
+-- | Whether relational compilation preserves this recipe's source weights.
+uniformlyWeightedRecipe :: Recipe a -> Bool
+uniformlyWeightedRecipe (PoolRecipe _) = True
+uniformlyWeightedRecipe (MapRecipe _ recipe) = uniformlyWeightedRecipe recipe
+uniformlyWeightedRecipe (NodeRecipe _ _ _ childrenRecipe) = uniformlyWeightedChildren childrenRecipe
+uniformlyWeightedRecipe (ChoiceRecipe alternatives) =
+    all ((== 1) . fst) alternatives
+        && all (uniformlyWeightedRecipe . snd) alternatives
+
+-- | Whether every source below one applicative child spine is unit-weighted.
+uniformlyWeightedChildren :: ChildRecipe a -> Bool
+uniformlyWeightedChildren (PureChildRecipe _) = True
+uniformlyWeightedChildren (OneChildRecipe recipe) = uniformlyWeightedRecipe recipe
+uniformlyWeightedChildren (ApplyChildRecipe functions arguments) =
+    uniformlyWeightedChildren functions && uniformlyWeightedChildren arguments
+
+-- | The sparse liquid observations that identify one relational group.
+newtype ObservationKey = ObservationKey
+    { unObservationKey :: Map.Map Path RootObservation
+    }
+    deriving (Eq, Ord, Show)
+
+-- | A domain value paired lazily with the witness selected at the same rank.
+data RelationalValue a = RelationalValue a Witness
+
+-- | One applicative result and its ordered child witnesses.
+data RelationalForest a = RelationalForest a [Witness]
+
+-- | Compile one retained recipe, grouped by the observations its parent needs.
+compileRecipe ::
+    Entailment ->
+    [Path] ->
+    Recipe a ->
+    IO (Either GeneratorError (ECTA.Grouped ObservationKey (RelationalValue a)))
+compileRecipe _ requested (PoolRecipe entries) =
+    pure . Right . ECTA.frequencies $
+        [ ( 1
+          , ECTA.keyed
+                (leafObservationKey requested symbol refinement)
+                (ECTA.elements [RelationalValue value $ Witness symbol refinement unconstrainedConstraint []])
+          )
+        | Refined value symbol refinement <- entries
+        ]
+compileRecipe entailment requested (MapRecipe transform recipe) =
+    fmap (fmap $ ECTA.mapWithKey mapValue) $
+        compileRecipe entailment requested recipe
+  where
+    mapValue _ (RelationalValue value witness) =
+        RelationalValue (transform value) witness
+compileRecipe entailment requested (ChoiceRecipe alternatives) = do
+    compiled <-
+        traverse
+            ( \(weight, recipe) ->
+                fmap (fmap $ \grouped -> (weight, grouped)) $
+                    compileRecipe entailment requested recipe
+            )
+            alternatives
+    pure $ ECTA.frequencies . filter liveGroup <$> sequence compiled
+  where
+    liveGroup (_, grouped) = ECTA.sizes grouped /= Left ECTA.EmptyGenerator
+compileRecipe _ _ (NodeRecipe symbol (ComputedRefinement _) _ _) =
+    pure $ Left $ RelationalComputedRefinement symbol
+compileRecipe entailment requested (NodeRecipe symbol nodeRefinement constraint childRecipe) = do
+    let arity = childRecipeArity childRecipe
+        needsChildRoots = case nodeRefinement of
+            RootComputedRefinement _ _ -> True
+            _ -> False
+        rootPaths
+            | needsChildRoots = [path [childIndex] | childIndex <- [0 .. arity - 1]]
+            | otherwise = []
+        observedPaths = nub $ requested <> constraintPaths constraint <> rootPaths
+        childRequirements =
+            [ nub
+                [ path suffix
+                | observed <- observedPaths
+                , index : suffix <- [unPath observed]
+                , index == childIndex
+                ]
+            | childIndex <- [0 .. arity - 1]
+            ]
+    compiledChildren <- compileChildRecipe entailment childRequirements childRecipe
+    case compiledChildren of
+        Left err -> pure $ Left err
+        Right childGroups -> do
+            filtered <-
+                ECTA.filterGroupsM
+                    ( \childKeys ->
+                        constraintDecision
+                            entailment
+                            symbol
+                            (refinementForChildren nodeRefinement childKeys)
+                            constraint
+                            childKeys
+                    )
+                    childGroups
+            pure $
+                fmap
+                    ( ECTA.regroupBy closeKey
+                        . ECTA.mapWithKey closeValue
+                    )
+                    filtered
+  where
+    closeKey childKeys =
+        parentObservationKey
+            requested
+            symbol
+            (refinementForChildren nodeRefinement childKeys)
+            childKeys
+
+    closeValue childKeys (RelationalForest value witnesses) =
+        let observationKey = closeKey childKeys
+         in RelationalValue value $
+                Witness
+                    symbol
+                    (observationKeyRefinement observationKey)
+                    constraint
+                    witnesses
+
+-- | Result refinement known for one tuple of direct child groups.
+refinementForChildren :: NodeRefinement a -> [ObservationKey] -> Refinement
+refinementForChildren (FixedRefinement refinement) _ = refinement
+refinementForChildren (RootComputedRefinement _ project) childKeys =
+    project $ map observationKeyRoot childKeys
+refinementForChildren (ComputedRefinement _) _ =
+    error "refinementForChildren: value-computed refinement reached relational compilation"
+
+-- | Root observation retained by every relational group.
+observationKeyRoot :: ObservationKey -> RootObservation
+observationKeyRoot (ObservationKey observations) =
+    case Map.lookup (path []) observations of
+        Just rootObservation -> rootObservation
+        Nothing -> error "microlta relational compiler: child group has no root observation"
+
+-- | Root refinement retained by every relational group.
+observationKeyRefinement :: ObservationKey -> Refinement
+observationKeyRefinement = observedRefinement . observationKeyRoot
+
+-- | Number of generated child positions in one free applicative spine.
+childRecipeArity :: ChildRecipe a -> Int
+childRecipeArity (PureChildRecipe _) = 0
+childRecipeArity (OneChildRecipe _) = 1
+childRecipeArity (ApplyChildRecipe functions arguments) =
+    childRecipeArity functions + childRecipeArity arguments
+
+-- | Compile a heterogeneous child spine while retaining its observation tuple.
+compileChildRecipe ::
+    Entailment ->
+    [[Path]] ->
+    ChildRecipe a ->
+    IO (Either GeneratorError (ECTA.Grouped [ObservationKey] (RelationalForest a)))
+compileChildRecipe _ _ (PureChildRecipe value) =
+    pure . Right $
+        ECTA.keyed [] $
+            ECTA.elements [RelationalForest value []]
+compileChildRecipe entailment requirements (OneChildRecipe recipe) = do
+    compiled <- compileRecipe entailment (firstRequirements requirements) recipe
+    pure $
+        fmap
+            ( ECTA.regroupBy pure
+                . ECTA.mapWithKey
+                    (\_ (RelationalValue value witness) -> RelationalForest value [witness])
+            )
+            compiled
+  where
+    firstRequirements (requirementsAtChild : _) = requirementsAtChild
+    firstRequirements [] = []
+compileChildRecipe entailment requirements (ApplyChildRecipe (PureChildRecipe function) arguments) = do
+    compiled <- compileChildRecipe entailment requirements arguments
+    pure $
+        fmap
+            ( ECTA.mapWithKey $ \_ (RelationalForest argument witnesses) ->
+                RelationalForest (function argument) witnesses
+            )
+            compiled
+compileChildRecipe entailment requirements (ApplyChildRecipe functions arguments) = do
+    let functionArity = childRecipeArity functions
+        (functionRequirements, argumentRequirements) = splitAt functionArity requirements
+    compiledFunctions <- compileChildRecipe entailment functionRequirements functions
+    compiledArguments <- compileChildRecipe entailment argumentRequirements arguments
+    case (compiledFunctions, compiledArguments) of
+        (Left err, _) -> pure $ Left err
+        (_, Left err) -> pure $ Left err
+        (Right functionGroups, Right argumentGroups) -> do
+            related <-
+                ECTA.relateGroupsM
+                    (\_ _ -> pure $ Right True)
+                    (<>)
+                    functionGroups
+                    argumentGroups
+            pure $
+                fmap
+                    ( ECTA.mapWithKey $ \_ (RelationalForest function functionWitnesses, RelationalForest argument argumentWitnesses) ->
+                        RelationalForest
+                            (function argument)
+                            (functionWitnesses <> argumentWitnesses)
+                    )
+                    related
+
+-- | Decide one parent guard from the already-grouped child observations.
+constraintDecision ::
+    Entailment ->
+    Symbol ->
+    Refinement ->
+    LiquidConstraint ->
+    [ObservationKey] ->
+    IO (Either GeneratorError Bool)
+constraintDecision entailment symbol refinement constraint childKeys
+    | constraintEqualities constraint /= EmptyConstraints =
+        pure $ Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
+    | containsSyntacticEquality (constraintGuard constraint) =
+        pure $ Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
+    | otherwise = do
+        verdict <-
+            evaluateGuardWith
+                entailment
+                ( \target -> do
+                    RootObservation observedSymbol observedRefinement <- Map.lookup target observations
+                    pure (observedSymbol, observedRefinement)
+                )
+                (constraintGuard constraint)
+        pure $ case verdict of
+            Yes -> Right True
+            No -> Right False
+            Unknown -> Left SolverUnknown
+  where
+    ObservationKey observations = completeObservationKey symbol refinement childKeys
+
+-- | Sparse root observations cannot decide equality of complete subtrees.
+containsSyntacticEquality :: Guard -> Bool
+containsSyntacticEquality Top = False
+containsSyntacticEquality Bottom = False
+containsSyntacticEquality (Same _ _) = True
+containsSyntacticEquality (Entails _ _) = False
+containsSyntacticEquality (Satisfies _ _) = False
+containsSyntacticEquality (Substitute _ nested) = containsSyntacticEquality nested
+containsSyntacticEquality (Not nested) = containsSyntacticEquality nested
+containsSyntacticEquality (And guards) = any containsSyntacticEquality guards
+containsSyntacticEquality (Or guards) = any containsSyntacticEquality guards
+
+-- | Observations needed above one accepted node.
+parentObservationKey ::
+    [Path] ->
+    Symbol ->
+    Refinement ->
+    [ObservationKey] ->
+    ObservationKey
+parentObservationKey requested symbol refinement childKeys =
+    ObservationKey $
+        Map.restrictKeys observations $
+            Set.insert (path []) $
+                Set.fromList requested
+  where
+    ObservationKey observations = completeObservationKey symbol refinement childKeys
+
+-- | Root plus the sparse observations retained by every direct child group.
+completeObservationKey ::
+    Symbol ->
+    Refinement ->
+    [ObservationKey] ->
+    ObservationKey
+completeObservationKey symbol refinement childKeys =
+    ObservationKey $
+        Map.fromList $
+            (path [], RootObservation symbol refinement)
+                : [ (path $ childIndex : unPath target, observed)
+                  | (childIndex, ObservationKey childObservations) <- zip [0 ..] childKeys
+                  , (target, observed) <- Map.toList childObservations
+                  ]
+
+-- | Available observations for one nullary source.
+leafObservationKey :: [Path] -> Symbol -> Refinement -> ObservationKey
+leafObservationKey requested symbol refinement =
+    ObservationKey $
+        if path [] `elem` requested
+            then Map.singleton (path []) (RootObservation symbol refinement)
+            else Map.empty
+
+-- | Decode a valid ECTA rank into the public generated-member view.
+relationalGeneratedAt :: ECTA.ECTAGen (RelationalValue a) -> Integer -> Generated a
+relationalGeneratedAt generator rank =
+    case ECTA.unrank generator rank of
+        Left err -> error $ "compileRelational: invalid retained rank: " <> show err
+        Right (RelationalValue value witness) ->
+            Generated 1 value (witnessTerm witness)
+
+{- | Prune and rank a finite acyclic LTA.
+
+The core's authoritative 'prune' pass runs first. If no syntactic equality
+remains, the adapter counts accepting runs by dynamic programming and only
+'select' materializes the chosen 'LiquidTerm'. Positive equality residuals are
+lowered explicitly to MicroECTA and use a correctness-first finite enumerator.
+Recursive automata should first be unfolded to the desired generation bound.
 -}
 compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled LiquidTerm))
-compileAutomaton uncachedEntailment automaton = do
+compileAutomaton entailment =
+    compileAutomatonWith entailment LiquidTerm
+
+{- | Compile an LTA while folding each selected transition directly into a value.
+
+The annotated witness remains available through 'generatedTerm', but is lazy.
+QuickCheck sampling that only demands 'generatedValue' therefore avoids
+constructing and immediately decoding an intermediate 'LiquidTerm'.
+-}
+compileAutomatonWith ::
+    Entailment ->
+    (Symbol -> Refinement -> [a] -> a) ->
+    Automaton ->
+    IO (Either GeneratorError (Compiled a))
+compileAutomatonWith uncachedEntailment buildValue automaton = do
     entailment <- cacheEntailment uncachedEntailment
-    reduced <- prune entailment automaton
+    reduced <- pruneToECTA entailment automaton
     pure $ do
         acceptedSupport <- first InvalidPruning reduced
-        ensureUnconstrained acceptedSupport
-        counts <- countAutomaton acceptedSupport
-        ensureUnambiguous acceptedSupport $ Map.keys counts
-        let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
-        ranked <-
-            first fromRankedError $
-                Tree.fromIndexedOnDemand $
-                    Tree.Indexed
-                        total
-                        (generatedAt acceptedSupport counts)
-        pure $ Compiled acceptedSupport ranked Map.empty
+        ranked <- case ensureUnconstrained acceptedSupport of
+            Right () -> compileUnconstrainedAutomaton buildValue acceptedSupport
+            Left (ResidualEquality _ _) -> compileEqualityAutomaton buildValue acceptedSupport
+            Left err -> Left err
+        pure $ Compiled (EqualitySupport acceptedSupport) ranked Map.empty (const [])
+
+-- | Count and unrank an equality-free reduced LTA as an ordinary FTA.
+compileUnconstrainedAutomaton ::
+    (Symbol -> Refinement -> [a] -> a) ->
+    EqualityAutomaton ->
+    Either GeneratorError (Tree.Ranked (Generated a))
+compileUnconstrainedAutomaton buildValue acceptedSupport = do
+    counts <- countAutomaton acceptedSupport
+    ensureUnambiguous acceptedSupport $ Map.keys counts
+    let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
+    first fromRankedError $
+        Tree.fromIndexedOnDemand $
+            Tree.Indexed
+                total
+                (generatedAtWith buildValue acceptedSupport counts)
+
+{- | Enumerate a positive-equality residual through the real MicroECTA core.
+
+This is the correctness-first backend. It may materialize the finite accepted
+language; future equality-aware counting can replace it without changing the
+authoritative LTA or this compilation boundary.
+-}
+compileEqualityAutomaton ::
+    (Symbol -> Refinement -> [a] -> a) ->
+    EqualityAutomaton ->
+    Either GeneratorError (Tree.Ranked (Generated a))
+compileEqualityAutomaton buildValue acceptedSupport = do
+    equalityView <- first InvalidEqualityView $ LTAECTA.toECTA acceptedSupport
+    terms <-
+        traverse
+            (first InvalidEqualityView . LTAECTA.decodeTerm equalityView)
+            (nub $ ECTA.Core.getAllTermsWith (-1) $ LTAECTA.equalityRoot equalityView)
+    first fromRankedError $
+        Tree.fromWeighted
+            [ (1, Generated 1 (foldValue term) term)
+            | term <- terms
+            ]
+  where
+    foldValue (LiquidTerm symbol refinement childTerms) =
+        buildValue symbol refinement $ map foldValue childTerms
 
 {- | Require the pruned automaton to be an ordinary FTA before multiplying
 child cardinalities.
@@ -569,14 +1045,14 @@ Semantic guards are eliminated by LTA state splitting. Syntactic equality may
 remain because equality between arbitrary subtrees is not a regular tree
 language; it needs the ECTA counting path instead of an FTA product count.
 -}
-ensureUnconstrained :: Automaton -> Either GeneratorError ()
+ensureUnconstrained :: EqualityAutomaton -> Either GeneratorError ()
 ensureUnconstrained automaton =
-    case [ (state, transitionGuard transition)
+    case [ (state, FTA.transitionGuard transition)
          | (state, transitions) <- Map.toList $ automatonTransitions automaton
          , transition <- transitions
-         , transitionGuard transition /= Top
+         , FTA.transitionGuard transition /= EmptyConstraints
          ] of
-        residual : _ -> Left $ uncurry ResidualGuard residual
+        residual : _ -> Left $ uncurry ResidualEquality residual
         [] -> Right ()
 
 {- | Change only the Haskell view of a compiled LTA member.
@@ -594,7 +1070,7 @@ mapCompiled transform compiled =
         generated{generatedValue = transform $ generatedValue generated}
 
 -- | Count every reachable state of an acyclic automaton once.
-countAutomaton :: Automaton -> Either GeneratorError (Map.Map State Integer)
+countAutomaton :: EqualityAutomaton -> Either GeneratorError (Map.Map State Integer)
 countAutomaton automaton =
     snd <$> countState Set.empty Map.empty (automatonInitial automaton)
   where
@@ -632,7 +1108,7 @@ distinct terms.
 For an acyclic FTA, two alternatives overlap exactly when their liquid symbols
 match and every corresponding pair of child-state languages intersects.
 -}
-ensureUnambiguous :: Automaton -> [State] -> Either GeneratorError ()
+ensureUnambiguous :: EqualityAutomaton -> [State] -> Either GeneratorError ()
 ensureUnambiguous automaton = go
   where
     table = automatonTransitions automaton
@@ -681,20 +1157,36 @@ distinctPairs [] = []
 distinctPairs (value : rest) = map (\other -> (value, other)) rest <> distinctPairs rest
 
 -- | Decode one valid accepting-run rank into its concrete annotated term.
-generatedAt :: Automaton -> Map.Map State Integer -> Integer -> Generated LiquidTerm
-generatedAt automaton counts rank =
-    let term = decodeState (automatonInitial automaton) rank
-     in Generated 1 term term
+generatedAtWith ::
+    (Symbol -> Refinement -> [a] -> a) ->
+    EqualityAutomaton ->
+    Map.Map State Integer ->
+    Integer ->
+    Generated a
+generatedAtWith buildValue automaton counts rank =
+    Generated
+        1
+        (decodeValue (automatonInitial automaton) rank)
+        (decodeTerm (automatonInitial automaton) rank)
   where
     table = automatonTransitions automaton
 
-    decodeState state stateRank =
+    decodeValue state stateRank =
+        case selectTransition stateRank $ Map.findWithDefault [] state table of
+            Just (transition, transitionRank) ->
+                buildValue
+                    (transitionSymbol transition)
+                    (transitionRefinement transition)
+                    (decodeChildrenWith decodeValue transitionRank $ transitionChildren transition)
+            Nothing -> error "generatedAt: rank outside the counted LTA"
+
+    decodeTerm state stateRank =
         case selectTransition stateRank $ Map.findWithDefault [] state table of
             Just (transition, transitionRank) ->
                 LiquidTerm
                     (transitionSymbol transition)
                     (transitionRefinement transition)
-                    (decodeChildren transitionRank $ transitionChildren transition)
+                    (decodeChildrenWith decodeTerm transitionRank $ transitionChildren transition)
             Nothing -> error "generatedAt: rank outside the counted LTA"
 
     selectTransition _ [] = Nothing
@@ -710,15 +1202,16 @@ generatedAt automaton counts rank =
             | child <- transitionChildren transition
             ]
 
-    decodeChildren _ [] = []
-    decodeChildren remaining (child : rest) =
+    decodeChildrenWith :: (State -> Integer -> b) -> Integer -> [State] -> [b]
+    decodeChildrenWith _ _ [] = []
+    decodeChildrenWith decode remaining (child : rest) =
         let suffixCount =
                 product
                     [ Map.findWithDefault 0 state counts
                     | state <- rest
                     ]
             (childRank, restRank) = remaining `quotRem` suffixCount
-         in decodeState child childRank : decodeChildren restRank rest
+         in decode child childRank : decodeChildrenWith decode restRank rest
 
 {- | Cache exact refinement queries for one compilation run.
 
@@ -753,7 +1246,9 @@ shrinkRank :: Compiled a -> Integer -> [Integer]
 shrinkRank compiled rank
     | rank < 0 || rank >= cardinality compiled = []
     | otherwise =
-        Map.findWithDefault [] rank (compiledShrinkRanks compiled)
+        nub $
+            Map.findWithDefault [] rank (compiledShrinkRanks compiled)
+                <> compiledPlanShrinks compiled rank
 
 -- | All transitively smaller accepted members reachable from one rank.
 smallerMembers :: Compiled a -> Integer -> [(Integer, Generated a)]
@@ -772,7 +1267,7 @@ data Outcome a = Outcome
 data Witness = Witness
     { witnessSymbol :: !Symbol
     , witnessRefinement :: !Refinement
-    , witnessGuard :: !Guard
+    , witnessConstraint :: !LiquidConstraint
     , witnessChildren :: ![Witness]
     }
 
@@ -864,8 +1359,8 @@ checkWitness entailment witness = do
     case childrenVerdict of
         No -> pure No
         _ -> do
-            guardVerdict <- evaluateGuard entailment (witnessGuard witness) (witnessTerm witness)
-            pure $ andVerdicts childrenVerdict guardVerdict
+            constraintVerdict <- evaluateConstraint entailment (witnessConstraint witness) (witnessTerm witness)
+            pure $ andVerdicts childrenVerdict constraintVerdict
   where
     checkChildren [] = pure Yes
     checkChildren (child : rest) = do
@@ -905,9 +1400,9 @@ validateWitness rootWitness = go Map.empty [rootWitness]
 
 compileAccepted ::
     [Accepted a] ->
-    Either GeneratorError (Automaton, Tree.Ranked (Generated a))
+    Either GeneratorError (EqualityAutomaton, Tree.Ranked (Generated a))
 compileAccepted accepted = do
-    acceptedSupport <-
+    constrainedSupport <-
         compileWitnesses
             [ outcomeWitness outcome
             | (_, outcome, _) <- accepted
@@ -918,7 +1413,7 @@ compileAccepted accepted = do
                 [ (generatedWeight generated, generated)
                 | (_, _, generated) <- accepted
                 ]
-    pure (acceptedSupport, ranked)
+    pure (FTA.mapGuards constraintEqualities constrainedSupport, ranked)
 
 fromRankedError :: Tree.RankedError -> GeneratorError
 fromRankedError Tree.EmptyRanked = EmptyGenerator
@@ -1051,7 +1546,7 @@ addWitnessAt state witness build =
                 (witnessSymbol witness)
                 (witnessRefinement witness)
                 childStates
-                (witnessGuard witness)
+                (witnessConstraint witness)
      in withChildren
             { buildRows =
                 Map.insertWith
