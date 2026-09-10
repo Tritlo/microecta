@@ -221,7 +221,7 @@ compileBinary instance_ first second =
 
 -- | Add one binary application layer.
 binaryLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
-binaryLayer children = ECTAGen.do
+binaryLayer children = ECTAGen.node "binary-application" $ ECTAGen.do
     operation <- binaryFunctionsBySignature
     first <- children
     second <- children
@@ -237,7 +237,7 @@ compileNot label value = LabeledExpression TBool label (Not (expression value))
 
 -- | Add one unary application layer.
 unaryLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
-unaryLayer children = ECTAGen.do
+unaryLayer children = ECTAGen.node "not" $ ECTAGen.do
     build <- compileNot <$> ECTAGen.groupBy unarySignature (ECTAGen.elements allLabels)
     value <- children
     ECTAGen.pure (build value)
@@ -292,7 +292,7 @@ compileConditional instance_ condition ifTrue ifFalse =
 
 -- | Add one conditional layer, tracking implicit flows.
 conditionalLayer :: Grouped Labeled LabeledExpression -> Grouped Labeled LabeledExpression
-conditionalLayer children = ECTAGen.do
+conditionalLayer children = ECTAGen.node "if" $ ECTAGen.do
     shape <- ECTAGen.groupBy conditionalSignature (ECTAGen.elements conditionalInstances)
     condition <- children
     ifTrue <- children
@@ -330,7 +330,7 @@ printLayer ::
     [Labeled] ->
     Grouped Labeled LabeledExpression ->
     Grouped Labeled LabeledExpression
-printLayer instances children = ECTAGen.do
+printLayer instances children = ECTAGen.node "print" $ ECTAGen.do
     printAt <- compilePrint <$> ECTAGen.groupBy printSignature (ECTAGen.elements instances)
     value <- children
     ECTAGen.pure (printAt value)

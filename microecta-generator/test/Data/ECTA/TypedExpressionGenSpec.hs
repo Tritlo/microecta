@@ -3,11 +3,12 @@ module Data.ECTA.TypedExpressionGenSpec (spec) where
 import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.String (fromString)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
-import Data.ECTA (Node, edgeChildren, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
+import Data.ECTA (Edge, Node, edgeChildren, edgeSymbol, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (unsafeGetEclasses)
@@ -65,6 +66,17 @@ hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
     edgeMatches edge =
         length (unsafeGetEclasses $ edgeEcs edge) == count
             || any (hasArgumentConstraints count) (edgeChildren edge)
+
+-- | Collect the constructor symbols from one finite support graph.
+supportSymbols :: Node Symbol -> [Symbol]
+supportSymbols = map edgeSymbol . supportEdges
+
+-- | Collect the edges from one finite support graph.
+supportEdges :: Node Symbol -> [Edge Symbol]
+supportEdges node =
+    edges <> concatMap supportEdges (concatMap edgeChildren edges)
+  where
+    edges = nodeEdges node
 
 -- | Independently enumerate the exact-depth reference language.
 referenceExpressions :: Int -> Type -> [Expression]
@@ -135,6 +147,29 @@ spec =
                 Right node ->
                     map (`hasArgumentConstraints` node) [1, 2, 3]
                         `shouldBe` [True, True, True]
+                Left err -> expectationFailure $ show err
+
+        it "keeps the domain labels that close grouped do-blocks" $
+            case ECTAGen.support (expressionGenAtDepth 1) of
+                Right node ->
+                    Set.fromList (supportSymbols node)
+                        `shouldSatisfy` \symbols ->
+                            Set.fromList (map fromString ["not", "binary-application", "if"])
+                                `Set.isSubsetOf` symbols
+                Left err -> expectationFailure $ show err
+
+        it "keeps grouped constraints on the domain-labelled edge" $
+            case ECTAGen.support (ECTAGen.ungroup $ binaryLayer literalsByType) of
+                Right node -> do
+                    let constrained =
+                            [ edge
+                            | edge <- supportEdges node
+                            , not $ null $ unsafeGetEclasses $ edgeEcs edge
+                            ]
+                    Set.fromList (map edgeSymbol constrained)
+                        `shouldBe` Set.singleton (fromString "binary-application")
+                    map (length . unsafeGetEclasses . edgeEcs) constrained
+                        `shouldSatisfy` \counts -> not (null counts) && all (== 2) counts
                 Left err -> expectationFailure $ show err
 
         it "counts the exact depth-three language without enumerating it" $
@@ -313,6 +348,15 @@ spec =
             it "samples only well-typed depth-four expressions through ECTA" $
                 QC.forAll (ECTAGen.toGen $ expressionGenAtDepth 4) $ \typed ->
                     QC.counterexample (show typed) $ QC.property $ isWellTyped typed
+
+        modifyMaxSuccess (const 500) $
+            it "samples only well-typed exact-depth expressions through rejection" $
+                QC.forAll (naiveExpressionGen 4) $ \typed ->
+                    QC.counterexample (show typed) $
+                        QC.conjoin
+                            [ QC.property $ isWellTyped typed
+                            , expressionDepth (expression typed) QC.=== 4
+                            ]
 
         modifyMaxSuccess (const 1000) $
             it "samples only well-typed depth-four expressions through handwritten sharing" $

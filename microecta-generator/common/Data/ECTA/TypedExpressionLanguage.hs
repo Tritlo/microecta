@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QualifiedDo #-}
 
 {- | A small well-typed expression language, shared by the specs and the
@@ -7,9 +8,8 @@ sampling benchmark.
 Expressions use unary, binary, and ternary applications over integer and
 Boolean literals. Every layer is grouped by result type, so an application
 matches each operation signature with child groups of the right types instead
-of generating values and rejecting ill-typed combinations. The handwritten
-QuickCheck generators mirror the same exact distribution and serve as the
-comparison baseline.
+of generating values and rejecting ill-typed combinations. Naive rejection
+and a handwritten type-directed generator provide like-for-like baselines.
 -}
 module Data.ECTA.TypedExpressionLanguage (
     -- * Language
@@ -50,7 +50,8 @@ module Data.ECTA.TypedExpressionLanguage (
     expressionCountUpTo,
     upToDepthCount,
 
-    -- * Handwritten baseline
+    -- * Reference generators
+    naiveExpressionGen,
     handwrittenExpressionOfType,
     handwrittenExpressionGen,
     frequencyInteger,
@@ -208,14 +209,14 @@ literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
 
 -- | Add one unary application layer.
 unaryLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-unaryLayer children = ECTAGen.do
+unaryLayer children = ECTAGen.node "not" $ ECTAGen.do
     build <- unaryFunctionsBySignature
     value <- children
     ECTAGen.pure (build value)
 
 -- | Add one binary application layer.
 binaryLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-binaryLayer children = ECTAGen.do
+binaryLayer children = ECTAGen.node "binary-application" $ ECTAGen.do
     operation <- binaryFunctionsBySignature
     left <- children
     right <- children
@@ -223,7 +224,7 @@ binaryLayer children = ECTAGen.do
 
 -- | Add one ternary conditional layer.
 conditionalLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
-conditionalLayer children = ECTAGen.do
+conditionalLayer children = ECTAGen.node "if" $ ECTAGen.do
     build <- conditionalFunctionsBySignature
     condition <- children
     ifTrue <- children
@@ -349,6 +350,71 @@ applicationCount childCount result =
 -- | Number of expressions of depth at most the bound across all result types.
 upToDepthCount :: Int -> Integer
 upToDepthCount depth = sum $ map (expressionCountUpTo depth) allTypes
+
+{- | Generate raw applications and reject those that fail independent type
+inference.
+
+Accepted children are sampled uniformly at the preceding exact depth. The raw
+root alternatives are weighted by their candidate counts, so rejection leaves
+a uniform distribution over all accepted expressions rather than biasing
+smaller constructor families.
+-}
+naiveExpressionGen :: Int -> QC.Gen TypedExpression
+naiveExpressionGen depth
+    | depth <= 0 = QC.elements literals
+    | otherwise =
+        QC.suchThatMap rawApplication inferTypedExpression
+  where
+    childDepth = depth - 1
+    child = expression <$> naiveExpressionGen childDepth
+    childCount = sum $ map (expressionCount childDepth) allTypes
+    rawApplication =
+        frequencyInteger
+            [ (childCount, Not <$> child)
+            ,
+                ( 5 * childCount * childCount
+                , ApplyBinary <$> QC.elements [minBound .. maxBound] <*> child <*> child
+                )
+            ,
+                ( childCount * childCount * childCount
+                , IfExpression <$> child <*> child <*> child
+                )
+            ]
+
+-- | Independently infer and attach the type of one raw expression.
+inferTypedExpression :: Expression -> Maybe TypedExpression
+inferTypedExpression expression_ =
+    TypedExpression <$> inferExpressionType expression_ <*> pure expression_
+
+-- | Infer the ground type of one expression without using an ECTA group.
+inferExpressionType :: Expression -> Maybe Type
+inferExpressionType (IntLiteral _) = Just TInt
+inferExpressionType (BoolLiteral _) = Just TBool
+inferExpressionType (Not argument) = do
+    argumentType <- inferExpressionType argument
+    if argumentType == TBool then Just TBool else Nothing
+inferExpressionType (ApplyBinary function_ first second) = do
+    firstType <- inferExpressionType first
+    secondType <- inferExpressionType second
+    case function_ of
+        Equal
+            | firstType == secondType -> Just TBool
+            | otherwise -> Nothing
+        Add -> homogeneous TInt firstType secondType
+        Multiply -> homogeneous TInt firstType secondType
+        Or -> homogeneous TBool firstType secondType
+        And -> homogeneous TBool firstType secondType
+  where
+    homogeneous expected firstType secondType
+        | firstType == expected && secondType == expected = Just expected
+        | otherwise = Nothing
+inferExpressionType (IfExpression condition ifTrue ifFalse) = do
+    conditionType <- inferExpressionType condition
+    trueType <- inferExpressionType ifTrue
+    falseType <- inferExpressionType ifFalse
+    if conditionType == TBool && trueType == falseType
+        then Just trueType
+        else Nothing
 
 {- | The handwritten generator makes the dependency explicit by accepting the
 desired result type and selecting only compatible function instances. Its

@@ -21,12 +21,15 @@ module Data.ECTA.Gen (
     fromBackend,
 
     -- * Composing
+    NodeLayer (..),
+    node,
     frequency,
     oneof,
     uniformly,
     On (..),
     match,
     relate,
+    relateM,
 
     -- * The grouped layer
     Sig (..),
@@ -42,6 +45,9 @@ module Data.ECTA.Gen (
     oneofGrouped,
     uniformlyGrouped,
     ungroup,
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
 
     -- * Recursion
     atomic,
@@ -171,6 +177,46 @@ data ECTAGen gen a
     = Transparent !(Either ECTAGenError (Static a))
     | Cyclic !(Either ECTAGenError (Recursive a))
     | Opaque !(gen (Either ECTAGenError a))
+
+{- | A generated child layer that can be closed with one visible constructor
+label.
+
+Instances cover ordinary and grouped ECTA generators. The grouped instance
+keeps its result key and equality constraints while replacing the generator's
+private join symbol with the supplied domain symbol.
+-}
+class NodeLayer layer where
+    -- | Replace an open layer's private root with a domain constructor.
+    closeNode :: Symbol -> layer a -> layer a
+
+-- | Close an applicative child description with one domain constructor.
+node :: (NodeLayer layer) => Symbol -> layer a -> layer a
+node = closeNode
+
+instance NodeLayer (ECTAGen gen) where
+    closeNode symbol (Transparent result) =
+        Transparent $ fmap (labelStatic symbol) result
+    closeNode symbol (Cyclic result) =
+        Cyclic $ fmap (labelRecursive symbol) result
+    closeNode _ opaque@(Opaque _) = opaque
+
+instance NodeLayer (Grouped gen key) where
+    closeNode symbol (Grouped result) =
+        Grouped $ fmap (fmap labelBucket) result
+      where
+        labelBucket bucket =
+            bucket
+                { keyedBucketStatic =
+                    labelStatic symbol $ keyedBucketStatic bucket
+                }
+    closeNode symbol (CyclicGrouped result) =
+        CyclicGrouped $ fmap (fmap labelGroup) result
+      where
+        labelGroup group =
+            group
+                { keyedRecursiveLanguage =
+                    labelRecursive symbol $ keyedRecursiveLanguage group
+                }
 
 {- | View any inspectable generator as a recursive one.
 
@@ -380,8 +426,8 @@ recur build
 
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the language that is still being defined.
-    placeholder node index sampling =
-        Recursive node index sampling False True Nothing
+    placeholder supportNode index sampling =
+        Recursive supportNode index sampling False True Nothing
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
@@ -441,10 +487,10 @@ count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
 fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
-fromECTA node =
+fromECTA supportNode =
     Cyclic $ do
-        index <- automatonIndex node
-        pure $ Recursive node index (uniformSampleIndex index) False False $ Just id
+        index <- automatonIndex supportNode
+        pure $ Recursive supportNode index (uniformSampleIndex index) False False $ Just id
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -514,9 +560,9 @@ recurGrouped build
     positionOf key = Map.findWithDefault 0 key positions
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the family that is still being defined.
-    placeholder node index sampling masses =
+    placeholder supportNode index sampling masses =
         KeyedRecursive
-            (Recursive node index sampling False True Nothing)
+            (Recursive supportNode index sampling False True Nothing)
             masses
             False
     noMass = emptyMassIndex
@@ -1255,6 +1301,150 @@ relate leftKey rightKey relation left right =
         related (Right (leftValue, rightValue)) =
             relation (leftKey leftValue) (rightKey rightValue)
      in Opaque $ filterGen related generatedPairs
+
+{- | Compile an effectful relation between two finite inspectable languages.
+
+Each input is grouped once by its projected key. The callback then runs once
+per live key pair, not once per value pair. Accepted pairs are lowered through
+'relateGroupsM' to the same ECTA equality join used by grouped application.
+The outer 'Either' is reserved for a caller-defined relation failure, such as
+an undecided solver query; generator construction failures remain inspectable
+through the returned 'ECTAGen'. Recursive and opaque inputs are rejected by
+the grouped layer rather than sampled by rejection.
+-}
+relateM ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    ECTAGen gen left ->
+    ECTAGen gen right ->
+    IO (Either relationError (ECTAGen gen (left, right)))
+relateM leftKey rightKey relation left right =
+    fmap (fmap ungroup) $
+        relateGroupsM
+            relation
+            (\_ _ -> ())
+            (groupBy leftKey left)
+            (groupBy rightKey right)
+
+{- | Compile an effectful relation directly over two grouped languages.
+
+This is the non-enumerating boundary used by higher-level relational
+compilers. One solver decision selects or rejects each pair of already
+materialized keys. A selected component keeps both compact bucket indexes and
+encodes their membership with the ECTA n-ary equality join; no bucket member
+is visited. The result key may be computed from both input keys.
+-}
+relateGroupsM ::
+    (Ord resultKey) =>
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    (leftKey -> rightKey -> resultKey) ->
+    Grouped gen leftKey left ->
+    Grouped gen rightKey right ->
+    IO (Either relationError (Grouped gen resultKey (left, right)))
+relateGroupsM relation resultKey left right =
+    case (left, right) of
+        (Grouped (Left err), _) -> pure $ Right $ Grouped $ Left err
+        (_, Grouped (Left err)) -> pure $ Right $ Grouped $ Left err
+        (CyclicGrouped _, _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
+        (_, CyclicGrouped _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
+        (Grouped (Right leftBuckets), Grouped (Right rightBuckets)) -> do
+            related <- decidePairs 0 [] $ Map.toAscList leftBuckets
+            pure $ fmap (Grouped . mergeComponentsByKey . reverse) related
+          where
+            rightEntries = Map.toAscList rightBuckets
+
+            decidePairs _ accepted [] = pure $ Right accepted
+            decidePairs componentIndex accepted ((leftGroupKey, leftBucket) : rest) = do
+                decided <- decideRights componentIndex accepted leftGroupKey leftBucket rightEntries
+                case decided of
+                    Left err -> pure $ Left err
+                    Right (nextIndex, retained) -> decidePairs nextIndex retained rest
+
+            decideRights componentIndex accepted _ _ [] =
+                pure $ Right (componentIndex, accepted)
+            decideRights componentIndex accepted leftGroupKey leftBucket ((rightGroupKey, rightBucket) : rest) = do
+                decision <- relation leftGroupKey rightGroupKey
+                case decision of
+                    Left err -> pure $ Left err
+                    Right keep ->
+                        let retained =
+                                if keep
+                                    then
+                                        ( resultKey leftGroupKey rightGroupKey
+                                        , keyedBucketMass leftBucket * keyedBucketMass rightBucket
+                                        , joinNBucketStatic
+                                            componentIndex
+                                            (pureStatic (,))
+                                            ( ChainCons
+                                                (keyedBucketStatic leftBucket)
+                                                (ChainCons (keyedBucketStatic rightBucket) ChainNil)
+                                            )
+                                        )
+                                            : accepted
+                                    else accepted
+                            nextIndex = if keep then componentIndex + 1 else componentIndex
+                         in decideRights nextIndex retained leftGroupKey leftBucket rest
+
+{- | Compile one relation over a homogeneous list of grouped arguments.
+
+Intermediate products range over key tuples only. The relation is evaluated
+once for every live complete tuple, while the values under each tuple remain
+in their compact ECTA indexes. The result stays grouped by that tuple so a
+caller can reclassify it without enumerating members.
+-}
+relateN ::
+    (Ord key) =>
+    ([key] -> IO (Either relationError Bool)) ->
+    [Grouped gen key a] ->
+    IO (Either relationError (Grouped gen [key] [a]))
+relateN _ [] = pure $ Right $ Grouped $ Left EmptyGenerator
+relateN relation (first : rest) = do
+    combined <- combine (regroupBy pure $ mapWithKey (\_ value -> [value]) first) rest
+    case combined of
+        Left err -> pure $ Left err
+        Right grouped -> filterGroupsM relation grouped
+  where
+    combine grouped [] = pure $ Right grouped
+    combine grouped (next : remaining) = do
+        paired <-
+            relateGroupsM
+                (\_ _ -> pure $ Right True)
+                (\keys key -> keys <> [key])
+                grouped
+                next
+        case paired of
+            Left err -> pure $ Left err
+            Right joined ->
+                combine
+                    (mapWithKey (\_ (values, value) -> values <> [value]) joined)
+                    remaining
+
+-- | Retain complete groups selected by one effectful key predicate.
+filterGroupsM ::
+    (Ord key) =>
+    (key -> IO (Either relationError Bool)) ->
+    Grouped gen key a ->
+    IO (Either relationError (Grouped gen key a))
+filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
+filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
+filterGroupsM predicate (Grouped (Right buckets)) = do
+    retained <- go [] $ Map.toAscList buckets
+    pure $ fmap (Grouped . mergeComponentsByKey . reverse) retained
+  where
+    go accepted [] = pure $ Right accepted
+    go accepted ((key, bucket) : rest) = do
+        decision <- predicate key
+        case decision of
+            Left err -> pure $ Left err
+            Right keep ->
+                go
+                    ( if keep
+                        then (key, keyedBucketMass bucket, keyedBucketStatic bucket) : accepted
+                        else accepted
+                    )
+                    rest
 
 {- | Return the ECTA support of an inspectable generator.
 

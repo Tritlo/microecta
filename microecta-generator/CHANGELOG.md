@@ -8,6 +8,14 @@ represented as equality-constrained tree automata.
 Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 0.8, so GHC 9.14 uses the one it ships.
 
+* Add the automaton-neutral `Data.Tree.Gen` ranked layer and
+  `Data.Tree.FTA.Gen`. Ordinary finite FTA languages now have exact ranks,
+  replay, QuickCheck sampling, shrinking, inspectable support, and the same
+  `FTA.node "label" $ FTA.do ...` authoring form as the constrained adapters.
+* Add `ECTAGen.node`, which closes a qualified-do block with its public domain
+  constructor while preserving the equality constraints accumulated by a
+  grouped join.
+
 ### Generators and sources
 
 * `fromIndexed` and `elements` lift a finite indexed source into transparent

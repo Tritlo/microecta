@@ -14,6 +14,42 @@ by downstream projects.
 The intent is similar to the relationship between `microlens` and `lens`: keep
 the useful core small, direct, and quick to build.
 
+## Ordinary FTA core
+
+`Data.Tree.FTA` is the constraint-neutral structure underneath the newer tree
+automata APIs. It stores states, ranked transitions, an initial state, and an
+arbitrary transition annotation. Cycles are valid: an FTA has finitely many
+states, but may accept an infinite tree language.
+
+```haskell
+import Data.Tree.FTA (FTAError, PlainFTA)
+import qualified Data.Tree.FTA.Syntax as FTA
+import Data.Tree.Term
+
+data Q = Root | Atom
+  deriving (Eq, Ord, Show)
+
+plain :: Either (FTAError Q String) (PlainFTA Q String)
+plain =
+  FTA.automaton Root
+    [ FTA.row Root [FTA.transition "pair" [Atom, Atom]]
+    , FTA.row Atom [FTA.transition "zero" [], FTA.transition "one" []]
+    ]
+```
+
+`Data.Tree.FTA.intersect` constructs the ordinary reachable product, including
+for recursive automata. It pairs transition annotations rather than assigning
+them a meaning. A constraint theory can instead use `intersectWith` to define
+compatible symbols and combine annotations; this is the operation used by the
+LTA `P-Syn-Eq` pruning rule.
+
+`Data.ECTA.FTA.toFTA` exposes an ECTA through this structure, retaining each
+edge's `EqConstraints` as its transition annotation. Handwritten constrained
+rows use `Data.ECTA.FTA.Syntax.transition`; ordinary FTA syntax does not expose
+a generic `guarded` escape hatch. `Data.LTA.Syntax` mirrors the row shape while
+adding the transition refinement and a named liquid guard. The graph is shared;
+each constraint theory owns its public syntax.
+
 ## Core API
 
 The main entry point is `Data.ECTA`.
@@ -202,6 +238,8 @@ the pieces that downstream projects still use:
   reduction, traversal, and enumeration.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
+- `Data.Tree.Term`, `Data.Tree.FTA`, and `Data.ECTA.FTA` expose the shared term
+  type, the constraint-neutral automaton, and the ECTA view of that automaton.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
   term-search-shaped type encodings.
 - `Data.ECTA.Internal.*` contains the equality-constrained tree automata
