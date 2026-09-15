@@ -21,6 +21,7 @@ jobs:
           version: "0.20.1.0"
           pattern: |
             microfta/**/*.hs
+            microecta/**/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -30,7 +31,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta"]'
+          path: '["microfta", "microecta"]'
           fail-on: warning
 
   build-test-bench:

@@ -7,6 +7,7 @@
 This module contains traversal, intersection, union, reduction, and
 constraint-propagation logic. Most users should import "Data.ECTA" instead; the
 module is exposed so downstream code can reach lower-level helpers when needed.
+Its exports are not covered by the PVP contract of the package.
 -}
 module Data.ECTA.Internal.ECTA.Operations (
     -- * Traversal
@@ -57,17 +58,10 @@ module Data.ECTA.Internal.ECTA.Operations (
     getSubnodeById,
 ) where
 
-import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
-import qualified Data.HashMap.Strict as HashMap
+import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
 import Data.List (inits, tails)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
-import Data.Monoid (First (..), Sum (..))
-import Data.Semigroup (Max (..))
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
@@ -75,23 +69,18 @@ import Type.Reflection (Typeable, eqTypeRep, typeRep)
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Internal.Term
+import qualified Data.Tree.FTA.Interned.Operations as Common
 
 import Data.Interned.Extended.HashTableBased (Id)
 
 import Data.Memoization (
     MemoCache,
-    MemoCacheTag (..),
     TypeableMemoCache,
-    memo,
     memo2TypeableWith,
     memo2With,
-    memoTypeableWith,
-    memoWith,
     newMemoCache,
     newTypeableMemoCache,
  )
-import Utility.Fixpoint
-import Utility.HashJoin
 import Utility.List (adjustAt, atMay)
 
 ------------------------------------------------------------------------------------
@@ -103,202 +92,26 @@ mapWithIndex f = zipWith f [0 ..]
 ------ Traversal
 -----------------------
 
-{- | Apply an edge transformation to the outgoing alternatives of a node.
+{- | Paths to every reachable node that satisfies a predicate.
 
-This is a shallow operation: for a normal @Node@ it maps over that node's
-edges, and for a 'Mu' it first unfolds the outer recursion and then maps those
-edges. It does not recursively traverse child nodes. That is the shape wanted
-when pushing an edit across every immediate alternative of a node - rewriting
-symbols or equality constraints, say - without touching the node's children.
--}
-nodeMapChildren :: (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
-nodeMapChildren _ EmptyNode = EmptyNode
-nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
-nodeMapChildren f (Node es) = Node (map f es)
-nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
-
-{- | Warning: Linear in number of paths, exponential in size of graph.
-  Only use for very small graphs.
+Linear in the number of paths and exponential in the size of the graph, so
+use it on very small graphs only. A recursive node contributes no paths: the
+search does not unfold recursion, so a match below a 'Mu' is not reported.
 -}
 pathsMatching :: (Node symbol -> Bool) -> Node symbol -> [Path]
 pathsMatching _ EmptyNode = []
-pathsMatching _ (InternedMu _) = [] -- Unsound!
+pathsMatching _ (InternedMu _) = []
 pathsMatching f n@(InternedNode node) =
-    (concat $ map pathsMatchingEdge es)
+    (concatMap pathsMatchingEdge es)
         ++ if f n then [EmptyPath] else []
   where
     es = internedNodeEdges node
     pathsMatchingEdge e = concat $ mapWithIndex (\i x -> map (ConsPath i) $ pathsMatching f x) (edgeChildren e)
 pathsMatching _ (Rec _) = error $ "pathsMatching: unexpected Rec"
 
-{- | Precondition: For all i, f (Rec i) is either a Rec node meant to represent
-                the enclosing Mu, or contains no Rec node not beneath another Mu.
--}
-mapNodes :: forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
-mapNodes f = go
-  where
-    -- \| Memoized separately for each mapNodes invocation
-    go :: Node symbol -> Node symbol
-    go = memo (NameTag "mapNodes") (mapNodesStep go f)
-    {-# NOINLINE go #-}
-
--- | Perform one recursive traversal step using the supplied recursive call.
-mapNodesStep ::
-    (Hashable symbol, Typeable symbol) =>
-    (Node symbol -> Node symbol) ->
-    (Node symbol -> Node symbol) ->
-    Node symbol ->
-    Node symbol
-mapNodesStep _ _ EmptyNode = EmptyNode
-mapNodesStep recurse f (Node es) =
-    f $ Node $ map (\edge -> setChildren edge (map recurse (edgeChildren edge))) es
-mapNodesStep recurse f (Mu body) = f $ Mu (recurse . body)
-mapNodesStep _ f (Rec recId) = f $ Rec recId
-
-{- | Fold over all reachable nodes with sharing awareness.
-
-This name originates from the @crush@ operator in the Stratego language.
-Although @m@ is only constrained to be a monoid, this function makes no
-guarantees about traversal order.
--}
-crush :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
-crush f = \n -> evalState (go n) Set.empty
-  where
-    go :: Node symbol -> State (Set Id) m
-    go EmptyNode = return mempty
-    go (Rec _) = return mempty
-    go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
-    go n@(InternedNode node) = do
-        seen <- get
-        let nId = nodeIdentity n
-        if Set.member nId seen
-            then
-                return mempty
-            else do
-                modify' (Set.insert nId)
-                mappend (f n) <$> (mconcat <$> mapM (\e -> mconcat <$> mapM go (edgeChildren e)) (internedNodeEdges node))
-
--- | Run a fold function only on normal non-recursive nodes.
-onNormalNodes :: (Monoid m) => (Node symbol -> m) -> Node symbol -> m
-onNormalNodes f n@(InternedNode _) = f n
-onNormalNodes _ _ = mempty
-
------------------------
------- Folding
------------------------
-
--- | Unfold one outer 'Mu' layer.
-unfoldOuterRec :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-unfoldOuterRec n@(Mu x) = x n
-unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
-
--- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
-nodeEdges :: (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
-nodeEdges (InternedNode node) = internedNodeEdges node
-nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
-nodeEdges _ = []
-
--- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
-symbolRefoldCache :: MemoCache (Node Symbol) (Node Symbol)
-symbolRefoldCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolRefoldCache #-}
-
-genericRefoldCache :: TypeableMemoCache
-genericRefoldCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericRefoldCache #-}
-
-refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-refold node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memoWith symbolRefoldCache go node
-    Nothing -> memoTypeableWith genericRefoldCache go node
-  where
-    go :: Node symbol -> Node symbol
-    go n =
-        if HashMap.null muNodeMap
-            then n
-            else fixUnbounded (mapNodes tryUnfold) n
-      where
-        muNodeMap =
-            crush
-                ( \case
-                    x@(Mu _) -> HashMap.singleton (unfoldOuterRec x) x
-                    _ -> HashMap.empty
-                )
-                n
-
-        tryUnfold x = case HashMap.lookup x muNodeMap of
-            Just y -> y
-            Nothing -> x
-
-{- | Unfold recursive nodes at most the given number of rounds.
-
-A bound of zero or less unfolds nothing and replaces every 'Mu' with
-'EmptyNode', leaving only the terms that need no recursion at all. Matching
-@0@ alone would leave a negative bound counting down forever.
--}
-unfoldBounded :: (Hashable symbol, Typeable symbol) => Int -> Node symbol -> Node symbol
-unfoldBounded rounds
-    | rounds <= 0 =
-        mapNodes
-            ( \case
-                Mu _ -> EmptyNode
-                n -> n
-            )
-    | otherwise =
-        unfoldBounded (rounds - 1)
-            . mapNodes
-                ( \case
-                    n@(Mu _) -> unfoldOuterRec n
-                    n -> n
-                )
-
-------------
------- Size operations
-------------
-
--- | Count reachable non-recursive nodes, sharing-aware.
-nodeCount :: Node symbol -> Int
-nodeCount = getSum . crush (onNormalNodes $ const $ Sum 1)
-
--- | Count reachable outgoing edges, sharing-aware.
-edgeCount :: Node symbol -> Int
-edgeCount = getSum . crush (onNormalNodes go)
-  where
-    go (InternedNode node) = Sum (length (internedNodeEdges node))
-    go _ = mempty
-
-{- | Maximum number of outgoing alternatives on any reachable normal node.
-
-Zero when there is no normal node to count, as for 'EmptyNode': the @Max@
-monoid's identity is @minBound@, which is not an answer anyone can use.
--}
-maxIndegree :: Node symbol -> Int
-maxIndegree = max 0 . getMax . crush (onNormalNodes go)
-  where
-    go (InternedNode node) = Max (length (internedNodeEdges node))
-    go _ = mempty
-
 ------------
 ------ Membership
 ------------
-
--- | Test whether a node accepts a concrete term.
-nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Term symbol -> Bool
-nodeRepresents EmptyNode _ = False
-nodeRepresents (Node es) t = any (\e -> edgeRepresents e t) es
-nodeRepresents n@(Mu _) t = nodeRepresents (unfoldOuterRec n) t
-nodeRepresents _ _ = False
-
--- | Test whether an edge accepts a concrete term.
-edgeRepresents :: (Hashable symbol, Typeable symbol) => Edge symbol -> Term symbol -> Bool
-edgeRepresents e = \t@(Term s ts) ->
-    s == edgeSymbol e
-        && childrenRepresent (edgeChildren e) ts
-        && edgeEcsSatisfied e t
-  where
-    childrenRepresent [] [] = True
-    childrenRepresent (n : ns) (t : ts) = nodeRepresents n t && childrenRepresent ns ts
-    childrenRepresent _ _ = False
 
 {- | Whether a term agrees with itself everywhere an edge's constraints say it
 must.
@@ -306,8 +119,8 @@ must.
 'unsafeGetEclasses' is safe here: 'mkEdge' collapses a contradictory
 constraint set to 'emptyEdge', so no interned edge carries 'EqContradiction'.
 -}
-edgeEcsSatisfied :: (Eq symbol) => Edge symbol -> Term symbol -> Bool
-edgeEcsSatisfied e t = all eclassSatisfied (unsafeGetEclasses $ edgeEcs e)
+equalitiesSatisfied :: (Eq symbol) => EqConstraints -> Term symbol -> Bool
+equalitiesSatisfied equalities t = all eclassSatisfied (unsafeGetEclasses equalities)
   where
     eclassSatisfied :: PathEClass -> Bool
     eclassSatisfied pec = allTheSame $ map (`getPath` t) $ unPathEClass pec
@@ -320,256 +133,6 @@ edgeEcsSatisfied e t = all eclassSatisfied (unsafeGetEclasses $ edgeEcs e)
         go !y (!z : zs) = (y == z) && go y zs
     {-# INLINE allTheSame #-}
 
------------------------
------- Constraints
------------------------
-
-{- | Drop an edge's equality constraints.
-
-Dropping constraints broadens the language to every combination of child
-terms. Use it only when equality constraints are deliberately irrelevant.
--}
-dropEdgeConstraints :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol
-dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
-
--- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
-symbolDropConstraintsCache :: MemoCache (Node Symbol) (Node Symbol)
-symbolDropConstraintsCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolDropConstraintsCache #-}
-
-genericDropConstraintsCache :: TypeableMemoCache
-genericDropConstraintsCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericDropConstraintsCache #-}
-
-dropConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-dropConstraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memoWith symbolDropConstraintsCache go node
-    Nothing -> memoTypeableWith genericDropConstraintsCache go node
-  where
-    go = mapNodesStep dropConstraints dropNodeConstraints
-
-    dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
-    dropNodeConstraints n = n
-
-------------
------- Intersect
-------------
-
-data RuleOutRes symbol = Keep | RuledOutBy (Edge symbol)
-
--- | Remove edges that are subsumed by another edge with the same symbol.
-dropRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol] -> [Edge symbol]
-dropRedundantEdges origEs = concatMap reduceCluster clusters
-  where
-    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
-
-    reduceCluster :: [Edge symbol] -> [Edge symbol]
-    reduceCluster [] = []
-    reduceCluster (e : es) = case ruleOut e es of
-        -- Optimization: If e' > e, likely to be greater than other things;
-        -- move it to front and rule out more stuff next iteration.
-        --
-        -- No noticeable difference in overall wall clock time (7/2/21),
-        -- but a few % reduction in calls to intersectEdgeSameSymbol
-        (RuledOutBy e', es') -> reduceCluster (e' : es')
-        (Keep, es') -> e : reduceCluster es'
-
-    ruleOut :: Edge symbol -> [Edge symbol] -> (RuleOutRes symbol, [Edge symbol])
-    ruleOut _ [] = (Keep, [])
-    ruleOut e (x : xs) =
-        let e' = intersectEdgeSameSymbol e x
-         in if e' == x
-                then
-                    ruleOut e xs
-                else
-                    if e' == e
-                        then
-                            (RuledOutBy x, xs)
-                        else
-                            let (res, notRuledOut) = ruleOut e xs
-                             in (res, x : notRuledOut)
-
--- | Intersect two edges when they have the same symbol.
-intersectEdge :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Maybe (Edge symbol)
-intersectEdge e1 e2
-    | edgeSymbol e1 /= edgeSymbol e2 = Nothing
-    | otherwise = Just $ intersectEdgeSameSymbol e1 e2
-
-symbolIntersectEdgeSameSymbolCache :: MemoCache (Edge Symbol, Edge Symbol) (Edge Symbol)
-symbolIntersectEdgeSameSymbolCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolIntersectEdgeSameSymbolCache #-}
-
-genericIntersectEdgeSameSymbolCache :: TypeableMemoCache
-genericIntersectEdgeSameSymbolCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericIntersectEdgeSameSymbolCache #-}
-
-intersectEdgeSameSymbol :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Edge symbol
-intersectEdgeSameSymbol left right = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memo2With symbolIntersectEdgeSameSymbolCache go left right
-    Nothing -> memo2TypeableWith genericIntersectEdgeSameSymbolCache go left right
-  where
-    go e1 e2
-        | e2 < e1 = intersectEdgeSameSymbol e2 e1
-    go e1 e2 =
-        mkEdge
-            (edgeSymbol e1)
-            (zipWith intersect (edgeChildren e1) (edgeChildren e2))
-            (edgeEcs e1 `combineEqConstraints` edgeEcs e2)
-{-# NOINLINE intersectEdgeSameSymbol #-}
-
-------------
------- New intersection
-------------
-
--- | Intersection of two ECTAs.
-intersect :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol -> Node symbol
-intersect l r = intersectOpen (emptyIntersectionDom, l, r)
-{-# NOINLINE intersect #-}
-
------- Intersection internals
-
-{- | Intersection domain
-
-Information required to compute the intersection of open terms.
--}
-data IntersectionDom symbol = ID
-    { idFree :: Map Id (Node symbol)
-    -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
-    , idRecInt :: Set IntersectId
-    -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
-    }
-    deriving (Show, Eq)
-
-instance Hashable (IntersectionDom symbol) where
-    -- Implementation notes:
-    --
-    -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
-    -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-    hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
-
-emptyIntersectionDom :: IntersectionDom symbol
-emptyIntersectionDom = ID Map.empty Set.empty
-
-symbolIntersectOpenCache :: MemoCache (IntersectionDom Symbol, Node Symbol, Node Symbol) (Node Symbol)
-symbolIntersectOpenCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolIntersectOpenCache #-}
-
-genericIntersectOpenCache :: TypeableMemoCache
-genericIntersectOpenCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericIntersectOpenCache #-}
-
-intersectOpen :: forall symbol. (Hashable symbol, Typeable symbol) => (IntersectionDom symbol, Node symbol, Node symbol) -> Node symbol
-{-# NOINLINE intersectOpen #-}
-intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memoWith symbolIntersectOpenCache worker input
-    Nothing -> memoTypeableWith genericIntersectOpenCache worker input
-  where
-    worker (dom, left, right) = onNode dom left right
-
-    onNode :: IntersectionDom symbol -> Node symbol -> Node symbol -> Node symbol
-    onNode !dom l r =
-        case (l, r) of
-            -- Rule out empty cases first
-            -- This justifies the use of nodeIdentity (@i@, @j@) for the other cases
-            (EmptyNode, _) -> EmptyNode
-            (_, EmptyNode) -> EmptyNode
-            -- For closed terms, improve memoization performance by using the empty environment
-            _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> intersect l r
-            -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
-            _ | l == r, Set.null (freeVars l) -> l
-            -- Always intersect nodes in the same order. This is important for two reasons:
-            --
-            -- 1. It will increase the probability of a cache hit (i.e., improve memoization)
-            -- 2. It will increase the probability of being able to use 'ieRecInt'
-            _ | l > r -> intersectOpen (dom, r, l)
-            -- If we have seen this exact problem before, refer to enclosing Mu.
-            _ | Set.member (IntersectId i j) (idRecInt dom) -> Rec (RecIntersect (IntersectId i j))
-            -- When encountering a 'Mu', extend the domain appropriately.
-            (InternedMu l', InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(i, l), (j, r)], internedMuBody l', internedMuBody r')
-            (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
-            (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
-            -- When encountering a free variable, look up the corresponding value in the environment.
-            -- (Recall that the case for already-seen intersection problems is are handled above.)
-            (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
-            (_, Rec r') -> intersectOpen (dom, l, findFreeVar r')
-            -- Finally, the real intersection work happens here
-            (InternedNode l', InternedNode r') ->
-                Node $
-                    hashJoin
-                        edgeSymbol
-                        (\e e' -> intersectOpenEdge (dom, e, e'))
-                        (internedNodeEdges l')
-                        (internedNodeEdges r')
-      where
-        -- Node identities (should only be used (forced) if previously established the nodes are not empty)
-        i, j :: Id
-        i = nodeIdentity l
-        j = nodeIdentity r
-
-        -- Extend domain when we encounter a 'Mu'
-        -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
-        extendEnv :: [(Id, Node symbol)] -> IntersectionDom symbol
-        extendEnv bindings =
-            ID
-                { idFree = Map.union (Map.fromList bindings) (idFree dom)
-                , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
-                }
-
-        -- Find value of free variables in the terms
-        -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
-        findFreeVar :: RecNodeId -> Node symbol
-        findFreeVar (RecInt intId) | Just n <- Map.lookup intId (idFree dom) = n
-        findFreeVar recId = error $ "findFreeVar: unexpected " <> show recId
-
-        -- We only insert a 'Mu' node when necessary.
-        maybeMu :: Node symbol -> Node symbol
-        maybeMu n
-            | RecIntersect (IntersectId i j) `Set.member` freeVars n =
-                Mu $ \recNode -> substFree (RecIntersect (IntersectId i j)) recNode n
-            | otherwise =
-                n
-
--- | Auxiliary to 'intersectOpen'.
-symbolIntersectOpenEdgeCache :: MemoCache (IntersectionDom Symbol, Edge Symbol, Edge Symbol) (Edge Symbol)
-symbolIntersectOpenEdgeCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolIntersectOpenEdgeCache #-}
-
-genericIntersectOpenEdgeCache :: TypeableMemoCache
-genericIntersectOpenEdgeCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericIntersectOpenEdgeCache #-}
-
-intersectOpenEdge :: forall symbol. (Hashable symbol, Typeable symbol) => (IntersectionDom symbol, Edge symbol, Edge symbol) -> Edge symbol
-{-# NOINLINE intersectOpenEdge #-}
-intersectOpenEdge input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memoWith symbolIntersectOpenEdgeCache worker input
-    Nothing -> memoTypeableWith genericIntersectOpenEdgeCache worker input
-  where
-    worker (dom, left, right) = onEdge dom left right
-
-    onEdge :: IntersectionDom symbol -> Edge symbol -> Edge symbol -> Edge symbol
-    onEdge !dom l r =
-        mkEdge
-            (edgeSymbol l)
-            (zipWith (\a b -> intersectOpen (dom, a, b)) (edgeChildren l) (edgeChildren r))
-            (edgeEcs l `combineEqConstraints` edgeEcs r)
-
-------------
------- Union
-------------
-
-{- | Union a list of ECTAs by concatenating their alternatives.
-
-'EmptyNode' and 'Rec' contribute no alternatives, and the @Node@ constructor
-maps an empty alternative list back to 'EmptyNode', so the empty cases need no
-special handling.
--}
-union :: (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
-union = Node . concatMap nodeEdges
-
--- | Union the nodes a partial function produces; see 'union'.
-unionMapMaybe :: (Hashable symbol, Typeable symbol) => (a -> Maybe (Node symbol)) -> [a] -> Node symbol
-unionMapMaybe f = union . mapMaybe f
-
 ----------------------
 ------ Path operations
 ----------------------
@@ -580,11 +143,11 @@ requirePath EmptyPath n = n
 requirePath _ EmptyNode = EmptyNode
 requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
 requirePath (ConsPath p ps) (Node es) =
-    Node $
-        map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))) $
-            filter
-                (\e -> length (edgeChildren e) > p)
-                es
+    Node
+        $ map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e)))
+        $ filter
+            (\e -> length (edgeChildren e) > p)
+            es
 requirePath _ (Rec _) = error "requirePath: unexpected Rec"
 
 -- | Variant of 'requirePath' for a child list.
@@ -642,30 +205,13 @@ instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symb
 ------ Reduction
 ------------------------------------
 
--- | Remove alternatives represented by another alternative in the same node.
-symbolWithoutRedundantEdgesCache :: MemoCache (Node Symbol) (Node Symbol)
-symbolWithoutRedundantEdgesCache = unsafePerformIO newMemoCache
-{-# NOINLINE symbolWithoutRedundantEdgesCache #-}
+{- | Propagate equality constraints through one reduction pass.
 
-genericWithoutRedundantEdgesCache :: TypeableMemoCache
-genericWithoutRedundantEdgesCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE genericWithoutRedundantEdgesCache #-}
-
-withoutRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memoWith symbolWithoutRedundantEdgesCache go node
-    Nothing -> memoTypeableWith genericWithoutRedundantEdgesCache go node
-  where
-    go = mapNodesStep withoutRedundantEdges dropReds
-
-    dropReds (Node es) = Node (dropRedundantEdges es)
-    dropReds x = x
-
----------------
---- Reducing Equality Constraints
----------------
-
--- | Propagate equality constraints through one reduction pass.
+One pass narrows every child by the constraints that reach it, but a nested
+constrained edge can narrow a child after an outer edge has already read it.
+Iterate to a fixpoint, as 'Utility.Fixpoint.fixUnbounded' does, when every
+constrained position must agree with every other.
+-}
 reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 reducePartially = reducePartially' EmptyConstraints
 
@@ -729,6 +275,7 @@ genericReduceEdgeIntersectionCache :: TypeableMemoCache
 genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReduceEdgeIntersectionCache #-}
 
+-- | Narrow an edge's children by its own and the inherited equality constraints.
 reduceEdgeIntersection :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
 reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
@@ -742,7 +289,9 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
             (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
--- | Apply local and inherited equality constraints to a child list.
+{- | Apply local and inherited equality constraints to a child list.
+Nested constraints can require further passes. This pass is not idempotent.
+-}
 reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
 reduceEqConstraints = go
   where
@@ -782,9 +331,123 @@ reduceEqConstraints = go
         dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
 
 ---------------
---- Debugging
+--- Common engine specializations
 ---------------
 
--- | Find a reachable node by interned node id.
-getSubnodeById :: Node symbol -> Id -> Maybe (Node symbol)
-getSubnodeById n i = getFirst $ crush (onNormalNodes $ \x -> if nodeIdentity x == i then First (Just x) else First Nothing) n
+{- The wrappers below specialize the shared engine to 'EqConstraints'. Each
+one checks at run time whether the symbol is the interned 'Symbol' and, if
+so, calls the engine at that concrete type. Both branches compute the same
+value; the split exists so GHC specializes the INLINEABLE engine code for the
+common alphabet, which the common-engine benchmarks rely on. -}
+
+-- | Change the immediate alternatives.
+nodeMapChildren :: forall symbol. (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
+nodeMapChildren = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.nodeMapChildren @Symbol @EqConstraints)
+    Nothing -> coerce (Common.nodeMapChildren @symbol @EqConstraints)
+
+-- | Transform a shared graph.
+mapNodes :: forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
+mapNodes = coerce (Common.mapNodes @symbol @EqConstraints)
+
+-- | Fold a graph with shared-node tracking.
+crush :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
+crush = coerce (Common.crush @symbol @EqConstraints @m)
+
+-- | Apply a fold only to non-recursive nodes.
+onNormalNodes :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
+onNormalNodes = coerce (Common.onNormalNodes @symbol @EqConstraints @m)
+
+-- | Unfold one outer recursive binder.
+unfoldOuterRec :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+unfoldOuterRec = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.unfoldOuterRec @Symbol @EqConstraints)
+    Nothing -> coerce (Common.unfoldOuterRec @symbol @EqConstraints)
+
+-- | Recover recursive binders from repeated unfoldings.
+refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+refold = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.refold @Symbol @EqConstraints)
+    Nothing -> coerce (Common.refold @symbol @EqConstraints)
+
+-- | Read alternatives, unfolding one recursive binder if needed.
+nodeEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
+nodeEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.nodeEdges @Symbol @EqConstraints)
+    Nothing -> coerce (Common.nodeEdges @symbol @EqConstraints)
+
+-- | Unfold at most the specified number of rounds.
+unfoldBounded :: forall symbol. (Hashable symbol, Typeable symbol) => Int -> Node symbol -> Node symbol
+unfoldBounded = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.unfoldBounded @Symbol @EqConstraints)
+    Nothing -> coerce (Common.unfoldBounded @symbol @EqConstraints)
+
+-- | Count reachable non-recursive nodes.
+nodeCount :: forall symbol. Node symbol -> Int
+nodeCount = coerce (Common.nodeCount @symbol @EqConstraints)
+
+-- | Count alternatives of reachable non-recursive nodes.
+edgeCount :: forall symbol. Node symbol -> Int
+edgeCount = coerce (Common.edgeCount @symbol @EqConstraints)
+
+-- | Find the largest alternative count.
+maxIndegree :: forall symbol. Node symbol -> Int
+maxIndegree = coerce (Common.maxIndegree @symbol @EqConstraints)
+
+-- | Forget the equality constraint on one edge.
+dropEdgeConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol
+dropEdgeConstraints = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.dropEdgeConstraints @Symbol @EqConstraints)
+    Nothing -> coerce (Common.dropEdgeConstraints @symbol @EqConstraints)
+
+-- | Forget equality constraints throughout the graph.
+dropConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+dropConstraints = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.dropConstraints @Symbol @EqConstraints)
+    Nothing -> coerce (Common.dropConstraints @symbol @EqConstraints)
+
+-- | Intersect structure and conjoin path equalities.
+intersect :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol -> Node symbol
+intersect = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.intersect @Symbol @EqConstraints)
+    Nothing -> coerce (Common.intersect @symbol @EqConstraints)
+
+-- | Intersect compatible constructor alternatives.
+intersectEdge :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Maybe (Edge symbol)
+intersectEdge = coerce (Common.intersectEdge @symbol @EqConstraints)
+
+-- | Remove implied alternatives.
+dropRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol] -> [Edge symbol]
+dropRedundantEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.dropRedundantEdges @Symbol @EqConstraints)
+    Nothing -> coerce (Common.dropRedundantEdges @symbol @EqConstraints)
+
+-- | Remove implied alternatives throughout the graph.
+withoutRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+withoutRedundantEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.withoutRedundantEdges @Symbol @EqConstraints)
+    Nothing -> coerce (Common.withoutRedundantEdges @symbol @EqConstraints)
+
+-- | Combine alternatives from several nodes.
+union :: forall symbol. (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
+union = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.union @Symbol @EqConstraints)
+    Nothing -> coerce (Common.union @symbol @EqConstraints)
+
+-- | Combine the nodes returned by a partial function.
+unionMapMaybe :: forall symbol a. (Hashable symbol, Typeable symbol) => (a -> Maybe (Node symbol)) -> [a] -> Node symbol
+unionMapMaybe = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> coerce (Common.unionMapMaybe @Symbol @EqConstraints @a)
+    Nothing -> coerce (Common.unionMapMaybe @symbol @EqConstraints @a)
+
+-- | Find a non-recursive node by canonical identity.
+getSubnodeById :: forall symbol. Node symbol -> Id -> Maybe (Node symbol)
+getSubnodeById = coerce (Common.getSubnodeById @symbol @EqConstraints)
+
+-- | Recognize through the common traversal and the equality interpreter.
+nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Term symbol -> Bool
+nodeRepresents node = Common.nodeRepresentsWith equalitiesSatisfied (toInterned node)
+
+-- | Recognize one edge through the common traversal.
+edgeRepresents :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Term symbol -> Bool
+edgeRepresents = coerce (Common.edgeRepresentsWith @symbol @EqConstraints equalitiesSatisfied)

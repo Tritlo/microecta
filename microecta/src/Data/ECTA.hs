@@ -4,9 +4,10 @@ This is the main public API for the ECTA core.
 
 A @Node symbol@ represents a set of accepted terms. Each outgoing @Edge@ is one
 alternative: it has a symbol, child nodes, and optional equality constraints
-over paths into those children. @microecta@ keeps the original ECTA algorithms
-for intersection, reduction, refolding, and enumeration, but leaves out the
-larger application layers from @ecta@.
+over paths into those children. The representation and shared graph operations
+come from @microfta@. This package supplies equality interpretation, path
+reduction, and constrained enumeration. 'toInterned' and 'fromInterned' expose
+the common representation without copying nodes.
 
 The alphabet is a type parameter. Constructing an edge requires
 @Hashable symbol@ and @Typeable symbol@ so its symbol can be hash-consed in a
@@ -104,6 +105,8 @@ module Data.ECTA (
     nodeEdges,
     numNestedMu,
     createMu,
+    toInterned,
+    fromInterned,
 
     -- * Operations
     nodeMapChildren,

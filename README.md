@@ -9,6 +9,7 @@ The workspace contains these Cabal packages:
 | [`microecta-generator`](microecta-generator/README.md) | Indexed ECTA generation, grouped joins, replay, and shrinking. |
 
 `microfta` provides a standalone constraint-parameterized graph.
+`microecta` uses that shared graph for its equality interpretation.
 
 Build and test the workspace:
 

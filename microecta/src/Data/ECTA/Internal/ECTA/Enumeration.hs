@@ -11,6 +11,8 @@ UVars are merged so future choices stay consistent.
 Most callers should use 'getAllTerms' or 'getAllTermsPrune'. The lower-level
 state operations are exposed for pruning oracles and downstream tools that need
 to inspect or steer enumeration.
+The exports of this internal module are not covered by the PVP contract of
+the package.
 -}
 module Data.ECTA.Internal.ECTA.Enumeration (
     TermFragment (..),
@@ -195,7 +197,7 @@ data EnumerationState symbol = EnumerationState
     , _uvarValues :: Seq (UVarValue symbol)
     {- ^ Per-UVar contents indexed by 'uvarToInt'. A slot is
     'UVarEliminated' exactly when its UVar is not a representative;
-    'findExpandableUVars' relies on 'assimilateUvarVal' maintaining this.
+    @findExpandableUVars@ relies on 'assimilateUvarVal' maintaining this.
     -}
     }
     deriving (Eq, Ord, Show)
@@ -477,7 +479,7 @@ nextExpandableUVar choose = do
 
 The pattern bind is deliberately failable: 'EnumerateM' fails into the list
 monad, so a UVar that is not an unexpanded node drops this branch instead of
-raising. The branch is unreachable through 'enumerateFully'' and
+raising. The branch is unreachable through @enumerateFully'@ and
 'enumerateOutFirstExpandableUVar', which only offer expandable UVars.
 -}
 enumerateOutUVar :: (Hashable symbol, Typeable symbol) => UVar -> EnumerateM symbol (TermFragment symbol)
