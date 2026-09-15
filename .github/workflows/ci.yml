@@ -21,6 +21,7 @@ jobs:
           version: "0.20.1.0"
           pattern: |
             microfta/**/*.hs
+            microfta-generator/**/*.hs
             microecta/**/*.hs
 
       - name: Set up hlint
@@ -31,7 +32,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta", "microecta"]'
+          path: '["microfta", "microfta-generator", "microecta"]'
           fail-on: warning
 
   build-test-bench:
@@ -81,6 +82,7 @@ jobs:
       - name: Check package metadata
         run: |
           (cd microfta && cabal check)
+          (cd microfta-generator && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -106,12 +108,18 @@ jobs:
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+
+      - name: Test the generator examples
+        run: |
+          cabal v2-run fta-pairs
 
       - name: Validate release artifacts
         run: |
           scripts/release.sh microfta --check-only
+          scripts/release.sh microfta-generator --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
 

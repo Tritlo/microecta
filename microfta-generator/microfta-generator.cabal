@@ -1,0 +1,113 @@
+cabal-version: 3.0
+name: microfta-generator
+version: 0.1.0.0
+synopsis: Ranked generators for finite tree automata
+description:
+  Backend-independent finite ranked generation and an ordinary FTA adapter,
+  with exact cardinalities, weighted sampling, deterministic replay,
+  structural shrinking, and QuickCheck integration.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microfta-generator#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Testing
+author: Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.12.2 || ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microfta-generator
+
+common warnings
+  default-language: Haskell2010
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+
+common extensions
+  default-extensions:
+    BangPatterns
+    FlexibleContexts
+    GADTs
+    NamedFieldPuns
+    RankNTypes
+    ScopedTypeVariables
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.Tree.FTA.Gen
+    Data.Tree.FTA.Gen.Do
+    Data.Tree.FTA.Gen.QuickCheck
+    Data.Tree.Gen
+    Data.Tree.Gen.QuickCheck
+
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.9,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator:internal,
+    QuickCheck >=2.14 && <2.19,
+
+-- The integration interface used by the constrained generator packages.
+-- Its modules are exposed so those packages can build on the shared engine,
+-- but they are not covered by the PVP contract of the main library.
+library internal
+  import: warnings, extensions
+  visibility: public
+  hs-source-dirs: internal
+  exposed-modules:
+    Data.Tree.FTA.Gen.Internal.Automaton
+    Data.Tree.FTA.Gen.Internal.Shrink
+    Data.Tree.Gen.Internal
+    Data.Tree.Gen.Internal.Decoder
+    Data.Tree.Gen.Internal.Sampler
+    Data.Tree.Gen.Internal.Shrink
+    Data.Tree.Gen.Internal.Size
+
+  build-depends:
+    array >=0.5 && <0.6,
+    base >=4.21 && <5,
+    containers >=0.7 && <0.9,
+    microfta >=0.1.0.0 && <0.2,
+
+executable fta-pairs
+  import: warnings
+  main-is: FinitePairs.hs
+  hs-source-dirs: examples
+  build-depends:
+    base >=4.21 && <5,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+test-suite unit-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  other-modules:
+    Data.Tree.FTA.GenSpec
+    Data.Tree.GenSpec
+
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.9,
+    hspec >=2.11 && <2.12,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator:{internal, microfta-generator},
+    QuickCheck >=2.14 && <2.19,
