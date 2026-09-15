@@ -8,6 +8,31 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check formatting
+        uses: haskell-actions/run-fourmolu@v13
+        with:
+          version: "0.20.1.0"
+          pattern: |
+            microfta/**/*.hs
+
+      - name: Set up hlint
+        uses: haskell-actions/hlint-setup@v2
+        with:
+          version: "3.10"
+
+      - name: Run hlint
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: '["microfta"]'
+          fail-on: warning
+
   build-test-bench:
     name: GHC ${{ matrix.ghc }}
     runs-on: ubuntu-latest
@@ -54,6 +79,7 @@ jobs:
 
       - name: Check package metadata
         run: |
+          (cd microfta && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -78,11 +104,13 @@ jobs:
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
       - name: Validate release artifacts
         run: |
+          scripts/release.sh microfta --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
 

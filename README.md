@@ -1,27 +1,18 @@
 # microecta
 
-This repository contains two Cabal packages with a one-way dependency:
+The workspace contains these Cabal packages:
 
 | Package | Purpose |
 | --- | --- |
-| [`microecta`](microecta/README.md) | The small equality-constrained tree automata core. |
-| [`microecta-generator`](microecta-generator/README.md) | Indexed ECTA generators with QuickCheck integration, exact replay, and structural shrinking. |
+| [`microfta`](microfta/README.md) | Shared interned graph, ordinary trees, FTA syntax, and datatype derivation. |
+| [`microecta`](microecta/README.md) | Equality-constrained tree automata. |
+| [`microecta-generator`](microecta-generator/README.md) | Indexed ECTA generation, grouped joins, replay, and shrinking. |
 
-`microecta-generator` depends on `microecta`; the core package does not depend
-on the generator package or on QuickCheck.
+`microfta` provides a standalone constraint-parameterized graph.
 
-Build and test the whole workspace from the repository root:
-
-```sh
-cabal build all -j1
-cabal test all -j1
-```
-
-The examples in the two entry-point modules are executable. Run them with
-[`doctest`](https://hackage.haskell.org/package/doctest):
+Build and test the workspace:
 
 ```sh
-cabal install doctest
-cabal repl --with-repl=doctest lib:microecta
-cabal repl --with-repl=doctest lib:microecta-generator
+cabal build all
+cabal test all
 ```

@@ -1,0 +1,97 @@
+cabal-version: 3.0
+name: microfta
+version: 0.1.0.0
+synopsis: Shared interned tree automata and finite-state graphs
+description:
+  Constraint-parameterized interned tree automata with shared recursive
+  operations, ordinary first-order trees, and checked finite-state graphs.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microfta#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Jimmy Koppel, Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2021-2024 Jimmy Koppel, 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.12.2 || ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microfta
+
+common warnings
+  default-language: Haskell2010
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+
+  if impl(ghc >=9.14)
+    ghc-options: -Wno-pattern-namespace-specifier
+
+library
+  import: warnings
+  hs-source-dirs: src
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    LambdaCase
+    MultiWayIf
+    NamedFieldPuns
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+  other-modules: Data.CacheFamily
+  exposed-modules:
+    Data.Interned.Extended.HashTableBased
+    Data.Memoization
+    Data.Tree.FTA
+    Data.Tree.FTA.Constraint
+    Data.Tree.FTA.Generic
+    Data.Tree.FTA.Interned
+    Data.Tree.FTA.Interned.Operations
+    Data.Tree.FTA.Interned.Type
+    Data.Tree.FTA.Syntax
+    Data.Tree.Term
+    Utility.Fixpoint
+    Utility.HashJoin
+
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.9,
+    hashable >=1.5 && <1.6,
+    hashtables >=1.4 && <1.5,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
+
+test-suite unit-tests
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  other-modules: Data.Tree.FTASyntaxSpec
+  build-depends:
+    base >=4.21 && <5,
+    hashable >=1.5 && <1.6,
+    hspec >=2.11 && <2.12,
+    microfta,
