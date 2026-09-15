@@ -10,7 +10,10 @@ import qualified Data.LTA.OpaquePoolSpec
 import qualified Data.LTA.PreconditionTypedExpressionSpec
 import qualified Data.LTA.QuickCheckSyntaxSpec
 import qualified Data.LTA.RecursiveGeneratorSpec
+import qualified Data.LTA.SafeBufferSpec
 import qualified Data.LTA.SimilarityMinimizationSpec
+import qualified Data.LTA.SizedVectorSpec
+import qualified Data.LTA.StateMachineTraceSpec
 import qualified Data.LTA.SubsumptionTypedExpressionSpec
 
 main :: IO ()
@@ -24,7 +27,10 @@ main = do
         Data.LTA.OpaquePoolSpec.spec
         Data.LTA.RecursiveGeneratorSpec.spec
         Data.LTA.BoundedGeneratorSpec.spec
+        Data.LTA.SafeBufferSpec.spec
         Data.LTA.PreconditionTypedExpressionSpec.spec
         Data.LTA.SubsumptionTypedExpressionSpec.spec
         Data.LTA.SimilarityMinimizationSpec.spec
+        Data.LTA.SizedVectorSpec.spec
+        Data.LTA.StateMachineTraceSpec.spec
         Data.LTA.DependentApplicationSpec.spec

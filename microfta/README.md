@@ -21,7 +21,8 @@ Declare an instance for each user datatype in a mutually recursive family.
 
 Use `annotateDatatype` to add constructor constraints without repeating the
 grammar. For handwritten graphs, `annotate` has access to each state and
-transition. `mapSymbols` changes labels and checks their arities. The caller supplies the interpretation of each constraint.
+transition. `mapSymbols` changes labels and checks their arities. Constraint
+interpretation belongs to the ECTA and LTA packages.
 
 The first derivation interface supports regular algebraic datatypes. It rejects
 recursion that grows type arguments. It has no instances for function fields.
@@ -31,8 +32,8 @@ or interpret annotations; the generated grammar enforces those restrictions.
 
 `microfta` is the common tree-automaton engine. Its interned nodes and edges
 carry a symbol type and a constraint type. Ordinary automata use `()` as the
-constraint. Other packages can supply path equalities or semantic guards. The package
-has no dependency on a constrained automaton package or on a solver.
+constraint. ECTA and LTA supply path equalities and liquid guards. The package
+has no dependency on either constrained layer or on a solver.
 
 | Module | Purpose |
 | --- | --- |
@@ -70,7 +71,9 @@ valid; `Mu id` is not a supported definition. Open recursive references are
 internal construction values. `toFTA` rejects an open root.
 
 `toFTA` exposes each reachable canonical node as one state. It retains the
-constraint field and checks ranked arities. It does not enumerate terms. The resulting graph supports ordinary recognition and structural operations.
+constraint field and checks ranked arities. It does not enumerate terms. Pass
+an acyclic unit-constraint view to `Data.Tree.FTA.Gen.fromFTA` for finite
+generation. The `fta-pairs` example exercises this path without ECTA.
 
 Interning and memo tables retain entries for the process lifetime. Each runtime
 type combination has a typed table. Nodes share one identity sequence across
@@ -108,8 +111,11 @@ ordinary `accepts` takes a `PlainFTA` with unit annotations.
 combine compatible symbols and annotations. `stripGuards` forgets annotations;
 it does not solve constraints.
 
+Use `microfta-generator` for finite counting, replay, sampling, and shrinking.
+Use `microecta` for equality constraints and `microlta` for liquid constraints.
+
 From the workspace root:
 
 ```sh
-cabal test microfta:unit-tests
+nix-shell --run 'cabal test microfta:unit-tests'
 ```

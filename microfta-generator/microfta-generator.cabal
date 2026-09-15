@@ -99,9 +99,13 @@ test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  hs-source-dirs: test
+  hs-source-dirs:
+    common
+    test
+
   other-modules:
     Data.Tree.FTA.GenSpec
+    Data.Tree.FTA.UntypedExpressionLanguage
     Data.Tree.GenSpec
 
   build-depends:
@@ -111,3 +115,27 @@ test-suite unit-tests
     microfta >=0.1.0.0 && <0.2,
     microfta-generator:{internal, microfta-generator},
     QuickCheck >=2.14 && <2.19,
+
+benchmark untyped-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: UntypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.Tree.FTA.UntypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.21 && <5,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,

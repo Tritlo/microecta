@@ -14,12 +14,15 @@ import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.Hspec.QuickCheck (modifyMaxSuccess)
+import qualified Test.QuickCheck as QC
 
 import Control.Monad (void)
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
+import qualified Data.Tree.FTA.UntypedExpressionLanguage as Expressions
 import qualified Data.Tree.Gen as Ranked
 import Data.Tree.Term (Term (Term))
 
@@ -268,3 +271,38 @@ spec = do
                         map (Ranked.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
                     (Left err, _) -> expectationFailure $ show err
                     (_, Left err) -> expectationFailure $ show err
+
+    describe "ordinary FTA integer expressions" $ do
+        it "has the exact structural cardinality at every bounded depth" $
+            map (FTA.cardinality . Expressions.expressionsAtDepth) [0 .. 4]
+                `shouldBe` map Expressions.expressionCount [0 .. 4]
+
+        it "generates executable expressions without type-side conditions" $ do
+            let expressions = Expressions.expressionsAtDepth 2
+                generated =
+                    [ expression
+                    | rank <- [0 .. FTA.cardinality expressions - 1]
+                    , Right expression <- [FTA.unrank expressions rank]
+                    ]
+            length generated `shouldBe` fromInteger (FTA.cardinality expressions)
+            generated `shouldSatisfy` all ((>= 0) . Expressions.evaluate)
+
+        modifyMaxSuccess (const 500)
+            $ it "keeps both reference generators in the exact-depth language"
+            $ QC.conjoin
+                [ QC.forAll (generator 3) $ \expression ->
+                    QC.counterexample (show expression) $
+                        expressionDepth expression QC.=== 3
+                | generator <-
+                    [ Expressions.naiveExpressionGen
+                    , Expressions.handwrittenExpressionGen
+                    ]
+                ]
+
+-- | Number of constructor layers in an untyped expression.
+expressionDepth :: Expressions.Expression -> Int
+expressionDepth (Expressions.Literal _) = 0
+expressionDepth (Expressions.Add left right) =
+    1 + max (expressionDepth left) (expressionDepth right)
+expressionDepth (Expressions.Multiply left right) =
+    1 + max (expressionDepth left) (expressionDepth right)

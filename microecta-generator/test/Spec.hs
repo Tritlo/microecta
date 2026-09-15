@@ -12,9 +12,9 @@ import qualified Data.ECTA.TypedExpressionGenSpec
 main :: IO ()
 main =
     hspec $ do
-        Data.ECTA.GenSpec.spec
         Data.ECTA.DatatypeGenSpec.spec
-        Data.ECTA.RankDecodingSpec.spec
+        Data.ECTA.GenSpec.spec
         Data.ECTA.IFCExpressionGenSpec.spec
+        Data.ECTA.RankDecodingSpec.spec
         Data.ECTA.RecursiveGenSpec.spec
         Data.ECTA.TypedExpressionGenSpec.spec

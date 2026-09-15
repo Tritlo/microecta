@@ -73,6 +73,7 @@ library
   exposed-modules:
     Data.ECTA.Gen
     Data.ECTA.Gen.Do
+    Data.ECTA.Gen.Example.TypedExpressionLanguage
     Data.ECTA.Gen.QuickCheck
     Data.ECTA.Gen.Sig
 
@@ -138,10 +139,7 @@ test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  hs-source-dirs:
-    common
-    test
-
+  hs-source-dirs: test
   ghc-options:
     -threaded
     -rtsopts
@@ -156,7 +154,6 @@ test-suite unit-tests
     Data.ECTA.RecursiveGenSpec
     Data.ECTA.TestSupport
     Data.ECTA.TypedExpressionGenSpec
-    Data.ECTA.TypedExpressionLanguage
 
   build-depends:
     base >=4.21 && <5,
@@ -172,37 +169,15 @@ benchmark typed-expression-speed
   import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: TypedExpressionSpeed.hs
-  hs-source-dirs:
-    benchmarks
-    common
-
+  hs-source-dirs: benchmarks
   ghc-options:
     -rtsopts
     -with-rtsopts=-T
 
-  other-modules: Data.ECTA.TypedExpressionLanguage
+  other-modules: GeneratorSpeedHarness
   build-depends:
     base >=4.21 && <5,
     microecta-generator,
     process >=1.6 && <1.7,
-    QuickCheck >=2.14 && <2.19,
-    random >=1.2 && <1.4,
-
-benchmark pool-experiment
-  import: warnings, extensions
-  type: exitcode-stdio-1.0
-  main-is: PoolExperiment.hs
-  hs-source-dirs:
-    benchmarks
-    common
-
-  ghc-options:
-    -rtsopts
-
-  other-modules: Data.ECTA.TypedExpressionLanguage
-  build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
-    microecta-generator,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,

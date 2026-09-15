@@ -5,7 +5,8 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microfta, microfta-generator, microecta, microecta-generator, microlta, or microlta-generator.
+PACKAGE must be microfta, microfta-generator, microecta,
+microecta-generator, microlta, or microlta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -23,8 +24,7 @@ shift
 
 case "$package" in
   microfta) dependencies=() ;;
-  microfta-generator) dependencies=(microfta) ;;
-  microecta) dependencies=(microfta) ;;
+  microfta-generator|microecta) dependencies=(microfta) ;;
   microecta-generator) dependencies=(microfta microfta-generator microecta) ;;
   microlta) dependencies=(microfta microecta) ;;
   microlta-generator) dependencies=(microfta microfta-generator microecta microecta-generator microlta) ;;

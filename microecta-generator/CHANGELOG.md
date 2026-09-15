@@ -5,15 +5,20 @@
 Initial release: indexed applicative generators whose transparent regions are
 represented as equality-constrained tree automata.
 
-Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
-0.8, so GHC 9.14 uses the one it ships.
+Requires `microecta` 0.2.0.0 and `microfta-generator` 0.1.0.0 with its
+`internal` sublibrary. The shared ranked engine, `Data.Tree.Gen`, and the
+ordinary `Data.Tree.FTA.Gen` adapter belong to `microfta-generator`;
+applications that import them declare that package directly.
+
+* `ECTAGen.node` closes a qualified-do block with its public domain
+  constructor while preserving the equality constraints accumulated by a
+  grouped join.
 
 ### Generators and sources
 
-* Add constructor closure and effectful grouped relations for liquid generation.
-
-* Use the shared microfta-generator decoder, sampler, size index, and shrink engine.
-* Add bounded annotated imports with symbolic equality and overlap counting.
+* Bounded annotated imports count nested equality and overlapping alternatives
+  symbolically. Shared states and normalized equality contexts retain exact
+  counts. Unranking constructs only the selected term.
 
 * `fromIndexed` and `elements` lift a finite indexed source into transparent
   ECTA structure; `fromGen` embeds an ordinary QuickCheck generator as an
@@ -43,6 +48,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   composition tracks exact cardinalities without materializing the product.
 
 ### Conditioned joins
+
+* `relateM`, `relateGroupsM`, `relateN`, and `filterGroupsM` check effectful
+  relations over finite key groups. They retain the member indexes below each
+  accepted combination without enumerating the products.
 
 * `match` conditions two flat generators on a reified key equality, written as
   an `On` value such as `authenticatedUser :==: fileOwner` and conjoinable with

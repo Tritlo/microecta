@@ -307,6 +307,332 @@ The default compiler checks these contracts through grouped observations where
 possible. It uses complete candidates when the contract needs them. Both paths
 return a pure language with the same source ranks and semantic shrink policy.
 
+## Flagship: typed state-machine traces
+
+[`Data.LTA.StateMachineTraceLanguage`](https://github.com/Tritlo/microecta/blob/main/microlta-generator/common/Data/LTA/StateMachineTraceLanguage.hs)
+is the LTA step in the repository's worked progression. The FTA example has
+only integer expression shapes; the ECTA example adds Boolean result types;
+this example carries those types through time as a stack-machine state.
+
+The abstract contract is the familiar typed reverse-Polish calculator:
+
+```text
+Push TInt  : Stack s                   -> Stack (TInt  ': s)
+Add        : Stack (TInt ': TInt ': s) -> Stack (TInt  ': s)
+Equal      : Stack (a    ': a    ': s) -> Stack (TBool ': s)
+Pop        : Stack (a    ': s)         -> (a, Stack s)
+```
+
+Those are explanatory signatures, not GADT constructors. The public Haskell
+values stay ordinary. The surface specification recursively builds a prefix
+and one command, grouped by their root refinements. The liquid guard decides
+which group tuples survive, and `refinedNodeByRoots` propagates the resulting
+output state without decoding the traces hidden inside those groups:
+
+```haskell
+extendTrace prefixes =
+  LTA.refinedNodeByRoots
+    "step"
+    stepRefinementFromRoots
+    validStep $ LTA.do
+      prefix  <- prefixes
+      command <- commandContracts
+      LTA.pure (predictPrefixStep prefix command)
+
+validStep previous command =
+  allOf
+    [ previous `isSubtypeOf` command
+    , withActualFor previous (descendant command [0]) $
+        descendant command [1] `isSubtypeOf` root
+    ]
+
+Right compiled <- LTA.compile solver (tracesOfLength length)
+```
+
+The first guard says that the preceding trace's output state inhabits the next
+command's input space. The second substitutes that actual state for the
+command's formal `model` and proves its output formula implies the new trace
+root. With the top stack type in the low bits, for example, pushing an integer
+has output `v = 2 * model + 1`, while `Add` accepts two leading integer tags and
+has output relation `model = 2 * v + 1`.
+
+The stack depth is bounded only to keep the refinement-key space finite. There
+is one liquid schema per operation; each compilation layer relates the live
+prefix-state and command-contract groups instead of expanding complete command
+sequences. This is where the LTA is materially clearer than an ECTA: a bounded
+ECTA could tabulate every valid state pair, but it cannot state and reuse the
+dependent arithmetic transition itself.
+
+Following the
+[quickcheck-state-machine workflow](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the whole trace is generated before execution. Every retained event predicts
+its before-state, response space, and after-state. The specs ask Z3 to prune the
+LTA, check its independently computed cardinalities, enumerate all 132 accepted
+traces of length three, and replay each through an independent abstract model
+and a separate concrete integer/Boolean interpreter. A smaller surface-DSL
+variant also verifies guarded shrinking. The final QuickCheck property needs no
+implication or `suchThat` filter.
+
+## LTA-biased case study: sized-vector pipelines
+
+The stack machine is a good stateful progression, but its bounded stack shapes
+can still be tabulated by a sufficiently patient FTA author. The more
+LTA-native example is
+[`Data.LTA.SizedVectorLanguage`](https://github.com/Tritlo/microecta/blob/main/microlta-generator/common/Data/LTA/SizedVectorLanguage.hs): a
+dependent vector-expression language in which result sizes are arithmetic
+refinements rather than finite type tags.
+
+```text
+append xs ys    : Vector n -> Vector m -> Vector (n + m)
+take k xs       : 0 <= k <= n => Vector n -> Vector k
+zipWith (+) x y : Vector n -> Vector n -> Vector n
+index i xs      : 0 <= i < n => Vector n -> Int
+```
+
+One operation layer is ordinary applicative LTA syntax:
+
+```haskell
+takenVectors maximumLength children =
+  LTA.refinedNodeByRoots "take" resultRefinement validTake $ LTA.do
+    result    <- possibleLengths maximumLength
+    _function <- takeFunction
+    count     <- possibleLengths maximumLength
+    input     <- children
+    LTA.pure $ SizedVector
+      (Take (numberValue count) $ vectorExpression input)
+      (numberRefinement result)
+
+resultRefinement ((_, refinement) : _) = refinement
+resultRefinement [] = true
+
+validTake result function count input =
+  withActualFor count (takeCountFormalAt function) $
+    allOf
+      [ vectorLengthAt input `isSubtypeOf` function
+      , takeResultAt function `isSubtypeOf` result
+      ]
+```
+
+The `takeFunction` contract says that its input length is at least the formal
+`k` and its result is exactly `k`. The guard substitutes the selected count for
+that formal. `append` substitutes both input lengths into `out = n + m`;
+`zipWith` substitutes the left length and requires the right length to inhabit
+the same input space. A stable result-length child lets these proofs compose at
+the next expression layer without exposing a refinement wrapper in `Program`.
+
+The one-layer language contains 20 pipelines and exactly 44 safe indexing
+programs. The tests enumerate them, check every result refinement against an
+independent list interpreter, and execute the deliberately partial indexer over
+every accepted program.
+
+This is the specification-leverage example. A handwritten exact-uniform
+generator must group every recursive sublanguage by result length, derive the
+append, take, and zip cardinality recurrences for those groups, weight each
+constructor by its number of valid completions, and repeat the bookkeeping for
+the final index. The LTA source states the four dependent contracts once. This
+small surface compiler is intentionally an executable clarity example; large
+recursive languages should be compiled as automata so terms stay symbolic.
+
+## Sampling performance
+
+The typed stack-machine benchmark separates seven useful paths:
+
+- **naive** draws uniformly from all nine raw commands at every position and
+  rejects the complete sequence if abstract replay fails;
+- **QSM online** follows the normal state-machine-testing shape: choose a
+  command admitted by the current model, advance the model, and continue;
+- **bespoke** is ordinary compositional QuickCheck code which weights every
+  valid next command by its number of complete suffixes;
+- **ranked** is the strongest handwritten control: it duplicates the count and
+  global-unrank algorithm in application code and constructs `Trace` directly;
+- **LTA do** preserves the qualified-do recipe, groups its live refinement
+  observations, and lowers solver-approved tuples through ECTA joins;
+- **LTA materialized** prunes the explicit automaton, constructs a selected
+  `LiquidTerm`, then decodes it to `Trace`;
+- **LTA fused** uses the same explicit automaton but folds a selected run
+  directly into `Trace`.
+
+Naive rejection, bespoke, ranked, and all three LTA rows are uniform over the
+same exact trace language. QSM online has the same support but intentionally has
+a different distribution: choosing uniformly at each prefix gives extra
+probability to traces passing through states with fewer valid continuations.
+That is usually the right engineering trade in state-machine testing. As in
+[quickcheck-state-machine](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the complete trace is generated before execution; after a failure,
+`qsmTraceShrinks` removes commands and replays the remainder so dependencies
+whose producers disappeared are rejected.
+
+Each successful cell draws 20,000 traces. It runs in a fresh process with a
+30-second wall-clock limit and is the median of three runs. The first-sample
+column includes all setup—in an LTA row, that includes starting Z3, compiling
+the semantic constraints, building the rank index, and drawing once.
+Steady-state sampling is pure. After an engine times out at one length, the
+harness skips its larger cells and reports `after timeout`.
+
+The crossover and deep-scaling rows are:
+
+| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 342,136 | naive | 0.07 ms | 6,280 | 1.23 MB | 33.3 KB | 35.3 KB |
+| 8 | 342,136 | QSM online | 0.02 ms | 179,795 | 42.6 KB | 32.7 KB | 34.7 KB |
+| 8 | 342,136 | bespoke | 0.07 ms | 127,266 | 37.5 KB | 47.6 KB | 32.91 MB |
+| 8 | 342,136 | ranked | 0.06 ms | 394,719 | 11.7 KB | 41.4 KB | 43.4 KB |
+| 8 | 342,136 | LTA do | 71.08 ms | 277,200 | 19.4 KB | 1.18 MB | 1.20 MB |
+| 8 | 342,136 | LTA materialized | 356.54 ms | 112,936 | 58.0 KB | 199.4 KB | 175.8 KB |
+| 8 | 342,136 | LTA fused | 355.83 ms | 111,456 | 56.3 KB | 199.6 KB | 176.0 KB |
+| 10 | 8,567,224 | naive | 0.20 ms | 1,913 | 3.97 MB | 33.4 KB | 35.5 KB |
+| 10 | 8,567,224 | QSM online | 0.03 ms | 139,808 | 53.6 KB | 32.7 KB | 34.7 KB |
+| 10 | 8,567,224 | bespoke | 0.10 ms | 69,854 | 57.5 KB | 54.3 KB | 74.04 MB |
+| 10 | 8,567,224 | ranked | 0.07 ms | 302,517 | 14.3 KB | 43.2 KB | 45.3 KB |
+| 10 | 8,567,224 | LTA do | 88.30 ms | 233,495 | 23.6 KB | 1.47 MB | 1.52 MB |
+| 10 | 8,567,224 | LTA materialized | 430.83 ms | 89,208 | 72.1 KB | 227.4 KB | 203.8 KB |
+| 10 | 8,567,224 | LTA fused | 422.05 ms | 91,050 | 69.3 KB | 227.6 KB | 203.9 KB |
+| 12 | 215,809,688 | naive | **timeout (30s)** | — | — | — | — |
+| 12 | 215,809,688 | QSM online | 0.03 ms | 118,229 | 64.5 KB | 32.7 KB | 34.7 KB |
+| 12 | 215,809,688 | bespoke | 0.10 ms | 52,289 | 77.4 KB | 56.6 KB | 118.24 MB |
+| 12 | 215,809,688 | ranked | 0.08 ms | 253,498 | 16.0 KB | 45.1 KB | 47.1 KB |
+| 12 | 215,809,688 | LTA do | 101.66 ms | 191,694 | 26.9 KB | 1.78 MB | 1.84 MB |
+| 12 | 215,809,688 | LTA materialized | 486.62 ms | 74,372 | 85.4 KB | 255.1 KB | 231.5 KB |
+| 12 | 215,809,688 | LTA fused | 490.85 ms | 76,824 | 81.5 KB | 255.2 KB | 231.6 KB |
+| 20 | 90,356,263,022,904 | QSM online | 0.04 ms | 68,492 | 108.4 KB | 32.7 KB | 34.7 KB |
+| 20 | 90,356,263,022,904 | bespoke | 0.15 ms | 23,546 | 157.6 KB | 73.9 KB | 303.87 MB |
+| 20 | 90,356,263,022,904 | ranked | 0.12 ms | 140,412 | 25.1 KB | 52.5 KB | 54.6 KB |
+| 20 | 90,356,263,022,904 | LTA do | 167.76 ms | 121,021 | 42.6 KB | 3.02 MB | 3.13 MB |
+| 20 | 90,356,263,022,904 | LTA materialized | 748.54 ms | 45,329 | 143.6 KB | 372.8 KB | 349.2 KB |
+| 20 | 90,356,263,022,904 | LTA fused | 758.00 ms | 46,578 | 132.7 KB | 373.0 KB | 349.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | QSM online | 0.05 ms | 34,359 | 218.0 KB | 32.7 KB | 34.7 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | bespoke | 0.32 ms | 8,494 | 365.0 KB | 122.1 KB | 778.94 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | ranked | 0.23 ms | 57,282 | 50.7 KB | 76.4 KB | 78.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA do | 333.75 ms | 59,187 | 84.0 KB | 6.15 MB | 6.41 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA materialized | 1,411.81 ms | 21,378 | 307.7 KB | 653.1 KB | 629.5 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA fused | 1,416.92 ms | 22,158 | 263.8 KB | 653.2 KB | 629.6 KB |
+
+The ordinary bespoke generator wins at very short lengths, but LTA do overtakes
+it after length four. At length 40 the generic relational compiler produces
+59,187 traces/s versus 8,494/s: a 7.0x throughput win, while retaining 6.41 MB
+rather than 778.94 MB after the fixed workload. It pays 334 ms once, then reuses
+the compiled ECTA rank plan instead of rebuilding weighted QuickCheck choices
+through every generated suffix.
+
+The hand-ranked row remains the specialization ceiling. At length 40 it is
+within 4% of LTA do in throughput and allocates only 50.7 KB per trace versus
+84.0 KB. Treat that throughput difference as a tie, not a claim that a generic
+compiler has defeated its own hand-coded algorithm. QSM online is the pragmatic
+state-machine baseline: LTA do is 1.7x faster in this run and remains uniform
+over complete traces, at the cost of a solver-backed setup phase and a larger
+retained rank index.
+
+Naive rejection cracks at length 12 for the 20,000-sample workload. At length
+10 it is already 122x slower than LTA do and allocates 3.97 MB per accepted
+trace.
+
+The first benchmark run made repeated solver work visible: length four took
+6.50 seconds to compile and length five timed out, despite only 115 distinct
+entailment requests among 34,073 requests at length four. Caching exact
+obligations for one compile and checking a generated witness directly, rather
+than first turning it into a singleton automaton, cut length-four setup to 188
+ms and made length five complete in 1.94 seconds.
+
+Replacing the outcome lists with `PlanAp` removed product allocation but did
+not remove the work: the old surface compiler still visited `11^6 = 1,771,561`
+ranks to discover 13,760 valid traces. Retaining the applicative recipe changes
+that algorithm. Children are grouped by only the refinements their parent
+observes; the solver selects live key tuples, and MicroECTA counts their products
+without visiting members. The same qualified-do source now reaches length 40.
+
+The direct automaton rows isolate decoding cost. At length 40, fusing the
+bottom-up `Trace` decoder saves 43.9 KB per sample—14.3%—and gives a small
+throughput improvement over materializing and immediately traversing a
+`LiquidTerm`. The remaining gap is in generic automaton unranking. Conversely,
+LTA do's retained relational index uses 6.15 MB of setup memory versus about
+653 KB for the direct automaton; reducing that compact-index constant and using
+a persistent worklist in automaton pruning are the next focused opportunities.
+
+## Equality theory cost: ECTA versus LTA
+
+The typed-expression flagship also has a deliberately equivalent liquid
+encoding in
+[`Data.LTA.EqualityTypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microlta-generator/common/Data/LTA/EqualityTypedExpressionLanguage.hs).
+`TInt` is the refinement `v = 0` and `TBool` is `v = 1`. Each application LTA
+contains candidate ground child states, and Z3 retains precisely those whose
+refinements imply the operation's expected input equalities. This expresses the
+same language as the ECTA's path-equality join without adding LTA-only power.
+
+This control uses the same rank order and fixed QuickCheck seed for both
+engines, draws 20,000 values per cell, and forces the complete expression tree.
+The checksum matched at every depth, in addition to the LTA cardinality being
+checked against the independent ECTA count.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | ECTA | 0.05 ms | 2,158,429 | 3.6 KB | 36.9 KB | 37.7 KB |
+| 1 | 42 | LTA equality | 4.16 ms | 1,082,720 | 6.9 KB | 61.7 KB | 38.1 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,719,247 | 3.8 KB | 47.3 KB | 58.4 KB |
+| 2 | 27,054 | LTA equality | 5.08 ms | 427,881 | 15.7 KB | 63.4 KB | 39.8 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.08 ms | 878,966 | 5.8 KB | 61.9 KB | 137.3 KB |
+| 3 | 8,887,065,932,466 | LTA equality | 5.25 ms | 143,836 | 44.8 KB | 65.2 KB | 41.6 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.16 ms | 323,076 | 12.8 KB | 98.6 KB | 334.3 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 5.28 ms | 53,521 | 134.1 KB | 66.9 KB | 43.3 KB |
+
+For equality alone, the ECTA is the right tool. Its setup stays below 0.2 ms;
+the LTA pays about 4–5.3 ms to start Z3 and prune the guarded graph. The LTA
+sampler is 2.0x slower at depth one and 6.0x slower at depth four, with 10.5x
+the per-sample allocation at depth four. That allocation is the cost of
+constructing an annotated `LiquidTerm` and decoding it to the same Haskell AST.
+The language itself remains symbolic: even the roughly 4.95e38-member
+depth-four language occupies only about 67 KB of LTA setup memory.
+
+Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
+2026-09-03. Reproduce either LTA table, or all four repository tables, from the
+repository root with:
+
+```sh
+cabal bench microlta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microlta-generator:typed-expression-constraint-cost --enable-optimization=2
+./scripts/benchmark-generators.sh
+```
+
+## A second dependent example: safe buffer programs
+
+[`Data.LTA.SafeBufferLanguage`](https://github.com/Tritlo/microecta/blob/main/microlta-generator/common/Data/LTA/SafeBufferLanguage.hs) gives
+buffers and indexes symbolic integer names, records the surrounding Liquid
+environment as solver assumptions, and generates two deliberately partial
+operations:
+
+```haskell
+safeReads = LTA.node "read-at" validRead $ LTA.do
+  buffer <- sourceBuffers
+  function <- readFunction
+  ~(_, index) <- indexes
+  LTA.pure (ReadAt (bufferExpression buffer) index)
+
+validRead buffer function index =
+  withActualFor buffer (descendant function [0]) $
+    index `isSubtypeOf` descendant function [1]
+```
+
+The function's input refinement is `0 <= v && v < n`. Substitution replaces
+the formal `n` with the selected buffer-length symbol; Z3 then uses facts such
+as `tripleLength = 3` to retain indexes 0, 1, and 2 while rejecting -1 and 3.
+
+The same module demonstrates a two-argument dependent result. Append declares
+`resultLength = n + m`, substitutes both selected buffer lengths, and uses
+`refinedNodeByRoots` to retain the proven result refinement. A later `head` node can
+therefore prove the appended buffer non-empty. The property itself needs no
+precondition:
+
+```haskell
+withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+  Right compiled <- LTA.compile solver safePrograms
+  quickCheck $ LTA.forAll compiled $ \program ->
+    programIsSafe program && safeResult program == Just (runProgram program)
+```
+
+The specs enumerate all 14 accepted programs, verify exact append lengths, and
+run the partial interpreter through QuickCheck. This is the distinction from
+an ECTA key: the accepted combinations depend on arithmetic implication under
+an environment, not equality of a finite classification tag.
+
 ## Refinement shrinking, similarity, and pools
 
 A refined pool contributes potential local replacements. Compilation asks Z3

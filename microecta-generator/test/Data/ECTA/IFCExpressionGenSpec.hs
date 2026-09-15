@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
+import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (
     Node (EmptyNode),
@@ -136,7 +137,7 @@ spec =
         it "shrinks a QuickCheck leak to the minimal program" $ do
             let generator = ECTAGen.ungroup (programsUpToDepth 2)
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 500} $
+                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 500} $
                     ECTAGen.forAll generator $
                         \program -> not (leaks program)
             case result of

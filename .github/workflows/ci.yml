@@ -20,12 +20,7 @@ jobs:
         with:
           version: "0.20.1.0"
           pattern: |
-            microfta/**/*.hs
-            microfta-generator/**/*.hs
-            microecta/**/*.hs
-            microecta-generator/**/*.hs
-            microlta/**/*.hs
-            microlta-generator/**/*.hs
+            **/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -37,6 +32,11 @@ jobs:
         with:
           path: '["microfta", "microfta-generator", "microecta", "microecta-generator", "microlta", "microlta-generator"]'
           fail-on: warning
+
+      - name: Check that the benchmark harness copies are identical
+        run: |
+          cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microecta-generator/benchmarks/GeneratorSpeedHarness.hs
+          cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microlta-generator/benchmarks/GeneratorSpeedHarness.hs
 
   build-test-bench:
     name: GHC ${{ matrix.ghc }}
@@ -127,8 +127,8 @@ jobs:
       - name: Test the generator examples
         run: |
           cabal v2-run fta-pairs
-          cabal v2-run ecta-finite-languages
           cabal v2-run liquid-pairs
+          cabal v2-run ecta-finite-languages
           cabal v2-run lta-safe-division
           cabal v2-run lta-automaton-interop
 

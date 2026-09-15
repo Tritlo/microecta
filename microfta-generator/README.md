@@ -14,7 +14,7 @@ It depends on `microfta`. It has no ECTA, LTA, or solver dependency.
 Run the complete example from the workspace root:
 
 ```sh
-cabal run fta-pairs
+nix-shell --run 'cabal run fta-pairs'
 ```
 
 `examples/FinitePairs.hs` derives the pair datatype with the finite `Int`
@@ -42,7 +42,8 @@ runs. An empty bounded language returns `EmptyFTALanguage`.
 
 Recursive size indexing and finite automaton rank shrinking belong to
 `Data.Tree.FTA.Gen.Internal.*`. ECTA retains its constraint and ambiguity
-checks before using the shared index.
+checks before using the shared index. LTA uses the ordinary shrinker only
+after it has removed transition constraints.
 
 `Data.Tree.Gen` is independent of automaton representation. `Indexed` describes
 a finite rank domain. `WeightedIndexed` separates replay ranks from sampling
@@ -50,7 +51,7 @@ tickets. Its callbacks must obey the documented rank and weight invariants.
 Counting and replay do not require enumerating the entire source.
 
 The `Internal` modules live in the public `internal` sublibrary. They are an
-integration interface for constrained adapters, which depend on
+integration interface for the ECTA and LTA adapters, which depend on
 `microfta-generator:{microfta-generator, internal}`. Their exports are not
 covered by the PVP contract of the main library. Ordinary applications should
 use the public construction modules.
@@ -61,8 +62,14 @@ the constructor term and the typed value at the same rank. Decoding a selected
 value does not enumerate any other member. Depth counts constructors, including
 primitive fields: a `Leaf Bool` term has depth one and two tree nodes.
 
-Build and test from the workspace root:
+Build, test, and benchmark from the workspace root:
 
 ```sh
+nix-shell
 cabal test microfta-generator:unit-tests
+cabal bench microfta-generator:untyped-expression-speed --enable-optimization=2
 ```
+
+Code that previously imported `Data.Tree.Gen` or `Data.Tree.FTA.Gen` through
+`microecta-generator` must now declare `microfta-generator` in `build-depends`.
+The module names and rank/sampling contracts are unchanged.
