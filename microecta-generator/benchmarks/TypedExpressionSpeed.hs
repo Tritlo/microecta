@@ -207,17 +207,17 @@ child engine depth = do
     -- shares the two, and the residency read is of a generator already
     -- collected -- which reads as a generator that retains nothing.
     lastDraw <- pure $! tally $ QCGen.unGen generator (QCRandom.mkQCGen total) 30
-    putStrLn $
-        intercalate "," $
-            map
-                show
-                [ firstElapsed * 1e6
-                , fromIntegral sampleCount / steadyElapsed
-                , (allocatedAfter - allocatedBefore) / fromIntegral sampleCount
-                , afterFirst - baseline
-                , retained - baseline
-                , fromIntegral (total + lastDraw)
-                ]
+    putStrLn
+        $ intercalate ","
+        $ map
+            show
+            [ firstElapsed * 1e6
+            , fromIntegral sampleCount / steadyElapsed
+            , (allocatedAfter - allocatedBefore) / fromIntegral sampleCount
+            , afterFirst - baseline
+            , retained - baseline
+            , fromIntegral (total + lastDraw)
+            ]
 
 -- | Draw one expression and force it.
 drawOne :: QCGen.Gen TypedExpression -> IO Int

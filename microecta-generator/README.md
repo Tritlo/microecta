@@ -1,5 +1,9 @@
 # microecta-generator
 
+The decoder, sampler, size index, and shrink engine now come from
+`microfta-generator`. Existing sources retain their rank order, weights,
+and equality interpretation.
+
 [![Hackage](https://img.shields.io/hackage/v/microecta-generator.svg)](https://hackage.haskell.org/package/microecta-generator)
 
 `microecta-generator` builds indexed generators on

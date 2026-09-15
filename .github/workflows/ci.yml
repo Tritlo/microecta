@@ -23,6 +23,7 @@ jobs:
             microfta/**/*.hs
             microfta-generator/**/*.hs
             microecta/**/*.hs
+            microecta-generator/**/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -32,7 +33,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta", "microfta-generator", "microecta"]'
+          path: '["microfta", "microfta-generator", "microecta", "microecta-generator"]'
           fail-on: warning
 
   build-test-bench:

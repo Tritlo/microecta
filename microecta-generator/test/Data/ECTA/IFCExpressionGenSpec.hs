@@ -148,9 +148,9 @@ spec =
             it "samples only leak-free programs from the enforcing print" $
                 QC.forAll (ECTAGen.toGen (ECTAGen.ungroup (secureProgramsUpToDepth 2))) $
                     \program ->
-                        QC.counterexample (show program <> " :: " <> show (securityKey program)) $
-                            QC.property $
-                                faithfullyLabeled program && not (leaks program)
+                        QC.counterexample (show program <> " :: " <> show (securityKey program))
+                            $ QC.property
+                            $ faithfullyLabeled program && not (leaks program)
 
         it "agrees with the count oracle on exact counts" $ do
             programCountUpToDepth 1 `shouldBe` 108
@@ -161,18 +161,18 @@ spec =
         modifyMaxSuccess (const 500) $
             it "samples faithfully labeled programs from the handwritten baseline" $
                 QC.forAll (handwrittenProgramGen 2) $ \program ->
-                    QC.counterexample (show program <> " :: " <> show (securityKey program)) $
-                        QC.property $
-                            faithfullyLabeled program
+                    QC.counterexample (show program <> " :: " <> show (securityKey program))
+                        $ QC.property
+                        $ faithfullyLabeled program
 
         -- The practical generator computes its label with practicalLabel, a copy
         -- of referenceLabel, so only the type half says anything here.
         modifyMaxSuccess (const 500) $
             it "samples programs of the reference type from the practical baseline" $
                 QC.forAll (practicalProgramGen 2) $ \program ->
-                    QC.counterexample (show program <> " :: " <> show (securityKey program)) $
-                        QC.property $
-                            referenceType (expression program) == Just (expressionType program)
+                    QC.counterexample (show program <> " :: " <> show (securityKey program))
+                        $ QC.property
+                        $ referenceType (expression program) == Just (expressionType program)
 
         it "builds the surface automaton with the exact counts" $ do
             length (getAllTerms (surfaceProgramNode 1 Public)) `shouldBe` 72
@@ -198,9 +198,9 @@ spec =
             -- The largest member is print of an if whose guard holds three
             -- nodes and whose branches hold four each: 13 nodes.
             let branchy =
-                    ECTAGen.upToSize 13 $
-                        ECTAGen.fromECTA $
-                            termsMatching branchesOnSecret (surfaceProgramNode 2 Private)
+                    ECTAGen.upToSize 13
+                        $ ECTAGen.fromECTA
+                        $ termsMatching branchesOnSecret (surfaceProgramNode 2 Private)
             ECTAGen.cardinality branchy `shouldBe` Right 24896
 
 {- | Programs whose conditional guard is an equality test whose first operand

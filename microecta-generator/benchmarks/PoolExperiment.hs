@@ -8,6 +8,7 @@ from it without rejection.
 -}
 module Main (main) where
 
+import Data.Either (fromRight)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import System.CPUTime (getCPUTime)
@@ -43,7 +44,7 @@ collisionExample = do
     let integers = ECTAGen.freeze 20260818 8 $ QC.chooseInteger (0, 3)
         values = members integers
         equalPairs = ECTAGen.match (id :==: id) integers integers
-        accepted = either (const 0) id $ ECTAGen.cardinality equalPairs
+        accepted = fromRight 0 $ ECTAGen.cardinality equalPairs
         priorPairs = 8 * 8
     putStrLn "\nLarge native source, frozen as one shared finite universe"
     putStrLn $ "pool ranks: " <> show values
@@ -102,7 +103,7 @@ throughputRow poolSize = do
 
     startJoin <- getCPUTime
     let equalPairs = ECTAGen.match (id :==: id) integers integers
-        joined = either (const (-1)) id $ ECTAGen.cardinality equalPairs
+        joined = fromRight (-1) $ ECTAGen.cardinality equalPairs
     endJoin <- joined `seq` getCPUTime
 
     (ectaRate, _) <- measureSamples id $ ECTAGen.toGen integers

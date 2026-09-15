@@ -1,10 +1,11 @@
 cabal-version: 3.0
 name: microecta-generator
 version: 0.1.0.0
-synopsis: Indexed ECTA generators with exact replay and shrinking
+synopsis: Equality-constrained generators with exact replay
 description:
-  Generator combinators backed by equality-constrained tree automata, with
-  QuickCheck integration, exact replay, conditioned joins, and shrinking.
+  Generators backed by equality-constrained tree automata, with retained key
+  groups, conditioned joins, recursion, exact replay, and QuickCheck
+  integration over the shared microfta-generator engine.
 
 homepage: https://github.com/Tritlo/microecta/tree/main/microecta-generator#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
@@ -78,17 +79,27 @@ library
   other-modules:
     Data.ECTA.Gen.Internal
     Data.ECTA.Gen.Internal.Automaton
-    Data.ECTA.Gen.Internal.Decoder
-    Data.ECTA.Gen.Internal.Sampler
-    Data.ECTA.Gen.Internal.Shrink
-    Data.ECTA.Gen.Internal.Size
+    Data.ECTA.Gen.Internal.Bucket
+    Data.ECTA.Gen.Internal.Chain
+    Data.ECTA.Gen.Internal.Error
+    Data.ECTA.Gen.Internal.Grouped
+    Data.ECTA.Gen.Internal.Inspect
+    Data.ECTA.Gen.Internal.Join
+    Data.ECTA.Gen.Internal.Recursion
+    Data.ECTA.Gen.Internal.Recursive
+    Data.ECTA.Gen.Internal.Static
+    Data.ECTA.Gen.Internal.Support
+    Data.ECTA.Gen.Internal.Types
 
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     array >=0.5 && <0.6,
     base >=4.21 && <5,
     containers >=0.7 && <0.9,
     microecta >=0.2.0.0 && <0.3,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator:{internal, microfta-generator} >=0.1.0.0 && <0.2,
+    mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
 
 test-suite unit-tests
@@ -108,17 +119,21 @@ test-suite unit-tests
     Data.ECTA.GenSpec
     Data.ECTA.IFCExpressionGenSpec
     Data.ECTA.IFCExpressionLanguage
+    Data.ECTA.RankDecodingSpec
     Data.ECTA.RecursiveGenSpec
+    Data.ECTA.TestSupport
     Data.ECTA.TypedExpressionGenSpec
     Data.ECTA.TypedExpressionLanguage
 
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
     containers >=0.7 && <0.9,
     hspec >=2.11 && <2.12,
     microecta >=0.2.0.0 && <0.3,
     microecta-generator,
+    microfta >=0.1.0.0 && <0.2,
+    microfta-generator:internal >=0.1.0.0 && <0.2,
+    QuickCheck >=2.14 && <2.19,
 
 benchmark typed-expression-speed
   import: warnings, extensions
@@ -134,10 +149,10 @@ benchmark typed-expression-speed
 
   other-modules: Data.ECTA.TypedExpressionLanguage
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
     microecta-generator,
     process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
 
 benchmark pool-experiment
@@ -153,8 +168,8 @@ benchmark pool-experiment
 
   other-modules: Data.ECTA.TypedExpressionLanguage
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
     containers >=0.7 && <0.9,
     microecta-generator,
+    QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,

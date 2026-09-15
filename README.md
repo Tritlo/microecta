@@ -12,6 +12,7 @@ The workspace contains these Cabal packages:
 `microfta` provides a standalone constraint-parameterized graph.
 `microecta` uses that shared graph for its equality interpretation.
 `microfta-generator` provides shared rank plans and ordinary FTA generation.
+`microecta-generator` uses the shared rank engine.
 
 Build and test the workspace:
 

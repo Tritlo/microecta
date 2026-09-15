@@ -3,8 +3,8 @@
 A node's language is the union over its edges, and an edge's language is the
 product of its children under its symbol. That is the same shape the
 generator combinators build, so an automaton becomes a size index by
-translation: 'choiceIndex' per node, 'productIndex' per edge child, and a
-size-one 'constantIndex' for the symbol itself, which makes a member's size
+translation: @choiceIndex@ per node, @productIndex@ per edge child, and a
+size-one @constantIndex@ for the symbol itself, which makes a member's size
 its number of term nodes.
 
 Recursion needs no special case. Nodes are interned, so a @Mu@ and the
@@ -29,17 +29,12 @@ import qualified Data.Set as Set
 import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
 import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term)
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
-import Data.ECTA.Gen.Internal.Size (
-    SizeIndex,
-    choiceIndex,
-    constantIndex,
-    mapIndex,
-    productIndex,
-    withMinimumMemberSize,
- )
+import qualified Data.Tree.FTA as FTA
+import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
+import Data.Tree.Gen.Internal.Size (SizeIndex)
 
 {- | Count and index the terms an automaton accepts, by size.
 
@@ -50,43 +45,23 @@ one, whose runs outnumber its terms.
 automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Term Symbol))
 automatonIndex root
     | not $ Set.null $ freeVars root = Left OpenAutomaton
-    | any constrained $ concatMap nodeEdges reachable = Left CannotCountConstrainedEdges
+    | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges
     | any ambiguous reachable = Left AmbiguousAutomaton
-    | otherwise = Right $ indexOf root
+    | otherwise = Right $ Ordinary.tableIndex (stateOf root) (ordinaryRows reachable)
   where
     reachable = reachableNodes root
 
-    -- One lazy entry per reachable identity, referring to each other: a
-    -- recursive automaton becomes a recursive index with no extra work.
-    table = Map.fromList [(nodeIdentity node, nodeIndex node) | node <- reachable]
-    nodeIndex node =
-        withMinimumMemberSize
-            (Map.lookup (nodeIdentity node) minima)
-            (choiceIndex $ map edgeIndex $ nodeEdges node)
+-- | Name an ordinary node or the empty language without forcing its identity.
+stateOf :: Node Symbol -> Maybe Int
+stateOf node
+    | null (nodeEdges node) = Nothing
+    | otherwise = Just $ nodeIdentity node
 
-    -- A node with no minimum size accepts nothing, and its table entry counts
-    -- an unbounded run of zeroes that 'sizeClassOf' would walk forever. The
-    -- empty index counts nothing at all, so every product or choice over it
-    -- stays finite.
-    indexOf node
-        | null (nodeEdges node) = emptyIndex
-        | Map.member (nodeIdentity node) minima =
-            Map.findWithDefault emptyIndex (nodeIdentity node) table
-        | otherwise = emptyIndex
-    emptyIndex = choiceIndex []
-
-    minima = minimumSizes reachable
-
-    -- The symbol contributes the one choice that makes a term node count
-    -- toward size; children are consumed left to right into its arguments.
-    edgeIndex edge =
-        mapIndex ($ []) $
-            foldl
-                consumeChild
-                (constantIndex $ Term $ edgeSymbol edge)
-                (map indexOf $ edgeChildren edge)
-    consumeChild built child = productIndex (mapIndex prepend built) child
-    prepend build term arguments = build (term : arguments)
+-- | Expose the validated unconstrained rows to the common index compiler.
+ordinaryRows :: [Node Symbol] -> Map.Map (Maybe Int) [FTA.Transition (Maybe Int) Symbol ()]
+ordinaryRows nodes = Map.fromList [(stateOf node, map transition $ nodeEdges node) | node <- nodes]
+  where
+    transition edge = FTA.Transition (edgeSymbol edge) (map stateOf $ edgeChildren edge) ()
 
 -- | Every node reachable from a root, one per interned identity.
 reachableNodes :: Node Symbol -> [Node Symbol]
@@ -103,39 +78,11 @@ reachableNodes root = collect Map.empty [root]
       where
         edges = nodeEdges node
 
-{- | The size of the shortest term each node accepts, by interned identity.
-
-Solved independently of the lazy count knot. Starting with no productive
-nodes and adding known minima is the least fixed point, so a cycle without a
-base remains absent, and an absent node is one that accepts nothing.
--}
-minimumSizes :: [Node Symbol] -> Map.Map Int Int
-minimumSizes nodes = converge Map.empty
-  where
-    converge current =
-        let next = foldr addMinimum current nodes
-         in if next == current then current else converge next
-
-    addMinimum node known = case nodeMinimum known node of
-        Nothing -> known
-        Just size -> Map.insertWith min (nodeIdentity node) size known
-
-    nodeMinimum known node = minimumOf $ map (edgeMinimum known) $ nodeEdges node
-    edgeMinimum known edge =
-        (1 +) . sum
-            <$> traverse
-                (\child -> Map.lookup (nodeIdentity child) known)
-                (edgeChildren edge)
-
-    minimumOf sizes = case [size | Just size <- sizes] of
-        [] -> Nothing
-        liveSizes -> Just $ minimum liveSizes
-
 -- | Whether a node accepts any term at all.
 productive :: Node Symbol -> Bool
 productive node
     | null (nodeEdges node) = False
-    | otherwise = Map.member (nodeIdentity node) $ minimumSizes $ reachableNodes node
+    | otherwise = Map.member (stateOf node) $ Ordinary.minimumSizes $ ordinaryRows $ reachableNodes node
 
 {- | Whether a node has two edges that accept a common term.
 
