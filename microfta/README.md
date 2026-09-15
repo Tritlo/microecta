@@ -112,7 +112,7 @@ combine compatible symbols and annotations. `stripGuards` forgets annotations;
 it does not solve constraints.
 
 Use `microfta-generator` for finite counting, replay, sampling, and shrinking.
-Use `microecta` for equality constraints.
+Use `microecta` for equality constraints and `microlta` for liquid constraints.
 
 From the workspace root:
 

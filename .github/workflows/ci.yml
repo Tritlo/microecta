@@ -30,12 +30,13 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta", "microfta-generator", "microecta", "microecta-generator"]'
+          path: '["microfta", "microfta-generator", "microecta", "microecta-generator", "microlta", "microlta-generator"]'
           fail-on: warning
 
       - name: Check that the benchmark harness copies are identical
         run: |
           cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microecta-generator/benchmarks/GeneratorSpeedHarness.hs
+          cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microlta-generator/benchmarks/GeneratorSpeedHarness.hs
 
   build-test-bench:
     name: GHC ${{ matrix.ghc }}
@@ -56,6 +57,11 @@ jobs:
           ghc-version: ${{ matrix.ghc }}
           cabal-version: "3.16.1.0"
           cabal-update: true
+
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
 
       - name: Configure build plan
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
@@ -87,6 +93,8 @@ jobs:
           (cd microfta-generator && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
+          (cd microlta && cabal check)
+          (cd microlta-generator && cabal check)
 
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
@@ -113,11 +121,16 @@ jobs:
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta-generator
 
       - name: Test the generator examples
         run: |
           cabal v2-run fta-pairs
+          cabal v2-run liquid-pairs
           cabal v2-run ecta-finite-languages
+          cabal v2-run lta-safe-division
+          cabal v2-run lta-automaton-interop
 
       - name: Validate release artifacts
         run: |
@@ -125,6 +138,8 @@ jobs:
           scripts/release.sh microfta-generator --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
+          scripts/release.sh microlta --check-only
+          scripts/release.sh microlta-generator --check-only
 
       - name: Benchmark
         if: matrix.ghc == '9.14.1'
