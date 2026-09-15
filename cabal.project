@@ -3,6 +3,7 @@ packages:
   microfta-generator
   microecta
   microecta-generator
+  microlta
 
 package *
   optimization: False
