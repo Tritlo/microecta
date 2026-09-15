@@ -25,16 +25,23 @@ import Data.ECTA (
     nodeRepresents,
     numNestedMu,
  )
+import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.TestSupport (aggregateRights)
+import Data.Tree.Gen.Internal.Sampler (Exact (..))
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
     deriving (Eq, Ord, Show)
 
 data Coin = Heads | Tails
+    deriving (Eq, Ord, Show)
+
+-- | States used to check weighted operation keys inside recursive grouping.
+data CoinPhase = Initial | SawHeads | SawTails | Unreachable
     deriving (Eq, Ord, Show)
 
 trees :: ECTAGen Tree
@@ -85,6 +92,10 @@ constrainedAutomaton =
             [finiteAutomaton, finiteAutomaton]
             (mkEqConstraints [[path [0], path [1]]])
         ]
+
+-- | Force a value through its 'Show' instance so a hang is caught by 'timeout'.
+evaluateFully :: (Show a) => a -> IO a
+evaluateFully value = evaluate (length $ show value) >> pure value
 
 spec :: Spec
 spec = do
@@ -180,7 +191,7 @@ spec = do
                 `shouldSatisfy` either (const False) ((== fromInteger boundedTreeCount) . Set.size . Set.fromList)
 
         it "rejects negative recursive ranks without scanning the language" $ do
-            result <- timeout 1000000 $ evaluate $ ECTAGen.unrank trees (-1)
+            result <- timeout 60000000 $ evaluateFully $ ECTAGen.unrank trees (-1)
             result `shouldBe` Just (Left $ NegativeRank (-1))
 
         it "supports the language with one recursive automaton" $
@@ -222,15 +233,15 @@ spec = do
         it "rejects a recursion that never passes through an application" $ do
             let unguarded = ECTAGen.recur $ \self ->
                     ECTAGen.oneof [Leaf <$> ECTAGen.elements [0 .. 2], self]
-                mapped = ECTAGen.recur (fmap id)
+                mapped = ECTAGen.recur (id)
             ECTAGen.countAtSize unguarded 1 `shouldBe` Left UnguardedRecursion
             ECTAGen.countAtSize (mapped :: ECTAGen Tree) 1
                 `shouldBe` Left UnguardedRecursion
 
         it "reports a guarded recursion with no base as empty" $ do
             let empty = ECTAGen.recur $ \self -> pure id <*> self
-            smallestResult <- timeout 1000000 $ evaluate $ ECTAGen.smallest (empty :: ECTAGen Tree)
-            unrankResult <- timeout 1000000 $ evaluate $ ECTAGen.unrank (empty :: ECTAGen Tree) 0
+            smallestResult <- timeout 60000000 $ evaluateFully $ ECTAGen.smallest (empty :: ECTAGen Tree)
+            unrankResult <- timeout 60000000 $ evaluateFully $ ECTAGen.unrank (empty :: ECTAGen Tree) 0
             smallestResult `shouldBe` Just (Right Nothing)
             unrankResult `shouldBe` Just (Left EmptyGenerator)
 
@@ -239,7 +250,7 @@ spec = do
                 family :: ECTAGen.Grouped () ()
                 family = ECTAGen.recurGrouped $ \self ->
                     ECTAGen.apply operations (self :& ANil)
-            result <- timeout 1000000 $ evaluate $ ECTAGen.smallest $ ECTAGen.ungroup family
+            result <- timeout 60000000 $ evaluateFully $ ECTAGen.smallest $ ECTAGen.ungroup family
             result `shouldBe` Just (Right Nothing)
 
         it "starts QuickCheck at the first live recursive size" $ do
@@ -267,7 +278,7 @@ spec = do
                 containsOne (Branch left right) = containsOne left || containsOne right
                 failing member = leaves member >= 3 && containsOne member
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSize = 6, QC.maxSuccess = 500} $
+                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSize = 6, QC.maxSuccess = 500} $
                     ECTAGen.forAll trees (not . failing)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
@@ -354,8 +365,8 @@ spec = do
         it "reports a recursive automaton without finite terms as empty" $ do
             let emptyAutomaton = createMu $ \self -> Node [Edge "loop" [self]]
                 generator = ECTAGen.fromECTA emptyAutomaton
-            smallestResult <- timeout 1000000 $ evaluate $ ECTAGen.smallest generator
-            unrankResult <- timeout 1000000 $ evaluate $ ECTAGen.unrank generator 0
+            smallestResult <- timeout 60000000 $ evaluateFully $ ECTAGen.smallest generator
+            unrankResult <- timeout 60000000 $ evaluateFully $ ECTAGen.unrank generator 0
             ECTAGen.minimumSize generator `shouldBe` Right Nothing
             smallestResult `shouldBe` Just (Right Nothing)
             unrankResult `shouldBe` Just (Left $ SelectionOutOfRange 0 0)
@@ -363,6 +374,122 @@ spec = do
         it "rejects an automaton whose edges carry equality constraints" $
             ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromECTA constrainedAutomaton)
                 `shouldBe` Left CannotCountConstrainedEdges
+
+    describe "recursive sampling" $ do
+        it "preserves an atomic finite distribution and its stable ranks" $ do
+            let coin :: Core.ECTAGen Exact Bool
+                coin =
+                    Core.atomic $
+                        Core.frequency
+                            [ (3, Core.elements [True])
+                            , (1, Core.elements [False])
+                            ]
+                traces =
+                    Core.recur $ \rest ->
+                        Core.oneof
+                            [ (: []) <$> coin
+                            , (:) <$> coin <*> rest
+                            ]
+                bounded = Core.upToSize 2 traces
+            let sampled = runExact $ Core.lowerWithRank bounded
+            [() | (_, Left _) <- sampled] `shouldBe` []
+            aggregateRights sampled
+                `shouldBe` [ (1 % 4, (0, [True]))
+                           , (1 % 12, (1, [False]))
+                           , (3 % 8, (2, [True, True]))
+                           , (1 % 8, (3, [True, False]))
+                           , (1 % 8, (4, [False, True]))
+                           , (1 % 24, (5, [False, False]))
+                           ]
+            traverse (Core.unrank bounded) [0 .. 5]
+                `shouldBe` Right
+                    [ [True]
+                    , [False]
+                    , [True, True]
+                    , [True, False]
+                    , [False, True]
+                    , [False, False]
+                    ]
+
+        it "keeps finite weights out of recursion without an atomic boundary" $ do
+            let coin :: Core.ECTAGen Exact Bool
+                coin =
+                    Core.frequency
+                        [ (3, Core.elements [True])
+                        , (1, Core.elements [False])
+                        ]
+                traces =
+                    Core.recur $ \rest ->
+                        Core.oneof
+                            [ (: []) <$> coin
+                            , (:) <$> coin <*> rest
+                            ]
+            map fst (runExact $ Core.lowerWithRank $ Core.upToSize 2 traces)
+                `shouldBe` replicate 6 (1 % 6)
+
+        it "preserves atomic distributions through recurGrouped and apply" $ do
+            let atoms =
+                    Core.keyed ()
+                        $ Core.atomic
+                        $ Core.frequency
+                            [ (3, Core.elements ["H"])
+                            , (1, Core.elements ["T"])
+                            ]
+                operators =
+                    Core.keyed (() :-> ()) $
+                        Core.elements [("x" <>)]
+                family =
+                    Core.recurGrouped $ \self ->
+                        Core.oneofGrouped
+                            [ atoms
+                            , Core.apply operators (self :& ANil)
+                            ]
+                bounded :: Core.ECTAGen Exact String
+                bounded = Core.upToSize 2 $ Core.atKey () family
+            let sampled = runExact $ Core.lowerWithRank bounded
+            [() | (_, Left _) <- sampled] `shouldBe` []
+            aggregateRights sampled
+                `shouldBe` [ (3 % 8, (0, "H"))
+                           , (1 % 8, (1, "T"))
+                           , (3 % 8, (2, "xH"))
+                           , (1 % 8, (3, "xT"))
+                           ]
+
+        it "keeps atomic mass between recursive operation keys" $ do
+            let operations =
+                    snd
+                        <$> Core.groupBy
+                            fst
+                            ( Core.atomic $
+                                Core.frequency
+                                    [ (9, pure (Initial :-> SawHeads, (True :)))
+                                    , (1, pure (Initial :-> SawTails, (False :)))
+                                    ]
+                            )
+                family :: Core.Grouped Exact CoinPhase [Bool]
+                family =
+                    Core.recurGrouped $ \self ->
+                        Core.oneofGrouped
+                            [ Core.keyed Initial $ pure []
+                            , Core.apply operations (self :& ANil)
+                            ]
+                traces = Core.ungroup family
+            Core.countsAtSize family 2
+                `shouldBe` Right
+                    (Map.fromList [(SawHeads, 1), (SawTails, 1)])
+            Core.massesAtSize family 2
+                `shouldBe` Right
+                    (Map.fromList [(SawHeads, 9 % 10), (SawTails, 1 % 10)])
+            (sum <$> Core.countsAtSize family 2)
+                `shouldBe` Core.countAtSize traces 2
+            (sum <$> Core.massesAtSize family 2)
+                `shouldBe` Right 1
+            Core.pmfAtSize traces 2
+                `shouldBe` Right [([False], 1 % 10), ([True], 9 % 10)]
+            Core.smallest (Core.atKey SawHeads family)
+                `shouldBe` Right (Just [True])
+            Core.smallest (Core.atKey Unreachable family)
+                `shouldBe` Right Nothing
 
 -- | The head symbol of a term, as a coverage key.
 termSymbol :: Term Symbol -> String

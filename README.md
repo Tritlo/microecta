@@ -10,13 +10,19 @@ This repository contains four Cabal packages with a shared automaton engine:
 | [`microecta-generator`](microecta-generator/README.md) | Indexed ECTA generators with QuickCheck integration, exact replay, and structural shrinking. |
 
 `microecta` and `microfta-generator` depend on `microfta`.
-`microecta-generator` depends on `microecta`. The core packages do not depend
+`microecta-generator` depends on `microecta` and `microfta-generator`. The core packages do not depend
 on the generator packages or on QuickCheck.
 
 `Data.Tree.FTA.Generic` derives a shared grammar, constructor metadata, and a
 term codec from a regular algebraic datatype. Recursive types form graph cycles.
 The ordinary generator accepts explicit depth or size bounds. Primitive fields
 use caller-supplied finite domains. See the package READMEs for examples.
+
+`microecta-generator` adds grouped equality joins, typed datatype imports, and
+symbolic counting for nested equality and overlapping alternatives. Shared
+rank plans preserve exact replay and generate only the selected value.
+
+Run `cabal run ecta-finite-languages` for the combined FTA/ECTA example.
 
 Build and test the whole workspace from the repository root:
 

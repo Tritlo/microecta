@@ -25,7 +25,7 @@ shift
 case "$package" in
   microfta) dependencies=() ;;
   microfta-generator|microecta) dependencies=(microfta) ;;
-  microecta-generator) dependencies=(microfta microecta) ;;
+  microecta-generator) dependencies=(microfta microfta-generator microecta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
 

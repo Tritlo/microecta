@@ -8,6 +8,16 @@ generator regions retain an exact ECTA support, cardinality, and replay rank;
 the same package includes QuickCheck integration for sampling, opaque fallbacks,
 and structural shrinking.
 
+Run the complete introductory FTA/ECTA example from the workspace root with
+`nix-shell --run 'cabal run ecta-finite-languages'`.
+
+The shared `Data.Tree.Gen` layer and ordinary `Data.Tree.FTA.Gen` adapter
+belong to `microfta-generator`. This package adds ECTA sources, equality and
+relational joins, retained key groups, and recursive generation above that
+foundation. Applications that directly import the shared or FTA modules must
+also declare `microfta-generator` in `build-depends`, and `microfta` for the
+`Data.Tree.FTA` and `Data.Tree.FTA.Generic` modules used below.
+
 Add the package to `build-depends` and import the QuickCheck-facing API:
 
 ```cabal
@@ -20,6 +30,27 @@ import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 ```
 
 ## Generator API
+
+`fromFTAUpToDepth` compiles a handwritten FTA annotated with `EqConstraints`.
+Use `Data.Tree.FTA.annotate` to add constraints to its existing transitions.
+`fromDatatypeUpToDepth` accepts a derived `TypedFTA EqConstraints a` and returns
+typed values. Both functions are available from the QuickCheck API.
+
+For example, derive `(Bool, Bool)` with `deriveFTA`, then use
+`annotateDatatype` to attach `mkEqConstraints [[path [0], path [1]]]` to its
+tuple constructor. The generator has two ranks: `(False, False)` and
+`(True, True)`. The introductory example uses one derived pair grammar for
+ordinary and equality generation.
+
+A leaf has depth zero. The bounded import retains one rank per distinct term
+and samples uniformly over those ranks. Direct child equalities select once
+from the intersection of the child languages. The shared rank plan reuses that
+term at each equal position. Size inspection counts source choices, so repeated
+equal children contribute one selected child. Shrinks remain accepted.
+Nested equality paths and overlapping alternatives use symbolic counts over
+shared automaton states. Equality unifies selected subtrees, and overlapping
+alternatives count each accepted term once. Unranking constructs only the
+selected term. Existing `fromECTA` behavior is unchanged.
 
 `Data.ECTA.Gen` turns a finite indexed source into an ECTA whose leaves contain
 stable indices, not generated values. `Functor` and `Applicative` composition
@@ -50,6 +81,15 @@ pair, then counts, ranks, and samples the accepted group products directly.
 An opaque input uses rejection filtering. `match` remains the shorter and
 faster operation for equality because it intersects the two key maps without
 testing their Cartesian product.
+
+`relateM` is the compile-time, effectful form for finite transparent inputs.
+It groups each input once, invokes the callback once per live key pair, and
+then uses the same equality join. `relateGroupsM` starts from already grouped
+languages and therefore never enumerates their members; this is the boundary
+used by the LTA compiler to turn solver-approved refinement tuples into a pure
+ECTA rank plan. `relateN` generalizes that operation to homogeneous n-ary key
+tuples, and `filterGroupsM` performs an effectful selection over an existing
+key space without visiting the members below each key.
 
 `Grouped key a` is the explicit grouping-preserving path for nested or very
 large languages. The `key` is the type returned by the classifier and used to
@@ -122,7 +162,9 @@ conditionalLayer children =
     (children :& children :& children :& ANil)
 ```
 
-The typed-expression example combines unary `Not`, binary functions, and
+The
+[`Data.ECTA.Gen.Example.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microecta-generator/src/Data/ECTA/Gen/Example/TypedExpressionLanguage.hs)
+flagship combines unary `Not`, binary functions, and
 ternary `IfExpression`. Its finite layers combine those three alternatives with
 `uniformlyGrouped`, so every expression remains equally likely. Its
 recursive layer uses equal structural alternatives, as recursive declarations
@@ -140,12 +182,12 @@ order; whatever the arity, it builds exactly one `apply` join:
 {-# LANGUAGE QualifiedDo #-}
 
 authentication :: ECTAGen Authentication
-authentication = ECTAGen.do
+authentication = ECTAGen.node "authentication" $ ECTAGen.do
   user <- generatedUser
   method <- ECTAGen.elements [Password, Token]
   ECTAGen.pure (Authentication user method)
 
-conditionalLayer children = ECTAGen.do
+conditionalLayer children = ECTAGen.node "if" $ ECTAGen.do
   build <- conditionalFunctionsBySignature
   condition <- children
   ifTrue <- children
@@ -428,6 +470,11 @@ is exactly when they share a term.
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
 
+`Data.Tree.Gen.fromIndexedOnDemand` is the automaton-adapter variant. It keeps
+the same cardinality, ranks, and sampler but never tabulates a small indexed
+source while compiling its replay decoder. LTA counting uses it so the
+automaton remains a graph until one rank is selected.
+
 `pool n native` bridges a large or infinite QuickCheck source into this finite
 world. Its outer `Gen` samples `n` values once and returns an `ECTAGen` whose
 ranks are those draws. The result supports exact inspection and constrained
@@ -473,12 +520,10 @@ structure explicit.
 - `Data.ECTA.Gen.Do` provides the qualified do-notation operators.
 - `Data.ECTA.Gen.QuickCheck` provides the ordinary QuickCheck-facing API,
   including `fromGen`, `toGen`, `forAll`, and `sized`.
-- `Data.ECTA.Gen.Internal`, `Data.ECTA.Gen.Internal.Automaton`,
-  `Data.ECTA.Gen.Internal.Decoder`, `Data.ECTA.Gen.Internal.Sampler`,
-  `Data.ECTA.Gen.Internal.Shrink`, and `Data.ECTA.Gen.Internal.Size` implement
-  static languages, joins, reading an automaton, compiled rank decoding,
-  exact sampling, structural shrinking, and size-stratified counting. They are
-  not exposed.
+- `Data.ECTA.Gen.Internal` and `Data.ECTA.Gen.Internal.Automaton` implement
+  ECTA-specific sources, joins, support, and automaton imports. They are private.
+- Shared decoding, sampling, structural shrinking, and size indexing use
+  `Data.Tree.Gen.Internal.*` from `microfta-generator`.
 
 ## Concurrency
 
@@ -495,61 +540,96 @@ a crash; see the concurrency note in `microecta`'s README.
 
 ## Sampling performance
 
-Against a handwritten QuickCheck generator for the same language: nested
-`frequency` choices, the same exact weights, drawing uniformly from the same
-well-typed expressions at the same exact depth. Both are driven the way
-QuickCheck drives a property, one split seed per draw.
+The flagship FTA and ECTA languages each have three exact-uniform generators:
 
-A rate on its own would flatter this library, because the decoder has to be
-built before it can draw and that cost does not appear in a rate. So the
-benchmark reports what one draw costs from cold as well, and what each
-generator holds. Every cell runs in a fresh process -- `microecta`'s interning
-tables never evict, so measuring depth 4 after depth 1 would let it reuse
-depth 1's nodes and report a setup cost no first run can reproduce.
+- **naive** generates an unconstrained representation and recognizes or
+  rejects it afterwards;
+- **bespoke** is a handwritten generator specialized to the language; and
+- **FTA/ECTA** compiles the declarative automaton to a rank decoder.
 
-| depth | engine | first expr | exprs/s | alloc/expr | setup mem | retained after 100k |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | ECTA | 0.05 ms | 2,198,575 | 3.6 KB | 37.1 KB | 38.0 KB |
-| 1 | handwritten | 0.04 ms | 545,661 | 14.1 KB | 3.1 KB | 41.6 KB |
-| 2 | ECTA | 0.06 ms | 1,847,234 | 3.8 KB | 47.3 KB | 57.8 KB |
-| 2 | handwritten | 0.04 ms | 205,595 | 38.2 KB | 6.3 KB | 106.0 KB |
-| 3 | ECTA | 0.08 ms | 1,019,368 | 5.8 KB | 61.6 KB | 156.6 KB |
-| 3 | handwritten | 0.10 ms | 67,212 | 112.3 KB | 50.1 KB | 354.6 KB |
-| 4 | ECTA | 0.14 ms | 371,475 | 12.8 KB | 98.0 KB | 391.8 KB |
-| 4 | handwritten | 0.58 ms | 22,249 | 335.8 KB | 83.9 KB | 1019.8 KB |
+All rows at a given depth therefore sample the same finite language with the
+same uniform distribution. This is important: a smaller or biased baseline
+would make its speed meaningless. The FTA's naive generator builds a generic
+ranked term, recognizes it with a one-state FTA, then decodes it. There is no
+semantic condition to reject, so that row is the zero-rejection control. The
+ECTA's naive generator creates a raw application at each layer and rejects it
+after independent type inference; its root alternatives are weighted by raw
+candidate counts, so conditioning preserves uniformity. The bespoke ECTA
+generator carries the requested result type through ordinary Haskell.
 
-The ECTA generator draws 4x faster at depth 1 and 17x faster at depth 4,
-allocating 4x to 26x less, and the gap widens with depth because the
-handwritten generator's cost is per node while this one's is one decode per
-sample. On the same machine an empty generator runs at 14.7M draws/s and a
-single `chooseInt` at 2.7M, so at depth 1 the ECTA generator is already within
-a small factor of one QuickCheck draw and cannot get much faster.
+Every cell runs in a fresh process because `microecta`'s interning tables never
+evict. The first-sample column includes construction; the throughput and
+allocation columns reuse the resulting generator. A complete cell has a
+30-second wall-clock limit and successful cells are the median of three runs.
 
-Setup is not the tax it might look like. It is a fraction of a millisecond
-throughout, and by depth 4 it is *lower* than the handwritten generator's,
-which has to build a tree of alternatives weighted by exact expression counts
-before it can draw anything either.
+### FTA: untyped integer expressions
 
-Memory is the honest cost. Both generators grow while they are sampled --
-neither is a fixed-size decoder -- and this one holds less at every depth, but
-part of what it holds is in `microecta`'s process-global tables and is not
-released when the generator is dropped. See the memory section of `microecta`'s
-README before pointing this at a long-lived process.
+Each successful FTA cell draws 100,000 samples.
 
-Measured on the maintainer machine, three runs per cell, median of each metric.
-The memory figures are deterministic; the rates move a few percent between
-runs, and the ratios move with the QuickCheck and `random` versions in use.
-Reproduce with:
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 8 | naive | 0.02 ms | 654,446 | 11.1 KB | 33.6 KB | 35.8 KB |
+| 1 | 8 | bespoke | 0.02 ms | 808,100 | 9.9 KB | 1.6 KB | 34.8 KB |
+| 1 | 8 | FTA | 0.03 ms | 746,280 | 10.7 KB | 35.3 KB | 36.8 KB |
+| 2 | 128 | naive | 0.03 ms | 281,419 | 25.4 KB | 33.9 KB | 36.0 KB |
+| 2 | 128 | bespoke | 0.02 ms | 334,263 | 23.6 KB | 33.0 KB | 35.0 KB |
+| 2 | 128 | FTA | 0.03 ms | 309,879 | 25.3 KB | 39.1 KB | 45.0 KB |
+| 3 | 32,768 | naive | 0.03 ms | 131,340 | 54.0 KB | 34.4 KB | 36.5 KB |
+| 3 | 32,768 | bespoke | 0.03 ms | 155,084 | 50.9 KB | 33.5 KB | 35.5 KB |
+| 3 | 32,768 | FTA | 0.04 ms | 142,587 | 54.6 KB | 44.9 KB | 77.8 KB |
+| 4 | 2,147,483,648 | naive | 0.05 ms | 63,311 | 111.2 KB | 35.4 KB | 37.5 KB |
+| 4 | 2,147,483,648 | bespoke | 0.04 ms | 74,049 | 105.7 KB | 34.5 KB | 36.5 KB |
+| 4 | 2,147,483,648 | FTA | 0.06 ms | 68,013 | 113.1 KB | 54.8 KB | 208.8 KB |
+
+The control behaves as it should: all three approaches stay close because an
+ordinary FTA adds no semantic pruning to this language. The FTA decoder is
+within roughly 9% of the direct bespoke generator throughout.
+
+### ECTA: typed integer and Boolean expressions
+
+Each successful ECTA cell draws 20,000 samples. The smaller fixed workload
+keeps depth three measurable while preserving the depth-four rejection
+failure; it is still large enough for stable normalized rates.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | naive | 0.02 ms | 155,435 | 49.1 KB | 33.5 KB | 35.6 KB |
+| 1 | 42 | bespoke | 0.02 ms | 533,874 | 14.1 KB | 3.1 KB | 41.5 KB |
+| 1 | 42 | ECTA | 0.04 ms | 2,147,075 | 3.6 KB | 37.0 KB | 37.8 KB |
+| 2 | 27,054 | naive | 0.08 ms | 17,013 | 449.0 KB | 34.3 KB | 36.5 KB |
+| 2 | 27,054 | bespoke | 0.04 ms | 194,865 | 38.3 KB | 37.4 KB | 105.9 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,765,381 | 3.8 KB | 47.4 KB | 58.5 KB |
+| 3 | 8,887,065,932,466 | naive | 0.30 ms | 2,528 | 2.93 MB | 35.1 KB | 37.3 KB |
+| 3 | 8,887,065,932,466 | bespoke | 0.10 ms | 67,956 | 112.4 KB | 50.1 KB | 304.5 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.08 ms | 947,239 | 5.8 KB | 62.0 KB | 137.4 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | naive | **timeout (30s)** | — | — | — | — |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | bespoke | 0.60 ms | 21,942 | 335.9 KB | 83.9 KB | 850.4 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.14 ms | 367,532 | 12.8 KB | 98.7 KB | 334.4 KB |
+
+At depth three the ECTA decoder is about 375x faster than rejection and 14x
+faster than the bespoke generator, allocating about 517x and 19x less per
+sample respectively. At depth four, rejection cannot complete the fixed cell;
+the ECTA remains about 17x faster than the bespoke implementation. The setup
+cost stays below 0.15 ms because the finite dependency structure is
+compiled once and every later sample is one rank decode.
+
+Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
+2026-09-02. An empty generator ran at about 16.4M draws/s and one `chooseInt`
+at 2.7M draws/s during the ECTA run. Rates move a few percent between runs and
+with the QuickCheck and `random` versions in use. Reproduce one table, or all
+four repository tables, with:
 
 ```sh
+cabal bench microfta-generator:untyped-expression-speed --enable-optimization=2
 cabal bench microecta-generator:typed-expression-speed --enable-optimization=2
+./scripts/benchmark-generators.sh
 ```
 
 ## Dependency surface
 
-The library depends directly on `microecta`, `QuickCheck`, `array`,
-`containers`, and `text`; the benchmarks additionally use `random` and
-`process`. The
+The library depends directly on `microecta`, `microfta`, `microfta-generator`
+and its `internal` sublibrary, `QuickCheck`, `array`, `containers`, `mtl`, and
+`text`; the benchmarks additionally use `random` and `process`. The
 dependency direction is one-way: `microecta` does not depend on this package
 or on QuickCheck.
 

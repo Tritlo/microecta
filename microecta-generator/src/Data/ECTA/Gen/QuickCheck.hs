@@ -56,15 +56,20 @@ module Data.ECTA.Gen.QuickCheck (
     pool,
     freeze,
     fromECTA,
+    fromFTAUpToDepth,
+    fromDatatypeUpToDepth,
     fromGen,
 
     -- * Composing
+    NodeLayer,
+    node,
     frequency,
     oneof,
     uniformly,
     On (..),
     match,
     relate,
+    relateM,
 
     -- * The grouped layer
     Sig (..),
@@ -80,6 +85,9 @@ module Data.ECTA.Gen.QuickCheck (
     oneofGrouped,
     uniformlyGrouped,
     ungroup,
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
 
     -- * Recursion
     atomic,
@@ -130,14 +138,20 @@ import Data.ECTA.Gen (
     Args (..),
     ECTAGenError (..),
     Indexed (..),
+    NodeLayer,
     On (..),
     Sig (..),
     explain,
+    node,
     sigResult,
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
+import Data.ECTA.Paths (EqConstraints)
 import Data.ECTA.Term (Symbol, Term)
+import Data.Maybe (fromMaybe)
+import qualified Data.Tree.FTA as FTA
+import Data.Tree.FTA.Generic (TypedFTA)
 
 {- | QuickCheck as the sampling backend.
 
@@ -188,6 +202,43 @@ type ECTAGen = ECTA.ECTAGen QuickCheckBackend
 -- | An ECTA generator classified by a projected key used to match ECTA paths.
 type Grouped key = ECTA.Grouped QuickCheckBackend key
 
+-- | Compile an effectful relation once per live projected key pair.
+relateM ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    ECTAGen left ->
+    ECTAGen right ->
+    IO (Either relationError (ECTAGen (left, right)))
+relateM = ECTA.relateM
+
+-- | Compile an effectful relation over two already-grouped languages.
+relateGroupsM ::
+    (Ord resultKey) =>
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    (leftKey -> rightKey -> resultKey) ->
+    Grouped leftKey left ->
+    Grouped rightKey right ->
+    IO (Either relationError (Grouped resultKey (left, right)))
+relateGroupsM = ECTA.relateGroupsM
+
+-- | Compile one relation over a homogeneous list of grouped arguments.
+relateN ::
+    (Ord key) =>
+    ([key] -> IO (Either relationError Bool)) ->
+    [Grouped key a] ->
+    IO (Either relationError (Grouped [key] [a]))
+relateN = ECTA.relateN
+
+-- | Select already-grouped languages with one effectful decision per key.
+filterGroupsM ::
+    (Ord key) =>
+    (key -> IO (Either relationError Bool)) ->
+    Grouped key a ->
+    IO (Either relationError (Grouped key a))
+filterGroupsM = ECTA.filterGroupsM
+
 -- | Lift one finite indexed source into transparent ECTA structure.
 fromIndexed :: Indexed a -> ECTAGen a
 fromIndexed = ECTA.fromIndexed
@@ -221,92 +272,39 @@ freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
 freeze seed sampleCount native =
     unGen (pool sampleCount native) (mkQCGen seed) 30
 
-{- | Read an ECTA as a generator of the terms it accepts.
-
-The automaton is the support and members are counted by size, so this draws
-uniformly from the terms of at most the current QuickCheck size. Automata
-whose edges carry equality constraints are rejected.
--}
+-- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
 fromECTA :: Node Symbol -> ECTAGen (Term Symbol)
 fromECTA = ECTA.fromECTA
 
-{- | Treat every member of a finite generator as one atomic source choice.
+-- | Compile a bounded annotated FTA with uniform accepted-term sampling.
+fromFTAUpToDepth :: (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Term Symbol)
+fromFTAUpToDepth = ECTA.fromFTAUpToDepth
 
-An already finite generator keeps its support, cardinality, ranks, values,
-and distribution. That distribution is retained when the atom is used inside
-'recur' or 'recurGrouped'. Put 'atomic' around the complete finite choice that
-enters recursion; a finite composition outside the boundary is a new choice
-and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
-its whole finite language without enumerating it or taking an inner
-QuickCheck-size prefix. Bound a recursive language with 'upToSize' before
-making it atomic, /outside/ the recursive definition: applying either to the
-'recur' argument is rejected with 'BoundedRecursiveOccurrence'.
--}
+-- | Generate typed values from a datatype grammar with equality annotations.
+fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
+fromDatatypeUpToDepth = ECTA.fromDatatypeUpToDepth
+
+-- | Treat every member of a finite generator as one atomic source choice. See 'ECTA.atomic'.
 atomic :: ECTAGen a -> ECTAGen a
 atomic = ECTA.atomic
 
-{- | Build a recursive generator from its own language.
-
-The argument receives the generator being defined, so a language can refer
-to itself. 'toGen' and 'forAll' bound it by QuickCheck's size parameter;
-'upToSize' bounds it explicitly. Recursive structure follows the counted size
-classes. Finite choices closed with 'atomic' retain their distribution inside
-each class. Recursion must be guarded by '<*>', and alternatives around a
-recursive occurrence must carry equal weights, which is what 'oneof' gives
-without asking for them. A guarded cycle still needs a finite base member;
-otherwise it is an empty generator.
-
-The self-reference has to go through this combinator: a generator that
-names itself directly is an infinite Haskell value and hangs while it is
-being built. 'upToSize' and 'atomic' cannot be applied to the argument, or to
-anything built from it; bound the finished language from outside instead.
-
-The guard check is per definition, so inside a nested 'recur' an occurrence of
-the /outer/ language must also sit under an application within the inner body.
-
-'pure' is one source choice, so @pure f '<*>' x@ has one more choice than
-@f '<$>' x@, and therefore different sizes and ranks; @pure f '<*>' self@
-counts as guarded where @f '<$>' self@ does not.
--}
+-- | Build a recursive generator from its own language. See 'ECTA.recur'.
 recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 recur = ECTA.recur
 
-{- | Build a recursive grouped family from its own languages.
-
-The key set is solved first, then the languages are tied over it. All keys
-share one @Mu@ node whose cycle carries the keyed joins' equality
-constraints; 'ungroup' and 'atKey' are the exits into an ordinary recursive
-generator. Recursion must be guarded by 'apply', and 'frequencies'
-alternatives around a recursive occurrence must carry equal weights.
-The generated language may be infinite, but it must use only finitely many
-distinct keys. 'recurGrouped' discovers those keys before tying the recursive
-languages, so a definition that creates a fresh key on every pass cannot
-finish construction.
--}
+-- | Build a recursive grouped family from its own languages. See 'ECTA.recurGrouped'.
 recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
 recurGrouped = ECTA.recurGrouped
 
-{- | Bound a generator to the members of size at most the given bound.
-
-Size is the number of source choices in a member. Ranks are unchanged, so a
-counterexample found under one bound replays under any larger bound.
--}
+-- | Bound a generator to the members of size at most the given bound. See 'ECTA.upToSize'.
 upToSize :: Int -> ECTAGen a -> ECTAGen a
 upToSize = ECTA.upToSize
 
-{- | Declare that every member of an inspectable generator has one key.
-
-This preserves finite or recursive support without enumerating members.
-Opaque generators cannot enter the grouped layer.
--}
+-- | Declare that every member of an inspectable generator has one key. See 'ECTA.keyed'.
 keyed :: key -> ECTAGen a -> Grouped key a
 keyed = ECTA.keyed
 
-{- | Classify a transparent generator's outcomes by a projected key.
-
-Building the groups enumerates the generator's outcomes once. Opaque
-generators cannot be grouped.
--}
+-- | Classify a transparent generator's outcomes by a projected key. See 'ECTA.groupBy'.
 groupBy :: (Ord key) => (a -> key) -> ECTAGen a -> Grouped key a
 groupBy = ECTA.groupBy
 
@@ -322,10 +320,7 @@ mapWithKey = ECTA.mapWithKey
 sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
 sizes = ECTA.sizes
 
-{- | Return exact retained-key counts at one structural size.
-
-Counts describe the language, not the sampling distribution.
--}
+-- | Return exact retained-key counts at one structural size. See 'ECTA.countsAtSize'.
 countsAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map key Integer)
 countsAtSize = ECTA.countsAtSize
 
@@ -337,12 +332,7 @@ massesAtSize = ECTA.massesAtSize
 atKey :: (Ord key) => key -> Grouped key a -> ECTAGen a
 atKey = ECTA.atKey
 
-{- | Apply a generated operation of any arity to one argument family per
-signature component.
-
-The operation family must already hold functions consuming the 'Args' chain
-left to right; use 'fmap' to attach a compiling function.
--}
+-- | Apply a generated operation of any arity to one argument family per signature component. See 'ECTA.apply'.
 apply ::
     (Ord resultKey) =>
     Grouped (Sig argKeys resultKey) operation ->
@@ -350,25 +340,15 @@ apply ::
     Grouped resultKey result
 apply = ECTA.apply
 
-{- | Choose among grouped generators with positive relative weights,
-group by group.
--}
+-- | Choose among grouped generators with positive relative weights, group by group. See 'ECTA.frequencies'.
 frequencies :: (Ord key) => [(Integer, Grouped key a)] -> Grouped key a
 frequencies = ECTA.frequencies
 
-{- | Choose uniformly among grouped generators, group by group.
-
-'frequencies' with equal weights, which is the only shape a recursive
-family admits.
--}
+-- | Choose uniformly among grouped generators, group by group. See 'ECTA.oneofGrouped'.
 oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped = ECTA.oneofGrouped
 
-{- | Choose among grouped generators so that every member of the combined
-language is equally likely: finite alternatives are combined in proportion to
-their exact cardinalities, and alternatives around a recursive family with
-equal weights.
--}
+-- | Choose among grouped generators so that every member of the combined language is equally likely: finite alternatives are combined in proportion to their exact cardinalities, and alternatives around a recursive family with equal weights. See 'ECTA.uniformlyGrouped'.
 uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 uniformlyGrouped = ECTA.uniformlyGrouped
 
@@ -380,19 +360,11 @@ ungroup = ECTA.ungroup
 frequency :: [(Integer, ECTAGen a)] -> ECTAGen a
 frequency = ECTA.frequency
 
-{- | Choose uniformly among generators.
-
-Every alternative is equally likely, whatever the size of its language. In
-a recursive definition this is the shape to reach for: weights around a
-recursive occurrence are rejected.
--}
+-- | Choose uniformly among generators. See 'ECTA.oneof'.
 oneof :: [ECTAGen a] -> ECTAGen a
 oneof = ECTA.oneof
 
-{- | Choose among generators so that every member of the combined language is
-equally likely: finite alternatives are combined in proportion to their
-cardinalities, and alternatives around a recursive one with equal weights.
--}
+-- | Choose among generators so that every member of the combined language is equally likely: finite alternatives are combined in proportion to their cardinalities, and alternatives around a recursive one with equal weights. See 'ECTA.uniformly'.
 uniformly :: [ECTAGen a] -> ECTAGen a
 uniformly = ECTA.uniformly
 
@@ -404,11 +376,7 @@ match ::
     ECTAGen (left, right)
 match = ECTA.match
 
-{- | Generate two values whose projected keys satisfy a relation.
-
-Finite transparent inputs are conditioned without rejection. An opaque input
-uses QuickCheck rejection filtering.
--}
+-- | Generate two values whose projected keys satisfy a relation. See 'ECTA.relate'.
 relate ::
     (Ord leftKey, Ord rightKey) =>
     (left -> leftKey) ->
@@ -447,10 +415,7 @@ unrank = ECTA.unrank
 shrinkRank :: ECTAGen a -> Integer -> [Integer]
 shrinkRank = ECTA.shrinkRank
 
-{- | Every member of strictly smaller size than the given rank's member, in
-size order, as replayable rank and value. The stream is lazy; cap it before
-use.
--}
+-- | Every member of strictly smaller size than the given rank's member, in size order, as replayable rank and value. See 'ECTA.smallerMembers'.
 smallerMembers :: ECTAGen a -> Integer -> [(Integer, a)]
 smallerMembers = ECTA.smallerMembers
 
@@ -466,11 +431,7 @@ countBy = ECTA.countBy
 pmf :: (Ord a) => ECTAGen a -> Either ECTAGenError [(a, Rational)]
 pmf = ECTA.pmf
 
-{- | Aggregate the exact result distribution conditional on one structural size.
-
-This enumerates the selected size class. Use 'countAtSize' for cardinality, or
-'massesAtSize' when a retained-key distribution answers the question.
--}
+-- | Aggregate the exact result distribution conditional on one structural size. See 'ECTA.pmfAtSize'.
 pmfAtSize :: (Ord a) => ECTAGen a -> Int -> Either ECTAGenError [(a, Rational)]
 pmfAtSize = ECTA.pmfAtSize
 
@@ -508,7 +469,7 @@ toGen generator
     | otherwise = either (raise "toGen") id <$> toGenEither generator
   where
     bounded = [toGen (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
-    firstSize = either (raise "toGen") (maybe 1 id) $ ECTA.minimumSize generator
+    firstSize = either (raise "toGen") (fromMaybe 1) $ ECTA.minimumSize generator
 
 {- | Sample an inspectable generator together with its stable replay rank.
 
@@ -521,7 +482,7 @@ toGenWithRank generator
     | otherwise = either (raise "toGenWithRank") id <$> toGenWithRankEither generator
   where
     bounded = [toGenWithRank (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
-    firstSize = either (raise "toGenWithRank") (maybe 1 id) $ ECTA.minimumSize generator
+    firstSize = either (raise "toGenWithRank") (fromMaybe 1) $ ECTA.minimumSize generator
 
 {- | Fail a sample with the error's own guidance.
 
@@ -545,8 +506,8 @@ smallest failing member.
 Shrink candidates first search every member of strictly smaller size, in size
 order, capped at 'smallerMemberLimit', so the result is the globally smallest
 failing member whenever the search reaches one. Component shrinking through
-'shrinkRank' follows as a fallback, restricted to candidates of at most the
-current size. For a recursive generator that fallback reads the candidates
+'shrinkRank' follows as a fallback; its candidates are never larger than
+the current member. For a recursive generator that fallback reads the candidates
 from the form bounded at the current size, since a recursive generator has no
 component shrinks of its own; bounding preserves ranks, so the candidates
 replay against the unbounded generator unchanged. Every candidate is a member
@@ -585,23 +546,15 @@ forAllWithLimit limit generator prop
     shrinkCandidates (rank, _) = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
-        currentSize = sizeOfRank generator rank
         -- 'shrinkRank' has no candidates for a recursive generator, so the
         -- structural candidates come from the form bounded at the current
         -- size, whose shrinking is size-major halving. Bounding preserves
-        -- ranks, and leaves a finite generator alone.
-        bounded = maybe generator (`ECTA.upToSize` generator) currentSize
-        -- Every 'shrinkRank' candidate already has a strictly smaller rank, so
-        -- this guard only stops a candidate from growing in size; it is not
-        -- what makes shrinking terminate. A candidate whose size cannot be
-        -- read is out of range and is dropped by the 'unrank' guard below.
-        notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
-            (Just candidateSize, Just size) -> candidateSize <= size
-            _ -> True
+        -- ranks, and leaves a finite generator alone. Every candidate has a
+        -- strictly smaller rank and a member no larger than the current one.
+        bounded = maybe generator (`ECTA.upToSize` generator) (sizeOfRank generator rank)
         structural =
             [ (candidate, value)
             | candidate <- shrinkRank bounded rank
-            , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
 
