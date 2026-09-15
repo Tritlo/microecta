@@ -1,4 +1,6 @@
 packages:
+  microfta
+  microfta-generator
   microecta
   microecta-generator
 

@@ -4,7 +4,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Data.Function (on)
-import Data.List (sortBy)
+import Data.List (sort, sortBy)
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
@@ -89,7 +89,7 @@ benchmarks =
             sortBy (compare `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/small" 120 $ \i ->
         forcePathEClasses $
-            sortBy compare (selectPathOrderInput smallPathOrderInputs i)
+            sort (selectPathOrderInput smallPathOrderInputs i)
     , Bench "sort/path-eclasses/legacy-trie/shared-prefix" 40 $ \i ->
         forcePathEClasses $
             sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
@@ -98,7 +98,7 @@ benchmarks =
             sortBy (compare `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/shared-prefix" 40 $ \i ->
         forcePathEClasses $
-            sortBy compare (selectPathOrderInput sharedPrefixPathOrderInputs i)
+            sort (selectPathOrderInput sharedPrefixPathOrderInputs i)
     , Bench "sort/path-eclasses/legacy-trie/divergent-branch" 120 $ \i ->
         forcePathEClasses $
             sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
@@ -107,7 +107,7 @@ benchmarks =
             sortBy (compare `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/divergent-branch" 120 $ \i ->
         forcePathEClasses $
-            sortBy compare (selectPathOrderInput divergentBranchPathOrderInputs i)
+            sort (selectPathOrderInput divergentBranchPathOrderInputs i)
     ]
 
 forceNode :: Node Symbol -> IO Int
@@ -192,11 +192,11 @@ divergentBranchPathOrderInputs = pathOrderInputs divergentBranchPathSets
 -- | Build and deterministically permute equality classes outside timed work.
 pathOrderInputs :: [[Path]] -> [[PathEClass]]
 pathOrderInputs pathSets =
-    [ map snd $
-        sortBy (compare `on` fst) $
-            [ ((index * 73 + salt * 37) `rem` 257, pec)
-            | (index, pec) <- zip [(0 :: Int) ..] corpus
-            ]
+    [ map snd
+        $ sortBy (compare `on` fst)
+        $ [ ((index * 73 + salt * 37) `rem` 257, pec)
+          | (index, pec) <- zip [(0 :: Int) ..] corpus
+          ]
     | salt <- [0 .. 7]
     ]
   where

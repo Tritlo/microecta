@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Minimal pretty-printing class that produces strict 'Text'.
@@ -7,6 +8,7 @@ module Data.Text.Extended.Pretty (
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Tree.Term (Term (Term))
 
 ----------------------------------------------------------------------
 
@@ -17,3 +19,7 @@ class Pretty a where
 
 instance {-# OVERLAPPABLE #-} (Show a) => Pretty a where
     pretty = Text.pack . show
+
+instance (Pretty symbol) => Pretty (Term symbol) where
+    pretty (Term s []) = pretty s
+    pretty (Term s ts) = pretty s <> "(" <> (Text.intercalate ", " $ map pretty ts) <> ")"

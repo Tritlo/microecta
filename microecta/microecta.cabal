@@ -2,7 +2,10 @@ cabal-version: 3.0
 name: microecta
 version: 0.2.0.0
 synopsis: Small equality-constrained tree automata core
-description: A small equality-constrained tree automata core extracted from ecta.
+description:
+  Equality-constrained tree automata, enumeration, and ECTA-to-FTA views
+  over the shared ordinary tree types from microfta.
+
 homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
 category: Data
@@ -75,6 +78,8 @@ library
     Application.TermSearch.Type
     Application.TermSearch.Utils
     Data.ECTA
+    Data.ECTA.FTA
+    Data.ECTA.FTA.Syntax
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
@@ -83,11 +88,13 @@ library
     Data.ECTA.Paths
     Data.ECTA.Template
     Data.ECTA.Term
-    Data.Interned.Extended.HashTableBased
-    Data.Memoization
     Data.Persistent.UnionFind
-    Utility.Fixpoint
-    Utility.HashJoin
+
+  reexported-modules:
+    microfta:Data.Interned.Extended.HashTableBased,
+    microfta:Data.Memoization,
+    microfta:Utility.Fixpoint,
+    microfta:Utility.HashJoin,
 
   other-modules:
     Data.Text.Extended.Pretty
@@ -98,8 +105,8 @@ library
     containers >=0.7 && <0.9,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
-    hashtables >=1.4 && <1.5,
     intern >=0.9 && <0.10,
+    microfta >=0.1.0.0 && <0.2,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
     transformers >=0.6 && <0.7,
@@ -118,6 +125,7 @@ test-suite unit-tests
 
   other-modules:
     Application.TermSearchSpec
+    Data.ECTA.FTASyntaxSpec
     Data.Persistent.UnionFindSpec
     ECTASpec
     PathsSpec
@@ -125,14 +133,15 @@ test-suite unit-tests
     Utility.HashJoinSpec
 
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     base >=4.21 && <5,
     containers >=0.7 && <0.9,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microecta,
+    microfta >=0.1.0.0 && <0.2,
     mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
     unordered-containers >=0.2 && <0.3,
 

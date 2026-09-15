@@ -14,6 +14,27 @@ by downstream projects.
 The intent is similar to the relationship between `microlens` and `lens`: keep
 the useful core small, direct, and quick to build.
 
+## Shared tree foundation
+
+The tree datatype and common interned automaton engine belong to `microfta`.
+ECTA's `Node symbol` and `Edge symbol` specialize the common types with
+`EqConstraints`. Their wrappers preserve the existing construction patterns
+without copying graphs. The shared engine owns interning, recursion,
+substitution, traversal, union, and structural intersection. ECTA retains
+equality interpretation, path propagation, reduction, and enumeration.
+`Data.ECTA.toInterned` and `fromInterned` expose the shared representation
+without allocation. Use them to combine common construction with ECTA-specific
+operations.
+
+`Data.ECTA.Term` re-exports the same `Term` datatype. ECTA-specific symbols,
+path operations, and pretty-printing remain in this package.
+
+`Data.ECTA.FTA.toFTA` exposes an ECTA through the shared graph and retains its
+`EqConstraints` annotations. `Data.ECTA.FTA.Syntax` constructs such annotated
+rows. These operations do not solve or discard equality constraints.
+Applications that directly import `Data.Tree.FTA` or `Data.Tree.Term` must
+also declare `microfta` in `build-depends`.
+
 ## Core API
 
 The main entry point is `Data.ECTA`.
@@ -202,21 +223,24 @@ the pieces that downstream projects still use:
   reduction, traversal, and enumeration.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
+- `Data.ECTA.FTA` and `Data.ECTA.FTA.Syntax` expose the ECTA view of the
+  ordinary automaton supplied by `microfta`.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
   term-search-shaped type encodings.
-- `Data.ECTA.Internal.*` contains the equality-constrained tree automata
-  engine. These modules are exposed for downstream code that already relies on
+- `Data.ECTA.Internal.*` contains the equality algorithms and the common-engine
+  facade. These modules are exposed for downstream code that already relies on
   lower-level operations, but new code should start with `Data.ECTA`.
 - `Data.Interned.Extended.HashTableBased`, `Data.Memoization`,
-  `Data.Persistent.UnionFind`, and `Utility.*` are support modules used by the
-  engine. Import them directly only when extending or debugging the internals.
+  `Utility.Fixpoint`, and `Utility.HashJoin` are re-exported from `microfta`.
+  `Data.Persistent.UnionFind` and the remaining utilities belong to ECTA.
+  Import these support modules directly only when extending the internals.
 
 ## Dependency Surface
 
-The library dependency set is intentionally small:
+The library depends on `microfta` for the shared tree and automaton engine, plus:
 
 - `containers`, `unordered-containers`
-- `hashable`, `hashtables`, `intern`
+- `hashable`, `intern`
 - `mtl`, `transformers`
 - `text`
 - `equivalence`

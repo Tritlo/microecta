@@ -5,7 +5,8 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microecta or microecta-generator.
+PACKAGE must be microfta, microfta-generator, microecta,
+or microecta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -22,7 +23,9 @@ package="$1"
 shift
 
 case "$package" in
-  microecta|microecta-generator) ;;
+  microfta) dependencies=() ;;
+  microfta-generator|microecta) dependencies=(microfta) ;;
+  microecta-generator) dependencies=(microfta microecta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
 
@@ -56,16 +59,16 @@ if [[ "$check_only" == false ]] && ! git diff --cached --quiet --exit-code; then
 fi
 
 version="$(awk '/^version:/ {print $2; exit}' "$package/$package.cabal")"
-if [[ "$publish" == true ]] && grep -q "^## $version - Unreleased$" "$package/CHANGELOG.md"; then
+if [[ "$publish" == true && -f "$package/CHANGELOG.md" ]] \
+  && grep -q "^## $version - Unreleased$" "$package/CHANGELOG.md"; then
   echo "Error: date the $version changelog entry before publishing." >&2
   exit 1
 fi
 
 shopt -s nullglob
 release_build_dir="dist-newstyle/release/$package"
+cabal clean --builddir="$release_build_dir"
 mkdir -p "$release_build_dir/sdist"
-rm -f "$release_build_dir"/"$package"-[0-9]*-docs.tar.gz
-rm -f "$release_build_dir"/sdist/"$package"-[0-9]*.tar.gz
 
 echo "=== Checking $package-$version ==="
 (
@@ -73,7 +76,15 @@ echo "=== Checking $package-$version ==="
   cabal check
 )
 cabal test --builddir="$release_build_dir" "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
-cabal haddock --builddir="$release_build_dir" --haddock-for-hackage "lib:$package" --ghc-options=-Werror
+if [[ ${#dependencies[@]} -gt 0 ]]; then
+  documentation_dependencies=()
+  for dependency in "${dependencies[@]}"; do
+    documentation_dependencies+=("lib:$dependency")
+  done
+  # Build interfaces at their registered paths before creating upload archives.
+  cabal haddock --builddir="$release_build_dir" "${documentation_dependencies[@]}" -O2 --ghc-options=-Werror
+fi
+cabal haddock --builddir="$release_build_dir" --haddock-for-hackage "lib:$package" -O2 --ghc-options=-Werror
 cabal sdist --builddir="$release_build_dir" "$package"
 
 sdists=("$release_build_dir"/sdist/"$package"-[0-9]*.tar.gz)
@@ -87,24 +98,32 @@ release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microecta-release.XXXXXX")"
 trap 'rm -rf "$release_tmp"' EXIT
 tar -xzf "${sdists[0]}" -C "$release_tmp"
 
-if [[ "$package" == microecta-generator ]]; then
-  dependency_build_dir="$release_build_dir/dependencies/microecta"
-  mkdir -p "$dependency_build_dir/sdist"
-  rm -f "$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz
-  cabal sdist --builddir="$dependency_build_dir" microecta
+if [[ ${#dependencies[@]} -gt 0 ]]; then
+  project_packages=("$release_tmp/$package-$version")
+  for dependency in "${dependencies[@]}"; do
+    dependency_build_dir="$release_build_dir/dependencies/$dependency"
+    mkdir -p "$dependency_build_dir/sdist"
+    rm -f "$dependency_build_dir"/sdist/"$dependency"-[0-9]*.tar.gz
+    cabal sdist --builddir="$dependency_build_dir" "$dependency"
 
-  dependency_sdists=("$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz)
-  if [[ ${#dependency_sdists[@]} -ne 1 ]]; then
-    echo "Error: expected exactly one microecta source archive." >&2
-    exit 1
-  fi
+    dependency_sdists=("$dependency_build_dir"/sdist/"$dependency"-[0-9]*.tar.gz)
+    if [[ ${#dependency_sdists[@]} -ne 1 ]]; then
+      echo "Error: expected exactly one $dependency source archive." >&2
+      exit 1
+    fi
 
-  dependency_version="$(awk '/^version:/ {print $2; exit}' microecta/microecta.cabal)"
-  tar -xzf "${dependency_sdists[0]}" -C "$release_tmp"
-  printf 'packages: %s\n          %s\n' \
-    "$release_tmp/microecta-$dependency_version" \
-    "$release_tmp/$package-$version" \
-    > "$release_tmp/cabal.project"
+    dependency_version="$(awk '/^version:/ {print $2; exit}' "$dependency/$dependency.cabal")"
+    tar -xzf "${dependency_sdists[0]}" -C "$release_tmp"
+    project_packages+=("$release_tmp/$dependency-$dependency_version")
+  done
+
+  {
+    echo "packages:"
+    printf '  %s\n' "${project_packages[@]}"
+    echo
+    echo "package *"
+    echo "  optimization: False"
+  } > "$release_tmp/cabal.project"
 
   (
     cd "$release_tmp"

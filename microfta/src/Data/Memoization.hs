@@ -1,8 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 {- | Quick-and-dirty hash-based memoization.
 
-The ECTA core relies on stable global memo tables for interning and recursive
+The shared automaton engine uses stable global memo tables for interning and recursive
 graph operations. 'memo' is convenient when the memoized function is a
 monomorphic top-level value. Polymorphic functions should allocate an explicit
 'MemoCache' or 'TypeableMemoCache' once and use the corresponding @With@
@@ -38,15 +36,16 @@ module Data.Memoization (
     memo2TypeableWith,
 ) where
 
+import Data.CacheFamily (CacheFamily, newCacheFamily, selectCache)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
-import Data.Hashable (Hashable (..), hash)
+import Data.Hashable (Hashable (..))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Data.Type.Equality ((:~~:) (HRefl))
 import GHC.IO (unsafeDupablePerformIO)
 import System.IO.Unsafe (unsafePerformIO)
-import Type.Reflection (SomeTypeRep (..), TypeRep, Typeable, eqTypeRep, typeRep)
+import Type.Reflection (Typeable)
 
 {- | Name of a memo table.
 
@@ -107,6 +106,7 @@ newMemoCache = MemoCache <$> newIORef HashMap.empty
 
 -- | Memoize one application in an explicitly supplied table.
 memoWith :: (Hashable a) => MemoCache a b -> (a -> b) -> a -> b
+{-# INLINEABLE memoWith #-}
 memoWith (MemoCache ref) f x = unsafeDupablePerformIO $ do
     cached <- HashMap.lookup x <$> readIORef ref
     case cached of
@@ -118,51 +118,26 @@ memoWith (MemoCache ref) f x = unsafeDupablePerformIO $ do
             atomicModifyIORef' ref $ \m ->
                 (HashMap.insertWith (\_new old -> old) x result m, ())
             winner <- HashMap.lookup x <$> readIORef ref
-            return $ maybe result id winner
+            return $ fromMaybe result winner
 
 -- | Binary variant of 'memoWith', using one table keyed by the pair.
 memo2With :: (Hashable a, Hashable b) => MemoCache (a, b) c -> (a -> b -> c) -> a -> b -> c
+{-# INLINE memo2With #-}
 memo2With cache f = curry (memoWith cache (uncurry f))
 
-{- | A heterogeneous memo-table family.
+{- | A family of typed memo tables.
 
-One value can hold applications at several runtime types. Argument and result
-types are included in every key and checked on lookup. As with 'MemoCache', a
-family belongs to one function and must not be shared between different
-functions with the same type.
+Each argument and result type pair has its own table. Type checks select the
+whole table. Individual entries contain ordinary typed keys and values.
+A family belongs to one function.
 -}
-newtype TypeableMemoCache = TypeableMemoCache (IORef (HashMap SomeMemoKey SomeMemoValue))
+newtype TypeableMemoCache = TypeableMemoCache CacheFamily
 
--- | Allocate an empty heterogeneous memo-table family.
+-- | Allocate an empty memo-table family.
 newTypeableMemoCache :: IO TypeableMemoCache
-newTypeableMemoCache = TypeableMemoCache <$> newIORef HashMap.empty
+newTypeableMemoCache = TypeableMemoCache <$> newCacheFamily
 
-data SomeMemoKey where
-    SomeMemoKey ::
-        (Hashable a) =>
-        !Int ->
-        TypeRep a ->
-        SomeTypeRep ->
-        a ->
-        SomeMemoKey
-
-instance Eq SomeMemoKey where
-    SomeMemoKey leftHash leftType leftResultType left
-        == SomeMemoKey rightHash rightType rightResultType right =
-            leftHash == rightHash
-                && leftResultType == rightResultType
-                && case eqTypeRep leftType rightType of
-                    Just HRefl -> left == right
-                    Nothing -> False
-
-instance Hashable SomeMemoKey where
-    hashWithSalt salt (SomeMemoKey cachedHash _ _ _) =
-        salt `hashWithSalt` cachedHash
-
-data SomeMemoValue where
-    SomeMemoValue :: TypeRep b -> b -> SomeMemoValue
-
--- | Memoize one application in a heterogeneous table family.
+-- | Memoize one application in the table for its argument and result types.
 memoTypeableWith ::
     forall a b.
     (Hashable a, Typeable a, Typeable b) =>
@@ -170,31 +145,9 @@ memoTypeableWith ::
     (a -> b) ->
     a ->
     b
-{-# NOINLINE memoTypeableWith #-}
-memoTypeableWith (TypeableMemoCache ref) f !x = unsafeDupablePerformIO $ do
-    cached <- HashMap.lookup key <$> readIORef ref
-    case cached of
-        Just value -> return (extract value)
-        Nothing -> do
-            let result = f x
-                wrapped = SomeMemoValue resultType result
-            atomicModifyIORef' ref $ \m ->
-                (HashMap.insertWith (\_new old -> old) key wrapped m, ())
-            winner <- HashMap.lookup key <$> readIORef ref
-            return $ maybe result extract winner
-  where
-    argumentType = typeRep @a
-    resultType = typeRep @b
-    key = SomeMemoKey cachedHash argumentType (SomeTypeRep resultType) x
-    cachedHash = hashWithSalt typeHash x
-    typeHash =
-        hashWithSalt
-            (hash $ SomeTypeRep argumentType)
-            (SomeTypeRep resultType)
-
-    extract (SomeMemoValue actual result) = case eqTypeRep resultType actual of
-        Just HRefl -> result
-        Nothing -> error "memoTypeableWith: cache returned a result of the wrong type"
+{-# INLINE memoTypeableWith #-}
+memoTypeableWith (TypeableMemoCache family) =
+    memoWith (selectCache family (newMemoCache @a @b))
 
 -- | Binary variant of 'memoTypeableWith', keyed by the argument pair.
 memo2TypeableWith ::

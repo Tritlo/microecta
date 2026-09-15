@@ -24,6 +24,7 @@ module Data.Interned.Extended.HashTableBased (
     Cache (..),
     freshCache,
     freshCachePair,
+    freshCacheWith,
     Interned (..),
     intern,
 ) where
@@ -52,6 +53,10 @@ freshCache =
     Cache
         <$> newIORef 0
         <*> newIORef HashMap.empty
+
+-- | Allocate a typed cache that uses a shared identity counter.
+freshCacheWith :: IORef Id -> IO (Cache t)
+freshCacheWith ids = Cache ids <$> newIORef HashMap.empty
 
 {- | Allocate two empty caches that draw identities from one counter.
 
@@ -90,6 +95,7 @@ class
 
 -- | Return the canonical interned representative for an uninterned value.
 intern :: forall t. (Interned t) => Uninterned t -> t
+{-# INLINEABLE intern #-}
 intern !bt = unsafeDupablePerformIO $ do
     existing <- HashMap.lookup dt <$> readIORef (content c)
     case existing of

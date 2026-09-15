@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Representations of paths in an FTA, data structures for
-  equality constraints over paths, algorithms for saturating these constraints
+{- | Representations of paths in an FTA, data structures for equality
+constraints over paths, and algorithms for saturating these constraints.
+
+"Data.ECTA.Paths" is the public subset. The extra exports here are not covered
+by the PVP contract of the package.
 -}
 module Data.ECTA.Internal.Paths (
     Path (.., EmptyPath, ConsPath),
@@ -42,14 +45,17 @@ import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, maybeToList)
 import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
 import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
+import Data.Tree.FTA.Constraint (Constraint (..))
+import Data.Tree.Term (Term (Term))
 import Utility.Fixpoint
+import Utility.List (adjustAt, atMay)
 
 -------------------------------------------------------
 
@@ -83,8 +89,8 @@ pattern EmptyPath = Path []
 
 pattern ConsPath :: Int -> Path -> Path
 pattern ConsPath p ps <- Path (p : (Path -> ps))
-    where
-        ConsPath p (Path ps) = Path (p : ps)
+  where
+    ConsPath p (Path ps) = Path (p : ps)
 
 instance Pretty Path where
     pretty (Path ps) = Text.intercalate "." (map (Text.pack . show) ps)
@@ -132,6 +138,19 @@ class Pathable t t' | t -> t' where
 
     -- | Apply a local edit at a path.
     modifyAtPath :: (t' -> t') -> Path -> t -> t
+
+instance Pathable (Term symbol) (Term symbol) where
+    type Emptyable (Term symbol) = Maybe (Term symbol)
+
+    getPath EmptyPath t = Just t
+    getPath (ConsPath p ps) (Term _ ts) = case atMay p ts of
+        Nothing -> Nothing
+        Just t -> getPath ps t
+
+    getAllAtPath p t = maybeToList $ getPath p t
+
+    modifyAtPath f EmptyPath t = f t
+    modifyAtPath f (ConsPath p ps) (Term s ts) = Term s (adjustAt p (modifyAtPath f ps) ts)
 
 -----------------------------------------------------------------------
 ---------------------------- Path tries -------------------------------
@@ -207,9 +226,7 @@ pathTrieHasAtLeastTwoPaths = go False
     goChildren seenOne ((_, pt) : rest)
         | go seenOne pt = True
         | pathTrieHasAnyPath pt =
-            if seenOne
-                then True
-                else goChildren True rest
+            seenOne || goChildren True rest
         | otherwise = goChildren seenOne rest
 
     pathTrieHasAnyPath :: PathTrie -> Bool
@@ -400,8 +417,8 @@ instance Ord PathEClass where
 -- | Build or match an equality class from its sorted path list view.
 pattern PathEClass :: [Path] -> PathEClass
 pattern PathEClass ps <- PathEClass' _ ps
-    where
-        PathEClass ps = PathEClass' (toPathTrie $ nub ps) (sort $ nub ps)
+  where
+    PathEClass ps = PathEClass' (toPathTrie $ nub ps) (sort $ nub ps)
 
 -- | Extract the paths in an equality class.
 unPathEClass :: PathEClass -> [Path]
@@ -428,11 +445,7 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
     go TerminalPathTrie _ = True
     go _ TerminalPathTrie = False
     go (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2) =
-        if i1 == i2
-            then
-                go pt1 pt2
-            else
-                False
+        (i1 == i2) && go pt1 pt2
     go (PathTrieSingleChild i1 pt1) (PathTrie children2) = case lookup i1 children2 of
         Nothing -> False
         Just pt2 -> go pt1 pt2
@@ -636,3 +649,9 @@ combined constraints are satisfiable.
 unsafeSubsumptionOrderedEclasses :: EqConstraints -> [PathEClass]
 unsafeSubsumptionOrderedEclasses (EqConstraints pecs) = sortBy completedSubsumptionOrdering pecs
 unsafeSubsumptionOrderedEclasses EqContradiction = error $ "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"
+
+-- | Pure conjunction used by the common automaton engine.
+instance Constraint EqConstraints where
+    noConstraint = EmptyConstraints
+    conjoinConstraints = combineEqConstraints
+    contradictory = constraintsAreContradictory

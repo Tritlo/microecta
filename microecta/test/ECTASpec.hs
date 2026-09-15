@@ -23,6 +23,7 @@ import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (intToUVar)
+import Utility.Fixpoint (fixUnbounded)
 
 import Test.Generators.ECTA ()
 
@@ -228,22 +229,27 @@ spec = do
                 mapSize (min 3) $
                     \(n :: Node Symbol) -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
-        it "reducing a single constraint is idempotent 1" $
-            property $ \(e :: Edge Symbol) ->
-                let ns = edgeChildren e
-                    ecs = edgeEcs e
-                    ns' = reduceEqConstraints ecs EmptyConstraints ns
-                 in ns' == reduceEqConstraints ecs EmptyConstraints ns'
+        it "reducing child domains preserves constrained terms" $
+            property $
+                mapSize (min 3) $ \(e :: Edge Symbol) ->
+                    let ns = edgeChildren e
+                        ecs = edgeEcs e
+                        ns' = reduceEqConstraints ecs EmptyConstraints ns
+                        reduced = mkEdge (edgeSymbol e) ns' ecs
+                     in HashSet.fromList (getAllTerms $ Node [reduced])
+                            `shouldBe` HashSet.fromList (getAllTerms $ Node [e])
 
-        it "reducing a single constraint is idempotent 2" $
+        it "reducing intersected child domains preserves constrained terms" $
             let intersectingEdge :: Gen (Edge Symbol)
                 intersectingEdge =
-                    arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
+                    resize 3 arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
              in forAll intersectingEdge $ \e' ->
                     let ns = edgeChildren e'
                         ecs = edgeEcs e'
                         ns' = reduceEqConstraints ecs EmptyConstraints ns
-                     in ns' == reduceEqConstraints ecs EmptyConstraints ns'
+                        reduced = mkEdge (edgeSymbol e') ns' ecs
+                     in HashSet.fromList (getAllTerms $ Node [reduced])
+                            `shouldBe` HashSet.fromList (getAllTerms $ Node [e'])
 
         it "reducing a constraint is idempotent: buggy input 6/27/21" $ do
             pendingWith
@@ -254,12 +260,14 @@ spec = do
                 ns' = reduceEqConstraints ecs EmptyConstraints ns
             ns' `shouldBe` reduceEqConstraints ecs EmptyConstraints ns'
 
-        -- This is not obviously doable in one pass, but the test passes.
-        it "leaf reduction means, for everything at a path, there is something matching at the other paths" $
+        -- One reduction pass does not establish this: a nested constrained
+        -- edge can narrow a child after the outer pass has read it. The
+        -- fixpoint does, so the fixture is reduced until it stops changing.
+        it "saturated reduction means, for everything at a path, there is something matching at the other paths" $
             let liveConstrainedEdge :: Gen (Edge Symbol)
                 liveConstrainedEdge =
                     arbitrary `suchThatMap` \edge ->
-                        let reduced = reduceEdgeIntersection EmptyConstraints edge
+                        let reduced = fixUnbounded (reduceEdgeIntersection EmptyConstraints) edge
                          in if reduced /= emptyEdge (edgeSymbol reduced) && edgeEcs reduced /= EmptyConstraints
                                 then Just reduced
                                 else Nothing
@@ -283,7 +291,7 @@ spec = do
                 ns = [infiniteFNode, infiniteFNode]
                 ns' = reduceEqConstraints ecs EmptyConstraints ns
                 ns'' = reduceEqConstraints ecs EmptyConstraints ns'
-                f = \n -> Node [Edge "f" [n]]
+                f n = Node [Edge "f" [n]]
              in (ns' == ns'') && ns' == [f $ f $ f $ f infiniteFNode, f $ f $ f $ infiniteFNode] `shouldBe` True
 
         it "refold folds the simplest unrolled input" $
@@ -291,6 +299,9 @@ spec = do
 
     describe "traversals" $ do
         it "mapNodes hits each node exactly once" $
+            -- Note: If the Arbitrary Node instance is changed to return empty or mu nodes, this will need to change
+            -- Note: If the Arbitrary Node instance is changed to return empty or mu nodes, this will need to change
+
             -- Note: If the Arbitrary Node instance is changed to return empty or mu nodes, this will need to change
             property $ \(n :: Node Symbol) -> unsafePerformIO $ do
                 v <- newIORef 0
@@ -385,7 +396,7 @@ spec = do
                         -- Settling a parked check: this hole is now concrete.
                         Just parked ->
                             return
-                                ( any (== partial) parked
+                                ( elem partial parked
                                 , IntMap.delete rep parkedChecks
                                 )
                         Nothing -> do
