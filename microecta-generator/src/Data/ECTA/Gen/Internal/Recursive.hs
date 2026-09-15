@@ -10,6 +10,7 @@ module Data.ECTA.Gen.Internal.Recursive (
     Recursive (..),
     recursiveFromStatic,
     boundedStatic,
+    labelRecursive,
 
     -- * Keyed recursive families
     KeyedRecursive (..),
@@ -31,7 +32,7 @@ import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Static
-import Data.ECTA.Gen.Internal.Support (frequencySymbol)
+import Data.ECTA.Gen.Internal.Support (frequencySymbol, labelSupport, labelTerm)
 import Data.ECTA.Term (Symbol, Term)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
@@ -159,6 +160,14 @@ boundedStatic bound recursive
         go ((_, count, decode, _) : rest) index
             | index < count = decode index
             | otherwise = go rest (index - count)
+
+-- | Close one recursive child layer with a user-facing node label.
+labelRecursive :: Symbol -> Recursive a -> Recursive a
+labelRecursive symbol recursive =
+    recursive
+        { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
+        , recursiveTerm = fmap (labelTerm symbol .) $ recursiveTerm recursive
+        }
 
 {- | One recursive language conditioned on a retained key.
 

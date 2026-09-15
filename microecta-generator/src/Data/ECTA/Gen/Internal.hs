@@ -27,6 +27,8 @@ module Data.ECTA.Gen.Internal (
     indexedStatic,
     termStatic,
     applyStatic,
+    labelStatic,
+    labelRecursive,
     frequencyStatic,
     atomicStatic,
     mapStatic,

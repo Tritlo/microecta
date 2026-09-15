@@ -3,15 +3,17 @@
 
 module Data.ECTA.GenSpec (spec) where
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
+import Data.String (fromString)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldReturn, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.ECTA (Node (Node))
+import Data.ECTA (Node (Node), edgeChildren, edgeSymbol, getAllTerms, nodeRepresents)
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
@@ -68,13 +70,13 @@ generatedUserId = ECTAGen.elements allUsers
 
 -- These are ordinary, closed generators. Neither accepts shared input.
 authenticationFixture :: ECTAGen AuthenticationFixture
-authenticationFixture = ECTAGen.do
+authenticationFixture = ECTAGen.node (fromString "authentication") $ ECTAGen.do
     user <- generatedUserId
     method <- ECTAGen.elements [Password, Token]
     ECTAGen.pure $ AuthenticationFixture user method
 
 filesystemFixture :: ECTAGen FilesystemFixture
-filesystemFixture = ECTAGen.do
+filesystemFixture = ECTAGen.node (fromString "filesystem") $ ECTAGen.do
     owner <- generatedUserId
     path <- ECTAGen.elements [HomeFile, ConfigFile, CacheFile]
     ECTAGen.pure $ FilesystemFixture owner path
@@ -127,6 +129,35 @@ expectedPmf =
 spec :: Spec
 spec = do
     describe "ECTAGen joins" $ do
+        it "closes qualified do with one visible n-ary node" $
+            case ECTAGen.support authenticationFixture of
+                Right (Node [edge]) ->
+                    (edgeSymbol edge, length $ edgeChildren edge)
+                        `shouldBe` (fromString "authentication", 2)
+                result -> expectationFailure $ "unexpected node support: " <> show result
+
+        it "keeps relabelled recursive witnesses inside their support" $ do
+            let recursive = ECTAGen.recur $ \self ->
+                    ECTAGen.oneof [pure (0 :: Int), pure (+ 1) <*> self]
+            case ECTAGen.support recursive of
+                Left err -> expectationFailure $ show err
+                Right original -> do
+                    let label = ECTAGen.node $ fromString "closed"
+                        fromAutomaton = ECTAGen.fromECTA original
+                        check labelled =
+                            case ( ECTAGen.support labelled
+                                 , ECTAGen.support $ ECTAGen.ungroup $ ECTAGen.groupBy (const ()) labelled
+                                 ) of
+                                (Right support, Right regrouped) -> do
+                                    let witnesses = getAllTerms regrouped
+                                    ECTAGen.cardinality labelled `shouldBe` Right 2
+                                    length witnesses `shouldBe` 2
+                                    witnesses `shouldSatisfy` all (nodeRepresents support)
+                                (Left err, _) -> expectationFailure $ show err
+                                (_, Left err) -> expectationFailure $ show err
+                    check $ ECTAGen.upToSize 6 $ label fromAutomaton
+                    check $ label $ ECTAGen.upToSize 6 fromAutomaton
+
         it "retains matching keys in key and source order with the conditioned product PMF" $ do
             ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
             let ranks = [0 .. toInteger (length expectedPmf) - 1]
@@ -136,6 +167,37 @@ spec = do
         it "relates different key types against the declared predicate" $ do
             ECTAGen.cardinality relatedAccess `shouldBe` Right 5
             ECTAGen.pmf relatedAccess `shouldBe` Right expectedAccessPmf
+
+        it "evaluates an effectful relation once per live key pair" $ do
+            calls <- newIORef (0 :: Int)
+            related <-
+                ECTAGen.relateM
+                    even
+                    even
+                    ( \leftKey rightKey -> do
+                        modifyIORef' calls (+ 1)
+                        pure (Right (leftKey == rightKey) :: Either () Bool)
+                    )
+                    (ECTAGen.elements [0 .. 3 :: Int])
+                    (ECTAGen.elements [10 .. 13 :: Int])
+            readIORef calls `shouldReturn` 4
+            fmap ECTAGen.cardinality related `shouldBe` Right (Right 8)
+
+        it "evaluates an n-ary relation once per live key tuple" $ do
+            calls <- newIORef (0 :: Int)
+            related <-
+                ECTAGen.relateN
+                    ( \keys -> do
+                        modifyIORef' calls (+ 1)
+                        pure (Right (and $ zipWith (==) keys $ drop 1 keys) :: Either () Bool)
+                    )
+                    [ ECTAGen.groupBy even $ ECTAGen.elements [0 .. 3 :: Int]
+                    , ECTAGen.groupBy even $ ECTAGen.elements [10 .. 13 :: Int]
+                    , ECTAGen.groupBy even $ ECTAGen.elements [20 .. 23 :: Int]
+                    ]
+            readIORef calls `shouldReturn` 8
+            fmap (ECTAGen.cardinality . ECTAGen.ungroup) related
+                `shouldBe` Right (Right 16)
 
         it "preserves and conditions source weights across related groups" $
             ECTAGen.pmf

@@ -10,6 +10,8 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 
 ### Generators and sources
 
+* Add constructor closure and effectful grouped relations for liquid generation.
+
 * Use the shared microfta-generator decoder, sampler, size index, and shrink engine.
 * Add bounded annotated imports with symbolic equality and overlap counting.
 

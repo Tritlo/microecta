@@ -21,6 +21,7 @@ module Data.ECTA.Gen.Internal.Static (
     frequencyStatic,
     mapStatic,
     atomicStatic,
+    labelStatic,
 
     -- * Sampling and lowering
     sequenceSampler,
@@ -47,6 +48,8 @@ import Data.ECTA.Gen.Internal.Support (
     applySymbol,
     frequencySymbol,
     indexedSymbol,
+    labelSupport,
+    labelTerm,
     pureSymbol,
  )
 import Data.ECTA.Term (Symbol, Term (Term))
@@ -356,6 +359,32 @@ atomicStatic static =
         case compiledWeightedSampler outcomes of
             Just sampler -> sampler
             Nothing -> outcomeSampler outcomes
+
+{- | Close an applicative or grouped child layer with one user-facing node
+label.
+
+The generator engine uses private symbols while a child product is still open.
+Closing it removes that scaffolding from the root term: applicative spines
+become direct children, grouped joins retain their equality constraints, and
+choice wrappers distribute the new label over their alternatives.
+-}
+labelStatic :: Symbol -> Static a -> Static a
+labelStatic symbol static =
+    static
+        { staticSupport = labelSupport symbol $ staticSupport static
+        , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
+        }
+
+labelOutcomeTerms :: Symbol -> OutcomeIndex a -> OutcomeIndex a
+labelOutcomeTerms symbol outcomes =
+    outcomes
+        { outcomeSelect = \index -> labelOutcome symbol <$> outcomeSelect outcomes index
+        }
+
+-- | Relabel the retained term of one finite outcome.
+labelOutcome :: Symbol -> Outcome a -> Outcome a
+labelOutcome symbol outcome =
+    outcome{outcomeTerm = labelTerm symbol $ outcomeTerm outcome}
 
 -- | Sample one outcome sequence by its masses.
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)

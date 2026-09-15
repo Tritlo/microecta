@@ -13,7 +13,7 @@ module exporting these operators — either this module or
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 
 authentication :: ECTAGen Authentication
-authentication = ECTAGen.do
+authentication = ECTAGen.node "authentication" $ ECTAGen.do
     user <- generatedUser
     method <- ECTAGen.elements [Password, Token]
     ECTAGen.pure (Authentication user method)
@@ -30,7 +30,7 @@ remaining binds choose one argument per signature component in order, and the
 block builds exactly the 'Data.ECTA.Gen.apply' join:
 
 @
-binaryLayer children = ECTAGen.do
+binaryLayer children = ECTAGen.node "binary-application" $ ECTAGen.do
     operation <- binaryFunctionsBySignature
     left <- children
     right <- children

@@ -1,5 +1,10 @@
 # microecta-generator
 
+`node` closes an applicative or grouped child layer with a domain constructor.
+`relateM`, `relateGroupsM`, `relateN`, and `filterGroupsM` compile effectful
+relations once per live key tuple. Accepted groups retain their indexed members.
+These APIs let the liquid adapter finish solver work before generation.
+
 The decoder, sampler, size index, and shrink engine now come from
 `microfta-generator`. Existing sources retain their rank order, weights,
 and equality interpretation.

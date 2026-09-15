@@ -25,6 +25,7 @@ jobs:
             microecta/**/*.hs
             microecta-generator/**/*.hs
             microlta/**/*.hs
+            microlta-generator/**/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -34,7 +35,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta", "microfta-generator", "microecta", "microecta-generator", "microlta"]'
+          path: '["microfta", "microfta-generator", "microecta", "microecta-generator", "microlta", "microlta-generator"]'
           fail-on: warning
 
   build-test-bench:
@@ -93,6 +94,7 @@ jobs:
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
           (cd microlta && cabal check)
+          (cd microlta-generator && cabal check)
 
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
@@ -120,11 +122,15 @@ jobs:
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta-generator
 
       - name: Test the generator examples
         run: |
           cabal v2-run fta-pairs
           cabal v2-run ecta-finite-languages
+          cabal v2-run liquid-pairs
+          cabal v2-run lta-safe-division
+          cabal v2-run lta-automaton-interop
 
       - name: Validate release artifacts
         run: |
@@ -133,6 +139,7 @@ jobs:
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
           scripts/release.sh microlta --check-only
+          scripts/release.sh microlta-generator --check-only
 
       - name: Benchmark
         if: matrix.ghc == '9.14.1'

@@ -23,12 +23,15 @@ module Data.ECTA.Gen (
     fromBackend,
 
     -- * Composing
+    NodeLayer,
+    node,
     frequency,
     oneof,
     uniformly,
     On (..),
     match,
     relate,
+    relateM,
 
     -- * The grouped layer
     Sig (..),
@@ -44,6 +47,9 @@ module Data.ECTA.Gen (
     oneofGrouped,
     uniformlyGrouped,
     ungroup,
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
 
     -- * Recursion
     atomic,
@@ -326,3 +332,29 @@ relate leftKey rightKey relation left right =
         related (Right (leftValue, rightValue)) =
             relation (leftKey leftValue) (rightKey rightValue)
      in Opaque $ filterGen related generatedPairs
+
+{- | Compile an effectful relation between two finite inspectable languages.
+
+Each input is grouped once by its projected key. The callback then runs once
+per live key pair, not once per value pair. Accepted pairs are lowered through
+'relateGroupsM' to the same ECTA equality join used by grouped application.
+The outer 'Either' is reserved for a caller-defined relation failure, such as
+an undecided solver query; generator construction failures remain inspectable
+through the returned 'ECTAGen'. Recursive and opaque inputs are rejected by
+the grouped layer rather than sampled by rejection.
+-}
+relateM ::
+    (Ord leftKey, Ord rightKey) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    ECTAGen gen left ->
+    ECTAGen gen right ->
+    IO (Either relationError (ECTAGen gen (left, right)))
+relateM leftKey rightKey relation left right =
+    fmap (fmap ungroup) $
+        relateGroupsM
+            relation
+            (\_ _ -> ())
+            (groupBy leftKey left)
+            (groupBy rightKey right)

@@ -20,6 +20,8 @@ module Data.ECTA.Gen.Internal.Types (
 
     -- * Composing
     Args (..),
+    NodeLayer (..),
+    node,
 
     -- * Lowering
     lower,
@@ -37,6 +39,7 @@ import qualified Data.Map.Strict as Map
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal
+import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal.Decoder (RankDecoder (..))
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (mapIndex, productIndex)
@@ -111,6 +114,46 @@ data Args gen (argKeys :: [Type]) operation result where
         Args gen (argKey ': argKeys) (arg -> operation) result
 
 infixr 5 :&
+
+{- | A generated child layer that can be closed with one visible constructor
+label.
+
+Instances cover ordinary and grouped ECTA generators. The grouped instance
+keeps its result key and equality constraints while replacing the generator's
+private join symbol with the supplied domain symbol.
+-}
+class NodeLayer layer where
+    -- | Replace an open layer's private root with a domain constructor.
+    closeNode :: Symbol -> layer a -> layer a
+
+-- | Close an applicative child description with one domain constructor.
+node :: (NodeLayer layer) => Symbol -> layer a -> layer a
+node = closeNode
+
+instance NodeLayer (ECTAGen gen) where
+    closeNode symbol (Transparent result) =
+        Transparent $ fmap (labelStatic symbol) result
+    closeNode symbol (Cyclic result) =
+        Cyclic $ fmap (labelRecursive symbol) result
+    closeNode _ opaque@(Opaque _) = opaque
+
+instance NodeLayer (Grouped gen key) where
+    closeNode symbol (Grouped result) =
+        Grouped $ fmap (fmap labelBucket) result
+      where
+        labelBucket bucket =
+            bucket
+                { keyedBucketStatic =
+                    labelStatic symbol $ keyedBucketStatic bucket
+                }
+    closeNode symbol (CyclicGrouped result) =
+        CyclicGrouped $ fmap (fmap labelGroup) result
+      where
+        labelGroup group =
+            group
+                { keyedRecursiveLanguage =
+                    labelRecursive symbol $ keyedRecursiveLanguage group
+                }
 
 instance Functor (Grouped gen key) where
     fmap transform (Grouped result) =

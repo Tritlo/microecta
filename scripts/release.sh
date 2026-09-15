@@ -5,7 +5,7 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microfta, microfta-generator, microecta, microecta-generator, or microlta.
+PACKAGE must be microfta, microfta-generator, microecta, microecta-generator, microlta, or microlta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -27,6 +27,7 @@ case "$package" in
   microecta) dependencies=(microfta) ;;
   microecta-generator) dependencies=(microfta microfta-generator microecta) ;;
   microlta) dependencies=(microfta microecta) ;;
+  microlta-generator) dependencies=(microfta microfta-generator microecta microecta-generator microlta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
 

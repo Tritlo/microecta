@@ -20,6 +20,9 @@ module Data.ECTA.Gen.Internal.Grouped (
     uniformlyGrouped,
 
     -- * Relating groups
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
 
     -- * Inspection
     sizes,
@@ -351,6 +354,124 @@ uniformlyGrouped alternatives
         Right groups ->
             let total = sum groups
              in Right $ if total > 0 then Just total else Nothing
+
+{- | Compile an effectful relation directly over two grouped languages.
+
+This is the non-enumerating boundary used by higher-level relational
+compilers. One solver decision selects or rejects each pair of already
+materialized keys. A selected component keeps both compact bucket indexes and
+encodes their membership with the ECTA n-ary equality join; no bucket member
+is visited. The result key may be computed from both input keys.
+-}
+relateGroupsM ::
+    (Ord resultKey) =>
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    (leftKey -> rightKey -> resultKey) ->
+    Grouped gen leftKey left ->
+    Grouped gen rightKey right ->
+    IO (Either relationError (Grouped gen resultKey (left, right)))
+relateGroupsM relation resultKey left right =
+    case (left, right) of
+        (Grouped (Left err), _) -> pure $ Right $ Grouped $ Left err
+        (_, Grouped (Left err)) -> pure $ Right $ Grouped $ Left err
+        (CyclicGrouped _, _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
+        (_, CyclicGrouped _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
+        (Grouped (Right leftBuckets), Grouped (Right rightBuckets)) -> do
+            related <- decidePairs 0 [] $ Map.toAscList leftBuckets
+            pure $ fmap (Grouped . mergeComponentsByKey . reverse) related
+          where
+            rightEntries = Map.toAscList rightBuckets
+
+            decidePairs _ accepted [] = pure $ Right accepted
+            decidePairs componentIndex accepted ((leftGroupKey, leftBucket) : rest) = do
+                decided <- decideRights componentIndex accepted leftGroupKey leftBucket rightEntries
+                case decided of
+                    Left err -> pure $ Left err
+                    Right (nextIndex, retained) -> decidePairs nextIndex retained rest
+
+            decideRights componentIndex accepted _ _ [] =
+                pure $ Right (componentIndex, accepted)
+            decideRights componentIndex accepted leftGroupKey leftBucket ((rightGroupKey, rightBucket) : rest) = do
+                decision <- relation leftGroupKey rightGroupKey
+                case decision of
+                    Left err -> pure $ Left err
+                    Right keep ->
+                        let retained =
+                                if keep
+                                    then
+                                        ( resultKey leftGroupKey rightGroupKey
+                                        , keyedBucketMass leftBucket * keyedBucketMass rightBucket
+                                        , joinNBucketStatic
+                                            componentIndex
+                                            (pureStatic (,))
+                                            ( ChainCons
+                                                (keyedBucketStatic leftBucket)
+                                                (ChainCons (keyedBucketStatic rightBucket) ChainNil)
+                                            )
+                                        )
+                                            : accepted
+                                    else accepted
+                            nextIndex = if keep then componentIndex + 1 else componentIndex
+                         in decideRights nextIndex retained leftGroupKey leftBucket rest
+
+{- | Compile one relation over a homogeneous list of grouped arguments.
+
+Intermediate products range over key tuples only. The relation is evaluated
+once for every live complete tuple, while the values under each tuple remain
+in their compact ECTA indexes. The result stays grouped by that tuple so a
+caller can reclassify it without enumerating members.
+-}
+relateN ::
+    (Ord key) =>
+    ([key] -> IO (Either relationError Bool)) ->
+    [Grouped gen key a] ->
+    IO (Either relationError (Grouped gen [key] [a]))
+relateN _ [] = pure $ Right $ Grouped $ Left EmptyGenerator
+relateN relation (first : rest) = do
+    combined <- combine (regroupBy pure $ mapWithKey (\_ value -> [value]) first) rest
+    case combined of
+        Left err -> pure $ Left err
+        Right grouped -> filterGroupsM relation grouped
+  where
+    combine grouped [] = pure $ Right grouped
+    combine grouped (next : remaining) = do
+        paired <-
+            relateGroupsM
+                (\_ _ -> pure $ Right True)
+                (\keys key -> keys <> [key])
+                grouped
+                next
+        case paired of
+            Left err -> pure $ Left err
+            Right joined ->
+                combine
+                    (mapWithKey (\_ (values, value) -> values <> [value]) joined)
+                    remaining
+
+-- | Retain complete groups selected by one effectful key predicate.
+filterGroupsM ::
+    (Ord key) =>
+    (key -> IO (Either relationError Bool)) ->
+    Grouped gen key a ->
+    IO (Either relationError (Grouped gen key a))
+filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
+filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
+filterGroupsM predicate (Grouped (Right buckets)) = do
+    retained <- go [] $ Map.toAscList buckets
+    pure $ fmap (Grouped . mergeComponentsByKey . reverse) retained
+  where
+    go accepted [] = pure $ Right accepted
+    go accepted ((key, bucket) : rest) = do
+        decision <- predicate key
+        case decision of
+            Left err -> pure $ Left err
+            Right keep ->
+                go
+                    ( if keep
+                        then (key, keyedBucketMass bucket, keyedBucketStatic bucket) : accepted
+                        else accepted
+                    )
+                    rest
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)

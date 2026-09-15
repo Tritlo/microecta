@@ -4,6 +4,7 @@ packages:
   microecta
   microecta-generator
   microlta
+  microlta-generator
 
 package *
   optimization: False
