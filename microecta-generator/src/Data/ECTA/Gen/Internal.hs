@@ -25,6 +25,7 @@ module Data.ECTA.Gen.Internal (
     -- * Building languages
     pureStatic,
     indexedStatic,
+    termStatic,
     applyStatic,
     frequencyStatic,
     atomicStatic,

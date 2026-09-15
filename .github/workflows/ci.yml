@@ -116,6 +116,7 @@ jobs:
       - name: Test the generator examples
         run: |
           cabal v2-run fta-pairs
+          cabal v2-run ecta-finite-languages
 
       - name: Validate release artifacts
         run: |

@@ -18,6 +18,8 @@ module Data.ECTA.Gen (
     fromIndexed,
     elements,
     fromECTA,
+    fromFTAUpToDepth,
+    fromDatatypeUpToDepth,
     fromBackend,
 
     -- * Composing
@@ -76,16 +78,23 @@ module Data.ECTA.Gen (
 ) where
 
 import qualified Data.Array as Array
+import Data.String (fromString)
+import qualified Data.Text as Text
 
 import Data.ECTA (Edge (Edge), Node (Node))
+import qualified Data.ECTA as Core
 import Data.ECTA.Gen.Internal
-import Data.ECTA.Gen.Internal.Automaton (automatonIndex)
+import Data.ECTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.ECTA.Gen.Internal.Grouped
 import Data.ECTA.Gen.Internal.Inspect
 import Data.ECTA.Gen.Internal.Recursion
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Paths (EqConstraints)
+import Data.ECTA.Term (Symbol (Symbol), Term)
+import qualified Data.Tree.FTA as FTA
+import Data.Tree.FTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
+import qualified Data.Tree.FTA.Interned as Common
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (choiceIndex)
 
@@ -135,6 +144,37 @@ fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
         pure $ Recursive supportNode index (uniformSampleIndex index) False False $ Just id
+
+{- | Compile an annotated FTA up to a constructor-depth bound.
+
+A leaf has depth zero. Each distinct accepted term has one rank, and sampling
+is uniform over these ranks. Direct child equalities use shared rank plans.
+Nested equality paths and overlapping alternatives use symbolic counts over
+shared states. Unranking constructs only the selected term. Shrinks remain
+in the accepted language.
+-}
+fromFTAUpToDepth ::
+    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Term Symbol)
+fromFTAUpToDepth depth graph = Transparent $ do
+    root <-
+        either (Left . InvalidImportedAutomaton . show) (Right . Core.fromInterned)
+            $ Common.fromFTA
+            $ FTA.boundDepth depth graph
+    finiteAutomaton root
+
+-- | Generate typed values from a datatype grammar with equality annotations.
+fromDatatypeUpToDepth :: (Functor gen) => Int -> TypedFTA EqConstraints a -> ECTAGen gen a
+fromDatatypeUpToDepth depth datatype =
+    case FTA.mapSymbols (fromString . constructorLabel) (datatypeFTA datatype) of
+        Left err -> Transparent $ Left $ InvalidImportedAutomaton $ show err
+        Right graph -> decode <$> fromFTAUpToDepth depth graph
+  where
+    decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
+        Just value -> value
+        Nothing ->
+            error
+                "microecta-generator bug in Data.ECTA.Gen.fromDatatypeUpToDepth: \
+                \the derived codec rejected a term of its own grammar"
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: [a] -> ECTAGen gen a

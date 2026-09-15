@@ -4,6 +4,28 @@ The decoder, sampler, size index, and shrink engine now come from
 `microfta-generator`. Existing sources retain their rank order, weights,
 and equality interpretation.
 
+`fromFTAUpToDepth` compiles a handwritten FTA annotated with `EqConstraints`.
+Use `Data.Tree.FTA.annotate` to add constraints to its existing transitions.
+`fromDatatypeUpToDepth` accepts a derived `TypedFTA EqConstraints a` and returns
+typed values. Both functions are available from the QuickCheck API.
+
+For example, derive `(Bool, Bool)` with `deriveFTA`, then use
+`annotateDatatype` to attach `mkEqConstraints [[path [0], path [1]]]` to its
+tuple constructor. The generator has two ranks: `(False, False)` and
+`(True, True)`. The introductory example uses one derived pair grammar for
+ordinary and equality generation.
+
+A leaf has depth zero. The bounded import retains one rank per distinct term
+and samples uniformly over those ranks. Direct child equalities select once
+from the intersection of the child languages. The shared rank plan reuses that
+term at each equal position. Size inspection counts source choices, so repeated
+equal children contribute one selected child. Shrinks remain accepted.
+Nested equality paths and overlapping alternatives use symbolic counts over
+shared automaton states. Equality unifies selected subtrees, and overlapping
+alternatives count each accepted term once. Unranking constructs only the
+selected term. Existing `fromECTA` behavior is unchanged.
+
+
 [![Hackage](https://img.shields.io/hackage/v/microecta-generator.svg)](https://hackage.haskell.org/package/microecta-generator)
 
 `microecta-generator` builds indexed generators on

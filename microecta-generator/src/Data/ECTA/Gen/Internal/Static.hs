@@ -16,6 +16,7 @@ module Data.ECTA.Gen.Internal.Static (
     -- * Building languages
     pureStatic,
     indexedStatic,
+    termStatic,
     applyStatic,
     frequencyStatic,
     mapStatic,
@@ -50,6 +51,7 @@ import Data.ECTA.Gen.Internal.Support (
  )
 import Data.ECTA.Term (Symbol, Term (Term))
 import Data.Tree.Gen.Internal (Indexed (..))
+import qualified Data.Tree.Gen.Internal as Ranked
 import Data.Tree.Gen.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
@@ -160,6 +162,26 @@ indexedStatic indexed =
                 (Term (indexedSymbol index) [])
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
+
+{- | Retain a shared ranked term compiler and its exact equality support.
+
+Sampling is uniform over accepted terms. The common plan supplies replay and
+structural shrinking. No term is decoded while this adapter is constructed.
+-}
+termStatic :: Node Symbol -> Ranked.Ranked (Term Symbol) -> Static (Term Symbol)
+termStatic supportNode ranked =
+    Static
+        supportNode
+        (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
+        False
+  where
+    total = Ranked.cardinality ranked
+    mass = 1 / fromInteger total
+    valueAt = Ranked.rankedValueAt ranked
+    select rank = do
+        checkIndex total rank
+        let term = valueAt rank
+        pure $ Outcome term mass term
 
 -- | The applicative product of a function language and an argument language.
 applyStatic :: Static (a -> b) -> Static a -> Static b

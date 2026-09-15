@@ -56,6 +56,8 @@ module Data.ECTA.Gen.QuickCheck (
     pool,
     freeze,
     fromECTA,
+    fromFTAUpToDepth,
+    fromDatatypeUpToDepth,
     fromGen,
 
     -- * Composing
@@ -137,8 +139,11 @@ import Data.ECTA.Gen (
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
+import Data.ECTA.Paths (EqConstraints)
 import Data.ECTA.Term (Symbol, Term)
 import Data.Maybe (fromMaybe)
+import qualified Data.Tree.FTA as FTA
+import Data.Tree.FTA.Generic (TypedFTA)
 
 {- | QuickCheck as the sampling backend.
 
@@ -225,6 +230,14 @@ freeze seed sampleCount native =
 -- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
 fromECTA :: Node Symbol -> ECTAGen (Term Symbol)
 fromECTA = ECTA.fromECTA
+
+-- | Compile a bounded annotated FTA with uniform accepted-term sampling.
+fromFTAUpToDepth :: (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Term Symbol)
+fromFTAUpToDepth = ECTA.fromFTAUpToDepth
+
+-- | Generate typed values from a datatype grammar with equality annotations.
+fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
+fromDatatypeUpToDepth = ECTA.fromDatatypeUpToDepth
 
 -- | Treat every member of a finite generator as one atomic source choice. See 'ECTA.atomic'.
 atomic :: ECTAGen a -> ECTAGen a

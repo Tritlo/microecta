@@ -11,6 +11,7 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 ### Generators and sources
 
 * Use the shared microfta-generator decoder, sampler, size index, and shrink engine.
+* Add bounded annotated imports with symbolic equality and overlap counting.
 
 * `fromIndexed` and `elements` lift a finite indexed source into transparent
   ECTA structure; `fromGen` embeds an ordinary QuickCheck generator as an

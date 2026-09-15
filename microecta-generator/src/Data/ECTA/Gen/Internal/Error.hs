@@ -53,6 +53,7 @@ data ECTAGenError
       twice.
       -}
       AmbiguousAutomaton
+    | InvalidImportedAutomaton !String
     | {- | A recursive definition reaches itself without passing through an
       application, so it has no smallest member and no size to count.
       -}
@@ -71,6 +72,7 @@ could not do in the vocabulary of the library, and the rest says which
 combinator resolves it.
 -}
 explain :: ECTAGenError -> String
+explain (InvalidImportedAutomaton reason) = "The imported automaton is invalid: " <> reason
 explain EmptyGenerator =
     guidance
         [ "The language has no members."

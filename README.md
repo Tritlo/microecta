@@ -13,6 +13,7 @@ The workspace contains these Cabal packages:
 `microecta` uses that shared graph for its equality interpretation.
 `microfta-generator` provides shared rank plans and ordinary FTA generation.
 `microecta-generator` uses the shared rank engine.
+Bounded annotated imports count nested equality and overlapping alternatives symbolically.
 
 Build and test the workspace:
 
@@ -25,4 +26,5 @@ Run the executable examples:
 
 ```sh
 cabal run fta-pairs
+cabal run ecta-finite-languages
 ```
