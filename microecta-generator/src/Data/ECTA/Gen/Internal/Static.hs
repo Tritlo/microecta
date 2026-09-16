@@ -40,6 +40,7 @@ import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
@@ -49,7 +50,7 @@ import Data.ECTA.Gen.Internal.Support (
     indexedSymbol,
     pureSymbol,
  )
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal (Indexed (..))
 import Data.Tree.Gen.Internal.Decoder (
     Plan (..),
@@ -61,7 +62,7 @@ import Data.Tree.Gen.Internal.Size (SizeIndex, sizeIndex)
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome a = Outcome
-    { outcomeTerm :: Term Symbol
+    { outcomeTerm :: Tree.Tree Symbol
     , outcomeMass :: Rational
     , outcomeValue :: a
     }
@@ -130,7 +131,7 @@ pureStatic value =
             (Just 1)
             ( \index -> do
                 checkIndex 1 index
-                pure $ Outcome (Term pureSymbol []) 1 value
+                pure $ Outcome (Tree.Node pureSymbol []) 1 value
             )
             (const value)
             (uniformSampler 1 $ const value)
@@ -158,7 +159,7 @@ indexedStatic indexed =
         checkIndex totalOutcomes index
         pure $
             Outcome
-                (Term (indexedSymbol index) [])
+                (Tree.Node (indexedSymbol index) [])
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
 
@@ -202,7 +203,7 @@ applyStatic functions values =
         valueOutcome <- outcomeSelect valueOutcomes valueIndex
         pure $
             Outcome
-                ( Term
+                ( Tree.Node
                     applySymbol
                     [outcomeTerm functionOutcome, outcomeTerm valueOutcome]
                 )
@@ -269,7 +270,7 @@ frequencyStatic alternatives =
         child <- outcomeSelect (staticOutcomes static) childIndex
         pure $
             Outcome
-                (Term (frequencySymbol branchIndex) [outcomeTerm child])
+                (Tree.Node (frequencySymbol branchIndex) [outcomeTerm child])
                 ( fromInteger weight
                     / fromInteger totalWeight
                     * outcomeMass child

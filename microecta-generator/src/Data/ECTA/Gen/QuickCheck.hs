@@ -121,6 +121,7 @@ module Data.ECTA.Gen.QuickCheck (
 import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
+import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
@@ -137,7 +138,7 @@ import Data.ECTA.Gen (
  )
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 import Data.Maybe (fromMaybe)
 
 {- | QuickCheck as the sampling backend.
@@ -223,7 +224,7 @@ freeze seed sampleCount native =
     unGen (pool sampleCount native) (mkQCGen seed) 30
 
 -- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
-fromECTA :: Node Symbol -> ECTAGen (Term Symbol)
+fromECTA :: Node Symbol -> ECTAGen (Tree.Tree Symbol)
 fromECTA = ECTA.fromECTA
 
 -- | Treat every member of a finite generator as one atomic source choice. See 'ECTA.atomic'.

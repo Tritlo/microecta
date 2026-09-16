@@ -25,11 +25,12 @@ module Data.ECTA.Gen.Internal.Automaton (automatonIndex) where
 import Data.List (tails)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
 import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
 import qualified Data.Tree.FTA as FTA
@@ -42,7 +43,7 @@ Fails on an automaton with free recursive variables, which is not a closed
 language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
-automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Term Symbol))
+automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Tree.Tree Symbol))
 automatonIndex root
     | not $ Set.null $ freeVars root = Left OpenAutomaton
     | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges

@@ -76,6 +76,7 @@ module Data.ECTA.Gen (
 ) where
 
 import qualified Data.Array as Array
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal
@@ -85,7 +86,7 @@ import Data.ECTA.Gen.Internal.Inspect
 import Data.ECTA.Gen.Internal.Recursion
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (choiceIndex)
 
@@ -130,7 +131,7 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
+fromECTA :: Node Symbol -> ECTAGen gen (Tree.Tree Symbol)
 fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
