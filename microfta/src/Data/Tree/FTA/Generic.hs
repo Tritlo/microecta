@@ -121,7 +121,11 @@ decodeLabelledTerm datatype = (>>= datatypeDecode datatype) . restore
   where
     constructors =
         Map.fromList
-            [(constructorLabel constructor, constructor) | transitions <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype, transition <- transitions, let constructor = FTA.transitionSymbol transition]
+            [ (constructorLabel constructor, constructor)
+            | transitions <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
+            , transition <- transitions
+            , let constructor = FTA.transitionSymbol transition
+            ]
     restore (Term label children) = Term <$> Map.lookup label constructors <*> traverse restore children
 
 -- | Finite literal alternatives for primitive field types.
@@ -261,7 +265,8 @@ instance GConstructors V1 where
     gDecode _ _ = Nothing
 
 -- | Construct metadata without evaluating any field value.
-genericConstructor :: forall (metadata :: Meta) fields. (Generic.Constructor metadata, GFields fields) => TypeRep -> Constructor
+genericConstructor ::
+    forall (metadata :: Meta) fields. (Generic.Constructor metadata, GFields fields) => TypeRep -> Constructor
 genericConstructor typ =
     Constructor typ (conName (undefined :: M1 C metadata fields ())) $
         zipWith (\index (name, description) -> Field index name (descriptionType description)) [0 ..] (gFields $ Proxy @fields)
