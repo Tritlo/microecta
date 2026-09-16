@@ -183,34 +183,86 @@ input annotations. Apply `stripGuards` to the result of two plain FTAs before
 calling `accepts`. Use `intersectWith` when you need a different annotation
 combination. `stripGuards` removes annotations; it does not solve constraints.
 
-## Generate values from the same grammar
+## Generate a language up to a depth bound
 
-Add [`microfta-generator`](../microfta-generator/README.md) when you need to
-count, select, sample, or shrink values. The core tutorial above needs only
-`microfta`; generation is a separate package.
-
-Import the derived `Expr` grammar with a depth bound:
+Add [`microfta-generator`](../microfta-generator/README.md) to turn a grammar
+into a generator. This complete example generates expressions with literals
+`0` and `1`, up to constructor-tree depth 3:
 
 ```haskell
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeApplications #-}
+
+module Main (main) where
+
+import GHC.Generics (Generic)
+
 import qualified Data.Tree.FTA.Gen as Gen
-import Data.Tree.FTA.Generic (Constructor)
+import Data.Tree.FTA.Generic (HasFTA, deriveFTAWith, domain)
 
-expressionGenerator :: Either String (Gen.FTAGen Constructor Expr)
-expressionGenerator = do
-    datatype <- either (Left . show) Right (deriveFTAWith @Expr (domain @Int [0, 1]))
-    either (Left . show) Right (Gen.fromDatatypeUpToDepth 2 datatype)
+-- | Arithmetic expressions with integer literals.
+data Expr = Lit Int | Add Expr Expr
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (HasFTA)
 
-expressionCount :: Either String Integer
-expressionCount = fmap Gen.cardinality expressionGenerator -- Right 6
+-- | Generate selected expressions from a depth-bounded language.
+main :: IO ()
+main = do
+    datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
+    language <- either (fail . show) pure $ Gen.fromDatatypeUpToDepth 3 datatype
+    let count = Gen.cardinality language
+    print count
+    mapM_ (print . Gen.unrank language) [0, 2, 4, count - 1]
 ```
 
-The six values are `Lit 0`, `Lit 1`, and the four ways to add two literals.
-`Gen.unrank` selects a value by its zero-based rank. Importing the datatype
-retains its decoder, so selection returns an `Expr`. The QuickCheck adapter
-adds sampling and shrinking. Counts and replay ranks identify accepting
-derivations; an ambiguous handwritten grammar can give one term several ranks.
+Add both `microfta` and `microfta-generator` to your component's
+`build-depends`. In this checkout, save the program as `Main.hs` at the
+workspace root and run:
 
-For a complete generation example, see
+```sh
+cabal build microfta-generator
+cabal exec -- runghc -package=microfta -package=microfta-generator Main.hs
+```
+
+The output is:
+
+```text
+38
+Right (Lit 0)
+Right (Add (Lit 0) (Lit 0))
+Right (Add (Lit 0) (Add (Lit 0) (Lit 0)))
+Right (Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 1)))
+```
+
+`fromDatatypeUpToDepth` compiles the bounded grammar and retains the decoder
+for `Expr`. `cardinality` gives the number of replay ranks. `unrank` constructs
+the member at a zero-based rank. The example prints four members of the
+38-expression language, including members at the maximum depth.
+
+As in the recognition example, the bound includes the `Int` child of `Lit`.
+`Lit 0` has depth one. An `Add` of two literals has depth two. At depth three,
+either child of the outer `Add` can itself be an `Add`.
+
+Change `fromDatatypeUpToDepth 3` to `fromDatatypeUpToDepth 4` to generate a
+larger language:
+
+| Maximum depth | Number of expressions |
+| --- | ---: |
+| 2 | 6 |
+| 3 | 38 |
+| 4 | 1,446 |
+
+Each next depth permits the two literals and every ordered pair of expressions
+from the previous depth: `2 + n * n` choices. The rank decoder constructs the
+selected values from the compiled grammar.
+
+The QuickCheck adapter adds random sampling and shrinking. Counts and replay
+ranks identify accepting derivations; an ambiguous handwritten grammar can
+give one term several ranks. This derived expression grammar is unambiguous.
+
+For another complete example, see
 [`FinitePairs.hs`](../microfta-generator/examples/FinitePairs.hs), or run
 `cabal run fta-pairs` from the workspace root.
 
