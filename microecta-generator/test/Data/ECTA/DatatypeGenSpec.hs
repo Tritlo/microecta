@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- | Generators compiled from annotated datatype grammars.
 module Data.ECTA.DatatypeGenSpec (spec) where
 
@@ -38,7 +40,7 @@ spec = do
             fmap sort (traverse (Core.unrank generator) [0, 1])
                 `shouldBe` Right [(False, False), (True, True)]
             runExact (Core.lowerWithRank generator)
-                `shouldBe` [(1 % 2, fmap (\value -> (rank, value)) $ Core.unrank generator rank) | rank <- [0, 1]]
+                `shouldBe` [(1 % 2, fmap (rank,) $ Core.unrank generator rank) | rank <- [0, 1]]
             map (Core.unrank generator) (Core.shrinkRank generator 1)
                 `shouldSatisfy` all (`elem` [Right (False, False), Right (True, True)])
 

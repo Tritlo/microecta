@@ -37,6 +37,7 @@ module Data.ECTA.Gen.Internal.Static (
     integerOutcomes,
 ) where
 
+import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
@@ -133,7 +134,7 @@ pureStatic value =
                 checkIndex 1 index
                 pure $ Outcome (Term pureSymbol []) 1 value
             )
-            (\_ -> value)
+            (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
         )
@@ -323,7 +324,7 @@ mapOutcomeIndex transform outcomes =
     mkOutcomeIndex
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
-        (\index -> mapOutcome transform <$> outcomeSelect outcomes index)
+        (fmap (mapOutcome transform) . outcomeSelect outcomes)
         (transform . outcomeValueAt outcomes)
         (mapSampler transform $ outcomeSampler outcomes)
         (PlanMap transform $ outcomePlan outcomes)
@@ -387,7 +388,7 @@ frequencySampler alternatives =
         )
         ( frequencyGen
             [ ( weight
-              , (\(rank, value) -> (offset + rank, value))
+              , (Bifunctor.first (offset +))
                     <$> runRankSampler (outcomeSampler $ staticOutcomes static)
               )
             | (offset, (weight, static)) <- offsetAlternatives alternatives

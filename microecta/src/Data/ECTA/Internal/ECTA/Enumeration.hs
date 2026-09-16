@@ -177,7 +177,7 @@ intersectUVarValue (UVarUnenumerated mn1 scs1) (UVarUnenumerated mn2 scs2) =
     let newContents = case (mn1, mn2) of
             (Nothing, x) -> x
             (x, Nothing) -> x
-            (Just n1, Just n2) -> Just (intersect n1 n2)
+            (Just n1, Just n2) -> Just (n1 `intersect` n2)
         newConstraints = scs1 <> scs2
      in UVarUnenumerated newContents newConstraints
 intersectUVarValue UVarEliminated _ = error "intersectUVarValue: Unexpected UVarEliminated"

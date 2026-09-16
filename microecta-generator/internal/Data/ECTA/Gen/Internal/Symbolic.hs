@@ -330,7 +330,9 @@ unify interpret problem (Variable left) (Variable right)
                 , bindings = Map.insert left (Variable right) $ bindings problem
                 }
   where
-    common = intersect (domains problem Map.! left) (domains problem Map.! right)
+    common =
+        (domains problem Map.! left)
+            `intersect` (domains problem Map.! right)
 unify interpret problem (Variable variable) fragment
     | occurs problem variable fragment = pure 0
     | otherwise =
