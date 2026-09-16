@@ -18,6 +18,46 @@ without enumerating its values.
 - **Use the core on its own.** Recognition and graph operations need no
   generator, equality-constraint package, or solver.
 
+## Operations at a glance
+
+`microfta` constructs and transforms grammars, and checks supplied values.
+It has no API for enumeration, language cardinality, random sampling, or shrinking.
+Those operations belong to the separate `microfta-generator` package.
+
+The table uses these module aliases:
+
+```haskell
+import qualified Data.Tree.FTA as FTA
+import qualified Data.Tree.FTA.Generic as Generic
+import qualified Data.Tree.FTA.Interned as Common
+import qualified Data.Tree.FTA.Syntax as Syntax
+```
+
+| Operation | API | Result |
+| --- | --- | --- |
+| Derive a grammar from a datatype | `Generic.deriveFTA`, `Generic.deriveFTAWith` | A grammar with constructor metadata and typed codecs. |
+| Build a grammar with named states | `Syntax.automaton`, `FTA.mkFTA` | A checked explicit-state graph. |
+| Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
+| Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
+| Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
+| Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
+| Intersect languages | `FTA.intersect`, `FTA.intersectWith`, `Common.intersect` | A grammar for the common trees. Annotations require the interpretation described below. |
+| Inspect states, transitions, and cycles | `FTA.states`, `FTA.transitionsFrom`, `FTA.cyclicStates` | Graph structure, not accepted values. |
+| Change symbols or annotations | `FTA.mapSymbols`, `FTA.annotate`, `FTA.mapGuards`, `FTA.stripGuards` | A transformed graph. Removing annotations does not solve constraints. |
+| Build a shared or recursive grammar | `Common.Node`, `Common.Edge`, `Common.Mu` | An interned graph that reuses equal subgraphs. |
+| Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
+| Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
+| Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. `fromFTA` requires an acyclic input. |
+
+`FTA` and `Common` are two representations in this package. `FTA` retains
+explicit state names. `Common` uses interned nodes and edges to share structure.
+Conversion between them does not produce the accepted values.
+
+For example, `FTA.boundDepth 3 grammar` returns a finite grammar. To list its
+values, use `microfta-generator`: compile the grammar, then use `cardinality`
+and `unrank` to visit its accepting runs. Different runs can produce the same
+value if the grammar is ambiguous.
+
 ## Start with a datatype
 
 Suppose an expression is a literal or the sum of two expressions. Derive
