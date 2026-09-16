@@ -369,7 +369,13 @@ finalStateWithAlternative =
     mkAutomaton
         (State 2)
         [ (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 2, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint, Transition "other" Fixpoint.PTrue [] unconstrainedConstraint])
+        ,
+            ( State 2
+            ,
+                [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "other" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
+            )
         ]
 
 -- | Two removed transitions share a target but use different representatives.
@@ -396,8 +402,20 @@ composedRepresentatives =
     mkAutomaton
         (State 0)
         [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] unconstrainedConstraint])
-        , (State 1, [Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint, Transition "other-a" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 2, [Transition "unknown-b" Fixpoint.PTrue [] unconstrainedConstraint, Transition "other-b" Fixpoint.PTrue [] unconstrainedConstraint])
+        ,
+            ( State 1
+            ,
+                [ Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "other-a" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
+            )
+        ,
+            ( State 2
+            ,
+                [ Transition "unknown-b" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "other-b" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
+            )
         , (State 3, [Transition "specific-a" (value .==. (0 :: Int)) [] unconstrainedConstraint])
         , (State 4, [Transition "specific-b" (value .==. (1 :: Int)) [] unconstrainedConstraint])
         ]
@@ -421,7 +439,13 @@ cyclicGuardRepresentative =
         (State 0)
         [ (State 0, [Transition "goal" Fixpoint.PTrue [State 1] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue])
         , (State 1, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 2, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint, Transition "loop" Fixpoint.PTrue [State 2] unconstrainedConstraint])
+        ,
+            ( State 2
+            ,
+                [ Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint
+                , Transition "loop" Fixpoint.PTrue [State 2] unconstrainedConstraint
+                ]
+            )
         ]
 
 -- | Three program states ordered exact-zero <: natural <: unknown.

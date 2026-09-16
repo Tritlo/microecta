@@ -226,7 +226,8 @@ automatonAlphabet automaton =
         ]
 
 -- | Complete transition table of an LTA.
-automatonTransitions :: FTA.FTA State LiquidSymbol constraint -> Map.Map State [FTA.Transition State LiquidSymbol constraint]
+automatonTransitions ::
+    FTA.FTA State LiquidSymbol constraint -> Map.Map State [FTA.Transition State LiquidSymbol constraint]
 automatonTransitions = FTA.transitionTable
 
 {- | States reached at a non-empty position below one transition.

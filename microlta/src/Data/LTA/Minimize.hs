@@ -159,7 +159,9 @@ minimize automaton (Similarity original related) = do
         finiteTransition = all (`Set.member` productive) . transitionChildren
         hasFiniteDerivation representative =
             any
-                (\transition -> transition `elem` Map.findWithDefault [] (transitionTargetState representative) rewritten && finiteTransition transition)
+                ( \transition ->
+                    transition `elem` Map.findWithDefault [] (transitionTargetState representative) rewritten && finiteTransition transition
+                )
                 (foldl' (flip copyAlternatives) [current Map.! representative] $ reverse applied)
         representatives = Set.toAscList $ Set.fromList $ map snd resolved
         initial = automatonInitial automaton

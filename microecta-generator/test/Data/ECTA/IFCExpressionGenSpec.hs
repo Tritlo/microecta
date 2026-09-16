@@ -137,9 +137,10 @@ spec =
         it "shrinks a QuickCheck leak to the minimal program" $ do
             let generator = ECTAGen.ungroup (programsUpToDepth 2)
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 500} $
-                    ECTAGen.forAll generator $
-                        \program -> not (leaks program)
+                QC.quickCheckWithResult
+                    QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 500}
+                    $ ECTAGen.forAll generator
+                    $ \program -> not (leaks program)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
                     shown `shouldSatisfy` (show minimalLeak `isSuffixOf`)

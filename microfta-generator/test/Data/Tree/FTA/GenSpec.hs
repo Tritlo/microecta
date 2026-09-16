@@ -195,7 +195,8 @@ spec = do
                 Right empty ->
                     fmap Ranked.cardinality (FTA.fromFTAUpToSize 10 empty)
                         `shouldBe` Left FTA.EmptyFTALanguage
-            let productive = (0, [Automaton.Transition "z" [] (), Automaton.Transition "z" [] (), Automaton.Transition "step" [1] ()]) : drop 1 rows
+            let productive =
+                    (0, [Automaton.Transition "z" [] (), Automaton.Transition "z" [] (), Automaton.Transition "step" [1] ()]) : drop 1 rows
             case Automaton.mkFTA 0 productive of
                 Left err -> expectationFailure $ show err
                 Right automaton -> case FTA.fromFTAUpToSize 5 automaton of

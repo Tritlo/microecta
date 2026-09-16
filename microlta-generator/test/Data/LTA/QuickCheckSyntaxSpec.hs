@@ -13,7 +13,18 @@ import Data.LTA (
     semanticConstraint,
  )
 import qualified Data.LTA.Gen as LTA
-import Data.LTA.Guard (anyOf, argument, buildGuard, isSameTermAs, isSubtypeOf, notGuard, requires, root, withActualFor, withActualsFor)
+import Data.LTA.Guard (
+    anyOf,
+    argument,
+    buildGuard,
+    isSameTermAs,
+    isSubtypeOf,
+    notGuard,
+    requires,
+    root,
+    withActualFor,
+    withActualsFor,
+ )
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (false, true, (.<.), (.==.))
 import Data.LTA.TypedExpressionLanguage (nonNegative)

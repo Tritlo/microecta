@@ -249,8 +249,10 @@ spec =
                     TypedExpression TBool $
                         Not (BoolLiteral False)
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 300} $
-                    ECTAGen.forAll generator $ \typed ->
+                QC.quickCheckWithResult
+                    QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 300}
+                    $ ECTAGen.forAll generator
+                    $ \typed ->
                         expressionDepth (expression typed) == 0
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
@@ -279,8 +281,10 @@ spec =
                         minimum [nodes (expression typed) | (typed, _) <- outcomes, failing typed]
                     Left err -> error $ show err
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 500} $
-                    ECTAGen.forAll generator $ \typed ->
+                QC.quickCheckWithResult
+                    QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSuccess = 500}
+                    $ ECTAGen.forAll generator
+                    $ \typed ->
                         not (failing typed)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} -> do

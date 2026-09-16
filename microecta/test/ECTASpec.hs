@@ -38,10 +38,19 @@ constTerms :: [Symbol] -> Node Symbol
 constTerms ss = Node (map (\s -> Edge s []) ss)
 
 ex1 :: Node Symbol
-ex1 = Node [mkEdge "f" [constTerms ["1", "2"], Node [Edge "g" [constTerms ["1", "2"]]]] (mkEqConstraints [[path [0], path [1, 0]]])]
+ex1 =
+    Node
+        [ mkEdge "f" [constTerms ["1", "2"], Node [Edge "g" [constTerms ["1", "2"]]]] (mkEqConstraints [[path [0], path [1, 0]]])
+        ]
 
 ex2 :: Node Symbol
-ex2 = Node [mkEdge "f" [constTerms ["1", "2", "3"], Node [Edge "g" [constTerms ["1", "2", "4"]]]] (mkEqConstraints [[path [0], path [1, 0]]])]
+ex2 =
+    Node
+        [ mkEdge
+            "f"
+            [constTerms ["1", "2", "3"], Node [Edge "g" [constTerms ["1", "2", "4"]]]]
+            (mkEqConstraints [[path [0], path [1, 0]]])
+        ]
 
 ex3 :: Node Symbol
 ex3 = Node [Edge "f" [Node [Edge "g" [constTerms ["1", "2"]]]], Edge "h" [Node [Edge "i" [constTerms ["3", "4"]]]]]
@@ -64,8 +73,1486 @@ testBigNode = ex3
 
 bug062721NonIdempotentEqConstraintReduction :: (EqConstraints, [Node Symbol])
 bug062721NonIdempotentEqConstraintReduction =
-    ( (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]])
-    , [(Node [(Edge "baseType" [])]), (Node [(Edge "(->)" [])]), (Node [(mkEdge "app" [(Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "(->)" [])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])])] (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]))]), (Node [(mkEdge "app" [(Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "Maybe" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "(->)" [])]), (Node [(mkEdge "app" [(Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "(->)" [])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])])] (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]))]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])])] (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]])), (mkEdge "app" [(Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "(->)" [])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])]), (Node [(mkEdge "app" [(Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])]), (Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "(->)" [])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])]), (Node [(Edge "g" [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]), (Edge "x" [(Node [(Edge "baseType" [])])]), (Edge "n" [(Node [(Edge "Int" [])])]), (Edge "$" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]]))])]), (Edge "replicate" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "Int" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]]))])]), (Edge "foldr" [(Node [(mkEdge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])]), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])), (Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "List" [(createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])]), (createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])]))])])])])] (EqConstraints [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]))])])])] (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]))])] (EqConstraints [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]))])]
+    ( ( EqConstraints
+            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+      )
+    ,
+        [ (Node [(Edge "baseType" [])])
+        , (Node [(Edge "(->)" [])])
+        , ( Node
+                [ ( mkEdge
+                        "app"
+                        [ ( Node
+                                [ (Edge "baseType" [])
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "List"
+                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "List"
+                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , (Node [(Edge "(->)" [])])
+                        , ( Node
+                                [ ( Edge
+                                        "g"
+                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                  )
+                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                , ( Edge
+                                        "$"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "replicate"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , (Node [(Edge "Int" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "foldr"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        ( EqConstraints
+                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                        )
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , ( Node
+                                [ ( Edge
+                                        "g"
+                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                  )
+                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                , ( Edge
+                                        "$"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "replicate"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , (Node [(Edge "Int" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "foldr"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        ( EqConstraints
+                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                        )
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        ]
+                        ( EqConstraints
+                            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+                        )
+                  )
+                ]
+          )
+        , ( Node
+                [ ( mkEdge
+                        "app"
+                        [ ( Node
+                                [ (Edge "baseType" [])
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "List"
+                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( Node
+                                                [ ( Edge
+                                                        "List"
+                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "Maybe"
+                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , (Node [(Edge "(->)" [])])
+                        , ( Node
+                                [ ( mkEdge
+                                        "app"
+                                        [ ( Node
+                                                [ (Edge "baseType" [])
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "List"
+                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        , (Node [(Edge "(->)" [])])
+                                        , ( Node
+                                                [ ( Edge
+                                                        "g"
+                                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                                  )
+                                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                                , ( Edge
+                                                        "$"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "replicate"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , (Node [(Edge "Int" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "foldr"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( Node
+                                                                                                                [ ( Edge
+                                                                                                                        "List"
+                                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                                          )
+                                                                                                                        ]
+                                                                                                                  )
+                                                                                                                ]
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        ( EqConstraints
+                                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                                        )
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "g"
+                                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                                  )
+                                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                                , ( Edge
+                                                        "$"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "replicate"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , (Node [(Edge "Int" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "foldr"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( Node
+                                                                                                                [ ( Edge
+                                                                                                                        "List"
+                                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                                          )
+                                                                                                                        ]
+                                                                                                                  )
+                                                                                                                ]
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        ( EqConstraints
+                                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                                        )
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                        ( EqConstraints
+                                            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+                                        )
+                                  )
+                                ]
+                          )
+                        , ( Node
+                                [ ( Edge
+                                        "g"
+                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                  )
+                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                , ( Edge
+                                        "$"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "replicate"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , (Node [(Edge "Int" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "foldr"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        ( EqConstraints
+                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                        )
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        ]
+                        ( EqConstraints
+                            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+                        )
+                  )
+                , ( mkEdge
+                        "app"
+                        [ ( Node
+                                [ (Edge "baseType" [])
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "List"
+                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "->"
+                                        [ (Node [(Edge "(->)" [])])
+                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "List"
+                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , (Node [(Edge "(->)" [])])
+                        , ( Node
+                                [ ( Edge
+                                        "g"
+                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                  )
+                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                , ( Edge
+                                        "$"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "replicate"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , (Node [(Edge "Int" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                , ( Edge
+                                        "foldr"
+                                        [ ( Node
+                                                [ ( mkEdge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                        ( EqConstraints
+                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                        )
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , ( Node
+                                [ ( mkEdge
+                                        "app"
+                                        [ ( Node
+                                                [ (Edge "baseType" [])
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "List"
+                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "->"
+                                                        [ (Node [(Edge "(->)" [])])
+                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                          )
+                                                        , ( Node
+                                                                [ ( Edge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "List"
+                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                          )
+                                                                        ]
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        , (Node [(Edge "(->)" [])])
+                                        , ( Node
+                                                [ ( Edge
+                                                        "g"
+                                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                                  )
+                                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                                , ( Edge
+                                                        "$"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "replicate"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , (Node [(Edge "Int" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "foldr"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( Node
+                                                                                                                [ ( Edge
+                                                                                                                        "List"
+                                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                                          )
+                                                                                                                        ]
+                                                                                                                  )
+                                                                                                                ]
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        ( EqConstraints
+                                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                                        )
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        , ( Node
+                                                [ ( Edge
+                                                        "g"
+                                                        [(Node [(Edge "->" [(Node [(Edge "(->)" [])]), (Node [(Edge "baseType" [])]), (Node [(Edge "baseType" [])])])])]
+                                                  )
+                                                , (Edge "x" [(Node [(Edge "baseType" [])])])
+                                                , (Edge "n" [(Node [(Edge "Int" [])])])
+                                                , ( Edge
+                                                        "$"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [1, 1], Path [2, 1]], PathEClass [Path [1, 2], Path [2, 2]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "replicate"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , (Node [(Edge "Int" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "List"
+                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        (EqConstraints [PathEClass [Path [2, 1], Path [2, 2, 0]]])
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                , ( Edge
+                                                        "foldr"
+                                                        [ ( Node
+                                                                [ ( mkEdge
+                                                                        "->"
+                                                                        [ (Node [(Edge "(->)" [])])
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        , ( Node
+                                                                                [ ( Edge
+                                                                                        "->"
+                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                          )
+                                                                                        , ( Node
+                                                                                                [ ( Edge
+                                                                                                        "->"
+                                                                                                        [ (Node [(Edge "(->)" [])])
+                                                                                                        , ( Node
+                                                                                                                [ ( Edge
+                                                                                                                        "List"
+                                                                                                                        [ ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                                          )
+                                                                                                                        ]
+                                                                                                                  )
+                                                                                                                ]
+                                                                                                          )
+                                                                                                        , ( createMu $ \x -> (Node [(Edge "baseType" []), (Edge "->" [(Node [(Edge "(->)" [])]), x, x]), (Edge "Maybe" [x]), (Edge "List" [x])])
+                                                                                                          )
+                                                                                                        ]
+                                                                                                  )
+                                                                                                ]
+                                                                                          )
+                                                                                        ]
+                                                                                  )
+                                                                                ]
+                                                                          )
+                                                                        ]
+                                                                        ( EqConstraints
+                                                                            [PathEClass [Path [1, 1], Path [2, 2, 1, 0]], PathEClass [Path [1, 2, 1], Path [1, 2, 2], Path [2, 1], Path [2, 2, 2]]]
+                                                                        )
+                                                                  )
+                                                                ]
+                                                          )
+                                                        ]
+                                                  )
+                                                ]
+                                          )
+                                        ]
+                                        ( EqConstraints
+                                            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+                                        )
+                                  )
+                                ]
+                          )
+                        ]
+                        ( EqConstraints
+                            [PathEClass [Path [0], Path [2, 0, 2]], PathEClass [Path [1], Path [2, 0, 0]], PathEClass [Path [2, 0, 1], Path [3, 0]]]
+                        )
+                  )
+                ]
+          )
+        ]
     )
 
 infiniteFNode :: Node Symbol
@@ -443,7 +1930,8 @@ spec = do
         it "single Mu" $
             numNestedMu (Mu (\x -> Node [Edge "f" [x]]) :: Node Symbol) `shouldBe` 1
         it "two parallel Mus" $
-            numNestedMu (Node [Edge "h" [Mu $ \x -> Node [Edge "g" [x]], Mu $ \x -> Node [Edge "h" [x]]]] :: Node Symbol) `shouldBe` 1
+            numNestedMu (Node [Edge "h" [Mu $ \x -> Node [Edge "g" [x]], Mu $ \x -> Node [Edge "h" [x]]]] :: Node Symbol)
+                `shouldBe` 1
         it "nested" $
             numNestedMu (Mu (\x -> Node [Edge "f" [x], Edge "g" [Mu $ \y -> Node [Edge "g" [y]]]]) :: Node Symbol) `shouldBe` 2
 

@@ -71,7 +71,9 @@ variables share an intersected domain. Inclusion-exclusion removes overlapping
 alternatives. Rank selection conditions the graph on one constructor at a time.
 Only the selected term is constructed. No accepted-term table is retained.
 -}
-symbolicRanked :: (Ord symbol, Hashable symbol, Typeable symbol) => ECTA.Node symbol -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
+symbolicRanked ::
+    (Ord symbol, Hashable symbol, Typeable symbol) =>
+    ECTA.Node symbol -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
 symbolicRanked = symbolicRankedWith interpret . ECTA.toInterned
   where
     interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
@@ -84,7 +86,9 @@ conjunction: interpreting conjoined guards
 must give the pointwise product of their indicators. These are integration
 invariants. Checking them by enumerating the language would defeat the compiler.
 -}
-symbolicRankedWith :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
+symbolicRankedWith ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
 symbolicRankedWith interpret root =
     Ranked.fromIndexedOnDemand $ Ranked.Indexed total select
   where
@@ -98,7 +102,12 @@ domain. The prefix counter counts group ranks strictly below its argument.
 Missing positions are absent from the observation map. Neither partitioning
 nor prefix counting constructs a term.
 -}
-symbolicGroupsWith :: (Theory symbol constraint) => Interpretation constraint -> [Path] -> Node symbol constraint -> Map.Map (Map.Map Path (symbol, Bool)) (Integer, Integer -> Integer)
+symbolicGroupsWith ::
+    (Theory symbol constraint) =>
+    Interpretation constraint ->
+    [Path] ->
+    Node symbol constraint ->
+    Map.Map (Map.Map Path (symbol, Bool)) (Integer, Integer -> Integer)
 symbolicGroupsWith interpret requested root =
     Map.map (\(count, graph) -> (count, \rank -> State.evalState (prefixAt interpret root graph [[]] rank) counts)) groups
   where
@@ -123,7 +132,14 @@ symbolicGroupsWith interpret requested root =
         pure $ Map.unions variants
 
 -- | Count one observed group's members before a source-rank boundary.
-prefixAt :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> Node symbol constraint -> [[Int]] -> Integer -> State.State (Counts symbol) Integer
+prefixAt ::
+    (Theory symbol constraint) =>
+    Interpretation constraint ->
+    Node symbol constraint ->
+    Node symbol constraint ->
+    [[Int]] ->
+    Integer ->
+    State.State (Counts symbol) Integer
 prefixAt _ _ _ _ rank | rank <= 0 = pure 0
 prefixAt interpret root subset pending rank = do
     total <- countNode interpret root
@@ -154,7 +170,8 @@ prefixAt interpret root subset pending rank = do
             else prefixAt interpret selected restricted ([position <> [index] | index <- [0 .. arity - 1]] <> rest) remaining
 
 -- | Count a shared graph once per interned identity.
-countNode :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> State.State (Counts symbol) Integer
+countNode ::
+    (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> State.State (Counts symbol) Integer
 countNode interpret node
     | null (nodeEdges node) = pure 0
     | otherwise = do
@@ -167,7 +184,11 @@ countNode interpret node
                 pure count
 
 -- | Count a union through distinct intersections of its alternatives.
-countUnion :: (Theory symbol constraint) => (Edge symbol constraint -> State.State (Counts symbol) Integer) -> [Edge symbol constraint] -> State.State (Counts symbol) Integer
+countUnion ::
+    (Theory symbol constraint) =>
+    (Edge symbol constraint -> State.State (Counts symbol) Integer) ->
+    [Edge symbol constraint] ->
+    State.State (Counts symbol) Integer
 countUnion count edges =
     sum <$> traverse contribution (Map.toList $ foldl' add Map.empty edges)
   where
@@ -185,12 +206,14 @@ countUnion count edges =
                 ]
 
 -- | Convert an edge into independent child domains and path obligations.
-countEdge :: (Theory symbol constraint) => Interpretation constraint -> Edge symbol constraint -> State.State (Counts symbol) Integer
+countEdge ::
+    (Theory symbol constraint) => Interpretation constraint -> Edge symbol constraint -> State.State (Counts symbol) Integer
 countEdge interpret edge =
     sum <$> traverse (\(coefficient, constraint) -> (coefficient *) <$> count constraint) (interpret $ edgeConstraint edge)
   where
     count constraint =
-        solve interpret $ Problem (Map.fromList $ zip [0 ..] children) Map.empty (length children) (edgeObligations context constraint)
+        solve interpret $
+            Problem (Map.fromList $ zip [0 ..] children) Map.empty (length children) (edgeObligations context constraint)
     children = edgeChildren edge
     context = Constructor (edgeSymbol edge) $ map Variable [0 .. length children - 1]
 
@@ -255,7 +278,9 @@ normalize problem = do
         pure $ if first == second then required first else [Equal (min first second) (max first second)]
 
 -- | Share counts of equivalent contexts before expanding constrained variables.
-solve :: (Theory symbol constraint) => Interpretation constraint -> Problem symbol constraint -> State.State (Counts symbol) Integer
+solve ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Problem symbol constraint -> State.State (Counts symbol) Integer
 solve interpret problem
     | any (null . nodeEdges) $ Map.elems $ domains problem = pure 0
     | otherwise = case normalize problem of
@@ -271,7 +296,9 @@ solve interpret problem
                     pure count
 
 -- | Solve one normalized obligation, then multiply independent domain counts.
-solveStep :: (Theory symbol constraint) => Interpretation constraint -> Problem symbol constraint -> State.State (Counts symbol) Integer
+solveStep ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Problem symbol constraint -> State.State (Counts symbol) Integer
 solveStep interpret problem = case obligations problem of
     [] -> product <$> traverse (countNode interpret) (Map.elems $ domains problem)
     Exists target : rest -> case resolve problem target of
@@ -286,7 +313,13 @@ solveStep interpret problem = case obligations problem of
         (Resolved first, Resolved second) -> unify interpret problem{obligations = rest} first second
 
 -- | Merge whole subtree variables or compare constructor contexts.
-unify :: (Theory symbol constraint) => Interpretation constraint -> Problem symbol constraint -> Fragment symbol -> Fragment symbol -> State.State (Counts symbol) Integer
+unify ::
+    (Theory symbol constraint) =>
+    Interpretation constraint ->
+    Problem symbol constraint ->
+    Fragment symbol ->
+    Fragment symbol ->
+    State.State (Counts symbol) Integer
 unify interpret problem (Variable left) (Variable right)
     | left == right = solve interpret problem
     | otherwise =
@@ -309,7 +342,9 @@ unify interpret problem fragment (Variable variable) = unify interpret problem (
 unify interpret problem (Constructor left children) (Constructor right others)
     | left /= right || length children /= length others = pure 0
     | otherwise =
-        solve interpret problem{obligations = zipWith (\a b -> Equal (Target a []) (Target b [])) children others <> obligations problem}
+        solve
+            interpret
+            problem{obligations = zipWith (\a b -> Equal (Target a []) (Target b [])) children others <> obligations problem}
 
 -- | Reject an equality between a finite tree and its proper subtree.
 occurs :: Problem symbol constraint -> Int -> Fragment symbol -> Bool
@@ -319,11 +354,17 @@ occurs problem variable fragment = case resolve problem $ Target fragment [] of
     _ -> False
 
 -- | Expose one constrained variable's root, preserving overlaps symbolically.
-expandVariable :: (Theory symbol constraint) => Interpretation constraint -> Problem symbol constraint -> Int -> State.State (Counts symbol) Integer
+expandVariable ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Problem symbol constraint -> Int -> State.State (Counts symbol) Integer
 expandVariable interpret problem variable =
     countUnion expand $ nodeEdges $ domains problem Map.! variable
   where
-    expand edge = sum <$> traverse (\(coefficient, constraint) -> (coefficient *) <$> expandWith edge constraint) (interpret $ edgeConstraint edge)
+    expand edge =
+        sum
+            <$> traverse
+                (\(coefficient, constraint) -> (coefficient *) <$> expandWith edge constraint)
+                (interpret $ edgeConstraint edge)
     expandWith edge constraint =
         solve
             interpret
@@ -357,12 +398,16 @@ conditionMissing [] _ = Node []
 conditionMissing (index : rest) node = Node $ map restrict $ nodeEdges node
   where
     restrict edge = case drop index $ edgeChildren edge of
-        child : _ | index >= 0 -> setChildren edge $ take index (edgeChildren edge) <> [conditionMissing rest child] <> drop (index + 1) (edgeChildren edge)
+        child : _
+            | index >= 0 ->
+                setChildren edge $
+                    take index (edgeChildren edge) <> [conditionMissing rest child] <> drop (index + 1) (edgeChildren edge)
         _ -> edge
 
 -- | Read possible constructors at a path without enumerating subterms.
 constructorsAt :: (Theory symbol constraint) => [Int] -> Node symbol constraint -> [(symbol, Int)]
-constructorsAt position root = Set.toAscList $ Set.fromList [(edgeSymbol edge, length $ edgeChildren edge) | edge <- nodeEdges $ project position root]
+constructorsAt position root =
+    Set.toAscList $ Set.fromList [(edgeSymbol edge, length $ edgeChildren edge) | edge <- nodeEdges $ project position root]
 
 -- | An upper bound on the subtree language at one position.
 project :: (Theory symbol constraint) => [Int] -> Node symbol constraint -> Node symbol constraint
@@ -377,13 +422,21 @@ project position root = Node $ concatMap nodeEdges $ Set.toList $ go position $ 
                 [edge | node <- Set.toList nodes, edge <- nodeEdges node]
 
 -- | Select one term in constructor order, carrying counts for the remaining suffix.
-selectTerm :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> [Int] -> Integer -> State.State (Counts symbol) (Term symbol)
+selectTerm ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Node symbol constraint -> [Int] -> Integer -> State.State (Counts symbol) (Term symbol)
 selectTerm interpret root position rank = do
     ~(term, _, _) <- selectAt interpret root position rank
     pure term
 
 -- | Restrict the selected prefix and decode only its selected descendants.
-selectAt :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> [Int] -> Integer -> State.State (Counts symbol) (Term symbol, Node symbol constraint, Integer)
+selectAt ::
+    (Theory symbol constraint) =>
+    Interpretation constraint ->
+    Node symbol constraint ->
+    [Int] ->
+    Integer ->
+    State.State (Counts symbol) (Term symbol, Node symbol constraint, Integer)
 selectAt interpret root position rank = do
     let local = project position root
     count <- countNode interpret local
@@ -409,7 +462,9 @@ selectAt interpret root position rank = do
         pure (term : children, final, finalRank)
 
 -- | Decode a singleton language without traversing unobserved sibling trees.
-selectUniqueAt :: (Theory symbol constraint) => Interpretation constraint -> Node symbol constraint -> [Int] -> State.State (Counts symbol) (Term symbol)
+selectUniqueAt ::
+    (Theory symbol constraint) =>
+    Interpretation constraint -> Node symbol constraint -> [Int] -> State.State (Counts symbol) (Term symbol)
 selectUniqueAt interpret root position = choose $ constructorsAt position root
   where
     choose [] = error "symbolicRanked: empty singleton language"
@@ -419,4 +474,5 @@ selectUniqueAt interpret root position = choose $ constructorsAt position root
             then choose rest
             else do
                 counts <- State.get
-                pure $ Term symbol [State.evalState (selectUniqueAt interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]
+                pure $
+                    Term symbol [State.evalState (selectUniqueAt interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]

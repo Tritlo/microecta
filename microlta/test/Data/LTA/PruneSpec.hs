@@ -132,7 +132,8 @@ spec =
                             (State 0, [Transition "f" Fixpoint.PTrue [State 1] $ semanticConstraint $ Satisfies (path [0]) zero]) : rows
                     syntactic =
                         mkAutomaton (State 0) $
-                            (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] $ semanticConstraint $ Same (path [0]) (path [1])]) : rows
+                            (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] $ semanticConstraint $ Same (path [0]) (path [1])])
+                                : rows
                 checkPrunedLanguage
                     solver
                     semantic
@@ -385,7 +386,10 @@ compoundActuals :: Either AutomatonError Automaton
 compoundActuals =
     mkAutomaton
         (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1, State 2, State 3] $ semanticConstraint compoundEqualityGuard])
+        [
+            ( State 0
+            , [Transition "pair" Fixpoint.PTrue [State 1, State 1, State 2, State 3] $ semanticConstraint compoundEqualityGuard]
+            )
         ,
             ( State 1
             ,
@@ -468,11 +472,17 @@ syntacticPairs =
         [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ semanticConstraint $ Same (path [0]) (path [1])])
         ,
             ( State 1
-            , [Transition "left" Fixpoint.PTrue [] unconstrainedConstraint, Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ,
             ( State 2
-            , [Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint, Transition "right" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ]
 
@@ -505,11 +515,17 @@ nestedSyntacticPairs =
             )
         ,
             ( State 2
-            , [Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint, Transition "right" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ,
             ( State 3
-            , [Transition "left" Fixpoint.PTrue [] unconstrainedConstraint, Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ]
 
@@ -521,11 +537,17 @@ negativeSyntacticPairs =
         [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ semanticConstraint negativeEquality])
         ,
             ( State 1
-            , [Transition "left" Fixpoint.PTrue [] unconstrainedConstraint, Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ,
             ( State 2
-            , [Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint, Transition "right" Fixpoint.PTrue [] unconstrainedConstraint]
+            ,
+                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
+                ]
             )
         ]
 

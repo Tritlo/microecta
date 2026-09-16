@@ -182,7 +182,10 @@ spec = do
                 either (fail . show) pure $
                     FTA.mkFTA
                         (0 :: Int)
-                        [(0, [transition "wrap" [1], transition "wrap" [2]]), (1, [transition "a" []]), (2, [transition "a" [], transition "b" []])]
+                        [ (0, [transition "wrap" [1], transition "wrap" [2]])
+                        , (1, [transition "a" []])
+                        , (2, [transition "a" [], transition "b" []])
+                        ]
             ECTAGen.cardinality (ECTAGen.fromFTAUpToDepth 1 graph) `shouldBe` Right 2
             let equal = Paths.mkEqConstraints [map Paths.path [[0], [1]]]
             intersection <-
