@@ -58,13 +58,14 @@ module Data.ECTA.IFCExpressionLanguage (
 
 import qualified Data.Map.Strict as Map
 import Data.String (fromString)
+import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA (Edge (Edge), Node (EmptyNode, Node))
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (frequencyInteger)
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol)
 
 {- | Security labels. The derived 'Ord' is the flow order, MAC's @Less@ at
 the value level: @Public <= Private@ and nothing flows down. Because the
@@ -580,18 +581,18 @@ surfaceProgramNode depth label =
         ]
 
 -- | Read a surface term back as an expression, for readable output.
-termToExpression :: Term Symbol -> Maybe Expression
-termToExpression (Term "print" [value]) = Print <$> termToExpression value
-termToExpression (Term "not" [value]) = Not <$> termToExpression value
-termToExpression (Term "if" [condition, ifTrue, ifFalse]) =
+termToExpression :: Tree.Tree Symbol -> Maybe Expression
+termToExpression (Tree.Node "print" [value]) = Print <$> termToExpression value
+termToExpression (Tree.Node "not" [value]) = Not <$> termToExpression value
+termToExpression (Tree.Node "if" [condition, ifTrue, ifFalse]) =
     IfExpression
         <$> termToExpression condition
         <*> termToExpression ifTrue
         <*> termToExpression ifFalse
-termToExpression (Term symbol [first, second])
+termToExpression (Tree.Node symbol [first, second])
     | Just function_ <- lookup symbol binaryFunctionSymbols =
         ApplyBinary function_ <$> termToExpression first <*> termToExpression second
-termToExpression (Term symbol []) = lookup symbol atomSymbols
+termToExpression (Tree.Node symbol []) = lookup symbol atomSymbols
 termToExpression _ = Nothing
 
 -- | The surface symbol of every binary function, as the automaton spells it.

@@ -30,6 +30,7 @@ module Data.Tree.FTA.Gen (
 
 import qualified Data.Map.Lazy as Map
 import Data.Maybe (mapMaybe)
+import qualified Data.Tree as Tree
 
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Automaton
@@ -37,7 +38,6 @@ import Data.Tree.FTA.Generic (Constructor, TypedFTA, datatypeDecode, datatypeFTA
 import Data.Tree.Gen (Ranked, RankedError)
 import qualified Data.Tree.Gen as Ranked
 import qualified Data.Tree.Gen.Internal as Internal
-import Data.Tree.Term (Term (Term))
 import Data.Typeable (TypeRep)
 
 -- | A finite ranked language whose members retain their ordinary FTA terms.
@@ -46,7 +46,7 @@ newtype FTAGen symbol a = FTAGen (Ranked (Generated symbol a))
 -- | One generated value paired with its ordinary tree witness.
 data Generated symbol a = Generated
     { generatedValue :: a
-    , generatedWitness :: !(Term symbol)
+    , generatedWitness :: !(Tree.Tree symbol)
     }
 
 -- | Applicatively assembled child positions awaiting one constructor label.
@@ -55,7 +55,7 @@ newtype Children symbol a = Children (Ranked (Forest symbol a))
 -- | An applicative result and its direct constructor-child witnesses.
 data Forest symbol a = Forest
     { forestValue :: a
-    , forestWitnesses :: ![Term symbol]
+    , forestWitnesses :: ![Tree.Tree symbol]
     }
 
 -- | A child language or forest that one constructor can contain.
@@ -97,7 +97,7 @@ instance Applicative (Children symbol) where
 -- | Build one nullary constructor.
 leaf :: symbol -> a -> FTAGen symbol a
 leaf symbol value =
-    FTAGen $ pure $ Generated value (Term symbol [])
+    FTAGen $ pure $ Generated value (Tree.Node symbol [])
 
 {- | Close an applicative child forest with one constructor label.
 
@@ -114,7 +114,7 @@ node symbol layer =
     close forest =
         Generated
             (forestValue forest)
-            (Term symbol $ forestWitnesses forest)
+            (Tree.Node symbol $ forestWitnesses forest)
 
 -- | Choose among non-empty FTA languages with positive relative weights.
 frequency :: [(Integer, FTAGen symbol a)] -> Either RankedError (FTAGen symbol a)
@@ -151,7 +151,7 @@ unrank :: FTAGen symbol a -> Integer -> Either RankedError a
 unrank generator = Ranked.unrank (toRanked generator)
 
 -- | Inspect the concrete FTA witness retained at one rank.
-generatedTerm :: FTAGen symbol a -> Integer -> Either RankedError (Term symbol)
+generatedTerm :: FTAGen symbol a -> Integer -> Either RankedError (Tree.Tree symbol)
 generatedTerm (FTAGen ranked) rank =
     generatedWitness <$> Ranked.unrank ranked rank
 
@@ -164,7 +164,7 @@ This decodes every rank, so use it on small languages only.
 support ::
     (Ord symbol) =>
     FTAGen symbol a ->
-    Either (FTA.FTAError (Maybe (Term symbol)) symbol) (FTA.PlainFTA (Maybe (Term symbol)) symbol)
+    Either (FTA.FTAError (Maybe (Tree.Tree symbol)) symbol) (FTA.PlainFTA (Maybe (Tree.Tree symbol)) symbol)
 support generator =
     FTA.fromTerms
         [ term
@@ -188,7 +188,7 @@ Ranks and structural shrinking retain the transition and child order.
 fromFTA ::
     (Ord state) =>
     FTA.PlainFTA state symbol ->
-    Either (CompileError state) (Ranked (Term symbol))
+    Either (CompileError state) (Ranked (Tree.Tree symbol))
 fromFTA automaton = case FTA.cycleState automaton of
     Just state -> Left (RecursiveFTA state)
     Nothing -> maybe (Left EmptyFTALanguage) Right (compileState $ FTA.initialState automaton)
@@ -217,7 +217,7 @@ Ambiguous terms retain one rank per accepting run. A non-positive bound or an
 empty bounded language gives 'EmptyFTALanguage'.
 -}
 fromFTAUpToSize ::
-    (Ord state) => Int -> FTA.PlainFTA state symbol -> Either (CompileError state) (Ranked (Term symbol))
+    (Ord state) => Int -> FTA.PlainFTA state symbol -> Either (CompileError state) (Ranked (Tree.Tree symbol))
 fromFTAUpToSize bound automaton =
     case Internal.fromSizeIndex bound $ Automaton.automatonIndex automaton of
         Left _ -> Left EmptyFTALanguage
@@ -230,7 +230,7 @@ graph. This is a depth bound, whereas 'fromFTAUpToSize' bounds all tree nodes.
 The only possible failure is 'EmptyFTALanguage'.
 -}
 fromFTAUpToDepth ::
-    (Ord state) => Int -> FTA.PlainFTA state symbol -> Either (CompileError state) (Ranked (Term symbol))
+    (Ord state) => Int -> FTA.PlainFTA state symbol -> Either (CompileError state) (Ranked (Tree.Tree symbol))
 fromFTAUpToDepth bound automaton =
     case fromFTA $ FTA.boundDepth bound automaton of
         Right ranked -> Right ranked
@@ -255,7 +255,7 @@ fromDatatypeUpToSize bound datatype =
     fromDatatypeTerms datatype <$> fromFTAUpToSize bound (datatypeFTA datatype)
 
 -- | Retain the witness while decoding a term from its own datatype grammar.
-fromDatatypeTerms :: TypedFTA () a -> Ranked (Term Constructor) -> FTAGen Constructor a
+fromDatatypeTerms :: TypedFTA () a -> Ranked (Tree.Tree Constructor) -> FTAGen Constructor a
 fromDatatypeTerms datatype ranked = FTAGen $ generated <$> ranked
   where
     generated term = Generated (decode term) term
@@ -267,12 +267,12 @@ fromDatatypeTerms datatype ranked = FTAGen $ generated <$> ranked
                 \the derived codec rejected a term of its own grammar"
 
 -- | Apply a constructor to its independently ranked children.
-buildTerm :: symbol -> [Ranked (Term symbol)] -> Ranked (Term symbol)
+buildTerm :: symbol -> [Ranked (Tree.Tree symbol)] -> Ranked (Tree.Tree symbol)
 buildTerm symbol childLanguages =
     ($ [])
         <$> foldl'
             applyChild
-            (pure $ Term symbol)
+            (pure $ Tree.Node symbol)
             childLanguages
   where
     applyChild partial child =

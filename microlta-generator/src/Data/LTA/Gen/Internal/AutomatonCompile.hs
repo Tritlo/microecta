@@ -20,6 +20,7 @@ import Data.Bifunctor (first)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRankedWith)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
@@ -32,8 +33,7 @@ import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks)
 import qualified Data.Tree.FTA.Interned as Interned
-import qualified Data.Tree.Gen as Tree
-import Data.Tree.Term (Term (Term))
+import qualified Data.Tree.Gen as Ranked
 
 {- | Prune and rank a finite acyclic LTA.
 
@@ -133,15 +133,15 @@ compilePrunedAutomaton entailment buildValue automaton = do
 compileUnconstrainedAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
     EqualityAutomaton ->
-    Either GeneratorError (Tree.Ranked (Generated a), Integer -> [Integer])
+    Either GeneratorError (Ranked.Ranked (Generated a), Integer -> [Integer])
 compileUnconstrainedAutomaton buildValue acceptedSupport = do
     counts <- countAutomaton acceptedSupport
     ensureUnambiguous acceptedSupport $ Map.keys counts
     let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
     ranked <-
         first fromRankedError
-            $ Tree.fromIndexedOnDemand
-            $ Tree.Indexed
+            $ Ranked.fromIndexedOnDemand
+            $ Ranked.Indexed
                 total
                 (generatedAtWith buildValue acceptedSupport counts)
     pure (ranked, automatonShrinkRanks (FTA.stripGuards acceptedSupport) counts)
@@ -162,8 +162,8 @@ compileSymbolicAutomaton buildValue support automaton = do
     (root, alphabet) <- symbolicGraph automaton
     terms <- first fromRankedError $ symbolicRankedWith interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (foldTerm alphabet LiquidTerm term)
-        size rank = either (const 0) nodeCount $ Tree.unrank terms rank
-        shrinks rank = filter ((< size rank) . size) $ Tree.shrinkRank terms rank
+        size rank = either (const 0) nodeCount $ Ranked.unrank terms rank
+        shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank terms rank
     pure $ Compiled support (generated <$> terms) shrinks
   where
     validate (state, constraint) =
@@ -171,11 +171,11 @@ compileSymbolicAutomaton buildValue support automaton = do
     interpret constraint = case constraintTerms constraint of
         Right terms -> terms
         Left _ -> error "compileSymbolicAutomaton: unsupported guard after validation"
-    foldTerm alphabet build (Term identifier childTerms) =
+    foldTerm alphabet build = Tree.foldTree $ \identifier childValues ->
         let LiquidSymbol symbol refinement = alphabet IntMap.! identifier
-         in build symbol refinement $ map (foldTerm alphabet build) childTerms
-    nodeCount :: Term Int -> Integer
-    nodeCount (Term _ childTerms) = 1 + sum (map nodeCount childTerms)
+         in build symbol refinement childValues
+    nodeCount :: Tree.Tree Int -> Integer
+    nodeCount = Tree.foldTree $ \_ counts -> 1 + sum counts
 
 -- | Give symbolic ranks a textual alphabet order independent of interning order.
 symbolicGraph :: Automaton -> Either GeneratorError (Interned.Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
