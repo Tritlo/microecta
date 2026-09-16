@@ -1,6 +1,9 @@
 module Data.LTA.SyntaxSpec (spec) where
 
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
+import Data.List (isInfixOf)
+import Data.Tree (flatten)
+
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import Data.LTA (AutomatonError (GuardArityMismatch), LiquidTerm (LiquidTerm), State (State), Verdict (..), accepts)
 import qualified Data.LTA as LTA
@@ -70,6 +73,9 @@ spec =
             case LTA.fromInterned root of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
+                    let labels = flatten $ LTA.toTree automaton
+                    labels `shouldSatisfy` any (show (LTA.LiquidSymbol "zero" nonNegative) `isInfixOf`)
+                    labels `shouldSatisfy` any (show (LTA.Entails (LTA.path [0]) (LTA.path [1])) `isInfixOf`)
                     mapM (accepts tableEntailment automaton) terms
                         >>= (`shouldBe` [Yes, Yes, No, Yes])
                     LTA.denotationAtMost tableEntailment 1 automaton

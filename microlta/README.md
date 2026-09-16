@@ -126,6 +126,65 @@ include it in a named-syntax row.
 works for cyclic LTAs under an explicit tree-height bound and is the semantics
 oracle against which optimized pruning and generation can be checked.
 
+## Visualize the automaton
+
+`toTree :: Automaton -> Tree String` converts the reachable graph for
+visualization with `drawTree` from `containers`:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import Data.LTA
+import Data.LTA.Refinement (true, value, (.>=.))
+import Data.Tree (drawTree)
+
+graph :: Either AutomatonError Automaton
+graph =
+    mkAutomaton
+        (State 0)
+        [
+            ( State 0
+            ,
+                [ Transition
+                    "sqrt"
+                    true
+                    [State 1]
+                    (semanticConstraint (Satisfies (path [0]) nonNegative))
+                ]
+            )
+        ,
+            ( State 1
+            , [Transition "zero" nonNegative [] unconstrainedConstraint]
+            )
+        ]
+  where
+    nonNegative = value .>=. (0 :: Int)
+
+main :: IO ()
+main = case graph of
+    Left err -> print err
+    Right automaton -> putStrLn (drawTree (toTree automaton))
+```
+
+This program prints:
+
+```text
+state State {unState = 0}
+|
+`- LiquidSymbol "sqrt" (PAnd []) [LiquidConstraint {constraintEqualities = EqConstraints [], constraintGuard = Satisfies (Path [0]) (PAtom Ge (EVar "v") (ECon (I 0)))}]
+   |
+   `- state State {unState = 1}
+      |
+      `- LiquidSymbol "zero" (PAtom Ge (EVar "v") (ECon (I 0))) [LiquidConstraint {constraintEqualities = EqConstraints [], constraintGuard = Top}]
+```
+
+The labels use `Show` and retain transition symbols, refinements, and
+constraints. A cycle ends with `mu <state>`; another reference to an expanded
+shared state ends with `ref <state>`. This view does not enumerate terms or call
+a solver.
+
+## Cycles and pruning
+
 Cycles are legal. A guard may not inspect a position whose state participates
 in a cycle, matching the paper's restriction that keeps solver obligations
 finite. `semanticIntersection` exposes Equation 4 directly: it retains the
