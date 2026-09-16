@@ -129,6 +129,7 @@ module Data.ECTA.Gen.QuickCheck (
 import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
+import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
@@ -148,7 +149,7 @@ import Data.ECTA.Gen (
 import qualified Data.ECTA.Gen as ECTA
 import Data.ECTA.Gen.Do
 import Data.ECTA.Paths (EqConstraints)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 import Data.Maybe (fromMaybe)
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Generic (TypedFTA)
@@ -273,11 +274,11 @@ freeze seed sampleCount native =
     unGen (pool sampleCount native) (mkQCGen seed) 30
 
 -- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
-fromECTA :: Node Symbol -> ECTAGen (Term Symbol)
+fromECTA :: Node Symbol -> ECTAGen (Tree.Tree Symbol)
 fromECTA = ECTA.fromECTA
 
 -- | Compile a bounded annotated FTA with uniform accepted-term sampling.
-fromFTAUpToDepth :: (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Term Symbol)
+fromFTAUpToDepth :: (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
 fromFTAUpToDepth = ECTA.fromFTAUpToDepth
 
 -- | Generate typed values from a datatype grammar with equality annotations.

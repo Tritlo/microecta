@@ -8,6 +8,7 @@ import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
@@ -29,7 +30,7 @@ import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 import Data.ECTA.TestSupport (aggregateRights)
 import Data.Tree.Gen.Internal.Sampler (Exact (..))
 
@@ -493,5 +494,5 @@ spec = do
                 `shouldBe` Right Nothing
 
 -- | The head symbol of a term, as a coverage key.
-termSymbol :: Term Symbol -> String
+termSymbol :: Tree.Tree Symbol -> String
 termSymbol = show

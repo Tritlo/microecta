@@ -34,6 +34,7 @@ module Data.ECTA.Gen.Internal.Support (
 ) where
 
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 
 import Data.ECTA (
     Edge (Edge),
@@ -46,7 +47,7 @@ import Data.ECTA (
 import Data.ECTA.Internal.ECTA.Operations (unfoldOuterRec)
 import Data.ECTA.Internal.ECTA.Type (Node (Mu))
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol))
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.
@@ -101,8 +102,8 @@ keyNode :: Int -> Node Symbol
 keyNode index = Node [Edge (keySymbol index) []]
 
 -- | The ECTA node accepting exactly one term.
-singletonNode :: Term Symbol -> Node Symbol
-singletonNode (Term symbol children) =
+singletonNode :: Tree.Tree Symbol -> Node Symbol
+singletonNode (Tree.Node symbol children) =
     Node [Edge symbol $ map singletonNode children]
 
 {- | One joined edge: the operation group, one group per argument, and one
@@ -123,7 +124,7 @@ joinNode componentIndex operationSupport argumentSupports =
         ]
   where
     keyNodes =
-        [ singletonNode $ Term (argKeySymbol componentIndex position) []
+        [ singletonNode $ Tree.Node (argKeySymbol componentIndex position) []
         | position <- [0 .. length argumentSupports - 1]
         ]
     operationNode =
@@ -212,26 +213,26 @@ isFrequencyEdge edge =
         && edgeEcs edge == EmptyConstraints
 
 -- | Close one private applicative term spine with a domain constructor.
-labelTerm :: Symbol -> Term Symbol -> Term Symbol
-labelTerm symbol term@(Term internal children)
-    | internal == joinNSymbol = Term symbol children
+labelTerm :: Symbol -> Tree.Tree Symbol -> Tree.Tree Symbol
+labelTerm symbol term@(Tree.Node internal children)
+    | internal == joinNSymbol = Tree.Node symbol children
     | isFrequencySymbol internal
     , [child] <- children =
         labelTerm symbol child
-    | internal == pureSymbol = Term symbol []
-    | Just arguments <- applicationTermChildren term = Term symbol arguments
-    | otherwise = Term symbol [term]
+    | internal == pureSymbol = Tree.Node symbol []
+    | Just arguments <- applicationTermChildren term = Tree.Node symbol arguments
+    | otherwise = Tree.Node symbol [term]
 
 -- | Recognize the children of one private applicative term spine.
-applicationTermChildren :: Term Symbol -> Maybe [Term Symbol]
-applicationTermChildren (Term internal [functions, argument])
+applicationTermChildren :: Tree.Tree Symbol -> Maybe [Tree.Tree Symbol]
+applicationTermChildren (Tree.Node internal [functions, argument])
     | internal == applySymbol =
         Just $ applicationLeftChildren functions <> [argument]
 applicationTermChildren _ = Nothing
 
 -- | Flatten the already-applied left portion of an applicative term spine.
-applicationLeftChildren :: Term Symbol -> [Term Symbol]
-applicationLeftChildren term@(Term internal children)
+applicationLeftChildren :: Tree.Tree Symbol -> [Tree.Tree Symbol]
+applicationLeftChildren term@(Tree.Node internal children)
     | internal == pureSymbol && null children = []
     | Just arguments <- applicationTermChildren term = arguments
     | otherwise = [term]

@@ -15,6 +15,7 @@ import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node), mkEdge, reducePartially)
 import Data.ECTA.Gen.Internal.Bucket
@@ -24,7 +25,6 @@ import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Term (Term))
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
 
@@ -173,14 +173,14 @@ joinOutcomeIndex left right groups = do
     select index = do
         checkIndex totalOutcomes index
         let (group, leftOutcome, rightOutcome) = selectPair index
-            keyTerm = Term (keySymbol $ joinGroupIndex group) []
+            keyTerm = Tree.Node (keySymbol $ joinGroupIndex group) []
             leftTerm =
-                Term leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
+                Tree.Node leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
             rightTerm =
-                Term rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
+                Tree.Node rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
         pure $
             Outcome
-                (Term joinSymbol [leftTerm, rightTerm])
+                (Tree.Node joinSymbol [leftTerm, rightTerm])
                 ( outcomeMass leftOutcome
                     * outcomeMass rightOutcome
                     / totalMass
@@ -301,7 +301,7 @@ joinNBucketStatic componentIndex operation arguments =
         False
   where
     keyTerms =
-        [ Term (argKeySymbol componentIndex position) []
+        [ Tree.Node (argKeySymbol componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
     joined =
@@ -324,10 +324,10 @@ joinNBucketStatic componentIndex operation arguments =
         (argumentTerms, argumentsMass, value) <-
             selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
         let operationTerm =
-                Term centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
+                Tree.Node centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
         pure $
             Outcome
-                (Term joinNSymbol (operationTerm : argumentTerms))
+                (Tree.Node joinNSymbol (operationTerm : argumentTerms))
                 (outcomeMass operationOutcome * argumentsMass)
                 value
 
