@@ -15,12 +15,12 @@ module Data.ECTA.Gen.Internal.Bucket (
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Sequence
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (singletonNode)
-import Data.ECTA.Term (Term (Term))
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.
@@ -60,7 +60,7 @@ bucketFromOutcomes retainAtomic outcomes = do
     totalOutcomes = toInteger $ length outcomes
     uniformMass = commonValue $ Just . outcomeMass <$> toList conditional
     bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- outcomes]
-    termEdge (Term symbol children) = Edge symbol $ map singletonNode children
+    termEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
 
     select index = do
         checkIndex totalOutcomes index
