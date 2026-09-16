@@ -17,18 +17,17 @@ module Data.LTA.Gen.Internal.AutomatonCompile (
 ) where
 
 import Data.Bifunctor (first)
-import qualified Data.IntMap.Strict as IntMap
-import Data.List (sortOn)
-import qualified Data.Map.Strict as Map
-import qualified Data.Tree as Tree
-
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRankedWith)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
+import qualified Data.IntMap.Strict as IntMap
 import Data.LTA
 import Data.LTA.Gen.Internal.Bounded (boundAutomaton)
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (cacheEntailment)
+import Data.List (sortOn)
+import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks)
@@ -39,20 +38,20 @@ import qualified Data.Tree.Gen as Ranked
 
 The core's authoritative 'prune' pass runs first. If no syntactic equality
 remains, the adapter counts accepting runs by dynamic programming and only
-'unrank' materializes the chosen 'LiquidTerm'. Positive equality residuals are
+'unrank' materializes the chosen 'Tree.Tree' 'LiquidSymbol'. Positive equality residuals are
 compiled through the shared symbolic equality ranker.
 Use 'compileAutomatonUpToDepth' for recursive automata or general constraints.
 Shrinks reduce the tree node count and remain in the accepted language.
 -}
-compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled LiquidTerm))
+compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled (Tree.Tree LiquidSymbol)))
 compileAutomaton entailment =
-    compileAutomatonWith entailment LiquidTerm
+    compileAutomatonWith entailment (\symbol refinement -> Tree.Node (LiquidSymbol symbol refinement))
 
 {- | Compile an LTA while folding each selected transition directly into a value.
 
 The annotated witness remains available through 'generatedTerm', but is lazy.
 QuickCheck sampling that only demands 'generatedValue' therefore avoids
-constructing and immediately decoding an intermediate 'LiquidTerm'.
+constructing and immediately decoding an intermediate 'Tree.Tree' 'LiquidSymbol'.
 -}
 compileAutomatonWith ::
     Entailment ->
@@ -68,14 +67,14 @@ compileAutomatonWith uncachedEntailment buildValue automaton = do
 A leaf has height zero. A negative bound or empty language gives 'EmptyGenerator'.
 The compiler bounds the graph, then counts it symbolically. Unsupported guards
 give 'InvalidPruning'; undecidable solver obligations give 'SolverUnknown'.
-Each distinct 'LiquidTerm' has one rank, even when
+Each distinct 'Tree.Tree' 'LiquidSymbol' has one rank, even when
 multiple runs accept it. Ranks are deterministic for a fixed automaton and bound.
 Shrinks stay in the accepted language and strictly reduce the tree node count.
 -}
 compileAutomatonUpToDepth ::
-    Entailment -> Int -> Automaton -> IO (Either GeneratorError (Compiled LiquidTerm))
+    Entailment -> Int -> Automaton -> IO (Either GeneratorError (Compiled (Tree.Tree LiquidSymbol)))
 compileAutomatonUpToDepth entailment =
-    compileAutomatonUpToDepthWith entailment LiquidTerm
+    compileAutomatonUpToDepthWith entailment (\symbol refinement -> Tree.Node (LiquidSymbol symbol refinement))
 
 {- | Compile a bounded LTA with a lazy fold for each selected domain value.
 
@@ -161,7 +160,7 @@ compileSymbolicAutomaton buildValue support automaton = do
         ]
     (root, alphabet) <- symbolicGraph automaton
     terms <- first fromRankedError $ symbolicRankedWith interpret root
-    let generated term = Generated 1 (foldTerm alphabet buildValue term) (foldTerm alphabet LiquidTerm term)
+    let generated term = Generated 1 (foldTerm alphabet buildValue term) (fmap (alphabet IntMap.!) term)
         size rank = either (const 0) nodeCount $ Ranked.unrank terms rank
         shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank terms rank
     pure $ Compiled support (generated <$> terms) shrinks
@@ -256,4 +255,4 @@ generatedAtWith buildValue automaton counts rank =
     Generated
         1
         (Ordinary.foldAt (\(LiquidSymbol symbol refinement) -> buildValue symbol refinement) automaton counts rank)
-        (Ordinary.foldAt (\(LiquidSymbol symbol refinement) -> LiquidTerm symbol refinement) automaton counts rank)
+        (Ordinary.foldAt Tree.Node automaton counts rank)

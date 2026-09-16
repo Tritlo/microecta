@@ -4,6 +4,7 @@ module Data.LTA.RecursiveGeneratorSpec (spec) where
 
 import Control.Exception (evaluate)
 import Control.Monad (forM_)
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldReturn)
 
@@ -12,7 +13,7 @@ import Data.LTA (
     Automaton,
     AutomatonError,
     Entailment (Entailment),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     State (State),
     Symbol,
     Verdict (Unknown, Yes),
@@ -77,8 +78,8 @@ variablePairAutomaton =
     transition symbol children = Transition symbol true children unconstrainedConstraint
 
 -- | Count the physical nodes of one small test term.
-termNodes :: LiquidTerm -> Integer
-termNodes (LiquidTerm _ _ children) = 1 + sum (map termNodes children)
+termNodes :: Tree.Tree LiquidSymbol -> Integer
+termNodes = Tree.foldTree $ \_ counts -> 1 + sum counts
 
 unusedEntailment :: Entailment
 unusedEntailment = Entailment $ \_ _ -> pure Unknown
@@ -239,7 +240,7 @@ spec = do
                         ]
             result <- LTA.compileAutomaton unusedEntailment automaton
             fmap LTA.cardinality result `shouldBe` Right 1
-            fmap values result `shouldBe` Right [LiquidTerm "wrap" true [itemA]]
+            fmap values result `shouldBe` Right [Tree.Node (LiquidSymbol "wrap" true) [itemA]]
 
         it "reports an empty initial state without an overlap" $ do
             automaton <- either (fail . show) pure $ mkAutomaton (State 0) [(State 0, [])]
@@ -247,9 +248,9 @@ spec = do
             fmap LTA.cardinality result `shouldBe` Left LTA.EmptyGenerator
   where
     sameChildren = mkEqConstraints [[path [0], path [1]]]
-    itemA = LiquidTerm "item-a" true []
-    itemB = LiquidTerm "item-b" true []
-    pair item = LiquidTerm "pair" true [item, item]
+    itemA = Tree.Node (LiquidSymbol "item-a" true) []
+    itemB = Tree.Node (LiquidSymbol "item-b" true) []
+    pair item = Tree.Node (LiquidSymbol "pair" true) [item, item]
 
     selectedTag symbol _ children = case (symbol, children) of
         ("pair", [_, tag]) -> tag

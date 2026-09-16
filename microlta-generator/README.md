@@ -435,6 +435,10 @@ recursive languages should be compiled as automata so terms stay symbolic.
 
 ## Sampling performance
 
+The recorded measurements in this section and the equality-theory comparison
+below predate the standard-tree migration. They used the earlier `LiquidTerm`
+representation. Run the benchmark commands below to measure the current code.
+
 The typed stack-machine benchmark separates seven useful paths:
 
 - **naive** draws uniformly from all nine raw commands at every position and
@@ -448,7 +452,7 @@ The typed stack-machine benchmark separates seven useful paths:
 - **LTA do** preserves the qualified-do recipe, groups its live refinement
   observations, and lowers solver-approved tuples through ECTA joins;
 - **LTA materialized** prunes the explicit automaton, constructs a selected
-  `LiquidTerm`, then decodes it to `Trace`;
+  `Tree LiquidSymbol`, then decodes it to `Trace`;
 - **LTA fused** uses the same explicit automaton but folds a selected run
   directly into `Trace`.
 
@@ -542,8 +546,8 @@ without visiting members. The same qualified-do source now reaches length 40.
 
 The direct automaton rows isolate decoding cost. At length 40, fusing the
 bottom-up `Trace` decoder saves 43.9 KB per sample—14.3%—and gives a small
-throughput improvement over materializing and immediately traversing a
-`LiquidTerm`. The remaining gap is in generic automaton unranking. Conversely,
+throughput improvement over materializing and immediately traversing the
+earlier `LiquidTerm`. The remaining gap is in generic automaton unranking. Conversely,
 LTA do's retained relational index uses 6.15 MB of setup memory versus about
 653 KB for the direct automaton; reducing that compact-index constant and using
 a persistent worklist in automaton pruning are the next focused opportunities.

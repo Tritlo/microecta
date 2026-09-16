@@ -61,6 +61,7 @@ import Control.Monad (foldM, guard)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (fromString)
+import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
@@ -69,7 +70,7 @@ import Data.LTA (
     AutomatonError,
     Entailment,
     LiquidConstraint,
-    LiquidTerm (..),
+    LiquidSymbol (..),
     Refinement,
     State (State),
     Symbol,
@@ -316,7 +317,7 @@ compileTracesOfLength ::
 compileTracesOfLength entailment traceLength =
     LTA.compileRelational entailment $ tracesOfLength traceLength
 
--- | Compile the finite-state trace LTA through an intermediate 'LiquidTerm'.
+-- | Compile the finite-state trace LTA through an intermediate 'Tree.Tree' 'LiquidSymbol'.
 compileTraceAutomatonMaterialized ::
     Entailment ->
     Int ->
@@ -351,7 +352,7 @@ data DecodedTraceNode
     | DecodedCommand !Command
     | DecodedScaffolding
 
--- | Fold one pruned trace transition without constructing a 'LiquidTerm'.
+-- | Fold one pruned trace transition without constructing a 'Tree.Tree' 'LiquidSymbol'.
 decodeTraceNode :: Symbol -> Refinement -> [DecodedTraceNode] -> DecodedTraceNode
 decodeTraceNode "start" refinement []
     | refinement == stateRefinement emptyState = DecodedTrace id emptyState
@@ -538,10 +539,10 @@ traceFromCommands commands = do
         pure (Event before command response after : events, after)
 
 -- | Decode one accepted liquid witness into the ordinary QSM trace value.
-traceFromLiquidTerm :: LiquidTerm -> Maybe Trace
-traceFromLiquidTerm LiquidTerm{liquidSymbol = "start", liquidRefinement, liquidChildren = []}
+traceFromLiquidTerm :: Tree.Tree LiquidSymbol -> Maybe Trace
+traceFromLiquidTerm (Tree.Node (LiquidSymbol "start" liquidRefinement) [])
     | liquidRefinement == stateRefinement emptyState = Just initialTraceValue
-traceFromLiquidTerm LiquidTerm{liquidSymbol = "step", liquidRefinement, liquidChildren = [previousTerm, commandTerm]} = do
+traceFromLiquidTerm (Tree.Node (LiquidSymbol "step" liquidRefinement) [previousTerm, commandTerm]) = do
     previous <- traceFromLiquidTerm previousTerm
     command <- commandFromLiquidTerm commandTerm
     let before = traceFinalState previous
@@ -554,8 +555,8 @@ traceFromLiquidTerm LiquidTerm{liquidSymbol = "step", liquidRefinement, liquidCh
 traceFromLiquidTerm _ = Nothing
 
 -- | Recover the command represented by one reusable liquid schema.
-commandFromLiquidTerm :: LiquidTerm -> Maybe Command
-commandFromLiquidTerm LiquidTerm{liquidSymbol, liquidChildren = [_, _]} =
+commandFromLiquidTerm :: Tree.Tree LiquidSymbol -> Maybe Command
+commandFromLiquidTerm (Tree.Node (LiquidSymbol liquidSymbol _) [_, _]) =
     lookup
         liquidSymbol
         [ (contractSymbol contract, contractCommand contract)
