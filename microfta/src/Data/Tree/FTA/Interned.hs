@@ -12,6 +12,7 @@ module Data.Tree.FTA.Interned (
     FTAImportError (..),
     toFTA,
     fromFTA,
+    StateView (..),
     toTree,
     module Data.Tree.FTA.Constraint,
     module Data.Tree.FTA.Interned.Type,
@@ -25,8 +26,10 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
+import Data.Tree.FTA (StateView (..))
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Constraint
+import Data.Tree.FTA.Internal.Tree (toTreeBy)
 import Data.Tree.FTA.Interned.Operations
 import Data.Tree.FTA.Interned.Type
 
@@ -82,16 +85,21 @@ toFTA root
             (map stateOf $ edgeChildren edge)
             (edgeConstraint edge)
 
-{- | Render a closed interned grammar for 'Tree.drawTree'.
+{- | Expose typed state and transition labels for a closed interned grammar.
 
-The view retains transition constraints. Recursive and shared references use
-the same finite representation as 'FTA.toTree'. Open roots and invalid ranked
-alphabets return the errors from 'toFTA'.
+The view retains the original nodes, edges, and constraints. Recursive and
+shared references use the same finite representation as 'FTA.toTree'. Open
+roots return 'OpenNode'. The view does not require a ranked alphabet.
 -}
 toTree ::
-    (Hashable symbol, Ord symbol, Show symbol, Typeable symbol, Constraint constraint, Show constraint) =>
-    Node symbol constraint -> Either (FTAViewError symbol) (Tree.Tree String)
-toTree = fmap FTA.toTree . toFTA
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint ->
+    Either
+        (FTAViewError symbol)
+        (Tree.Tree (Either (StateView (Node symbol constraint)) (Edge symbol constraint)))
+toTree root
+    | not (Set.null $ freeVars root) = Left OpenNode
+    | otherwise = Right $ toTreeBy nodeEdges edgeChildren root
 
 -- | Failure while importing a finite explicit-state graph.
 newtype FTAImportError state = RecursiveFTAState state

@@ -60,7 +60,10 @@ library
     TypeOperators
     ViewPatterns
 
-  other-modules: Data.CacheFamily
+  other-modules:
+    Data.CacheFamily
+    Data.Tree.FTA.Internal.Tree
+
   exposed-modules:
     Data.Interned.Extended.HashTableBased
     Data.Memoization

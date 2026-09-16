@@ -1,6 +1,5 @@
 module Data.ECTA.FTASyntaxSpec (spec) where
 
-import Data.List (isInfixOf)
 import Data.Tree (flatten)
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
@@ -30,7 +29,9 @@ spec =
             Core.nodeRepresents ecta (Term "pair" [Term "a" [], Term "b" []]) `shouldBe` False
             case Core.toTree ecta of
                 Left err -> expectationFailure $ show err
-                Right tree -> flatten tree `shouldSatisfy` any (show equalChildren `isInfixOf`)
+                Right tree ->
+                    [Core.edgeEcs edge | Right edge <- flatten tree]
+                        `shouldSatisfy` elem equalChildren
 
         it "preserves the ECTA display through the common-engine wrapper" $ do
             let edge = Core.Edge "leaf" [] :: Core.Edge String

@@ -48,7 +48,7 @@ import qualified Data.Tree.FTA.Syntax as Syntax
 | Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
 | Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
 | Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. `fromFTA` requires an acyclic input. |
-| Visualize a grammar | `FTA.toTree`, `Common.toTree` | A finite `Data.Tree.Tree String` for `drawTree`. Interned conversion can report an invalid root. |
+| Visualize a grammar | `FTA.toTree`, `Common.toTree` | A finite tree of typed state and transition labels. Map the labels to strings for `drawTree`. |
 
 `FTA` and `Common` are two representations in this package. `FTA` retains
 explicit state names. `Common` uses interned nodes and edges to share structure.
@@ -226,37 +226,60 @@ combination. `stripGuards` removes annotations; it does not solve constraints.
 
 ## Visualize a grammar
 
-`FTA.toTree` returns a `Data.Tree.Tree String`. Use `drawTree` to display it.
-The recursive `naturals` grammar above produces a finite diagram:
+`FTA.toTree` returns a finite tree with typed labels:
+
+```haskell
+toTree ::
+    (Ord state) =>
+    FTA state symbol guard ->
+    Tree (Either (StateView state) (Transition state symbol guard))
+```
+
+`Left` contains a state definition or reference. `Right` contains the original
+transition, including its symbol, children, and annotation. Use `fmap` to choose
+the strings for `drawTree`. For the recursive `naturals` grammar above:
 
 ```haskell
 import Data.Tree (drawTree)
 import qualified Data.Tree.FTA as FTA
 
+-- | Choose state names and mark recursive and shared references.
+renderNode :: FTA.StateView Int -> String
+renderNode view = case fmap (("q" ++) . show) view of
+    FTA.Expanded name -> name
+    FTA.Recursive name -> "mu " ++ name
+    FTA.Shared name -> "ref " ++ name
+
+-- | Draw the natural-number grammar with plain constructor labels.
 drawNaturals :: IO ()
-drawNaturals = either (fail . show) (putStr . drawTree . FTA.toTree) naturals
+drawNaturals = do
+    grammar <- either (fail . show) pure naturals
+    putStr $ drawTree $ fmap (either renderNode FTA.transitionSymbol) $ FTA.toTree grammar
 ```
 
 ```text
-state 0
+q0
 |
-+- "zero" [()]
++- zero
 |
-`- "successor" [()]
+`- successor
    |
-   `- mu 0
+   `- mu q0
 ```
 
-Each state contains its transition alternatives. Transition labels show the
-symbol and annotation; `()` is the ordinary unconstrained annotation. A `mu`
-leaf refers to a state on the current path. A `ref` leaf refers to a state
-expanded earlier. Each state is expanded once. The view contains only states
-reachable from the initial state. It does not enumerate the accepted values.
+Each expanded state contains its transition alternatives. `Recursive state`
+refers to a state on the current path. `Shared state` refers to a state expanded
+earlier. Each state is expanded once. The example displays these references as
+`mu` and `ref`, and omits the plain grammar's `()` annotation. These display
+choices belong to the caller; `toTree` retains the original labels.
 
-`Common.toTree` provides the same view for interned graphs. It returns
-`Either (FTAViewError symbol) (Tree String)`, because an interned root can have
-an open recursive variable or an invalid ranked alphabet. Add `containers` to
-your component's `build-depends` when you import `Data.Tree` directly.
+`Common.toTree` provides the same view for interned graphs. Its state labels
+contain `Common.Node symbol constraint`; its transition labels contain
+`Common.Edge symbol constraint`. It returns `Either (Common.FTAViewError symbol)`
+around the tree because it rejects an open recursive root. It traverses the
+graph directly and does not validate symbol arities. Neither view enumerates
+the accepted values. Add `containers` to your component's `build-depends` when
+you import `Data.Tree` directly.
 
 ## Generate a language up to a depth bound
 

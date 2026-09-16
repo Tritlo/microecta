@@ -39,10 +39,16 @@ spec = do
                         `shouldBe` True
                     Automaton.toTree automaton
                         `shouldBe` Tree.Node
-                            "state Expression"
-                            [ Tree.Node "\"zero\" [()]" []
-                            , Tree.Node "\"add\" [()]" [Tree.Node "mu Expression" [], Tree.Node "mu Expression" []]
+                            (Left $ Automaton.Expanded Expression)
+                            [ Tree.Node (Right $ Automaton.Transition "zero" [] ()) []
+                            , Tree.Node
+                                (Right $ Automaton.Transition "add" [Expression, Expression] ())
+                                [ Tree.Node (Left $ Automaton.Recursive Expression) []
+                                , Tree.Node (Left $ Automaton.Recursive Expression) []
+                                ]
                             ]
+                    let functionLabels = Tree.flatten $ Automaton.toTree $ Automaton.mapGuards (const not) automaton
+                    [Automaton.transitionGuard edge True | Right edge <- functionLabels] `shouldBe` [False, False]
 
         it "constructs the ordinary product intersection" $ do
             let left =
@@ -121,6 +127,7 @@ spec = do
             let leaf = Common.Node [Common.Edge "same" []] :: Common.PlainNode String
                 unary = Common.Node [Common.Edge "same" [leaf]]
             Common.intersect leaf unary `shouldBe` Common.EmptyNode
+            fmap (length . Tree.flatten) (Common.toTree $ Common.union [leaf, unary]) `shouldBe` Right 5
 
         it "rejects an open recursive node in an explicit graph view" $ do
             let open = Common.Rec (Common.RecUnint 0) :: Common.PlainNode String
@@ -144,7 +151,13 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right graph -> do
                     Tree.flatten (Automaton.toTree graph)
-                        `shouldBe` ["state 0", "\"pair\" [()]", "state 1", "\"leaf\" [()]", "ref 1", "\"leaf\" [()]"]
+                        `shouldBe` [ Left $ Automaton.Expanded 0
+                                   , Right $ Automaton.Transition "pair" [1, 1] ()
+                                   , Left $ Automaton.Expanded 1
+                                   , Right $ Automaton.Transition "leaf" [] ()
+                                   , Left $ Automaton.Shared 1
+                                   , Right $ Automaton.Transition "leaf" [] ()
+                                   ]
                     case Common.fromFTA graph of
                         Left err -> expectationFailure $ show err
                         Right node -> do

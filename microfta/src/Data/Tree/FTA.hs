@@ -34,6 +34,7 @@ module Data.Tree.FTA (
     intersect,
     intersectWith,
     accepts,
+    StateView (..),
     toTree,
 ) where
 
@@ -46,6 +47,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
+import Data.Tree.FTA.Internal.Tree (StateView (..), toTreeBy)
 import Data.Tree.Term (Term (Term))
 
 -- | One ranked transition from a parent state to child states.
@@ -90,33 +92,18 @@ data FTAError state symbol
       InconsistentArity !symbol !Int !Int
     deriving (Eq, Show)
 
-{- | Render the reachable grammar as a finite tree for 'Tree.drawTree'.
+{- | Expose the reachable grammar as a finite tree of typed labels.
 
-Each state contains its transition alternatives. Each transition shows its
-symbol and annotation, followed by its child states. A @mu@ leaf refers to a
-state on the current path. A @ref@ leaf refers to a state expanded earlier.
-Each state is expanded once, so sharing and recursion keep the view finite.
-This view does not enumerate accepted terms or evaluate annotations.
+'Left' labels contain state definitions or references. 'Right' labels contain
+the original transitions, including symbols, child states, and annotations.
+Use @fmap (either renderState renderTransition)@ to prepare a tree for
+'Tree.drawTree'. Each state is expanded once, so sharing and recursion keep
+the view finite. This operation does not enumerate terms or interpret guards.
 -}
 toTree ::
-    (Ord state, Show state, Show symbol, Show guard) =>
-    FTA state symbol guard -> Tree.Tree String
-toTree automaton = State.evalState (visit Set.empty $ initialState automaton) Set.empty
-  where
-    visit ancestors state
-        | Set.member state ancestors = pure $ Tree.Node ("mu " <> show state) []
-        | otherwise = do
-            seen <- State.get
-            if Set.member state seen
-                then pure $ Tree.Node ("ref " <> show state) []
-                else do
-                    State.modify' (Set.insert state)
-                    alternatives <- traverse (transition $ Set.insert state ancestors) $ transitionsFrom automaton state
-                    pure $ Tree.Node ("state " <> show state) alternatives
-
-    transition ancestors Transition{transitionSymbol, transitionChildren, transitionGuard} =
-        Tree.Node (show transitionSymbol <> " [" <> show transitionGuard <> "]")
-            <$> traverse (visit ancestors) transitionChildren
+    (Ord state) =>
+    FTA state symbol guard -> Tree.Tree (Either (StateView state) (Transition state symbol guard))
+toTree automaton = toTreeBy (transitionsFrom automaton) transitionChildren $ initialState automaton
 
 -- | Validate and construct an FTA. Cyclic automata are accepted.
 mkFTA ::

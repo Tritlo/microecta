@@ -122,52 +122,108 @@ anyF = TemplatePrefix "f" [] :: Template Symbol
 
 ## Visualize the automaton
 
-`toTree` returns `Either (ECTAFTAError symbol) (Tree String)`. Use `drawTree`
-from `containers` to print the reachable graph:
+`toTree` retains the original nodes and edges in typed labels:
 
 ```haskell
-import Data.ECTA
-import Data.ECTA.Paths (mkEqConstraints, path)
+toTree ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol ->
+    Either (ECTAFTAError symbol)
+        (Tree (Either (StateView (Node symbol)) (Edge symbol)))
+```
+
+`Left` contains an expanded node or a recursive or shared reference. `Right`
+contains an original edge, including its equality constraints. Map the labels
+to strings with `fmap (either renderNode renderEdge)` before using `drawTree`.
+The renderer can choose domain names because node labels retain the nodes:
+
+```haskell
+module Main (main) where
+
+import Data.List (intercalate)
 import Data.Tree (drawTree)
 
-graph :: Node String
-graph = createMu $ \self ->
-    Node
-        [ mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
-        , Edge "Again" [self]
-        ]
-  where
-    leaf = Node [Edge "Int" []]
+import qualified Data.ECTA as ECTA
+import Data.ECTA.Paths (mkEqConstraints, path, subsumptionOrderedEclasses, unPath, unPathEClass)
 
+-- | The one literal state in this example.
+leaf :: ECTA.Node String
+leaf = ECTA.Node [ECTA.Edge "Int" []]
+
+-- | Equal pairs and recursive wrappers share the same expression state.
+graph :: ECTA.Node String
+graph = ECTA.createMu $ \self ->
+    ECTA.Node
+        [ ECTA.mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
+        , ECTA.Edge "Again" [self]
+        ]
+
+-- | Use application-specific names for the original nodes.
+renderNode :: ECTA.StateView (ECTA.Node String) -> String
+renderNode view = case fmap name view of
+    ECTA.Expanded label -> label
+    ECTA.Recursive label -> "mu " <> label
+    ECTA.Shared label -> "ref " <> label
+  where
+    name node
+        | node == leaf = "literal"
+        | otherwise = "expression"
+
+-- | Keep equality paths while omitting empty constraints.
+renderEdge :: ECTA.Edge String -> String
+renderEdge edge = ECTA.edgeSymbol edge <> constraints
+  where
+    constraints = case subsumptionOrderedEclasses $ ECTA.edgeEcs edge of
+        Nothing -> " [false]"
+        Just [] -> ""
+        Just classes -> " [" <> intercalate ", " (map renderClass classes) <> "]"
+    renderClass = intercalate " = " . map renderPath . unPathEClass
+    renderPath target = case unPath target of
+        [] -> "root"
+        indexes -> intercalate "." $ map show indexes
+
+-- | Choose labels after constructing the typed graph view.
 main :: IO ()
-main = case toTree graph of
-    Left err -> print err
-    Right tree -> putStrLn (drawTree tree)
+main = do
+    tree <- either (fail . show) pure $ ECTA.toTree graph
+    putStr $ drawTree $ fmap (either renderNode renderEdge) tree
 ```
 
 This program prints:
 
 ```text
-state InternedState 3
+expression
 |
-+- "Pair" [EqConstraints [PathEClass' {getPathTrie = PathTrie [(0,TerminalPathTrie),(1,TerminalPathTrie)], getOrigPaths = [Path [0],Path [1]]}]]
++- Pair [0 = 1]
 |  |
-|  +- state InternedState 0
+|  +- literal
 |  |  |
-|  |  `- "Int" [EqConstraints []]
+|  |  `- Int
 |  |
-|  `- ref InternedState 0
+|  `- ref literal
 |
-`- "Again" [EqConstraints []]
+`- Again
    |
-   `- mu InternedState 3
+   `- mu expression
 ```
 
-The labels use `Show` and retain equality constraints. A cycle ends with
-`mu <state>`; another reference to an expanded shared state ends with
-`ref <state>`. Numeric state identities can differ if other graphs were built
-first. Open recursive variables return `Left OpenECTA`. This view does not
-enumerate terms or solve constraints.
+`Expanded`, `Recursive`, and `Shared` identify node definitions and references.
+The example chooses the names `expression` and `literal`, and prints equality
+paths instead of their internal trie representation. The renderer preserves
+contradictions as `[false]` and omits only empty equality constraints.
+
+The view traverses the interned graph directly. Unlike `toFTA`, it does not
+require a ranked alphabet. An open recursive variable returns `Left OpenECTA`.
+It does not enumerate terms or solve constraints. Add `containers` to your
+component's `build-depends` when you import `Data.Tree` directly.
+
+For the actual typed-expression generator, see
+[`DrawTypedExpressions.hs`](../microecta-generator/examples/DrawTypedExpressions.hs).
+Run `cabal run ecta-draw-typed-expressions` from the workspace root. It draws
+finite and recursive supports with local state names and readable equality
+paths. It shortens the private `$ecta-gen/` prefix to `gen:`. Source indices and
+key IDs remain opaque: the support graph does not retain their decoded Haskell
+values or type names.
 
 ## Pruning API
 

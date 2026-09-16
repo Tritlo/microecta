@@ -6,6 +6,7 @@ does not solve or discard them.
 module Data.ECTA.FTA (
     ECTAState,
     ECTAFTAError (..),
+    StateView (..),
     toFTA,
     toTree,
 ) where
@@ -13,10 +14,12 @@ module Data.ECTA.FTA (
 import Data.Tree (Tree)
 import Data.Typeable (Typeable)
 
+import Data.Bifunctor (bimap)
 import Data.Hashable (Hashable)
 
-import Data.ECTA.Internal.ECTA.Type (Node, toInterned)
+import Data.ECTA.Internal.ECTA.Type (Edge (ECTAEdge), Node, fromInterned, toInterned)
 import Data.ECTA.Paths (EqConstraints)
+import Data.Tree.FTA (StateView (..))
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Interned as Common
 
@@ -41,14 +44,18 @@ toFTA root = case Common.toFTA (toInterned root) of
     Left (Common.InvalidFTA err) -> Left (InvalidFTA err)
     Right graph -> Right graph
 
-{- | Display the reachable ECTA graph with 'Data.Tree.drawTree'.
+{- | Expose the reachable ECTA graph as typed state and transition labels.
 
-Transition labels retain equality constraints. Cycles end with @mu@ references;
-other shared states end with @ref@ references. Open recursive variables fail as
-in 'toFTA'. This operation does not enumerate terms or solve constraints.
+The labels retain the original nodes and edges, including equality constraints.
+'Recursive' and 'Shared' labels identify references. Map the labels to strings
+before using @drawTree@. Open recursive variables return 'OpenECTA'. This view
+does not require a ranked alphabet, enumerate terms, or solve constraints.
 -}
 toTree ::
-    (Hashable symbol, Ord symbol, Typeable symbol, Show symbol) =>
+    (Hashable symbol, Typeable symbol) =>
     Node symbol ->
-    Either (ECTAFTAError symbol) (Tree String)
-toTree = fmap FTA.toTree . toFTA
+    Either (ECTAFTAError symbol) (Tree (Either (StateView (Node symbol)) (Edge symbol)))
+toTree root = case Common.toTree (toInterned root) of
+    Left Common.OpenNode -> Left OpenECTA
+    Left (Common.InvalidFTA err) -> Left (InvalidFTA err)
+    Right tree -> Right $ fmap (bimap (fmap fromInterned) ECTAEdge) tree

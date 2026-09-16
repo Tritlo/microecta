@@ -135,6 +135,19 @@ executable ecta-finite-languages
     microfta-generator >=0.1.0.0 && <0.2,
     QuickCheck >=2.14 && <2.19,
 
+executable ecta-draw-typed-expressions
+  import: warnings
+  main-is: DrawTypedExpressions.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.21 && <5,
+    containers >=0.7 && <0.9,
+    microecta >=0.2.0.0 && <0.3,
+    microecta-generator,
+    microfta >=0.1.0.0 && <0.2,
+    text >=2.1 && <2.2,
+
 test-suite unit-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
