@@ -42,7 +42,7 @@ spec = do
                 `shouldBe` buildGuard (\actual expected -> actual `isSubtypeOf` expected)
 
         it "states ordinary preconditions in the vocabulary of a property writer" $
-            buildGuard (\candidate -> candidate `requires` nonNegative)
+            buildGuard (`requires` nonNegative)
                 `shouldBe` semanticConstraint (Satisfies (path [0]) nonNegative)
 
         it "reports a named guard mismatch before either compiler filters candidates" $ do
@@ -60,7 +60,7 @@ spec = do
         it "checks guard arity without enumerating a large child product" $ do
             let source = LTA.pool [LTA.refined (0 :: Int) "zero" true, LTA.refined 1 "one" true]
                 forest = foldr (\_ rest -> (:) <$> LTA.children source <*> rest) (pure []) [1 .. 50 :: Int]
-                generator = LTA.node "many" (\firstChild -> firstChild `requires` true) forest
+                generator = LTA.node "many" (`requires` true) forest
             compiled <- LTA.compile unusedEntailment generator
             fmap LTA.cardinality compiled
                 `shouldBe` Left (LTA.InvalidSupport $ GuardArityMismatch "many" 50 1)

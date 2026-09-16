@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | Group a recipe by the observations its guards need.
 
@@ -144,7 +145,7 @@ compileRecipe entailment requested (ChoiceRecipe alternatives) = do
     compiled <-
         traverse
             ( \(weight, recipe) ->
-                fmap (fmap $ \grouped -> (weight, grouped)) $
+                fmap (fmap (weight,)) $
                     compileRecipe entailment requested recipe
             )
             alternatives

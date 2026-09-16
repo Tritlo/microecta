@@ -30,9 +30,9 @@ import Data.LTA.Types (LiquidTerm (..), State)
 import Data.LTA.Verdict (Entailment, Verdict (..), andM, andVerdict, orM)
 
 -- | Failure while computing the bounded denotation from Figure 6.
-data EnumerationError
+newtype EnumerationError
     = -- | The solver could not decide a guard on one candidate transition.
-      EnumerationUnknown !State
+      EnumerationUnknown State
     deriving (Eq, Show)
 
 -- | Decide whether an annotated term is accepted from the initial state.

@@ -34,7 +34,7 @@ denominators =
 
 -- | Reject the zero denominator before evaluating the division.
 divisions :: LTA.LTAGen (Integer, Integer)
-divisions = LTA.node "divide" (\denominator -> denominator `requires` nonZero) $ LTA.do
+divisions = LTA.node "divide" (`requires` nonZero) $ LTA.do
     denominator <- denominators
     LTA.pure (denominator, 12 `div` denominator)
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | Semantic pruning, ECTA lowering, and the complete reduction phase.
 
@@ -19,7 +20,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, get, modify', runStateT)
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Set as Set
 
 import Data.ECTA.Paths (
@@ -124,7 +125,7 @@ lowerToEqualityAutomaton automaton = do
         Right lowered -> Right lowered
   where
     lowerRow (state, transitions) =
-        fmap (\lowered -> (state, lowered)) $ traverse (lowerTransition state) transitions
+        fmap (state,) $ traverse (lowerTransition state) transitions
 
     lowerTransition state transition@(FTA.Transition symbol children _) = do
         equalities <- constraintEqualitiesOnly automaton state transition
@@ -303,7 +304,7 @@ pruneEquality original left right transition = do
       where
         replacement leftState = do
             narrowed <- intersectWithStates original leftState rightStates
-            pure $ fmap (\state -> (leftState, state)) narrowed
+            pure $ fmap (leftState,) narrowed
 
 -- | Intersect one state with the union of the supplied right-hand states.
 intersectWithStates ::
@@ -433,7 +434,7 @@ rewriteStatePath _ [] replacements state = pure $ Map.lookup state replacements
 rewriteStatePath original components replacements state = do
     table <- effectiveTable original
     rewritten <- traverse (rewriteTransitionPath original components replacements) $ Map.findWithDefault [] state table
-    Just <$> allocateRow [transition | Just transition <- rewritten]
+    Just <$> allocateRow (catMaybes rewritten)
 
 -- | Replace one known-valid child position.
 replaceChild :: Int -> Transition -> State -> Transition

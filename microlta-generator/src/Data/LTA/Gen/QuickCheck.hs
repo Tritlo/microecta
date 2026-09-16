@@ -15,6 +15,7 @@ module Data.LTA.Gen.QuickCheck (
     forAll,
 ) where
 
+import qualified Data.Bifunctor as Bifunctor
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
@@ -189,7 +190,7 @@ toGen compiled =
 -- | Sample a value together with its deterministic replay rank.
 toGenWithRank :: Compiled a -> QC.Gen (Integer, a)
 toGenWithRank compiled =
-    (\(rank, generated) -> (rank, generatedValue generated))
+    (Bifunctor.second generatedValue)
         <$> Tree.toGenWithRank (compiledRanked compiled)
 
 -- | Quantify over accepted values and shrink along compiled liquid relations.

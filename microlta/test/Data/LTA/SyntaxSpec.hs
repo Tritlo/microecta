@@ -34,7 +34,7 @@ spec =
                         "sqrt"
                         true
                         [State 1]
-                        (\argument -> argument `requires` nonNegative)
+                        (`requires` nonNegative)
                     ]
                 , Syntax.row
                     (State 1)
@@ -73,7 +73,7 @@ spec =
                     mapM (accepts tableEntailment automaton) terms
                         >>= (`shouldBe` [Yes, Yes, No, Yes])
                     LTA.denotationAtMost tableEntailment 1 automaton
-                        >>= (`shouldBe` Right [terms !! 0, terms !! 1, terms !! 3])
+                        >>= (`shouldBe` Right (map (terms !!) [0, 1, 3]))
 
         it "validates recursive guard paths after interned construction" $ do
             let root = Common.Mu $ \self ->

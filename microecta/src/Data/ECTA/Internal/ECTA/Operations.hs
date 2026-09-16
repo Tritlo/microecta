@@ -103,11 +103,11 @@ pathsMatching _ EmptyNode = []
 pathsMatching _ (InternedMu _) = []
 pathsMatching f n@(InternedNode node) =
     (concatMap pathsMatchingEdge es)
-        ++ if f n then [EmptyPath] else []
+        ++ ([EmptyPath | f n])
   where
     es = internedNodeEdges node
     pathsMatchingEdge e = concat $ mapWithIndex (\i x -> map (ConsPath i) $ pathsMatching f x) (edgeChildren e)
-pathsMatching _ (Rec _) = error $ "pathsMatching: unexpected Rec"
+pathsMatching _ (Rec _) = error "pathsMatching: unexpected Rec"
 
 ------------
 ------ Membership
@@ -232,8 +232,9 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     go _ EmptyNode = EmptyNode
     go _ (Mu n) = Mu n
     go inheritedEcs n@(Node _) = modifyNode n $ \es ->
-        map (reduceChildren inheritedEcs) $
-            map (reduceEdgeIntersection inheritedEcs) es
+        map
+            (reduceChildren inheritedEcs . reduceEdgeIntersection inheritedEcs)
+            es
     go _ (Rec _) = error "reducePartially: unexpected Rec"
 
     reduceChildren :: EqConstraints -> Edge symbol -> Edge symbol

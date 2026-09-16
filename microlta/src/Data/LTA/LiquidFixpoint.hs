@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- | A Z3-backed 'Entailment' implemented with Liquid Fixpoint's SMT API.
 module Data.LTA.LiquidFixpoint (
     integerDeclarations,
@@ -70,7 +72,7 @@ withZ3Assuming declarations assumptions action =
 
     freshDeclaration (fresh, original)
         | fresh `elem` map fst declarations = Nothing
-        | otherwise = fmap (\sort -> (fresh, sort)) $ lookup original declarations
+        | otherwise = fmap (fresh,) $ lookup original declarations
 
     responseVerdict SMTTypes.Unsat = pure Yes
     responseVerdict SMTTypes.Sat = pure No
