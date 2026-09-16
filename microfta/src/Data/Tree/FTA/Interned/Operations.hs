@@ -49,7 +49,9 @@ import Utility.HashJoin
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}
-nodeMapChildren :: (Hashable symbol, Typeable symbol, Constraint constraint) => (Edge symbol constraint -> Edge symbol constraint) -> Node symbol constraint -> Node symbol constraint
+nodeMapChildren ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (Edge symbol constraint -> Edge symbol constraint) -> Node symbol constraint -> Node symbol constraint
 nodeMapChildren _ EmptyNode = EmptyNode
 nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
 nodeMapChildren f (Node es) = Node (map f es)
@@ -57,7 +59,10 @@ nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
 -- | Transform each reachable node. Memoize separately for each transformation.
 {-# INLINEABLE mapNodes #-}
-mapNodes :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint -> Node symbol constraint
+mapNodes ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint -> Node symbol constraint
 mapNodes f = go
   where
     -- This table belongs to this transformation.
@@ -115,13 +120,15 @@ onNormalNodes _ _ = mempty
 
 -- | Unfold one outer 'Mu' layer.
 {-# INLINEABLE unfoldOuterRec #-}
-unfoldOuterRec :: (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
+unfoldOuterRec ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
 unfoldOuterRec n@(Mu x) = x n
 unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
 
 -- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
 {-# INLINEABLE nodeEdges #-}
-nodeEdges :: (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [Edge symbol constraint]
+nodeEdges ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [Edge symbol constraint]
 nodeEdges (InternedNode node) = internedNodeEdges node
 nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
 nodeEdges _ = []
@@ -133,7 +140,9 @@ genericRefoldCache = unsafePerformIO newTypeableMemoCache
 
 -- | Replace repeated unfoldings with recursive nodes where possible.
 {-# INLINEABLE refold #-}
-refold :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
+refold ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
 refold node = memoTypeableWith genericRefoldCache go node
   where
     go :: Node symbol constraint -> Node symbol constraint
@@ -161,7 +170,8 @@ A bound of zero or less unfolds nothing and replaces every 'Mu' with
 @0@ alone would leave a negative bound counting down forever.
 -}
 {-# INLINEABLE unfoldBounded #-}
-unfoldBounded :: (Hashable symbol, Typeable symbol, Constraint constraint) => Int -> Node symbol constraint -> Node symbol constraint
+unfoldBounded ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Int -> Node symbol constraint -> Node symbol constraint
 unfoldBounded rounds
     | rounds <= 0 =
         mapNodes
@@ -208,7 +218,8 @@ maxIndegree = max 0 . getMax . crush (onNormalNodes go)
 
 -- | Replace the edge constraint with the unconstrained value.
 {-# INLINEABLE dropEdgeConstraints #-}
-dropEdgeConstraints :: (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> Edge symbol constraint
+dropEdgeConstraints ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> Edge symbol constraint
 dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
 
 -- | Tables for constraint removal.
@@ -218,7 +229,9 @@ genericDropConstraintsCache = unsafePerformIO newTypeableMemoCache
 
 -- | Remove every edge constraint. This can broaden the accepted language.
 {-# INLINEABLE dropConstraints #-}
-dropConstraints :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
+dropConstraints ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
 dropConstraints node = memoTypeableWith genericDropConstraintsCache go node
   where
     go = mapNodesStep dropConstraints dropNodeConstraints
@@ -235,7 +248,9 @@ data RuleOutRes symbol constraint = Keep | RuledOutBy (Edge symbol constraint)
 
 -- | Remove edges that are subsumed by another edge with the same symbol.
 {-# INLINEABLE dropRedundantEdges #-}
-dropRedundantEdges :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => [Edge symbol constraint] -> [Edge symbol constraint]
+dropRedundantEdges ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) => [Edge symbol constraint] -> [Edge symbol constraint]
 dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
     clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
@@ -251,7 +266,8 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
         (RuledOutBy e', es') -> reduceCluster (e' : es')
         (Keep, es') -> e : reduceCluster es'
 
-    ruleOut :: Edge symbol constraint -> [Edge symbol constraint] -> (RuleOutRes symbol constraint, [Edge symbol constraint])
+    ruleOut ::
+        Edge symbol constraint -> [Edge symbol constraint] -> (RuleOutRes symbol constraint, [Edge symbol constraint])
     ruleOut _ [] = (Keep, [])
     ruleOut e (x : xs) =
         let e' = intersectEdgeSameSymbol e x
@@ -268,7 +284,9 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
 
 -- | Intersect two edges when they have the same symbol.
 {-# INLINEABLE intersectEdge #-}
-intersectEdge :: (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> Edge symbol constraint -> Maybe (Edge symbol constraint)
+intersectEdge ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Edge symbol constraint -> Edge symbol constraint -> Maybe (Edge symbol constraint)
 intersectEdge e1 e2
     | edgeSymbol e1 /= edgeSymbol e2 = Nothing
     | length (edgeChildren e1) /= length (edgeChildren e2) = Nothing
@@ -280,7 +298,10 @@ genericIntersectEdgeSameSymbolCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectEdgeSameSymbolCache #-}
 
 -- | Intersect edges with equal symbols and reject unequal arities.
-intersectEdgeSameSymbol :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> Edge symbol constraint -> Edge symbol constraint
+intersectEdgeSameSymbol ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Edge symbol constraint -> Edge symbol constraint -> Edge symbol constraint
 intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameSymbolCache go left right
   where
     go e1 e2
@@ -299,7 +320,9 @@ intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameS
 ------------
 
 -- | Intersection of two automata.
-intersect :: (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint -> Node symbol constraint
+intersect ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint -> Node symbol constraint -> Node symbol constraint
 intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 {-# INLINEABLE intersect #-}
 
@@ -335,13 +358,17 @@ genericIntersectOpenCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectOpenCache #-}
 
 -- | Intersect two nodes under the same recursive environment.
-intersectOpen :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => (IntersectionDom symbol constraint, Node symbol constraint, Node symbol constraint) -> Node symbol constraint
+intersectOpen ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (IntersectionDom symbol constraint, Node symbol constraint, Node symbol constraint) -> Node symbol constraint
 {-# INLINEABLE intersectOpen #-}
 intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
   where
     worker (dom, left, right) = onNode dom left right
 
-    onNode :: IntersectionDom symbol constraint -> Node symbol constraint -> Node symbol constraint -> Node symbol constraint
+    onNode ::
+        IntersectionDom symbol constraint -> Node symbol constraint -> Node symbol constraint -> Node symbol constraint
     onNode !dom l r =
         case (l, r) of
             -- Rule out empty cases first
@@ -410,13 +437,17 @@ genericIntersectOpenEdgeCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectOpenEdgeCache #-}
 
 -- | Intersect two edges under the same recursive environment.
-intersectOpenEdge :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => (IntersectionDom symbol constraint, Edge symbol constraint, Edge symbol constraint) -> Edge symbol constraint
+intersectOpenEdge ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (IntersectionDom symbol constraint, Edge symbol constraint, Edge symbol constraint) -> Edge symbol constraint
 {-# INLINEABLE intersectOpenEdge #-}
 intersectOpenEdge input = memoTypeableWith genericIntersectOpenEdgeCache worker input
   where
     worker (dom, left, right) = onEdge dom left right
 
-    onEdge :: IntersectionDom symbol constraint -> Edge symbol constraint -> Edge symbol constraint -> Edge symbol constraint
+    onEdge ::
+        IntersectionDom symbol constraint -> Edge symbol constraint -> Edge symbol constraint -> Edge symbol constraint
     onEdge _ l r | length (edgeChildren l) /= length (edgeChildren r) = emptyEdge (edgeSymbol l)
     onEdge !dom l r =
         mkEdge
@@ -440,12 +471,16 @@ union = Node . concatMap nodeEdges
 
 -- | Union the nodes a partial function produces; see 'union'.
 {-# INLINEABLE unionMapMaybe #-}
-unionMapMaybe :: (Hashable symbol, Typeable symbol, Constraint constraint) => (a -> Maybe (Node symbol constraint)) -> [a] -> Node symbol constraint
+unionMapMaybe ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (a -> Maybe (Node symbol constraint)) -> [a] -> Node symbol constraint
 unionMapMaybe f = union . mapMaybe f
 
 -- | Recognize a term with an explicit pure constraint interpreter.
 {-# INLINEABLE nodeRepresentsWith #-}
-nodeRepresentsWith :: (Hashable symbol, Typeable symbol, Constraint constraint) => (constraint -> Term symbol -> Bool) -> Node symbol constraint -> Term symbol -> Bool
+nodeRepresentsWith ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (constraint -> Term symbol -> Bool) -> Node symbol constraint -> Term symbol -> Bool
 nodeRepresentsWith _ EmptyNode _ = False
 nodeRepresentsWith acceptsConstraint (Node es) term = any (\edge -> edgeRepresentsWith acceptsConstraint edge term) es
 nodeRepresentsWith acceptsConstraint node@(Mu _) term = nodeRepresentsWith acceptsConstraint (unfoldOuterRec node) term
@@ -453,7 +488,9 @@ nodeRepresentsWith _ _ _ = False
 
 -- | Recognize one constructor and apply its constraint interpreter.
 {-# INLINEABLE edgeRepresentsWith #-}
-edgeRepresentsWith :: (Hashable symbol, Typeable symbol, Constraint constraint) => (constraint -> Term symbol -> Bool) -> Edge symbol constraint -> Term symbol -> Bool
+edgeRepresentsWith ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (constraint -> Term symbol -> Bool) -> Edge symbol constraint -> Term symbol -> Bool
 edgeRepresentsWith acceptsConstraint edge term@(Term symbol children) =
     symbol == edgeSymbol edge
         && childrenRepresent (edgeChildren edge) children
@@ -470,7 +507,9 @@ genericWithoutRedundantEdgesCache = unsafePerformIO newTypeableMemoCache
 
 -- | Remove alternatives implied by another alternative at each node.
 {-# INLINEABLE withoutRedundantEdges #-}
-withoutRedundantEdges :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
+withoutRedundantEdges ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
 withoutRedundantEdges node = memoTypeableWith genericWithoutRedundantEdgesCache go node
   where
     go = mapNodesStep withoutRedundantEdges dropReds
@@ -481,4 +520,6 @@ withoutRedundantEdges node = memoTypeableWith genericWithoutRedundantEdgesCache 
 -- | Find a reachable non-recursive node by its canonical identity.
 {-# INLINEABLE getSubnodeById #-}
 getSubnodeById :: Node symbol constraint -> Id -> Maybe (Node symbol constraint)
-getSubnodeById node ident = getFirst $ crush (onNormalNodes $ \current -> if nodeIdentity current == ident then First (Just current) else First Nothing) node
+getSubnodeById node ident =
+    getFirst $
+        crush (onNormalNodes $ \current -> if nodeIdentity current == ident then First (Just current) else First Nothing) node
