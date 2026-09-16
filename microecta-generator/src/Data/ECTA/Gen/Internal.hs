@@ -575,19 +575,19 @@ keyedRecursive recursive =
 bucketFromOutcomes :: Bool -> [Outcome a] -> Either ECTAGenError (KeyedBucket a)
 bucketFromOutcomes retainAtomic outcomes = do
     sampler <- sequenceSampler conditional
-    pure $
-        KeyedBucket bucketMass $
-            Static
-                bucketSupport
-                ( OutcomeIndex
-                    totalOutcomes
-                    uniformMass
-                    select
-                    selectValue
-                    sampler
-                    (PlanSelect totalOutcomes selectValue)
-                )
-                retainAtomic
+    pure
+        $ KeyedBucket bucketMass
+        $ Static
+            bucketSupport
+            ( OutcomeIndex
+                totalOutcomes
+                uniformMass
+                select
+                selectValue
+                sampler
+                (PlanSelect totalOutcomes selectValue)
+            )
+            retainAtomic
   where
     bucketMass = sum $ map outcomeMass outcomes
     conditional =
@@ -1707,7 +1707,17 @@ integerOutcomes outcomes
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.
 -}
-pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol, familySymbol, keyRestrictSymbol :: Symbol
+pureSymbol
+    , applySymbol
+    , joinSymbol
+    , joinNSymbol
+    , centerKeyedSymbol
+    , leftKeyedSymbol
+    , rightKeyedSymbol
+    , argKeyedSymbol
+    , familySymbol
+    , keyRestrictSymbol ::
+        Symbol
 pureSymbol = "$ecta-gen/pure"
 applySymbol = "$ecta-gen/apply"
 joinSymbol = "$ecta-gen/join"
@@ -1734,6 +1744,6 @@ keySymbol index = Symbol $ Text.pack $ "$ecta-gen/key/" <> show index
 -- | Key symbol for one argument position of one joined component.
 argKeySymbol :: Int -> Int -> Symbol
 argKeySymbol componentIndex position =
-    Symbol $
-        Text.pack $
-            "$ecta-gen/key/" <> show componentIndex <> "/" <> show position
+    Symbol
+        $ Text.pack
+        $ "$ecta-gen/key/" <> show componentIndex <> "/" <> show position

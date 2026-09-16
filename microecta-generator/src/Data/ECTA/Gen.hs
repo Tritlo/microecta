@@ -402,10 +402,10 @@ recur build
     -- anything, or an unguarded definition would hang here instead of being
     -- reported.
     probeBody =
-        build $
-            Cyclic $
-                Right $
-                    placeholder EmptyNode probeIndex emptySampleIndex
+        build
+            $ Cyclic
+            $ Right
+            $ placeholder EmptyNode probeIndex emptySampleIndex
     probed = recursiveView probeBody
 
     result = do
@@ -505,9 +505,9 @@ recurGrouped build
     keySet = converge Map.empty
     converge current =
         let reached =
-                either (const Map.empty) (fmap $ const ()) $
-                    bodyGroups $
-                        fmap (const emptyGroup) current
+                either (const Map.empty) (fmap $ const ())
+                    $ bodyGroups
+                    $ fmap (const emptyGroup) current
             grown = Map.union current reached
          in if Map.keys grown == Map.keys current then current else converge grown
     keys = Map.keys keySet
@@ -545,18 +545,18 @@ recurGrouped build
     minimumSizes = convergeMinimums Map.empty
     convergeMinimums current =
         let reached =
-                either (const Map.empty) (Map.mapMaybe minimumOfGroup) $
-                    bodyGroups $
-                        Map.fromList
-                            [ ( key
-                              , placeholder
-                                    EmptyNode
-                                    (probeIndexWithMinimum $ Map.lookup key current)
-                                    emptySampleIndex
-                                    noMass
-                              )
-                            | key <- keys
-                            ]
+                either (const Map.empty) (Map.mapMaybe minimumOfGroup)
+                    $ bodyGroups
+                    $ Map.fromList
+                        [ ( key
+                          , placeholder
+                                EmptyNode
+                                (probeIndexWithMinimum $ Map.lookup key current)
+                                emptySampleIndex
+                                noMass
+                          )
+                        | key <- keys
+                        ]
             grown = Map.unionWith min current reached
          in if grown == current then current else convergeMinimums grown
     minimumOfGroup = minimumMemberSize . recursiveIndex . keyedRecursiveLanguage
@@ -617,13 +617,13 @@ recurGrouped build
             ]
 
     probeBody =
-        build $
-            CyclicGrouped $
-                Right $
-                    Map.fromList
-                        [ (key, placeholder EmptyNode probeIndex emptySampleIndex noMass)
-                        | key <- keys
-                        ]
+        build
+            $ CyclicGrouped
+            $ Right
+            $ Map.fromList
+                [ (key, placeholder EmptyNode probeIndex emptySampleIndex noMass)
+                | key <- keys
+                ]
     probed = recursiveGroups probeBody
 
     result = do
@@ -741,14 +741,14 @@ regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped gen oldKey a -> Group
 regroupBy regroup (CyclicGrouped result) =
     CyclicGrouped $ do
         groups <- result
-        pure $
-            Map.mapMaybe mergeRecursiveGroups $
-                Map.foldlWithKey'
-                    ( \regrouped oldKey group ->
-                        Map.insertWith (flip (<>)) (regroup oldKey) [group] regrouped
-                    )
-                    Map.empty
-                    groups
+        pure
+            $ Map.mapMaybe mergeRecursiveGroups
+            $ Map.foldlWithKey'
+                ( \regrouped oldKey group ->
+                    Map.insertWith (flip (<>)) (regroup oldKey) [group] regrouped
+                )
+                Map.empty
+                groups
 regroupBy _ (Grouped (Left err)) = Grouped $ Left err
 regroupBy regroup (Grouped (Right buckets)) =
     Grouped $ traverse mergeBucketGroup grouped
@@ -810,29 +810,29 @@ countsAtSize (CyclicGrouped result) size = do
     if size < 1
         then pure Map.empty
         else
-            pure $
-                Map.filter (> 0) $
-                    fmap
-                        ( \group ->
-                            Size.countAtSize
-                                (recursiveIndex $ keyedRecursiveLanguage group)
-                                size
-                        )
-                        groups
+            pure
+                $ Map.filter (> 0)
+                $ fmap
+                    ( \group ->
+                        Size.countAtSize
+                            (recursiveIndex $ keyedRecursiveLanguage group)
+                            size
+                    )
+                    groups
 countsAtSize (Grouped result) size = do
     buckets <- result
     if size < 1
         then pure Map.empty
         else
-            pure $
-                Map.filter (> 0) $
-                    fmap
-                        ( \bucket ->
-                            Size.countAtSize
-                                (Size.sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
-                                size
-                        )
-                        buckets
+            pure
+                $ Map.filter (> 0)
+                $ fmap
+                    ( \bucket ->
+                        Size.countAtSize
+                            (Size.sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
+                            size
+                    )
+                    buckets
 
 {- | Return the exact distribution of retained keys conditional on one
 structural size.
@@ -1319,10 +1319,10 @@ unrank (Cyclic result) index = do
         (_, Just (size, position)) ->
             pure $ snd $ sizeClassSelect recursiveIndex' size position
         (_, Nothing) ->
-            Left $
-                SelectionOutOfRange index $
-                    sum $
-                        sizeClassCounts recursiveIndex'
+            Left
+                $ SelectionOutOfRange index
+                $ sum
+                $ sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 {- | Return the first member in structural size and rank order.
@@ -1424,9 +1424,9 @@ pmf :: (Ord a) => ECTAGen gen a -> Either ECTAGenError [(a, Rational)]
 pmf (Transparent result) = do
     static <- result
     outcomes <- compileOutcomes static
-    pure $
-        Map.toAscList $
-            Map.fromListWith (+) [(value, mass) | (mass, value) <- outcomes]
+    pure
+        $ Map.toAscList
+        $ Map.fromListWith (+) [(value, mass) | (mass, value) <- outcomes]
 pmf (Cyclic _) = Left UnboundedGenerator
 pmf (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -1460,9 +1460,9 @@ pmfAtSize (Transparent result) size = do
                 then Right []
                 else do
                     normalized <- normalize selected
-                    pure $
-                        Map.toAscList $
-                            Map.fromListWith (+) [(value, mass) | (mass, value) <- normalized]
+                    pure
+                        $ Map.toAscList
+                        $ Map.fromListWith (+) [(value, mass) | (mass, value) <- normalized]
 pmfAtSize (Cyclic result) size = do
     recursive <- result
     if Size.countAtSize (recursiveIndex recursive) size <= 0
