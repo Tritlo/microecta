@@ -130,7 +130,8 @@ mkFTA initial rows = do
 Equal subterms share one state. The initial state contains the complete terms.
 Duplicate terms are removed and alternatives use ascending term order.
 -}
-fromTerms :: (Ord symbol) => [Term symbol] -> Either (FTAError (Maybe (Term symbol)) symbol) (PlainFTA (Maybe (Term symbol)) symbol)
+fromTerms ::
+    (Ord symbol) => [Term symbol] -> Either (FTAError (Maybe (Term symbol)) symbol) (PlainFTA (Maybe (Term symbol)) symbol)
 fromTerms input =
     mkFTA Nothing $
         (Nothing, map transition terms)
@@ -187,7 +188,8 @@ cyclicStates automaton =
 
 -- | Change constructor labels and check that the result stays ranked.
 mapSymbols ::
-    (Ord state, Ord other) => (symbol -> other) -> FTA state symbol guard -> Either (FTAError state other) (FTA state other guard)
+    (Ord state, Ord other) =>
+    (symbol -> other) -> FTA state symbol guard -> Either (FTAError state other) (FTA state other guard)
 mapSymbols transform FTA{initialState, transitionTable} =
     mkFTA initialState [(state, map transition outgoing) | (state, outgoing) <- Map.toList transitionTable]
   where

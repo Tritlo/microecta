@@ -276,7 +276,8 @@ genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReduceEdgeIntersectionCache #-}
 
 -- | Narrow an edge's children by its own and the inherited equality constraints.
-reduceEdgeIntersection :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
+reduceEdgeIntersection ::
+    forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
 reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
     Nothing -> memo2TypeableWith genericReduceEdgeIntersectionCache go constraints edge
@@ -292,7 +293,8 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
 {- | Apply local and inherited equality constraints to a child list.
 Nested constraints can require further passes. This pass is not idempotent.
 -}
-reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
+reduceEqConstraints ::
+    forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
 reduceEqConstraints = go
   where
     propagateEmptyNodes :: [Node symbol] -> [Node symbol]
@@ -341,13 +343,15 @@ value; the split exists so GHC specializes the INLINEABLE engine code for the
 common alphabet, which the common-engine benchmarks rely on. -}
 
 -- | Change the immediate alternatives.
-nodeMapChildren :: forall symbol. (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
+nodeMapChildren ::
+    forall symbol. (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
 nodeMapChildren = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> coerce (Common.nodeMapChildren @Symbol @EqConstraints)
     Nothing -> coerce (Common.nodeMapChildren @symbol @EqConstraints)
 
 -- | Transform a shared graph.
-mapNodes :: forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
+mapNodes ::
+    forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
 mapNodes = coerce (Common.mapNodes @symbol @EqConstraints)
 
 -- | Fold a graph with shared-node tracking.
