@@ -1,11 +1,12 @@
 module Data.LTA.StateMachineTraceSpec (spec) where
 
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
-import Data.LTA (LiquidTerm (liquidRefinement))
+import Data.LTA (LiquidSymbol (LiquidSymbol))
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.LiquidFixpoint (withZ3Assuming)
 import Data.LTA.StateMachineTraceLanguage
@@ -97,8 +98,8 @@ spec =
             generated
                 `shouldSatisfy` all
                     ( \member ->
-                        liquidRefinement (LTA.generatedTerm member)
-                            == stateRefinement (traceFinalState $ LTA.generatedValue member)
+                        let LiquidSymbol _ refinement = Tree.rootLabel (LTA.generatedTerm member)
+                         in refinement == stateRefinement (traceFinalState $ LTA.generatedValue member)
                     )
 
         it "shrinks only to shorter traces whose stack preconditions still hold" $ do

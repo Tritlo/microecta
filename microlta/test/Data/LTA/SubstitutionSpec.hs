@@ -1,12 +1,13 @@
 module Data.LTA.SubstitutionSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 import Data.LTA (
     Entailment (Entailment),
     Guard (Satisfies, Substitute),
     LiquidConstraint,
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     Substitution (Substitution),
     Verdict (..),
     evaluateConstraint,
@@ -35,13 +36,15 @@ spec =
             let expected = variable "v" .==. variable "x"
                 dependent = variable "v" .==. variable "n"
                 term =
-                    LiquidTerm
-                        "app"
-                        true
-                        [ LiquidTerm "result" expected []
-                        , LiquidTerm "output" dependent []
-                        , LiquidTerm "x" true []
-                        , LiquidTerm "n" true []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "app"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "result" expected) []
+                        , Tree.Node (LiquidSymbol "output" dependent) []
+                        , Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "n" true) []
                         ]
             evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` Yes)
 
@@ -49,13 +52,15 @@ spec =
             let expected = variable "v" .==. variable "y"
                 dependent = variable "v" .==. variable "n"
                 term =
-                    LiquidTerm
-                        "app"
-                        true
-                        [ LiquidTerm "result" expected []
-                        , LiquidTerm "output" dependent []
-                        , LiquidTerm "x" true []
-                        , LiquidTerm "n" true []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "app"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "result" expected) []
+                        , Tree.Node (LiquidSymbol "output" dependent) []
+                        , Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "n" true) []
                         ]
             evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` No)
 
@@ -68,15 +73,17 @@ spec =
                             [(firstActual, firstFormal), (secondActual, secondFormal)]
                             (functionOutput `isSubtypeOf` resultType)
                 term =
-                    LiquidTerm
-                        "binary-app"
-                        true
-                        [ LiquidTerm "result" expected []
-                        , LiquidTerm "output" dependent []
-                        , LiquidTerm "x" true []
-                        , LiquidTerm "n" true []
-                        , LiquidTerm "y" true []
-                        , LiquidTerm "m" true []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "binary-app"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "result" expected) []
+                        , Tree.Node (LiquidSymbol "output" dependent) []
+                        , Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "n" true) []
+                        , Tree.Node (LiquidSymbol "y" true) []
+                        , Tree.Node (LiquidSymbol "m" true) []
                         ]
             evaluateConstraint equalityEntailment guard term >>= (`shouldBe` Yes)
 
@@ -113,10 +120,16 @@ spec =
                             [Substitution (path [0]) (path [2]), Substitution (path [1]) (path [3])]
                             (Satisfies (path []) requirement)
                     term =
-                        LiquidTerm
-                            "pair"
-                            true
-                            [LiquidTerm "x" true [], LiquidTerm "x" true [], LiquidTerm "y" true [], LiquidTerm "z" true []]
+                        Tree.Node
+                            ( LiquidSymbol
+                                "pair"
+                                true
+                            )
+                            [ Tree.Node (LiquidSymbol "x" true) []
+                            , Tree.Node (LiquidSymbol "x" true) []
+                            , Tree.Node (LiquidSymbol "y" true) []
+                            , Tree.Node (LiquidSymbol "z" true) []
+                            ]
                 evaluateGuard solver (guard $ variable "y" .==. (7 :: Int)) term >>= (`shouldBe` Yes)
                 evaluateGuard solver (guard $ variable "y" .==. variable "z") term >>= (`shouldBe` Yes)
 
@@ -126,7 +139,7 @@ spec =
                         Substitute
                             [Substitution (path [0]) (path [1]), Substitution (path [1]) (path [0])]
                             (Satisfies (path []) $ variable "x" .==. variable "y")
-                    term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+                    term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 evaluateGuard solver guard term >>= (`shouldBe` No)
 
         it "does not swap the value assumptions of actual arguments" $
@@ -136,10 +149,14 @@ spec =
                             [Substitution (path [0]) (path [1]), Substitution (path [1]) (path [0])]
                             (Satisfies (path []) $ variable "x" .<. variable "y")
                     term =
-                        LiquidTerm
-                            "pair"
-                            true
-                            [LiquidTerm "x" (variable "v" .==. (0 :: Int)) [], LiquidTerm "y" (variable "v" .==. (1 :: Int)) []]
+                        Tree.Node
+                            ( LiquidSymbol
+                                "pair"
+                                true
+                            )
+                            [ Tree.Node (LiquidSymbol "x" (variable "v" .==. (0 :: Int))) []
+                            , Tree.Node (LiquidSymbol "y" (variable "v" .==. (1 :: Int))) []
+                            ]
                 evaluateGuard solver guard term >>= (`shouldBe` No)
 
         it "composes nested scopes from the inner scope to the outer scope" $
@@ -150,10 +167,12 @@ spec =
                             $ Satisfies (path [])
                             $ variable "y" .==. variable "z"
                     term =
-                        LiquidTerm
-                            "triple"
-                            true
-                            [LiquidTerm "z" true [], LiquidTerm "x" true [], LiquidTerm "y" true []]
+                        Tree.Node
+                            ( LiquidSymbol
+                                "triple"
+                                true
+                            )
+                            [Tree.Node (LiquidSymbol "z" true) [], Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 evaluateGuard solver guard term >>= (`shouldBe` Yes)
 
         it "keeps actual refinements in their ambient environment under nested scopes" $
@@ -163,13 +182,15 @@ spec =
                             $ Substitute [Substitution (path [2]) (path [3])]
                             $ Satisfies (path []) requirement
                     term =
-                        LiquidTerm
-                            "quadruple"
-                            true
-                            [ LiquidTerm "x" (variable "v" .==. variable "z") []
-                            , LiquidTerm "y" true []
-                            , LiquidTerm "w" (variable "v" .==. (1 :: Int)) []
-                            , LiquidTerm "z" true []
+                        Tree.Node
+                            ( LiquidSymbol
+                                "quadruple"
+                                true
+                            )
+                            [ Tree.Node (LiquidSymbol "x" (variable "v" .==. variable "z")) []
+                            , Tree.Node (LiquidSymbol "y" true) []
+                            , Tree.Node (LiquidSymbol "w" (variable "v" .==. (1 :: Int))) []
+                            , Tree.Node (LiquidSymbol "z" true) []
                             ]
                 evaluateGuard solver (guard $ variable "y" .==. variable "w") term >>= (`shouldBe` No)
                 evaluateGuard solver (guard $ variable "y" .<. variable "w") term >>= (`shouldBe` Yes)
@@ -182,7 +203,7 @@ spec =
                     guard =
                         Substitute [Substitution (path [0]) (path [1])] $
                             Satisfies (path []) requirement
-                    term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+                    term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 evaluateGuard solver guard term >>= (`shouldBe` No)
 
 -- | Sorts for actual variables and constructor result values in these checks.
@@ -190,13 +211,15 @@ declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 declarations = [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "app", "w", "x", "y", "z"] :: [String]]
 
 -- | Two different applications whose result refinements identify their values.
-collidingActuals :: LiquidTerm
+collidingActuals :: Tree.Tree LiquidSymbol
 collidingActuals =
-    LiquidTerm
-        "pair"
-        true
-        [ LiquidTerm "app" (variable "v" .==. (0 :: Int)) [LiquidTerm "zero" true []]
-        , LiquidTerm "app" (variable "v" .==. (1 :: Int)) [LiquidTerm "one" true []]
-        , LiquidTerm "x" true []
-        , LiquidTerm "y" true []
+    Tree.Node
+        ( LiquidSymbol
+            "pair"
+            true
+        )
+        [ Tree.Node (LiquidSymbol "app" (variable "v" .==. (0 :: Int))) [Tree.Node (LiquidSymbol "zero" true) []]
+        , Tree.Node (LiquidSymbol "app" (variable "v" .==. (1 :: Int))) [Tree.Node (LiquidSymbol "one" true) []]
+        , Tree.Node (LiquidSymbol "x" true) []
+        , Tree.Node (LiquidSymbol "y" true) []
         ]

@@ -7,6 +7,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (nub, sort)
 import Data.Proxy (Proxy (Proxy))
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
@@ -19,7 +20,7 @@ import Data.LTA (
     Entailment (Entailment),
     Guard (Bottom, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint,
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     PruneError (ResidualLTAConstraint),
     State (State),
     Substitution (Substitution),
@@ -51,12 +52,12 @@ automatonFrom :: [(State, [Transition])] -> IO Automaton
 automatonFrom = either (fail . show) pure . mkAutomaton (State 0)
 
 -- | Compile a bounded language or report the compiler error.
-compileBounded :: Entailment -> Int -> Automaton -> IO (LTA.Compiled LiquidTerm)
+compileBounded :: Entailment -> Int -> Automaton -> IO (LTA.Compiled (Tree.Tree LiquidSymbol))
 compileBounded solver depth automaton =
     LTA.compileAutomatonUpToDepth solver depth automaton >>= either (fail . show) pure
 
 -- | Read the complete accepted language in replay order.
-termsOf :: LTA.Compiled a -> [LiquidTerm]
+termsOf :: LTA.Compiled a -> [Tree.Tree LiquidSymbol]
 termsOf compiled =
     [ LTA.generatedTerm generated
     | rank <- [0 .. LTA.cardinality compiled - 1]
@@ -64,8 +65,8 @@ termsOf compiled =
     ]
 
 -- | Count all tree nodes with no machine-integer bound.
-nodeCount :: LiquidTerm -> Integer
-nodeCount (LiquidTerm _ _ children) = 1 + sum (map nodeCount children)
+nodeCount :: Tree.Tree LiquidSymbol -> Integer
+nodeCount = Tree.foldTree $ \_ counts -> 1 + sum counts
 
 -- | Check shrink membership, strict decrease, and finite reachability.
 checkShrinks :: Entailment -> Automaton -> LTA.Compiled a -> IO ()
@@ -210,7 +211,7 @@ spec = do
             map LTA.generatedValue members `shouldBe` replicate 9 (7, 7)
             map LTA.generatedWeight members `shouldBe` concat (replicate 3 [2, 2, 5])
             termsOf compiled
-                `shouldBe` [ LiquidTerm "combined" true [term, LiquidTerm symbol true []]
+                `shouldBe` [ Tree.Node (LiquidSymbol "combined" true) [term, Tree.Node (LiquidSymbol symbol true) []]
                            | term <- termsOf imported
                            , symbol <- ["draw", "draw", "other"]
                            ]
@@ -290,15 +291,15 @@ spec = do
                     denotationAtMost solver 2 oracle >>= (`shouldBe` Right (termsOf compiled))
 
         it "reports unsupported scoped equality while retaining the core denotation" $ do
-            let a = LiquidTerm "a" true []
-                b = LiquidTerm "b" true []
-                wrapped = LiquidTerm "wrap" true [a]
+            let a = Tree.Node (LiquidSymbol "a" true) []
+                b = Tree.Node (LiquidSymbol "b" true) []
+                wrapped = Tree.Node (LiquidSymbol "wrap" true) [a]
                 positive = [(a, a), (a, b), (b, a), (b, b), (wrapped, wrapped)]
                 negative = [(a, wrapped), (b, wrapped), (wrapped, a), (wrapped, b)]
                 allPairs = [(left, right) | left <- [a, b, wrapped], right <- [a, b, wrapped]]
             forM_ [(same, positive), (Not same, negative), (Or [same, Not same], allPairs)] $ \(guard, pairs) -> do
                 let scoped = Substitute [Substitution (path [0]) (path [1])] guard
-                    expected = [LiquidTerm "pair" true [left, right] | (left, right) <- pairs]
+                    expected = [Tree.Node (LiquidSymbol "pair" true) [left, right] | (left, right) <- pairs]
                 automaton <- pairsWith $ semanticConstraint scoped
                 let source = LTA.fromLTA 2 automaton
                 denotationAtMost unusedEntailment 2 automaton >>= (`shouldBe` Right expected)
@@ -328,7 +329,7 @@ spec = do
         it "maps a shared depth-70 singleton beside an ordinary child without expanding its witness" $ do
             result <- timeout 60000000 $ do
                 automaton <- sharedBinaryTerm unconstrainedConstraint
-                let rootSymbol (LiquidTerm symbol _ _) = symbol
+                let rootSymbol (Tree.Node (LiquidSymbol symbol _) _) = symbol
                     source = fmap rootSymbol $ LTA.fromLTA 71 automaton
                     generator =
                         LTA.node "combined" unconstrainedConstraint $

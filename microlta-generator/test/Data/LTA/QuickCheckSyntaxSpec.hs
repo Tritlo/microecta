@@ -1,13 +1,14 @@
 module Data.LTA.QuickCheckSyntaxSpec (spec) where
 
 import Control.Monad (forM_, void)
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 import Data.LTA (
     AutomatonError (GuardArityMismatch, InconsistentArity),
     Entailment (Entailment),
     Guard (Bottom, Entails, Satisfies, Top),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     Verdict (No, Unknown, Yes),
     path,
     semanticConstraint,
@@ -165,11 +166,10 @@ spec = do
                         $ (,) <$> LTA.children actuals <*> LTA.children formal
                 expected =
                     [ LTA.Generated 1 (actual, 99) $
-                        LiquidTerm
-                            "pair"
-                            true
-                            [ LiquidTerm symbol (annotation name) []
-                            , LiquidTerm "x" (annotation "x") []
+                        Tree.Node
+                            (LiquidSymbol "pair" true)
+                            [ Tree.Node (LiquidSymbol symbol (annotation name)) []
+                            , Tree.Node (LiquidSymbol "x" (annotation "x")) []
                             ]
                     | (actual, symbol, name) <- [(10, "a", "a"), (20, "b", "b")]
                     ]
@@ -186,8 +186,8 @@ spec = do
                         [ LTA.leaf (1 :: Int) "atom" true
                         , LTA.node "box" Top $ LTA.leaf 2 "payload" true
                         ]
-            let atomTerm = LiquidTerm "atom" true []
-                compoundTerm = LiquidTerm "box" true [LiquidTerm "payload" true []]
+            let atomTerm = Tree.Node (LiquidSymbol "atom" true) []
+                compoundTerm = Tree.Node (LiquidSymbol "box" true) [Tree.Node (LiquidSymbol "payload" true) []]
                 acceptedAtoms = [(1, atomTerm)]
                 acceptedCompounds = [(2, compoundTerm)]
                 alternatives =
@@ -202,7 +202,7 @@ spec = do
                             (\actual formal -> withActualFor actual formal $ predicate $ actual `isSameTermAs` formal)
                             $ (,) <$> LTA.children actuals <*> LTA.children (LTA.leaf (9 :: Int) "x" true)
                     expected =
-                        [ LTA.Generated 1 (actual, 9) $ LiquidTerm "pair" true [term, LiquidTerm "x" true []]
+                        [ LTA.Generated 1 (actual, 9) $ Tree.Node (LiquidSymbol "pair" true) [term, Tree.Node (LiquidSymbol "x" true) []]
                         | (actual, term) <- accepted
                         ]
                 compiled <- LTA.compile unusedEntailment generator >>= either (fail . show) pure

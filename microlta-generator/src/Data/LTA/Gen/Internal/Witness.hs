@@ -18,6 +18,7 @@ module Data.LTA.Gen.Internal.Witness (
 import Data.Bifunctor (first)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..))
@@ -31,16 +32,15 @@ data Witness = Witness
     }
 
 -- | Read one witness as its annotated liquid term.
-witnessTerm :: Witness -> LiquidTerm
+witnessTerm :: Witness -> Tree.Tree LiquidSymbol
 witnessTerm Witness{witnessSymbol, witnessRefinement, witnessChildren} =
-    LiquidTerm
-        witnessSymbol
-        witnessRefinement
+    Tree.Node
+        (LiquidSymbol witnessSymbol witnessRefinement)
         (map witnessTerm witnessChildren)
 
 -- | A compiled term needs no further constraints on its singleton witness.
-termWitness :: LiquidTerm -> Witness
-termWitness (LiquidTerm symbol refinement childTerms) =
+termWitness :: Tree.Tree LiquidSymbol -> Witness
+termWitness (Tree.Node (LiquidSymbol symbol refinement) childTerms) =
     Witness symbol refinement unconstrainedConstraint $ map termWitness childTerms
 
 {- | Check the ranked-alphabet invariant of one witness.

@@ -1,13 +1,14 @@
 module Data.LTA.GuardSpec (spec) where
 
 import Control.Exception (evaluate)
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Guard (Bottom, Entails, Not, Or, Same, Satisfies, Substitute),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     Substitution (Substitution),
     Verdict (..),
     equalityConstraint,
@@ -29,26 +30,28 @@ spec =
         it "states a literal precondition without a phantom predicate child" $ do
             let nonNegative = value .>=. (0 :: Int)
                 guard = buildGuard $ \denominator -> denominator `requires` nonNegative
-                term = LiquidTerm "divide" true [LiquidTerm "n" nonNegative []]
+                term = Tree.Node (LiquidSymbol "divide" true) [Tree.Node (LiquidSymbol "n" nonNegative) []]
             guard `shouldBe` semanticConstraint (Satisfies (path [0]) nonNegative)
             evaluateConstraint tableEntailment guard term >>= (`shouldBe` Yes)
 
         it "rejects a child whose refinement does not establish the requirement" $ do
             let nonNegative = value .>=. (0 :: Int)
                 guard = buildGuard $ \denominator -> denominator `requires` nonNegative
-                term = LiquidTerm "divide" true [LiquidTerm "n" true []]
+                term = Tree.Node (LiquidSymbol "divide" true) [Tree.Node (LiquidSymbol "n" true) []]
             evaluateConstraint tableEntailment guard term >>= (`shouldBe` No)
 
         it "keeps syntactic equality inside the full Boolean constraint language" $ do
             let same = buildGuard $ \left right -> left `isSameTermAs` right
                 different = notGuard same
-                equalTerm = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "x" true []]
-                differentTerm = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+                equalTerm = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "x" true) []]
+                differentTerm = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 differentlyRefinedTerm =
-                    LiquidTerm
-                        "pair"
-                        true
-                        [LiquidTerm "x" true [], LiquidTerm "x" (value .==. (1 :: Int)) []]
+                    Tree.Node
+                        ( LiquidSymbol
+                            "pair"
+                            true
+                        )
+                        [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "x" (value .==. (1 :: Int))) []]
                 equalityOrRequirement = anyOf [same, buildGuard $ \left -> left `requires` true]
             same `shouldBe` semanticConstraint (Same (path [0]) (path [1]))
             evaluateConstraint tableEntailment same differentlyRefinedTerm >>= (`shouldBe` No)
@@ -57,7 +60,7 @@ spec =
             evaluateConstraint tableEntailment equalityOrRequirement differentTerm >>= (`shouldBe` Yes)
 
         it "rejects equality at missing paths and accepts its negation" $ do
-            let term = LiquidTerm "leaf" true []
+            let term = Tree.Node (LiquidSymbol "leaf" true) []
                 absent = path [0]
             evaluateGuard tableEntailment (Same absent absent) term >>= (`shouldBe` No)
             evaluateGuard tableEntailment (Same (path []) absent) term >>= (`shouldBe` No)
@@ -76,7 +79,7 @@ spec =
             evaluateGuardWithShape tableEntailment observe (const Nothing) (Same (path [2]) (path [2])) >>= (`shouldBe` No)
 
         it "compares renamed variable leaves only inside an explicit substitution scope" $ do
-            let term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+            let term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 same = Same (path [0]) (path [1])
                 scoped = Substitute [Substitution (path [0]) (path [1])] same
             evaluateGuard tableEntailment same term >>= (`shouldBe` No)
@@ -85,7 +88,7 @@ spec =
             evaluateGuard tableEntailment same term >>= (`shouldBe` No)
 
         it "puts cached positive equality inside the named substitution scope" $ do
-            let term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+            let term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 cached = equalityConstraint $ mkEqConstraints [[path [0], path [1]]]
                 scoped = buildGuard $ \actual formal -> withActualFor actual formal cached
             evaluateConstraint tableEntailment cached term >>= (`shouldBe` No)
@@ -93,16 +96,20 @@ spec =
 
         it "renames nested constructor symbols and free refinement names before comparison" $ do
             let annotated symbol name =
-                    LiquidTerm
-                        "box"
-                        (value .==. variable name)
-                        [LiquidTerm symbol (value .==. variable name) []]
+                    Tree.Node
+                        ( LiquidSymbol
+                            "box"
+                            (value .==. variable name)
+                        )
+                        [Tree.Node (LiquidSymbol symbol (value .==. variable name)) []]
                 term =
-                    LiquidTerm
-                        "context"
-                        true
-                        [ LiquidTerm "x" true []
-                        , LiquidTerm "y" true []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "y" true) []
                         , annotated "x" "x"
                         , annotated "y" "y"
                         ]
@@ -113,11 +120,13 @@ spec =
 
         it "does not replace a formal leaf with the whole actual subtree" $ do
             let term =
-                    LiquidTerm
-                        "context"
-                        true
-                        [ LiquidTerm "app" true [LiquidTerm "argument" true []]
-                        , LiquidTerm "formal" true []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "app" true) [Tree.Node (LiquidSymbol "argument" true) []]
+                        , Tree.Node (LiquidSymbol "formal" true) []
                         ]
                 guard =
                     Substitute
@@ -126,31 +135,35 @@ spec =
             evaluateGuard tableEntailment guard term >>= (`shouldBe` No)
 
         it "applies a symbol swap simultaneously within one equality scope" $ do
-            let term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+            let term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 scope =
                     Substitute
                         [Substitution (path [0]) (path [1]), Substitution (path [1]) (path [0])]
                 annotated =
-                    LiquidTerm
-                        "context"
-                        true
-                        [ LiquidTerm "x" true []
-                        , LiquidTerm "y" true []
-                        , LiquidTerm "predicate" (value .==. variable "x") []
-                        , LiquidTerm "predicate" (value .==. variable "y") []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "y" true) []
+                        , Tree.Node (LiquidSymbol "predicate" (value .==. variable "x")) []
+                        , Tree.Node (LiquidSymbol "predicate" (value .==. variable "y")) []
                         ]
             evaluateGuard tableEntailment (scope $ Same (path [0]) (path [1])) term >>= (`shouldBe` No)
             evaluateGuard tableEntailment (scope $ Same (path [2]) (path [3])) annotated >>= (`shouldBe` No)
 
         it "uses the first nonidentity replacement for duplicate formal names" $ do
             let term =
-                    LiquidTerm
-                        "context"
-                        true
-                        [ LiquidTerm "a" (value .==. variable "a") []
-                        , LiquidTerm "b" (value .==. variable "b") []
-                        , LiquidTerm "x" (value .==. variable "x") []
-                        , LiquidTerm "x" (value .==. variable "x") []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "a" (value .==. variable "a")) []
+                        , Tree.Node (LiquidSymbol "b" (value .==. variable "b")) []
+                        , Tree.Node (LiquidSymbol "x" (value .==. variable "x")) []
+                        , Tree.Node (LiquidSymbol "x" (value .==. variable "x")) []
                         ]
                 duplicates =
                     Substitute
@@ -165,12 +178,14 @@ spec =
 
         it "applies nested equality scopes from the inner scope to the outer scope" $ do
             let term =
-                    LiquidTerm
-                        "triple"
-                        true
-                        [ LiquidTerm "x" (value .==. variable "x") []
-                        , LiquidTerm "y" (value .==. variable "y") []
-                        , LiquidTerm "z" (value .==. variable "z") []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "triple"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "x" (value .==. variable "x")) []
+                        , Tree.Node (LiquidSymbol "y" (value .==. variable "y")) []
+                        , Tree.Node (LiquidSymbol "z" (value .==. variable "z")) []
                         ]
                 guard =
                     Substitute [Substitution (path [0]) (path [1])]
@@ -179,7 +194,7 @@ spec =
             evaluateGuard tableEntailment guard term >>= (`shouldBe` Yes)
 
         it "retains Boolean and missing-path behavior inside equality substitution scopes" $ do
-            let term = LiquidTerm "pair" true [LiquidTerm "x" true [], LiquidTerm "y" true []]
+            let term = Tree.Node (LiquidSymbol "pair" true) [Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 scope = Substitute [Substitution (path [0]) (path [1])]
                 same = Same (path [0]) (path [1])
                 missing = Same (path [2]) (path [2])
@@ -190,7 +205,7 @@ spec =
             evaluateGuard tableEntailment (scope $ Or [missing, same]) term >>= (`shouldBe` Yes)
 
         it "rejects an equality scope whose actual or formal position is absent" $ do
-            let term = LiquidTerm "leaf" true []
+            let term = Tree.Node (LiquidSymbol "leaf" true) []
                 same = Same (path []) (path [])
                 missingActual = Substitute [Substitution (path [0]) (path [])] same
                 missingFormal = Substitute [Substitution (path []) (path [0])] same
@@ -201,13 +216,15 @@ spec =
         it "does not capture a free refinement name when comparing quantified annotations" $ do
             let quantified body = Fixpoint.PAll [(Fixpoint.symbol ("x" :: String), Fixpoint.FInt)] body
                 term =
-                    LiquidTerm
-                        "context"
-                        true
-                        [ LiquidTerm "x" true []
-                        , LiquidTerm "y" true []
-                        , LiquidTerm "predicate" (quantified $ variable "y" .==. variable "x") []
-                        , LiquidTerm "predicate" (quantified $ variable "x" .==. variable "x") []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [ Tree.Node (LiquidSymbol "x" true) []
+                        , Tree.Node (LiquidSymbol "y" true) []
+                        , Tree.Node (LiquidSymbol "predicate" (quantified $ variable "y" .==. variable "x")) []
+                        , Tree.Node (LiquidSymbol "predicate" (quantified $ variable "x" .==. variable "x")) []
                         ]
                 guard =
                     Substitute
@@ -216,12 +233,15 @@ spec =
             evaluateGuard tableEntailment guard term >>= (`shouldBe` No)
 
         it "checks scoped syntactic equality without comparing huge actual value identities" $ do
-            let huge = iterate (\child -> LiquidTerm "app" true [child, child]) (LiquidTerm "leaf" true []) !! 45
+            let huge =
+                    iterate (\child -> Tree.Node (LiquidSymbol "app" true) [child, child]) (Tree.Node (LiquidSymbol "leaf" true) []) !! 45
                 term =
-                    LiquidTerm
-                        "context"
-                        true
-                        [huge, huge, LiquidTerm "x" true [], LiquidTerm "y" true []]
+                    Tree.Node
+                        ( LiquidSymbol
+                            "context"
+                            true
+                        )
+                        [huge, huge, Tree.Node (LiquidSymbol "x" true) [], Tree.Node (LiquidSymbol "y" true) []]
                 scope =
                     Substitute
                         [Substitution (path [0]) (path [2]), Substitution (path [1]) (path [3])]
@@ -243,15 +263,19 @@ spec =
                         [Substitution (path [0]) (path [1, 0])]
                         (Entails (path [1, 1]) (path []))
                 term =
-                    LiquidTerm
-                        "step"
-                        (value .==. (1 :: Int))
-                        [ LiquidTerm "previous" (value .==. (0 :: Int)) []
-                        , LiquidTerm
-                            "command"
-                            true
-                            [ LiquidTerm "model" true []
-                            , LiquidTerm "post-state" (value .==. (model .+. (1 :: Int))) []
+                    Tree.Node
+                        ( LiquidSymbol
+                            "step"
+                            (value .==. (1 :: Int))
+                        )
+                        [ Tree.Node (LiquidSymbol "previous" (value .==. (0 :: Int))) []
+                        , Tree.Node
+                            ( LiquidSymbol
+                                "command"
+                                true
+                            )
+                            [ Tree.Node (LiquidSymbol "model" true) []
+                            , Tree.Node (LiquidSymbol "post-state" (value .==. (model .+. (1 :: Int)))) []
                             ]
                         ]
             withZ3 declarations $ \solver ->

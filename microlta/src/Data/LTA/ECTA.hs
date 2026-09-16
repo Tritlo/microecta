@@ -26,8 +26,7 @@ import qualified Data.Tree as Tree
 import qualified Data.ECTA as ECTA
 import Data.LTA (
     EqualityAutomaton,
-    LiquidSymbol (LiquidSymbol),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol,
     State,
     automatonTransitions,
  )
@@ -77,13 +76,13 @@ toECTA automaton = do
                 [0 ..]
 
 -- | Decode one term enumerated from an 'EqualityView'.
-decodeTerm :: EqualityView -> Tree.Tree Int -> Either EqualityViewError LiquidTerm
+decodeTerm :: EqualityView -> Tree.Tree Int -> Either EqualityViewError (Tree.Tree LiquidSymbol)
 decodeTerm EqualityView{equalityAlphabet} = Tree.foldTree decode
   where
     decode identifier children = do
-        LiquidSymbol symbol refinement <-
+        label <-
             maybe
                 (Left $ UnknownEqualityLabel identifier)
                 Right
                 (IntMap.lookup identifier equalityAlphabet)
-        LiquidTerm symbol refinement <$> sequence children
+        Tree.Node label <$> sequence children

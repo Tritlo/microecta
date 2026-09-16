@@ -2,10 +2,11 @@ module Data.LTA.SyntaxSpec (spec) where
 
 import Data.Either (rights)
 import Data.Tree (flatten)
+import qualified Data.Tree as Tree
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
-import Data.LTA (AutomatonError (GuardArityMismatch), LiquidTerm (LiquidTerm), State (State), Verdict (..), accepts)
+import Data.LTA (AutomatonError (GuardArityMismatch), LiquidSymbol (LiquidSymbol), State (State), Verdict (..), accepts)
 import qualified Data.LTA as LTA
 import Data.LTA.Guard (isSubtypeOf, requires, unconstrained)
 import Data.LTA.Refinement (true, value, (.>=.))
@@ -48,7 +49,7 @@ spec =
                     accepts
                         tableEntailment
                         automaton
-                        (LiquidTerm "sqrt" true [LiquidTerm "zero" nonNegative []])
+                        (Tree.Node (LiquidSymbol "sqrt" true) [Tree.Node (LiquidSymbol "zero" nonNegative) []])
                         >>= (`shouldBe` Yes)
 
         it "interprets entailments retained by the common interned engine" $ do
@@ -66,9 +67,9 @@ spec =
                             (LTA.semanticConstraint $ LTA.Entails (LTA.path [0]) (LTA.path [1]))
                         ]
                 terms =
-                    [ LiquidTerm "check" true [left, right]
-                    | left <- [LiquidTerm "zero" nonNegative [], LiquidTerm "unknown" true []]
-                    , right <- [LiquidTerm "zero" nonNegative [], LiquidTerm "unknown" true []]
+                    [ Tree.Node (LiquidSymbol "check" true) [left, right]
+                    | left <- [Tree.Node (LiquidSymbol "zero" nonNegative) [], Tree.Node (LiquidSymbol "unknown" true) []]
+                    , right <- [Tree.Node (LiquidSymbol "zero" nonNegative) [], Tree.Node (LiquidSymbol "unknown" true) []]
                     ]
             case LTA.fromInterned root of
                 Left err -> expectationFailure $ show err

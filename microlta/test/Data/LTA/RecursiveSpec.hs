@@ -1,5 +1,6 @@
 module Data.LTA.RecursiveSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import Data.LTA (
@@ -7,7 +8,7 @@ import Data.LTA (
     AutomatonError (CyclicGuardReference),
     Entailment (Entailment),
     Guard (Satisfies),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     State (State),
     Verdict (Yes),
     accepts,
@@ -43,9 +44,9 @@ spec =
             case recursiveLists of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    let item = LiquidTerm "item" true []
-                        nil = LiquidTerm "nil" true []
-                        list = LiquidTerm "cons" true [item, LiquidTerm "cons" true [item, nil]]
+                    let item = Tree.Node (LiquidSymbol "item" true) []
+                        nil = Tree.Node (LiquidSymbol "nil" true) []
+                        list = Tree.Node (LiquidSymbol "cons" true) [item, Tree.Node (LiquidSymbol "cons" true) [item, nil]]
                     accepts alwaysEntails automaton list >>= (`shouldBe` Yes)
 
         it "allows a guard to inspect an acyclic sibling of a recursive child" $
