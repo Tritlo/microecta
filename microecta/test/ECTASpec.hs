@@ -10,6 +10,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -1598,9 +1599,9 @@ spec = do
 
         it "nodeRepresents requires exact term arity" $ do
             let n = Node [Edge "f" [constTerms ["a"], constTerms ["b"]]]
-            nodeRepresents n (Term "f" [Term "a" [], Term "b" []]) `shouldBe` True
-            nodeRepresents n (Term "f" [Term "a" []]) `shouldBe` False
-            nodeRepresents n (Term "f" [Term "a" [], Term "b" [], Term "c" []]) `shouldBe` False
+            nodeRepresents n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` True
+            nodeRepresents n (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` False
+            nodeRepresents n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" [], Tree.Node "c" []]) `shouldBe` False
 
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do
@@ -1614,16 +1615,16 @@ spec = do
                         ]
                 rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
             getAllTerms (termsMatching rightIsA pairs)
-                `shouldBe` [Term "pair" [Term "a" [], Term "a" []]]
+                `shouldBe` [Tree.Node "pair" [Tree.Node "a" [], Tree.Node "a" []]]
 
         it "distinguishes exact arity from an explicit prefix" $ do
-            let call = Term "call" [Term "f" [], Term "x" []] :: Term Symbol
+            let call = Tree.Node "call" [Tree.Node "f" [], Tree.Node "x" []] :: Tree.Tree Symbol
             matchesTemplate (TemplateNode "call" [Hole]) call `shouldBe` False
             matchesTemplate (TemplatePrefix "call" [TemplateNode "f" []]) call `shouldBe` True
 
         it "treats <v> as an ordinary symbol" $ do
-            matchesTemplate (TemplateNode "<v>" []) (Term "<v>" [] :: Term Symbol) `shouldBe` True
-            matchesTemplate (TemplateNode "<v>" []) (Term "other" [] :: Term Symbol) `shouldBe` False
+            matchesTemplate (TemplateNode "<v>" []) (Tree.Node "<v>" [] :: Tree.Tree Symbol) `shouldBe` True
+            matchesTemplate (TemplateNode "<v>" []) (Tree.Node "other" [] :: Tree.Tree Symbol) `shouldBe` False
 
         it "uses a typed alphabet without an IsString instance" $ do
             let zero = Node [Edge Zero []]
@@ -1634,11 +1635,11 @@ spec = do
                     UVarHole _ -> Recursion
                     TruncatedRecursion -> Recursion
             getAllTermsWith Recursion successors
-                `shouldBe` [Term Succ [Term Zero []]]
+                `shouldBe` [Tree.Node Succ [Tree.Node Zero []]]
             getAllTruncatedTerms successors
-                `shouldBe` [Term (ConcreteSymbol Succ) [Term (ConcreteSymbol Zero) []]]
+                `shouldBe` [Tree.Node (ConcreteSymbol Succ) [Tree.Node (ConcreteSymbol Zero) []]]
             map (fmap materialize) (getAllTruncatedTerms successors)
-                `shouldBe` [Term Succ [Term Zero []]]
+                `shouldBe` [Tree.Node Succ [Tree.Node Zero []]]
 
         it "restricting a finite ECTA agrees with filtering its terms" $
             property $
@@ -1685,7 +1686,7 @@ spec = do
         -- This test is a bit indirect: the intersection results in a term with what I /think/ is an inaccessible branch.
         -- Not sure if there is a clean-up pass we can do.
         it "add constraints" $
-            getAllTerms (intTest5 `intersect` intTest6) `shouldBe` [Term "g" [Term "a" [], Term "b" []]]
+            getAllTerms (intTest5 `intersect` intTest6) `shouldBe` [Tree.Node "g" [Tree.Node "a" [], Tree.Node "b" []]]
 
         -- Intersection examples with Mu nodes
 
@@ -1821,17 +1822,17 @@ spec = do
         -- A root Mu is never expanded, so before this was fixed getAllTerms
         -- reported the empty language and getAllTruncatedTerms raised.
         it "a bare Mu truncates instead of reporting an empty language" $ do
-            getAllTerms intTest7 `shouldBe` [Term "Mu" []]
+            getAllTerms intTest7 `shouldBe` [Tree.Node "Mu" []]
             getAllTruncatedTerms intTest7
-                `shouldBe` [Term TruncatedRecursion []]
+                `shouldBe` [Tree.Node TruncatedRecursion []]
 
         it "a Mu under an edge truncates the same way" $
             getAllTerms (Node [Edge "wrap" [intTest7]])
-                `shouldBe` [Term "wrap" [Term "Mu" []]]
+                `shouldBe` [Tree.Node "wrap" [Tree.Node "Mu" []]]
 
         it "unfolding first enumerates past the recursion" $
             getAllTerms (unfoldBounded 2 intTest7)
-                `shouldMatchList` [Term "a" [], Term "f" [Term "a" []]]
+                `shouldMatchList` [Tree.Node "a" [], Tree.Node "f" [Tree.Node "a" []]]
 
         it "a recursion with no base case unfolds to nothing" $
             getAllTerms (unfoldBounded 2 infiniteFNode) `shouldBe` []
@@ -1874,7 +1875,7 @@ spec = do
         -- pending-check state of its own: the oracle parks a check under the
         -- hole's representative and settles it when that hole is expanded.
         it "an oracle can suspend a check on a hole and settle it later" $ do
-            let forbidden = partialTerm $ Term "f" [Term "T" []]
+            let forbidden = partialTerm $ Tree.Node "f" [Tree.Node "T" []]
 
                 oracle parkedChecks uv (Left frag) = do
                     rep <- uvarToInt <$> getUVarRepresentative uv
@@ -1894,8 +1895,8 @@ spec = do
                                 )
                 oracle parkedChecks _ (Right _) = return (False, parkedChecks)
 
-                shared symbol = Term "filter" [wrapped symbol, wrapped symbol]
-                wrapped symbol = Term symbol [Term "T" []]
+                shared symbol = Tree.Node "filter" [wrapped symbol, wrapped symbol]
+                wrapped symbol = Tree.Node symbol [Tree.Node "T" []]
             getAllTermsPrune IntMap.empty oracle sharedFilterNode `shouldBe` [shared "g"]
 
         it "an expansion order steers which hole is expanded first" $ do
@@ -1903,7 +1904,7 @@ spec = do
             let oracle seen _ (Left frag) = do
                     partial <- expandPartialTermFrag frag
                     case (seen, partial) of
-                        (Nothing, Term (ConcreteSymbol symbol) _)
+                        (Nothing, Tree.Node (ConcreteSymbol symbol) _)
                             | symbol `elem` holeSymbols ->
                                 return (symbol == "x", Just symbol)
                         _ -> return (False, seen)
@@ -2069,20 +2070,20 @@ anyType :: Node Symbol
 anyType = Node [Edge "T" []]
 
 -- | One accepted term of 'searchNode'.
-applied :: Symbol -> Symbol -> Term Symbol
+applied :: Symbol -> Symbol -> Tree.Tree Symbol
 applied functionSymbol argumentSymbol =
-    Term
+    Tree.Node
         "app"
-        [ Term "T" []
-        , Term "T" []
-        , Term functionSymbol [Term "T" []]
-        , Term argumentSymbol [Term "T" []]
+        [ Tree.Node "T" []
+        , Tree.Node "T" []
+        , Tree.Node functionSymbol [Tree.Node "T" []]
+        , Tree.Node argumentSymbol [Tree.Node "T" []]
         ]
 
 -- | Lift a concrete term into the alphabet used by partial enumeration.
-partialTerm :: Term symbol -> Term (PartialSymbol symbol)
-partialTerm (Term symbol children) =
-    Term (ConcreteSymbol symbol) (map partialTerm children)
+partialTerm :: Tree.Tree symbol -> Tree.Tree (PartialSymbol symbol)
+partialTerm (Tree.Node symbol children) =
+    Tree.Node (ConcreteSymbol symbol) (map partialTerm children)
 
 {- | A node with two independent holes, one per equality class.
 

@@ -36,6 +36,7 @@ import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -43,7 +44,6 @@ import Data.Interned.Extended.HashTableBased (Id)
 import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
 import Data.Tree.FTA.Interned.Type
-import Data.Tree.Term (Term, pattern Term)
 import Utility.Fixpoint
 import Utility.HashJoin
 
@@ -478,7 +478,7 @@ unionMapMaybe f = union . mapMaybe f
 {-# INLINEABLE nodeRepresentsWith #-}
 nodeRepresentsWith ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
-    (constraint -> Term symbol -> Bool) -> Node symbol constraint -> Term symbol -> Bool
+    (constraint -> Tree.Tree symbol -> Bool) -> Node symbol constraint -> Tree.Tree symbol -> Bool
 nodeRepresentsWith _ EmptyNode _ = False
 nodeRepresentsWith acceptsConstraint (Node es) term = any (\edge -> edgeRepresentsWith acceptsConstraint edge term) es
 nodeRepresentsWith acceptsConstraint node@(Mu _) term = nodeRepresentsWith acceptsConstraint (unfoldOuterRec node) term
@@ -488,8 +488,8 @@ nodeRepresentsWith _ _ _ = False
 {-# INLINEABLE edgeRepresentsWith #-}
 edgeRepresentsWith ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
-    (constraint -> Term symbol -> Bool) -> Edge symbol constraint -> Term symbol -> Bool
-edgeRepresentsWith acceptsConstraint edge term@(Term symbol children) =
+    (constraint -> Tree.Tree symbol -> Bool) -> Edge symbol constraint -> Tree.Tree symbol -> Bool
+edgeRepresentsWith acceptsConstraint edge term@(Tree.Node symbol children) =
     symbol == edgeSymbol edge
         && childrenRepresent (edgeChildren edge) children
         && acceptsConstraint (edgeConstraint edge) term

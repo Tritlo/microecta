@@ -1,17 +1,16 @@
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Construct, replay, and sample a finite ordinary tree language.
 module Main (main) where
 
 import Control.Monad (unless)
+import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 import Data.Tree.FTA.Generic (Constructor, deriveFTAWith, domain)
 import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.Gen as Ranked
-import Data.Tree.Term (pattern Term)
 
 -- | All four ordered pairs of the leaf choices.
 pairs :: FTA.FTAGen Constructor (Int, Int)
@@ -33,7 +32,7 @@ main = do
     view <- either (fail . show) pure (Common.toFTA graph)
     imported <- either (fail . show) pure (FTA.fromFTA view)
     unless (Ranked.cardinality imported == 4) $ fail "wrong interned FTA count"
-    unless (Ranked.unrank imported 3 == Right (Term "pair" [Term "one" [], Term "one" []])) $
+    unless (Ranked.unrank imported 3 == Right (Tree.Node "pair" [Tree.Node "one" [], Tree.Node "one" []])) $
         fail "wrong interned FTA replay"
 
     result <- QC.quickCheckResult $ FTA.forAll pairs $ \(left, right) ->

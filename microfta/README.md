@@ -195,11 +195,9 @@ The explicit-state interface is useful when a grammar comes from a file or
 state names are part of your application:
 
 ```haskell
-{-# LANGUAGE PatternSynonyms #-}
-
+import qualified Data.Tree as Tree
 import Data.Tree.FTA (FTAError, PlainFTA, accepts)
 import qualified Data.Tree.FTA.Syntax as Syntax
-import Data.Tree.Term (pattern Term)
 
 naturals :: Either (FTAError Int String) (PlainFTA Int String)
 naturals =
@@ -213,7 +211,7 @@ naturals =
         ]
 
 oneAccepted :: Either (FTAError Int String) Bool
-oneAccepted = fmap (`accepts` Term "successor" [Term "zero" []]) naturals
+oneAccepted = fmap (`accepts` Tree.Node "successor" [Tree.Node "zero" []]) naturals
 
 -- Right True
 ```
@@ -426,7 +424,7 @@ For another complete example, see
 | `Data.Tree.FTA` | Checked transition graphs, recognition, depth bounds, and product intersection. |
 | `Data.Tree.FTA.Syntax` | Named states and transitions without unit-annotation boilerplate. |
 | `Data.Tree.FTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
-| `Data.Tree.Term` | Concrete constructor trees. |
+| `Data.Tree` from `containers` | Concrete constructor trees. |
 | `Data.Tree.FTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 
 The interned engine has a symbol type and a constraint type. Ordinary

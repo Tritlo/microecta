@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Data.Tree.FTASyntaxSpec (spec) where
@@ -14,7 +13,6 @@ import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.FTA.Syntax as FTA
-import Data.Tree.Term (Term, pattern Term)
 
 data State = Expression
     deriving (Eq, Ord, Show)
@@ -33,10 +31,10 @@ spec = do
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    Automaton.accepts automaton (Term "zero" []) `shouldBe` True
+                    Automaton.accepts automaton (Tree.Node "zero" []) `shouldBe` True
                     Automaton.accepts
                         automaton
-                        (Term "add" [Term "zero" [], Term "zero" []])
+                        (Tree.Node "add" [Tree.Node "zero" [], Tree.Node "zero" []])
                         `shouldBe` True
                     Automaton.toTree automaton
                         `shouldBe` Tree.Node
@@ -66,9 +64,9 @@ spec = do
                         Left err -> expectationFailure $ show err
                         Right intersection -> do
                             let ordinary = Automaton.stripGuards intersection
-                            Automaton.accepts ordinary (Term "shared" []) `shouldBe` True
-                            Automaton.accepts ordinary (Term "left" []) `shouldBe` False
-                            Automaton.accepts ordinary (Term "right" []) `shouldBe` False
+                            Automaton.accepts ordinary (Tree.Node "shared" []) `shouldBe` True
+                            Automaton.accepts ordinary (Tree.Node "left" []) `shouldBe` False
+                            Automaton.accepts ordinary (Tree.Node "right" []) `shouldBe` False
                 (Left err, _) -> expectationFailure $ show err
                 (_, Left err) -> expectationFailure $ show err
 
@@ -77,7 +75,7 @@ spec = do
             let choices = Common.Node [Common.Edge "a" [], Common.Edge "b" []] :: Common.PlainNode String
                 other = Common.Node [Common.Edge "b" [], Common.Edge "c" []] :: Common.PlainNode String
                 shared = Common.intersect choices other
-            map (acceptPlain shared) [Term "a" [], Term "b" [], Term "c" []]
+            map (acceptPlain shared) [Tree.Node "a" [], Tree.Node "b" [], Tree.Node "c" []]
                 `shouldBe` [False, True, False]
             Common.intersect choices choices `shouldBe` choices
 
@@ -89,7 +87,7 @@ spec = do
                     Common.Node
                         [Common.Edge "zero" [], Common.Edge "succ" [Common.Node [Common.Edge "succ" [rec]]]]
                 shared = Common.intersect naturals evens :: Common.PlainNode String
-                terms = take 9 $ iterate (\term -> Term "succ" [term]) (Term "zero" [])
+                terms = take 9 $ iterate (\term -> Tree.Node "succ" [term]) (Tree.Node "zero" [])
             map (acceptPlain shared) terms `shouldBe` map even [0 :: Int .. 8]
             case Common.toFTA shared of
                 Left err -> expectationFailure $ show err
@@ -111,8 +109,8 @@ spec = do
                 onlyB = Common.Node [Common.mkEdge "a" [] (Only "b")]
             Common.nodeIdentity plain `shouldNotBe` Common.nodeIdentity free
             onlyA `shouldNotBe` onlyB
-            Common.nodeRepresentsWith acceptsAllowed onlyA (Term "a" []) `shouldBe` True
-            Common.nodeRepresentsWith acceptsAllowed onlyB (Term "a" []) `shouldBe` False
+            Common.nodeRepresentsWith acceptsAllowed onlyA (Tree.Node "a" []) `shouldBe` True
+            Common.nodeRepresentsWith acceptsAllowed onlyB (Tree.Node "a" []) `shouldBe` False
             Common.intersect onlyA onlyB `shouldBe` Common.EmptyNode
             Common.intersect free onlyA `shouldBe` onlyA
 
@@ -138,7 +136,7 @@ spec = do
         it "unfolds a recursive node a bounded number of times and refolds it" $ do
             let naturals = Common.createMu $ \rec ->
                     Common.Node [Common.Edge "zero" [], Common.Edge "succ" [rec]] :: Common.PlainNode String
-                terms = take 4 $ iterate (\term -> Term "succ" [term]) (Term "zero" [])
+                terms = take 4 $ iterate (\term -> Tree.Node "succ" [term]) (Tree.Node "zero" [])
                 bounded = Common.unfoldBounded 2 naturals
             map (acceptPlain bounded) terms `shouldBe` [True, True, False, False]
             Common.refold (Common.unfoldOuterRec naturals) `shouldBe` naturals
@@ -162,8 +160,8 @@ spec = do
                     case Common.fromFTA graph of
                         Left err -> expectationFailure $ show err
                         Right node -> do
-                            acceptPlain node (Term "pair" [Term "leaf" [], Term "leaf" []]) `shouldBe` True
-                            acceptPlain node (Term "pair" [Term "pair" [], Term "leaf" []]) `shouldBe` False
+                            acceptPlain node (Tree.Node "pair" [Tree.Node "leaf" [], Tree.Node "leaf" []]) `shouldBe` True
+                            acceptPlain node (Tree.Node "pair" [Tree.Node "pair" [], Tree.Node "leaf" []]) `shouldBe` False
                             case Common.toFTA node of
                                 Left err -> expectationFailure $ show err
                                 Right view -> length (Automaton.states view) `shouldBe` 2
@@ -173,7 +171,7 @@ spec = do
                 both = Common.Node [Common.Edge "a" [], Common.Edge "b" []]
                 redundant = Common.Node [Common.Edge "f" [leaf], Common.Edge "f" [both]]
             Common.edgeCount (Common.withoutRedundantEdges redundant) `shouldBe` 3
-            acceptPlain (Common.withoutRedundantEdges redundant) (Term "f" [Term "a" []]) `shouldBe` True
+            acceptPlain (Common.withoutRedundantEdges redundant) (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` True
 
     describe "derived datatype grammars" $ do
         it "accepts exactly the encodings of the datatype's values" $ do
@@ -212,11 +210,11 @@ instance Constraint Allowed where
     contradictory _ = False
 
 -- | Interpret the test constraint at one constructor.
-acceptsAllowed :: Allowed -> Term String -> Bool
+acceptsAllowed :: Allowed -> Tree.Tree String -> Bool
 acceptsAllowed Anything _ = True
-acceptsAllowed (Only expected) (Term actual _) = expected == actual
+acceptsAllowed (Only expected) (Tree.Node actual _) = expected == actual
 acceptsAllowed NothingAllowed _ = False
 
 -- | Recognize an ordinary interned automaton.
-acceptPlain :: Common.PlainNode String -> Term String -> Bool
+acceptPlain :: Common.PlainNode String -> Tree.Tree String -> Bool
 acceptPlain = Common.nodeRepresentsWith (\() _ -> True)

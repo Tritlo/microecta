@@ -2,6 +2,7 @@
 
 module Application.TermSearchSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec
 
 import Application.TermSearch.Dataset (typeToFta)
@@ -75,11 +76,11 @@ spec = do
     describe "filterType" $ do
         it "keeps only the terms of the requested type" $
             getAllTerms (reduceFully (filterType constants intType))
-                `shouldBe` [Term "filter" [Term "Int" [], Term "one" [Term "Int" []]]]
+                `shouldBe` [Tree.Node "filter" [Tree.Node "Int" [], Tree.Node "one" [Tree.Node "Int" []]]]
 
         it "keeps the other type when that is what is asked for" $
             getAllTerms (reduceFully (filterType constants boolType))
-                `shouldBe` [Term "filter" [Term "Bool" [], Term "true" [Term "Bool" []]]]
+                `shouldBe` [Tree.Node "filter" [Tree.Node "Bool" [], Tree.Node "true" [Tree.Node "Bool" []]]]
 
         it "an unrepresented type leaves nothing" $
             reduceFully (filterType constants (typeConst "Char")) `shouldBe` EmptyNode

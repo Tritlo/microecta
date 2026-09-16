@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE EmptyDataDeriving #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -11,6 +10,7 @@ module Data.Tree.FTA.GenSpec (spec) where
 import Control.Exception (evaluate)
 import Data.List (nub)
 import Data.Proxy (Proxy (Proxy))
+import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
 import System.Timeout (timeout)
@@ -25,7 +25,6 @@ import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.FTA.UntypedExpressionLanguage as Expressions
 import qualified Data.Tree.Gen as Ranked
-import Data.Tree.Term (pattern Term)
 
 -- | A derived recursive fixture with named child positions.
 data DerivedTree = Leaf Bool | Fork DerivedTree DerivedTree
@@ -99,12 +98,12 @@ spec = do
                     check $ FTA.fromDatatypeUpToSize 5 datatype
 
         it "retains record names, positions, and fully applied field types" $ do
-            let Term constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
+            let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
                 typ = typeRep $ Proxy @DerivedTree
             Datatype.constructorName constructor `shouldBe` "RecordPair"
             Datatype.fieldNamed "rightChild" constructor
                 `shouldBe` Just (Datatype.Field 1 (Just "rightChild") typ)
-            (Datatype.decodeTerm (Term constructor []) :: Maybe DerivedTree) `shouldBe` Nothing
+            (Datatype.decodeTerm (Tree.Node constructor []) :: Maybe DerivedTree) `shouldBe` Nothing
             (Datatype.decodeTerm (Datatype.encodeTerm True) :: Maybe DerivedTree) `shouldBe` Nothing
 
         it "reuses mutually recursive type states and accepts finite nested lists" $ do
@@ -149,26 +148,26 @@ spec = do
             FTA.cardinality boxed `shouldBe` 2
             FTA.unrank boxed 1 `shouldBe` Right 2
             FTA.generatedTerm boxed 1
-                `shouldBe` Right (Term "box" [Term "one" []])
+                `shouldBe` Right (Tree.Node "box" [Tree.Node "one" []])
 
         it "uses each do binding as one direct constructor child" $ do
             FTA.cardinality pairs `shouldBe` 4
             FTA.generatedTerm pairs 2
-                `shouldBe` Right (Term "pair" [Term "one" [], Term "zero" []])
+                `shouldBe` Right (Tree.Node "pair" [Tree.Node "one" [], Tree.Node "zero" []])
 
         it "builds exact support carrying the public node labels" $
             case FTA.support pairs of
                 Left err -> expectationFailure $ show err
                 Right support -> do
-                    Automaton.accepts support (Term "pair" [Term "zero" [], Term "one" []])
+                    Automaton.accepts support (Tree.Node "pair" [Tree.Node "zero" [], Tree.Node "one" []])
                         `shouldBe` True
-                    Automaton.accepts support (Term "pair" [Term "zero" []])
+                    Automaton.accepts support (Tree.Node "pair" [Tree.Node "zero" []])
                         `shouldBe` False
 
     describe "ordinary FTA compilation" $ do
         it "indexes recursive runs by size and bounds them by depth" $ do
             let rows = [((), [Automaton.Transition "z" [] (), Automaton.Transition "s" [()] ()])]
-                terms = take 5 $ iterate (\term -> Term "s" [term]) (Term "z" [])
+                terms = take 5 $ iterate (\term -> Tree.Node "s" [term]) (Tree.Node "z" [])
             case Automaton.mkFTA () rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
@@ -213,7 +212,7 @@ spec = do
             let leaves = Common.Node [Common.Edge "zero" [], Common.Edge "one" []] :: Common.PlainNode String
                 root = Common.Node [Common.Edge "pair" [leaves, leaves]]
                 expected =
-                    [ Term "pair" [Term left [], Term right []]
+                    [ Tree.Node "pair" [Tree.Node left [], Tree.Node right []]
                     | left <- ["zero", "one"]
                     , right <- ["zero", "one"]
                     ]
@@ -233,7 +232,7 @@ spec = do
                         : [ (state, [Automaton.Transition "a" [state - 1] (), Automaton.Transition "b" [state - 1] ()])
                           | state <- [1 .. depth]
                           ]
-                chain symbol = iterate (\term -> Term symbol [term]) (Term "z" []) !! depth
+                chain symbol = iterate (\term -> Tree.Node symbol [term]) (Tree.Node "z" []) !! depth
             case Automaton.mkFTA depth rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
@@ -254,13 +253,13 @@ spec = do
                     , (2, [Automaton.Transition "pair" [1, 1] ()])
                     ]
                 reference = do
-                    leaves <- Ranked.oneof [pure $ Term "x" [], pure $ Term "y" []]
+                    leaves <- Ranked.oneof [pure $ Tree.Node "x" [], pure $ Tree.Node "y" []]
                     alternatives <-
                         Ranked.oneof
-                            [ pure $ Term "a" []
-                            , pure (\child -> Term "wrap" [child]) <*> leaves
+                            [ pure $ Tree.Node "a" []
+                            , pure (\child -> Tree.Node "wrap" [child]) <*> leaves
                             ]
-                    pure $ pure (\left right -> Term "pair" [left, right]) <*> alternatives <*> alternatives
+                    pure $ pure (\left right -> Tree.Node "pair" [left, right]) <*> alternatives <*> alternatives
             case Automaton.mkFTA (2 :: Int) rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> case (FTA.fromFTA automaton, reference) of

@@ -49,7 +49,6 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, toTreeBy)
-import Data.Tree.Term (Term, pattern Term)
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition
@@ -151,15 +150,16 @@ Equal subterms share one state. The initial state contains the complete terms.
 Duplicate terms are removed and alternatives use ascending term order.
 -}
 fromTerms ::
-    (Ord symbol) => [Term symbol] -> Either (FTAError (Maybe (Term symbol)) symbol) (PlainFTA (Maybe (Term symbol)) symbol)
+    (Ord symbol) =>
+    [Tree.Tree symbol] -> Either (FTAError (Maybe (Tree.Tree symbol)) symbol) (PlainFTA (Maybe (Tree.Tree symbol)) symbol)
 fromTerms input =
     mkFTA Nothing $
         (Nothing, map transition terms)
             : [(Just term, [transition term]) | term <- Set.toList $ Set.fromList $ concatMap subterms terms]
   where
     terms = Set.toList $ Set.fromList input
-    transition (Term symbol children) = Transition symbol (map Just children) ()
-    subterms term@(Term _ children) = term : concatMap subterms children
+    transition (Tree.Node symbol children) = Transition symbol (map Just children) ()
+    subterms term@(Tree.Node _ children) = term : concatMap subterms children
 
 -- | All states in ascending key order.
 states :: FTA state symbol guard -> [state]
@@ -339,10 +339,10 @@ intersectWith matchSymbol combineGuard left right =
         ]
 
 -- | Decide whether an ordinary FTA accepts a concrete term.
-accepts :: (Ord state, Eq symbol) => PlainFTA state symbol -> Term symbol -> Bool
+accepts :: (Ord state, Eq symbol) => PlainFTA state symbol -> Tree.Tree symbol -> Bool
 accepts automaton = acceptsFrom (initialState automaton)
   where
-    acceptsFrom state (Term symbol children) =
+    acceptsFrom state (Tree.Node symbol children) =
         any (acceptsTransition symbol children) (transitionsFrom automaton state)
 
     acceptsTransition symbol children transition =

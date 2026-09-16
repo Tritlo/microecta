@@ -39,6 +39,7 @@ module Data.ECTA.Internal.Paths (
     unsafeSubsumptionOrderedEclasses,
 ) where
 
+import qualified Data.Tree as Tree
 import Prelude hiding (round)
 
 import Data.Function (on)
@@ -53,7 +54,6 @@ import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
 import Data.Tree.FTA.Constraint (Constraint (..))
-import Data.Tree.Term (Term, pattern Term)
 import Utility.Fixpoint
 import Utility.List (adjustAt, atMay)
 
@@ -139,18 +139,18 @@ class Pathable t t' | t -> t' where
     -- | Apply a local edit at a path.
     modifyAtPath :: (t' -> t') -> Path -> t -> t
 
-instance Pathable (Term symbol) (Term symbol) where
-    type Emptyable (Term symbol) = Maybe (Term symbol)
+instance Pathable (Tree.Tree symbol) (Tree.Tree symbol) where
+    type Emptyable (Tree.Tree symbol) = Maybe (Tree.Tree symbol)
 
     getPath EmptyPath t = Just t
-    getPath (ConsPath p ps) (Term _ ts) = case atMay p ts of
+    getPath (ConsPath p ps) (Tree.Node _ ts) = case atMay p ts of
         Nothing -> Nothing
         Just t -> getPath ps t
 
     getAllAtPath p t = maybeToList $ getPath p t
 
     modifyAtPath f EmptyPath t = f t
-    modifyAtPath f (ConsPath p ps) (Term s ts) = Term s (adjustAt p (modifyAtPath f ps) ts)
+    modifyAtPath f (ConsPath p ps) (Tree.Node s ts) = Tree.Node s (adjustAt p (modifyAtPath f ps) ts)
 
 -----------------------------------------------------------------------
 ---------------------------- Path tries -------------------------------

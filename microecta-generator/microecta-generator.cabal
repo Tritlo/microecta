@@ -57,7 +57,6 @@ common extensions
     MultiParamTypeClasses
     NamedFieldPuns
     PatternGuards
-    PatternSynonyms
     RankNTypes
     ScopedTypeVariables
     StandaloneDeriving

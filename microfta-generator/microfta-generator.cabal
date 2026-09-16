@@ -91,6 +91,7 @@ executable fta-pairs
   hs-source-dirs: examples
   build-depends:
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator,
     QuickCheck >=2.14 && <2.19,
@@ -134,6 +135,7 @@ benchmark untyped-expression-speed
 
   build-depends:
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator,
     process >=1.6 && <1.7,

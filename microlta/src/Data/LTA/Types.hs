@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 {- | Terms, refinements, and the scalar names of a liquid tree automaton.
 
@@ -16,10 +15,11 @@ module Data.LTA.Types (
 ) where
 
 import Data.Hashable (Hashable)
+import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
 import Data.ECTA.Paths (Path, unPath)
-import Data.ECTA.Term (Symbol, Term, pattern Term)
+import Data.ECTA.Term (Symbol)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A logical refinement understood by Liquid Fixpoint.
@@ -34,9 +34,9 @@ data LiquidTerm = LiquidTerm
     deriving (Eq, Show)
 
 -- | Remove refinements to recover the underlying MicroECTA term.
-eraseRefinements :: LiquidTerm -> Term Symbol
+eraseRefinements :: LiquidTerm -> Tree.Tree Symbol
 eraseRefinements LiquidTerm{liquidSymbol, liquidChildren} =
-    Term liquidSymbol (map eraseRefinements liquidChildren)
+    Tree.Node liquidSymbol (map eraseRefinements liquidChildren)
 
 -- | Read the subterm at one position. An absent position gives 'Nothing'.
 termAt :: Path -> LiquidTerm -> Maybe LiquidTerm

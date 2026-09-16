@@ -16,7 +16,8 @@ the useful core small, direct, and quick to build.
 
 ## Shared tree foundation
 
-The tree datatype and common interned automaton engine belong to `microfta`.
+Concrete terms use `Data.Tree.Tree` from `containers`.
+The common interned automaton engine belongs to `microfta`.
 ECTA's `Node symbol` and `Edge symbol` specialize the common types with
 `EqConstraints`. Their wrappers preserve the existing construction patterns
 without copying graphs. The shared engine owns interning, recursion,
@@ -26,14 +27,14 @@ equality interpretation, path propagation, reduction, and enumeration.
 without allocation. Use them to combine common construction with ECTA-specific
 operations.
 
-`Data.ECTA.Term` re-exports the same `Term` datatype. ECTA-specific symbols,
-path operations, and pretty-printing remain in this package.
+`Data.ECTA.Term` exports `Symbol`. Import `Data.Tree` directly for concrete
+terms. ECTA-specific path operations and pretty-printing remain in this package.
 
 `Data.ECTA.FTA.toFTA` exposes an ECTA through the shared graph and retains its
 `EqConstraints` annotations. `Data.ECTA.FTA.Syntax` constructs such annotated
 rows. These operations do not solve or discard equality constraints.
-Applications that directly import `Data.Tree.FTA` or `Data.Tree.Term` must
-also declare `microfta` in `build-depends`.
+Applications that directly import `Data.Tree.FTA` must declare `microfta`
+in `build-depends`. Direct `Data.Tree` imports require `containers`.
 
 ## Core API
 
@@ -43,6 +44,7 @@ The main entry point is `Data.ECTA`.
 import Data.ECTA
 import Data.ECTA.Paths
 import Data.ECTA.Term
+import qualified Data.Tree as Tree
 ```
 
 An ECTA is a `Node symbol`, which is a set of outgoing `Edge symbol`s. An edge
@@ -84,7 +86,7 @@ instance Hashable NatSymbol
 zeroOrOne :: Node NatSymbol
 zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
 
-terms :: [Term NatSymbol]
+terms :: [Tree.Tree NatSymbol]
 terms = getAllTermsWith Recursion zeroOrOne
 ```
 
@@ -267,13 +269,13 @@ What makes a term worth rejecting is entirely the caller's business.
 `microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
 term, and no opinion about which shapes matter. Its `PartialSymbol` alphabet
 keeps concrete symbols, unexpanded `UVarHole`s, and `TruncatedRecursion`
-distinct; no placeholder can collide with a real symbol. `Term` is a functor,
+distinct; no placeholder can collide with a real symbol. `Tree.Tree` is a functor,
 so a caller that deliberately wants one concrete alphabet can materialize a
 partial term with `fmap resolvePartial`.
 
 ```haskell
 -- Drop any branch whose partial term already contains a forbidden symbol.
-prunedTerms :: [Symbol] -> Node Symbol -> [Term Symbol]
+prunedTerms :: [Symbol] -> Node Symbol -> [Tree.Tree Symbol]
 prunedTerms forbidden =
   getAllTermsPrune () $ \() _ event ->
     case event of
@@ -282,9 +284,9 @@ prunedTerms forbidden =
         partial <- expandPartialTermFrag fragment
         pure (any (`occursIn` partial) forbidden, ())
   where
-    occursIn s (Term (ConcreteSymbol s') ts) =
+    occursIn s (Tree.Node (ConcreteSymbol s') ts) =
       s == s' || any (occursIn s) ts
-    occursIn s (Term _ ts) = any (occursIn s) ts
+    occursIn s (Tree.Node _ ts) = any (occursIn s) ts
 ```
 
 A `Right node` decision covers a whole UVar, so it removes every term under
@@ -306,7 +308,7 @@ be settled before the branch it will kill is enumerated:
 
 ```haskell
 -- Expand a hole some parked check is waiting on, if one is available.
-resolveParkedFirst :: ExpansionOrder (IntMap [Term])
+resolveParkedFirst :: ExpansionOrder (IntMap [Tree.Tree Symbol])
 resolveParkedFirst parked candidates =
   listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
 
@@ -365,7 +367,7 @@ the pieces that downstream projects still use:
 
 ## Dependency Surface
 
-The library depends on `microfta` for the shared tree and automaton engine, plus:
+The library depends on `microfta` for the shared automaton engine, plus:
 
 - `containers`, `unordered-containers`
 - `hashable`, `intern`

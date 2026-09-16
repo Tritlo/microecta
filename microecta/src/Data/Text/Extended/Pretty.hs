@@ -8,7 +8,7 @@ module Data.Text.Extended.Pretty (
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Tree.Term (Term, pattern Term)
+import qualified Data.Tree as Tree
 
 ----------------------------------------------------------------------
 
@@ -20,6 +20,6 @@ class Pretty a where
 instance {-# OVERLAPPABLE #-} (Show a) => Pretty a where
     pretty = Text.pack . show
 
-instance (Pretty symbol) => Pretty (Term symbol) where
-    pretty (Term s []) = pretty s
-    pretty (Term s ts) = pretty s <> "(" <> Text.intercalate ", " (map pretty ts) <> ")"
+instance (Pretty symbol) => Pretty (Tree.Tree symbol) where
+    pretty (Tree.Node s []) = pretty s
+    pretty (Tree.Node s ts) = pretty s <> "(" <> Text.intercalate ", " (map pretty ts) <> ")"

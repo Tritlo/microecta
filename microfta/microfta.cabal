@@ -74,7 +74,6 @@ library
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
     Data.Tree.FTA.Syntax
-    Data.Tree.Term
     Utility.Fixpoint
     Utility.HashJoin
 

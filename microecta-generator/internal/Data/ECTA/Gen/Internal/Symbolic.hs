@@ -6,6 +6,7 @@ import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import qualified Data.ECTA as ECTA
@@ -15,7 +16,6 @@ import Data.Tree.FTA.Interned (Node (Node))
 import Data.Tree.FTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.Tree.FTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
 import qualified Data.Tree.Gen.Internal as Ranked
-import Data.Tree.Term (Term, pattern Term)
 
 -- | A constructor context whose variables denote whole subtree languages.
 data Fragment symbol = Variable Int | Constructor symbol [Fragment symbol]
@@ -73,7 +73,7 @@ Only the selected term is constructed. No accepted-term table is retained.
 -}
 symbolicRanked ::
     (Ord symbol, Hashable symbol, Typeable symbol) =>
-    ECTA.Node symbol -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
+    ECTA.Node symbol -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
 symbolicRanked = symbolicRankedWith interpret . ECTA.toInterned
   where
     interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
@@ -88,7 +88,7 @@ invariants. Checking them by enumerating the language would defeat the compiler.
 -}
 symbolicRankedWith ::
     (Theory symbol constraint) =>
-    Interpretation constraint -> Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Term symbol))
+    Interpretation constraint -> Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
 symbolicRankedWith interpret root =
     Ranked.fromIndexedOnDemand $ Ranked.Indexed total select
   where
@@ -426,7 +426,11 @@ project position root = Node $ concatMap nodeEdges $ Set.toList $ go position $ 
 -- | Select one term in constructor order, carrying counts for the remaining suffix.
 selectTerm ::
     (Theory symbol constraint) =>
-    Interpretation constraint -> Node symbol constraint -> [Int] -> Integer -> State.State (Counts symbol) (Term symbol)
+    Interpretation constraint ->
+    Node symbol constraint ->
+    [Int] ->
+    Integer ->
+    State.State (Counts symbol) (Tree.Tree symbol)
 selectTerm interpret root position rank = do
     ~(term, _, _) <- selectAt interpret root position rank
     pure term
@@ -438,7 +442,7 @@ selectAt ::
     Node symbol constraint ->
     [Int] ->
     Integer ->
-    State.State (Counts symbol) (Term symbol, Node symbol constraint, Integer)
+    State.State (Counts symbol) (Tree.Tree symbol, Node symbol constraint, Integer)
 selectAt interpret root position rank = do
     let local = project position root
     count <- countNode interpret local
@@ -456,7 +460,7 @@ selectAt interpret root position rank = do
             then choose (remaining - count) rest
             else do
                 ~(children, final, suffixRank) <- selectChildren restricted remaining [0 .. arity - 1]
-                pure (Term symbol children, final, suffixRank)
+                pure (Tree.Node symbol children, final, suffixRank)
     selectChildren graph remaining [] = pure ([], graph, remaining)
     selectChildren graph remaining (index : rest) = do
         ~(term, restricted, suffixRank) <- selectAt interpret graph (position <> [index]) remaining
@@ -466,7 +470,7 @@ selectAt interpret root position rank = do
 -- | Decode a singleton language without traversing unobserved sibling trees.
 selectUniqueAt ::
     (Theory symbol constraint) =>
-    Interpretation constraint -> Node symbol constraint -> [Int] -> State.State (Counts symbol) (Term symbol)
+    Interpretation constraint -> Node symbol constraint -> [Int] -> State.State (Counts symbol) (Tree.Tree symbol)
 selectUniqueAt interpret root position = choose $ constructorsAt position root
   where
     choose [] = error "symbolicRanked: empty singleton language"
@@ -477,4 +481,6 @@ selectUniqueAt interpret root position = choose $ constructorsAt position root
             else do
                 counts <- State.get
                 pure $
-                    Term symbol [State.evalState (selectUniqueAt interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]
+                    Tree.Node
+                        symbol
+                        [State.evalState (selectUniqueAt interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]

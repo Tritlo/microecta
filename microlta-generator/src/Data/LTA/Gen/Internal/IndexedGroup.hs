@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Compact private ECTA support for a finite imported group.
 module Data.LTA.Gen.Internal.IndexedGroup (indexedGroup) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import qualified Data.ECTA as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.ECTA.Term (Symbol, Term, pattern Term)
+import Data.ECTA.Term (Symbol)
 
 {- | Represent each index below the bound with one binary-code term.
 
@@ -44,10 +44,10 @@ build bound cache
     retain support updated = (support, Map.insert bound support updated)
 
 -- | Decode a term from the private nullary and unary alphabet.
-decode :: Term Symbol -> Integer
-decode (Term symbol [])
+decode :: Tree.Tree Symbol -> Integer
+decode (Tree.Node symbol [])
     | symbol == "$microlta-index-zero" = 0
-decode (Term symbol [child])
+decode (Tree.Node symbol [child])
     | symbol == "$microlta-index-even" = 2 * decode child
     | symbol == "$microlta-index-odd" = 2 * decode child + 1
 decode _ = error "indexedGroup: invalid private code term"

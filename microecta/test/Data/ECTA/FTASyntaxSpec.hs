@@ -1,6 +1,7 @@
 module Data.ECTA.FTASyntaxSpec (spec) where
 
 import Data.Tree (flatten)
+import qualified Data.Tree as Tree
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
@@ -9,7 +10,6 @@ import qualified Data.ECTA.FTA.Syntax as ECTA
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.Term (pattern Term)
 
 data State = Expression | Atom
     deriving (Eq, Ord, Show)
@@ -25,8 +25,8 @@ spec =
                         [Common.mkEdge "pair" [leaves, leaves] equalChildren]
                 ecta = Core.fromInterned graph :: Core.Node String
             Core.toInterned ecta `shouldBe` graph
-            Core.nodeRepresents ecta (Term "pair" [Term "a" [], Term "a" []]) `shouldBe` True
-            Core.nodeRepresents ecta (Term "pair" [Term "a" [], Term "b" []]) `shouldBe` False
+            Core.nodeRepresents ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "a" []]) `shouldBe` True
+            Core.nodeRepresents ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` False
             case Core.toTree ecta of
                 Left err -> expectationFailure $ show err
                 Right tree ->

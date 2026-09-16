@@ -91,6 +91,7 @@ module Data.ECTA.Gen (
 import qualified Data.Array as Array
 import Data.String (fromString)
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import qualified Data.ECTA as Core
@@ -104,7 +105,7 @@ import Data.ECTA.Gen.Internal.Static (indexedStaticWithLabels)
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.ECTA.Paths (EqConstraints)
-import Data.ECTA.Term (Symbol (Symbol), Term)
+import Data.ECTA.Term (Symbol (Symbol))
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.Tree.FTA.Interned as Common
@@ -152,7 +153,7 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
+fromECTA :: Node Symbol -> ECTAGen gen (Tree.Tree Symbol)
 fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
@@ -167,7 +168,7 @@ shared states. Unranking constructs only the selected term. Shrinks remain
 in the accepted language.
 -}
 fromFTAUpToDepth ::
-    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Term Symbol)
+    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
 fromFTAUpToDepth depth graph = Transparent $ do
     root <-
         either (Left . InvalidImportedAutomaton . show) (Right . Core.fromInterned)

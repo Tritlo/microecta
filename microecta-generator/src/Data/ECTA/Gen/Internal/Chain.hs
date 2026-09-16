@@ -37,6 +37,7 @@ module Data.ECTA.Gen.Internal.Chain (
 
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Node)
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
@@ -46,7 +47,7 @@ import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (argKeyedSymbol)
 import Data.ECTA.Gen.Sig (Sig (..))
-import Data.ECTA.Term (Symbol, Term, pattern Term)
+import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (SizeIndex, productIndex)
@@ -183,17 +184,17 @@ chainDecoder (ChainCons static rest) =
 selectChain ::
     operation ->
     ArgStatics operation result ->
-    [Term Symbol] ->
+    [Tree.Tree Symbol] ->
     Integer ->
-    Either ECTAGenError ([Term Symbol], [Term InspectionSymbol], Rational, result)
+    Either ECTAGenError ([Tree.Tree Symbol], [Tree.Tree InspectionSymbol], Rational, result)
 selectChain value ChainNil _ _ = Right ([], [], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
     (terms, inspections, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
     pure
-        ( Term argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
-        , Term
+        ( Tree.Node argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
+        , Tree.Node
             (plainSymbol argKeyedSymbol)
             [ fmap (\symbol -> InspectionSymbol symbol $ inspectionName $ staticInspection static) keyTerm
             , outcomeInspection outcome
