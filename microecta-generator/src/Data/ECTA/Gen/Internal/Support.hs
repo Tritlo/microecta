@@ -40,7 +40,17 @@ import Data.ECTA.Term (Symbol (Symbol), Term (Term))
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.
 -}
-pureSymbol, applySymbol, joinSymbol, joinNSymbol, centerKeyedSymbol, leftKeyedSymbol, rightKeyedSymbol, argKeyedSymbol, familySymbol, keyRestrictSymbol :: Symbol
+pureSymbol
+    , applySymbol
+    , joinSymbol
+    , joinNSymbol
+    , centerKeyedSymbol
+    , leftKeyedSymbol
+    , rightKeyedSymbol
+    , argKeyedSymbol
+    , familySymbol
+    , keyRestrictSymbol ::
+        Symbol
 pureSymbol = "$ecta-gen/pure"
 applySymbol = "$ecta-gen/apply"
 joinSymbol = "$ecta-gen/join"

@@ -70,7 +70,10 @@ toECTA automaton = do
     alphabet =
         Map.fromList $
             zip
-                (Set.toAscList $ Set.fromList [FTA.transitionSymbol transition | transitions <- Map.elems $ automatonTransitions automaton, transition <- transitions])
+                ( Set.toAscList $
+                    Set.fromList
+                        [FTA.transitionSymbol transition | transitions <- Map.elems $ automatonTransitions automaton, transition <- transitions]
+                )
                 [0 ..]
 
 -- | Decode one term enumerated from an 'EqualityView'.

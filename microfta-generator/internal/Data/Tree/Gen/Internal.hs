@@ -170,21 +170,27 @@ does not change cardinality or rank order. The constructor checks cardinality
 and total weight only; it does not evaluate either callback.
 -}
 fromWeightedIndexedOnDemand :: WeightedIndexed a -> Either RankedError (Ranked a)
-fromWeightedIndexedOnDemand WeightedIndexed{weightedIndexedCardinality, weightedIndexedTotalWeight, weightedIndexedSelect, weightedIndexedRankAtTicket}
-    | weightedIndexedCardinality <= 0 = Left EmptyRanked
-    | weightedIndexedTotalWeight <= 0 = Left $ NonPositiveRankedWeight weightedIndexedTotalWeight
-    | weightedIndexedTotalWeight < weightedIndexedCardinality =
-        Left $ InsufficientRankedWeight weightedIndexedCardinality weightedIndexedTotalWeight
-    | otherwise =
-        Right $
-            makeRanked
-                (PlanSelectOnDemand weightedIndexedCardinality weightedIndexedSelect)
-                ( Sampler
-                    (weightedIndexedSelect <$> runValueSampler tickets)
-                    ((\rank -> (rank, weightedIndexedSelect rank)) <$> runValueSampler tickets)
-                )
-  where
-    tickets = uniformSampler weightedIndexedTotalWeight weightedIndexedRankAtTicket
+fromWeightedIndexedOnDemand
+    WeightedIndexed
+        { weightedIndexedCardinality
+        , weightedIndexedTotalWeight
+        , weightedIndexedSelect
+        , weightedIndexedRankAtTicket
+        }
+        | weightedIndexedCardinality <= 0 = Left EmptyRanked
+        | weightedIndexedTotalWeight <= 0 = Left $ NonPositiveRankedWeight weightedIndexedTotalWeight
+        | weightedIndexedTotalWeight < weightedIndexedCardinality =
+            Left $ InsufficientRankedWeight weightedIndexedCardinality weightedIndexedTotalWeight
+        | otherwise =
+            Right $
+                makeRanked
+                    (PlanSelectOnDemand weightedIndexedCardinality weightedIndexedSelect)
+                    ( Sampler
+                        (weightedIndexedSelect <$> runValueSampler tickets)
+                        ((\rank -> (rank, weightedIndexedSelect rank)) <$> runValueSampler tickets)
+                    )
+      where
+        tickets = uniformSampler weightedIndexedTotalWeight weightedIndexedRankAtTicket
 
 {- | Compile a finite prefix of a size-major index.
 
