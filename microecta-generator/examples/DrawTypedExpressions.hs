@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Draw the actual supports of the typed expression generators.
+-- | Draw retained source names and type groups of the typed expression generators.
 module Main (main) where
 
 import Data.List (intercalate)
@@ -20,27 +20,27 @@ import Data.ECTA.Paths (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import Data.ECTA.Term (Symbol (Symbol))
 import qualified Data.Tree.FTA as FTA
 
--- | Print finite and recursive supports without changing the generators.
+-- | Print finite and recursive diagnostic graphs.
 main :: IO ()
 main = do
-    putStrLn "Private $ecta-gen/ labels use gen:. Source indices and key IDs remain opaque."
+    putStrLn "Source choices retain names and signatures. Equality witnesses show their type groups."
     putStrLn "State names q0, q1, ... are local to each drawing."
     putStrLn "Locations use @alternative:child/..., with @root for the initial state."
     drawSupport "Exact depth 1: both result types" $ expressionGenAtDepth 1
     drawSupport "Exact depth 1: TInt" $ Gen.atKey TInt $ depthByType 1
     drawSupport "Recursive: TInt" $ Gen.atKey TInt recursiveExpressions
 
--- | Read a generator's existing support and draw its state and transition labels.
+-- | Read retained diagnostic metadata and draw its state and transition labels.
 drawSupport :: String -> Gen.ECTAGen gen value -> IO ()
 drawSupport title generator = do
-    root <- either (fail . show) pure $ Gen.support generator
-    tree <- either (fail . show) pure $ ECTA.toTree root
-    putStrLn $ "\n" <> title
+    inspection <- either (fail . show) pure $ Gen.inspect generator
+    tree <- either (fail . show) pure $ ECTA.toTree $ Gen.inspectionGraph inspection
+    putStrLn $ "\n" <> title <> maybe "" (\name -> " [" <> Text.unpack name <> "]") (Gen.inspectionName inspection)
     putStrLn $ drawTree $ renderTree tree
 
 -- | Assign local state names from typed labels and preserve all transitions.
 renderTree ::
-    Tree (Either (FTA.StateView (ECTA.Node Symbol)) (ECTA.Edge Symbol)) ->
+    Tree (Either (FTA.StateView (ECTA.Node Gen.InspectionSymbol)) (ECTA.Edge Gen.InspectionSymbol)) ->
     Tree String
 renderTree tree = fmap (either renderState renderTransition) tree
   where
@@ -59,7 +59,7 @@ renderViewPath [] = "root"
 renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep the symbol and print equalities with child paths instead of trie internals.
-renderTransition :: ECTA.Edge Symbol -> String
+renderTransition :: ECTA.Edge Gen.InspectionSymbol -> String
 renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equalities
   where
     equalities = case subsumptionOrderedEclasses $ ECTA.edgeEcs transition of
@@ -70,10 +70,17 @@ renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equal
                 <> intercalate ", " [intercalate " = " $ map renderPath $ unPathEClass paths | paths <- classes]
                 <> "]"
 
--- | Shorten the private namespace without decoding source indices or key IDs.
-renderSymbol :: Symbol -> String
-renderSymbol (Symbol symbol) =
-    Text.unpack $ maybe symbol ("gen:" <>) $ Text.stripPrefix "$ecta-gen/" symbol
+-- | Prefer retained domain names and use short names for construction steps.
+renderSymbol :: Gen.InspectionSymbol -> String
+renderSymbol (Gen.InspectionSymbol _ (Just label)) = Text.unpack label
+renderSymbol (Gen.InspectionSymbol (Symbol symbol) Nothing) = Text.unpack $
+    case Text.stripPrefix "$ecta-gen/" symbol of
+        Just "center-keyed" -> "operation"
+        Just "arg-keyed" -> "argument"
+        Just "at-key" -> "select type"
+        Just "family" -> "type alternative"
+        Just private -> maybe ("gen:" <> private) ("choice " <>) $ Text.stripPrefix "frequency/" private
+        Nothing -> symbol
 
 -- | Print a path as child indexes separated by dots.
 renderPath :: Path -> String

@@ -239,10 +239,13 @@ component's `build-depends` when you import `Data.Tree` directly.
 For the actual typed-expression generator, see
 [`DrawTypedExpressions.hs`](../microecta-generator/examples/DrawTypedExpressions.hs).
 Run `cabal run ecta-draw-typed-expressions` from the workspace root. It draws
-finite and recursive supports with local state names, occurrence locations,
-and readable equality paths. It shortens the private `$ecta-gen/` prefix to `gen:`. Source indices and
-key IDs remain opaque: the support graph does not retain their decoded Haskell
-values or type names.
+finite and recursive diagnostic graphs with local state names, occurrence
+locations, source names, function signatures, and type-group witnesses.
+The generator retains these names through `namedElements` and `nameGroups`.
+`Gen.inspect` returns this diagnostic graph; `Gen.support` retains the original
+semantic support. Each diagnostic symbol also retains its original symbol.
+See [generator inspection](../microecta-generator/README.md#inspect-a-generator)
+for the API and its limits.
 
 ## Pruning API
 
