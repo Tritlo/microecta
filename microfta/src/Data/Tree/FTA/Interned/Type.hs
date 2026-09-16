@@ -781,7 +781,7 @@ substitutionPlan inputNode = memoTypeableWith genericSubstitutionPlanCache onNod
     onNode :: Node symbol constraint -> SubstitutionPlan symbol constraint (Node symbol constraint)
     onNode n = SubstitutionPlan $
         case n of
-            EmptyNode -> \_ -> EmptyNode
+            EmptyNode -> const EmptyNode
             InternedNode node -> case sequenceSubstitutionPlans $ map edgeSubstitutionPlan (internedNodeEdges node) of
                 SubstitutionPlan !f -> \env -> mkNode (f env)
             InternedMu mu -> case onNode (internedMuBody mu) of
