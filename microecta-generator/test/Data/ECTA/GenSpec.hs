@@ -282,10 +282,10 @@ spec = do
                 accepted =
                     [ (center, left, right)
                     | center <- centers
-                    , left <- lefts
-                    , right <- rights
                     , let (_, expectedLeft, expectedRight, _) = fst center
+                    , left <- lefts
                     , expectedLeft == fst left
+                    , right <- rights
                     , expectedRight == fst right
                     ]
                 acceptedCount = toInteger $ length accepted
@@ -298,7 +298,7 @@ spec = do
             ECTAGen.sizes operations
                 `shouldBe` Right (Map.fromList [(0 :* 0 :-> 0, 2), (1 :* 0 :-> 1, 1)])
             ECTAGen.pmf (ECTAGen.atKey (0 :* 0 :-> 0) operations)
-                `shouldBe` Right [(centers !! 0, 1 % 2), (centers !! 1, 1 % 2)]
+                `shouldBe` Right (zip (take 2 centers) [1 % 2, 1 % 2])
             ECTAGen.pmf grouped `shouldBe` Right expected
 
     describe "indexed and opaque sources" $ do
@@ -427,9 +427,7 @@ spec = do
                 opaqueJoin =
                     ECTAGen.match (id :==: id) opaque (ECTAGen.elements [Bob])
              in QC.property
-                    ( QC.forAll (ECTAGen.toGen opaqueJoin) $ \(left, right) ->
-                        left QC.=== right
-                    )
+                    (QC.forAll (ECTAGen.toGen opaqueJoin) $ uncurry (QC.===))
 
         it "allows an opaque source to participate in a relation" $
             let opaque = ECTAGen.fromGen $ QC.elements [Admin, Member]

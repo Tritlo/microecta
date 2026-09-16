@@ -25,6 +25,7 @@ module Data.ECTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton) where
 import qualified Control.Monad.State.Strict as State
 import Data.List (partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 
 import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
@@ -149,7 +150,7 @@ finiteAutomaton root =
         | any (needsPathExpansion . edgeEcs) edges = pure $ symbolic node
         | otherwise = do
             alternatives <- traverse buildEdge edges
-            pure $ either (const Nothing) (Just . Ranked.share) $ Ranked.oneof [ranked | Just ranked <- alternatives]
+            pure $ either (const Nothing) (Just . Ranked.share) $ Ranked.oneof (catMaybes alternatives)
       where
         edges = nodeEdges node
 
@@ -168,7 +169,7 @@ finiteAutomaton root =
             [] -> pure Nothing
             first : rest -> buildNode $ foldl' intersect first rest
     addGroup prefix (positions, ranked) =
-        (\values term -> foldr (\position -> Map.insert position term) values positions) <$> prefix <*> ranked
+        (\values term -> foldr (`Map.insert` term) values positions) <$> prefix <*> ranked
 
     symbolic node = do
         graph <- either (const Nothing) Just $ Interned.toFTA $ ECTA.toInterned node

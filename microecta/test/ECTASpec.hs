@@ -35,7 +35,7 @@ data ArithmeticSymbol = Zero | Succ | Recursion
 instance Hashable ArithmeticSymbol
 
 constTerms :: [Symbol] -> Node Symbol
-constTerms ss = Node (map (\s -> Edge s []) ss)
+constTerms ss = Node (map (`Edge` []) ss)
 
 ex1 :: Node Symbol
 ex1 =
@@ -1665,7 +1665,7 @@ spec = do
 
         it "intersect distributes over union" $
             property $
-                \(n1 :: Node Symbol) n2 n3 -> intersect n1 (union [n2, n3]) == union [intersect n1 n2, intersect n1 n3]
+                \(n1 :: Node Symbol) n2 n3 -> intersect n1 (union [n2, n3]) == union [n1 `intersect` n2, n1 `intersect` n3]
 
         it "intersect is idempotent" $
             property $
@@ -1685,7 +1685,7 @@ spec = do
         -- This test is a bit indirect: the intersection results in a term with what I /think/ is an inaccessible branch.
         -- Not sure if there is a clean-up pass we can do.
         it "add constraints" $
-            getAllTerms (intersect intTest5 intTest6) `shouldBe` [Term "g" [Term "a" [], Term "b" []]]
+            getAllTerms (intTest5 `intersect` intTest6) `shouldBe` [Term "g" [Term "a" [], Term "b" []]]
 
         -- Intersection examples with Mu nodes
 
@@ -1729,7 +1729,7 @@ spec = do
         it "reducing intersected child domains preserves constrained terms" $
             let intersectingEdge :: Gen (Edge Symbol)
                 intersectingEdge =
-                    resize 3 arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
+                    resize 3 arbitrary `suchThatMap` uncurry intersectEdge
              in forAll intersectingEdge $ \e' ->
                     let ns = edgeChildren e'
                         ecs = edgeEcs e'
@@ -1765,8 +1765,8 @@ spec = do
                             | ec <- unsafeGetEclasses (edgeEcs edge)
                             , p1 <- unPathEClass ec
                             , p2 <- unPathEClass ec
-                            , n1 <- getAllAtPath p1 ns
                             , let n2 = getPath p2 ns
+                            , n1 <- getAllAtPath p1 ns
                             ]
 
     describe "(un)folding" $ do
@@ -1779,7 +1779,7 @@ spec = do
                 ns' = reduceEqConstraints ecs EmptyConstraints ns
                 ns'' = reduceEqConstraints ecs EmptyConstraints ns'
                 f n = Node [Edge "f" [n]]
-             in (ns' == ns'') && ns' == [f $ f $ f $ f infiniteFNode, f $ f $ f $ infiniteFNode] `shouldBe` True
+             in (ns' == ns'') && ns' == [f $ f $ f $ f infiniteFNode, f $ f $ f infiniteFNode] `shouldBe` True
 
         it "refold folds the simplest unrolled input" $
             refold (Node [Edge "f" [infiniteFNode]]) `shouldBe` infiniteFNode
@@ -1883,7 +1883,7 @@ spec = do
                         -- Settling a parked check: this hole is now concrete.
                         Just parked ->
                             return
-                                ( elem partial parked
+                                ( partial `elem` parked
                                 , IntMap.delete rep parkedChecks
                                 )
                         Nothing -> do
@@ -1944,7 +1944,7 @@ spec = do
 
         it "redundant outer Mu is skipped" $
             (Mu (\_r1 -> Mu $ \r2 -> Node [Edge "f" [r2]]) :: Node Symbol)
-                `shouldBe` (Mu $ \r1 -> Node [Edge "f" [r1]])
+                `shouldBe` Mu (\r1 -> Node [Edge "f" [r1]])
 
         it "two redundant Mus are both skipped" $
             (Mu (\_r1 -> Mu $ \_r2 -> Node [Edge "f" []]) :: Node Symbol)

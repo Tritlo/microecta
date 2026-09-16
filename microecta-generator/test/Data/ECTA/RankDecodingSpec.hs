@@ -42,7 +42,7 @@ spec = do
                         (family :& family :& family :& ANil)
             decodesEveryRankExactly
                 $ Core.ungroup
-                $ Core.mapWithKey (\key value -> (key, value)) applied
+                $ Core.mapWithKey (,) applied
 
         it "decodes every rank of a mixed-depth frequencies tower" $ do
             let atomsFamily =

@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | The Boolean constraint language carried by an LTA transition.
 
@@ -127,7 +128,7 @@ equalityPathPairs :: EqConstraints -> Maybe [(Path, Path)]
 equalityPathPairs = fmap (concatMap anchoredPairs) . equalityClasses
   where
     anchoredPairs [] = []
-    anchoredPairs (anchor : rest) = map (\other -> (anchor, other)) rest
+    anchoredPairs (anchor : rest) = map (anchor,) rest
 
 -- | Reify normalized positive ECTA equalities as ordinary LTA atoms.
 equalitiesAsGuard :: EqConstraints -> Guard

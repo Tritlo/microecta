@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- | Shared size indexing for ordinary, possibly recursive automata.
 module Data.Tree.FTA.Gen.Internal.Automaton (
     automatonIndex,
@@ -10,6 +12,7 @@ module Data.Tree.FTA.Gen.Internal.Automaton (
 
 import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 
 import qualified Data.Tree.FTA as FTA
@@ -75,7 +78,7 @@ minimumSizes rows = converge Map.empty
         let next = Map.foldrWithKey addMinimum current rows
          in if next == current then current else converge next
     addMinimum state transitions known =
-        case [size | Just size <- map (transitionMinimum known) transitions] of
+        case mapMaybe (transitionMinimum known) transitions of
             [] -> known
             sizes -> Map.insertWith min state (minimum sizes) known
     transitionMinimum known transition =
@@ -189,7 +192,7 @@ ambiguousState automaton = go Map.empty
 -- | Every unordered pair of distinct list elements.
 distinctPairs :: [a] -> [(a, a)]
 distinctPairs [] = []
-distinctPairs (value : rest) = map (\other -> (value, other)) rest <> distinctPairs rest
+distinctPairs (value : rest) = map (value,) rest <> distinctPairs rest
 
 {- | Fold the constructor at one valid candidate-run rank directly into a value.
 

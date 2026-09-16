@@ -88,7 +88,7 @@ normalizePlan (PlanAp rightCardinality planF planX) =
     PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
 normalizePlan plan@(PlanSelect _ _) = plan
 normalizePlan plan@(PlanSelectOnDemand _ _) = plan
-normalizePlan plan@(PlanShared _ _ _) = plan
+normalizePlan plan@(PlanShared{}) = plan
 normalizePlan plan@(PlanSized _) = plan
 
 -- | Push one pending map down while normalizing below it.
@@ -98,7 +98,7 @@ pushMap transform (PlanSelect cardinality' decode) =
     PlanSelect cardinality' (transform . decode)
 pushMap transform (PlanSelectOnDemand cardinality' decode) =
     PlanSelectOnDemand cardinality' (transform . decode)
-pushMap transform plan@(PlanShared _ _ _) = PlanMap transform plan
+pushMap transform plan@(PlanShared{}) = PlanMap transform plan
 pushMap transform (PlanChoice branches) =
     rebuildChoice $ concatMap flattenBranch branches
   where
