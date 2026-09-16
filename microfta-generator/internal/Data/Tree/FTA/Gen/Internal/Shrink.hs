@@ -3,11 +3,11 @@
 -- | Structural rank shrinking for acyclic automata without transition constraints.
 module Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks) where
 
+import Data.Containers.ListUtils (nubOrd)
 import Data.List (mapAccumL, mapAccumR)
 import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
-import qualified Data.Set as Set
 
 import Data.Tree.FTA (
     PlainFTA,
@@ -84,7 +84,7 @@ automatonShrinkRanks automaton counts = shrink
     shrink rank
         | rank < 0 || rank >= count initial = []
         | fixedSize initial = []
-        | otherwise = orderedNub $ lookupShrinks initial rank
+        | otherwise = nubOrd $ lookupShrinks initial rank
       where
         (_, sizes) = measure Map.empty initial rank
         shrinks = LazyMap.mapWithKey (\(state, localRank) nodes -> shrinkRun state localRank nodes) sizes
@@ -139,12 +139,3 @@ selectedChildren rank transition = go (rank - rankOffset transition) $ rankedChi
     go remaining ((child, stride) : rest) =
         let (childRank, suffixRank) = remaining `quotRem` stride
          in (child, childRank, stride) : go suffixRank rest
-
--- | Remove repeated ranks without forcing the remaining candidates.
-orderedNub :: [Integer] -> [Integer]
-orderedNub = go Set.empty
-  where
-    go _ [] = []
-    go seen (rank : rest)
-        | Set.member rank seen = go seen rest
-        | otherwise = rank : go (Set.insert rank seen) rest

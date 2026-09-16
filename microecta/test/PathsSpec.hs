@@ -105,7 +105,11 @@ spec = do
                  in compare pec1 pec2 == compare pt1 pt2
 
         it "both ways of getting list of paths from a PathEClass are identical" $ do
-            property $ \pt -> fromPathTrie (getPathTrie (PathEClass (fromPathTrie pt))) == getOrigPaths (PathEClass (fromPathTrie pt))
+            property $ \pt ->
+                let paths = fromPathTrie pt
+                 in forAll (shuffle $ paths <> paths) $ \duplicated ->
+                        let eclass = PathEClass duplicated
+                         in fromPathTrie (getPathTrie eclass) == paths && getOrigPaths eclass == paths
 
     describe "mkEqConstraints" $ do
         it "removes unitary" $

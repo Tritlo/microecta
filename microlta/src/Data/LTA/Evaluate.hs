@@ -15,6 +15,7 @@ import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 import Data.ECTA.Paths (EqConstraints, Path)
 import Data.ECTA.Term (Symbol (Symbol))
@@ -27,7 +28,7 @@ import Data.LTA.Constraint (
     equalityPathPairs,
     guardPaths,
  )
-import Data.LTA.Types (LiquidTerm (..), Refinement, termAt)
+import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement, termAt)
 import Data.LTA.Verdict (
     Entailment,
     Verdict (..),
@@ -38,20 +39,20 @@ import Data.LTA.Verdict (
  )
 
 -- | Evaluate a guard against one candidate term.
-evaluateGuard :: Entailment -> Guard -> LiquidTerm -> IO Verdict
+evaluateGuard :: Entailment -> Guard -> Tree.Tree LiquidSymbol -> IO Verdict
 evaluateGuard entailment guard term =
     evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard
   where
     lookupObservation target = do
-        observed <- termAt target term
-        pure (liquidSymbol observed, liquidRefinement observed)
+        Tree.Node (LiquidSymbol symbol refinement) _ <- termAt target term
+        pure (symbol, refinement)
 
     sameAt substitutions left right = do
         leftTerm <- termAt left term
         rightTerm <- termAt right term
         pure $ substituteTerm substitutions leftTerm == substituteTerm substitutions rightTerm
 
-    leafAt target = null . liquidChildren <$> termAt target term
+    leafAt target = null . Tree.subForest <$> termAt target term
 
 {- | Evaluate a guard from sparse observations of its referenced paths.
 
@@ -157,14 +158,14 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
         orM (map (evaluateWith substitutions) guards)
 
 -- | Evaluate both the ECTA equality classes and liquid guard of a transition.
-evaluateConstraint :: Entailment -> LiquidConstraint -> LiquidTerm -> IO Verdict
+evaluateConstraint :: Entailment -> LiquidConstraint -> Tree.Tree LiquidSymbol -> IO Verdict
 evaluateConstraint entailment constraint term
     | satisfiesEqualities (constraintEqualities constraint) term =
         evaluateGuard entailment (constraintGuard constraint) term
     | otherwise = pure No
 
 -- | Check positive ECTA equality classes against the complete LTA term shape.
-satisfiesEqualities :: EqConstraints -> LiquidTerm -> Bool
+satisfiesEqualities :: EqConstraints -> Tree.Tree LiquidSymbol -> Bool
 satisfiesEqualities equalities term =
     maybe False (all agrees) $ equalityPathPairs equalities
   where
@@ -306,10 +307,10 @@ Solver-generated value identities are not symbols in the structural alphabet.
 The first non-identity mapping for a repeated formal name takes precedence,
 matching refinement substitution.
 -}
-substituteTerm :: [[ResolvedSubstitution]] -> LiquidTerm -> LiquidTerm
-substituteTerm scopes (LiquidTerm symbol refinement children) =
+substituteTerm :: [[ResolvedSubstitution]] -> Tree.Tree LiquidSymbol -> Tree.Tree LiquidSymbol
+substituteTerm scopes = fmap $ \(LiquidSymbol symbol refinement) ->
     let (renamed, annotation) = substituteObservation scopes (symbol, refinement)
-     in LiquidTerm renamed annotation $ map (substituteTerm scopes) children
+     in LiquidSymbol renamed annotation
 
 -- | Apply structural name substitutions to one finite root observation.
 substituteObservation :: [[ResolvedSubstitution]] -> (Symbol, Refinement) -> (Symbol, Refinement)

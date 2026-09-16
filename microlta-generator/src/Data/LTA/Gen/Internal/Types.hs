@@ -52,17 +52,18 @@ module Data.LTA.Gen.Internal.Types (
 ) where
 
 import Data.Bifunctor (first)
+import qualified Data.Tree as Tree
 
 import qualified Data.ECTA as ECTA.Core
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Witness (Witness)
-import qualified Data.Tree.Gen as Tree
+import qualified Data.Tree.Gen as Ranked
 
 -- | A possibly empty wrapper around the shared non-empty ranked engine.
 data Finite a
     = EmptyFinite
-    | RankedFinite !(Tree.Ranked a)
+    | RankedFinite !(Ranked.Ranked a)
 
 instance Functor Finite where
     fmap _ EmptyFinite = EmptyFinite
@@ -79,7 +80,7 @@ instance Applicative Finite where
 finiteFromList :: [a] -> Finite a
 finiteFromList [] = EmptyFinite
 finiteFromList values =
-    case Tree.fromWeighted [(1, value) | value <- values] of
+    case Ranked.fromWeighted [(1, value) | value <- values] of
         Right ranked -> RankedFinite ranked
         Left err -> error $ "microlta-generator bug in Data.LTA.Gen.Internal.Types.finiteFromList: " <> show err
 
@@ -89,20 +90,20 @@ finiteOneof alternatives =
     case [ranked | RankedFinite ranked <- alternatives] of
         [] -> EmptyFinite
         rankedAlternatives ->
-            case Tree.oneof rankedAlternatives of
+            case Ranked.oneof rankedAlternatives of
                 Right ranked -> RankedFinite ranked
                 Left err -> error $ "microlta-generator bug in Data.LTA.Gen.Internal.Types.finiteOneof: " <> show err
 
 -- | Exact number of ranks without enumerating their values.
 finiteCardinality :: Finite a -> Integer
 finiteCardinality EmptyFinite = 0
-finiteCardinality (RankedFinite ranked) = Tree.cardinality ranked
+finiteCardinality (RankedFinite ranked) = Ranked.cardinality ranked
 
 -- | Decode one valid rank.
 finiteSelect :: Integer -> Finite a -> Either GeneratorError a
 finiteSelect rank EmptyFinite = Left $ SelectionOutOfRange rank 0
 finiteSelect rank (RankedFinite ranked) =
-    first fromRankedError $ Tree.unrank ranked rank
+    first fromRankedError $ Ranked.unrank ranked rank
 
 -- | All valid ranks of a finite language.
 finiteRanks :: Finite a -> [Integer]
@@ -180,7 +181,7 @@ data Recipe a where
     MapRecipe :: (a -> b) -> Recipe a -> Recipe b
     NodeRecipe :: Symbol -> NodeRefinement a -> LiquidConstraint -> ChildRecipe a -> Recipe a
     ChoiceRecipe :: [(Integer, Recipe a)] -> Recipe a
-    AutomatonRecipe :: Int -> Automaton -> Recipe LiquidTerm
+    AutomatonRecipe :: Int -> Automaton -> Recipe (Tree.Tree LiquidSymbol)
     CompiledRecipe :: Compiled a -> Recipe a
 
 -- | Whether a node refinement is known before decoding its domain value.
@@ -337,7 +338,7 @@ data CompiledSupport
 data Compiled a = Compiled
     { compiledSupport :: !CompiledSupport
     -- ^ The graph after every solver obligation is discharged.
-    , compiledRanked :: !(Tree.Ranked (Generated a))
+    , compiledRanked :: !(Ranked.Ranked (Generated a))
     -- ^ Pure sampling and replay after solver compilation.
     , compiledPlanShrinks :: !(Integer -> [Integer])
     -- ^ Valid refinement and structural shrinks from the retained rank plan.
@@ -347,9 +348,9 @@ data Compiled a = Compiled
 data Generated a = Generated
     { generatedWeight :: !Integer
     , generatedValue :: a
-    , generatedTerm :: LiquidTerm
+    , generatedTerm :: Tree.Tree LiquidSymbol
     {- ^ The annotated witness. Automaton decoders build this lazily so sampling
-    a mapped domain value does not pay for an intermediate 'LiquidTerm'.
+    a mapped domain value does not pay for an intermediate 'Tree.Tree' 'LiquidSymbol'.
     -}
     }
     deriving (Eq, Show)

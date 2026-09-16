@@ -1,10 +1,11 @@
 module Data.LTA.RecognitionSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import Data.LTA (
     AutomatonError (DanglingState, InconsistentArity),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     State (State),
     Verdict (..),
     accepts,
@@ -27,7 +28,7 @@ spec =
             case mkAutomaton (State 0) [(State 0, [Transition "zero" zero [] unconstrainedConstraint])] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->
-                    accepts unusedEntailment automaton (LiquidTerm "zero" zero [])
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "zero" zero) [])
                         >>= (`shouldBe` Yes)
 
         it "rejects an invented refinement on the same constructor" $ do
@@ -35,7 +36,7 @@ spec =
             case mkAutomaton (State 0) [(State 0, [Transition "zero" zero [] unconstrainedConstraint])] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->
-                    accepts unusedEntailment automaton (LiquidTerm "zero" true [])
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "zero" true) [])
                         >>= (`shouldBe` No)
 
         it "keeps arity ranked by constructor even across refinements" $ do
@@ -63,9 +64,9 @@ spec =
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
                     Set.size (automatonAlphabet automaton) `shouldBe` 2
-                    accepts unusedEntailment automaton (LiquidTerm "left" true [])
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "left" true) [])
                         >>= (`shouldBe` Yes)
-                    accepts unusedEntailment automaton (LiquidTerm "right" true [])
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "right" true) [])
                         >>= (`shouldBe` Yes)
 
         it "accepts an empty final-state set with an empty denotation" $
@@ -73,7 +74,7 @@ spec =
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
                     Set.size (automatonAlphabet automaton) `shouldBe` 1
-                    accepts unusedEntailment automaton (LiquidTerm "unused" true [])
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "unused" true) [])
                         >>= (`shouldBe` No)
                     denotationAtMost unusedEntailment 2 automaton >>= (`shouldBe` Right [])
 
@@ -92,7 +93,7 @@ spec =
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    accepts unusedEntailment automaton (LiquidTerm "excluded" true []) >>= (`shouldBe` No)
+                    accepts unusedEntailment automaton (Tree.Node (LiquidSymbol "excluded" true) []) >>= (`shouldBe` No)
                     denotationAtMost unusedEntailment 0 automaton >>= (`shouldBe` Right [])
 
         it "does not define a dangling child while normalizing empty finals" $
@@ -110,5 +111,5 @@ spec =
                 Right automaton ->
                     traverse
                         (accepts unusedEntailment automaton)
-                        [LiquidTerm symbol true [] | symbol <- ["first", "second", "excluded"]]
+                        [Tree.Node (LiquidSymbol symbol true) [] | symbol <- ["first", "second", "excluded"]]
                         >>= (`shouldBe` [Yes, Yes, No])

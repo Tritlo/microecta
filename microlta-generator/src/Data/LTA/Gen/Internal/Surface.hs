@@ -36,6 +36,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.String (fromString)
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 
 import Data.LTA
 import Data.LTA.Gen.Internal.AutomatonCompile (compileBoundedAutomaton)
@@ -316,7 +317,7 @@ accept it. The graph remains shared until 'compile' prepares the source.
 The source composes with ordinary pools and constructors. A leaf has height
 zero. Map the resulting terms to domain values with 'fmap'.
 -}
-fromLTA :: Int -> Automaton -> LTAGen LiquidTerm
+fromLTA :: Int -> Automaton -> LTAGen (Tree.Tree LiquidSymbol)
 fromLTA maximumHeight automaton =
     LTAGen Nothing $ Right $ AutomatonRecipe maximumHeight automaton
 
@@ -378,7 +379,12 @@ prepareRecipe entailment (ChoiceRecipe alternatives) = do
     prepareAlternative (weight, recipe) =
         fmap (fmap $ (,) weight) $ prepareRecipe entailment recipe
 prepareRecipe entailment (AutomatonRecipe maximumHeight automaton) = do
-    compiled <- compileBoundedAutomaton entailment LiquidTerm maximumHeight automaton
+    compiled <-
+        compileBoundedAutomaton
+            entailment
+            (\symbol refinement -> Tree.Node (LiquidSymbol symbol refinement))
+            maximumHeight
+            automaton
     pure $ case compiled of
         Left EmptyGenerator -> Right $ pool []
         Left err -> Left err
