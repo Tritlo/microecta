@@ -7,7 +7,6 @@ automaton structure use. It depends on neither of them.
 -}
 module Data.LTA.Types (
     Refinement,
-    LiquidTerm (..),
     eraseRefinements,
     termAt,
     State (..),
@@ -25,27 +24,18 @@ import qualified Language.Fixpoint.Types as Fixpoint
 -- | A logical refinement understood by Liquid Fixpoint.
 type Refinement = Fixpoint.Expr
 
--- | A concrete first-order term annotated with one refinement at every node.
-data LiquidTerm = LiquidTerm
-    { liquidSymbol :: !Symbol
-    , liquidRefinement :: !Refinement
-    , liquidChildren :: ![LiquidTerm]
-    }
-    deriving (Eq, Show)
-
 -- | Remove refinements to recover the underlying MicroECTA term.
-eraseRefinements :: LiquidTerm -> Tree.Tree Symbol
-eraseRefinements LiquidTerm{liquidSymbol, liquidChildren} =
-    Tree.Node liquidSymbol (map eraseRefinements liquidChildren)
+eraseRefinements :: Tree.Tree LiquidSymbol -> Tree.Tree Symbol
+eraseRefinements = fmap $ \(LiquidSymbol symbol _) -> symbol
 
 -- | Read the subterm at one position. An absent position gives 'Nothing'.
-termAt :: Path -> LiquidTerm -> Maybe LiquidTerm
+termAt :: Path -> Tree.Tree LiquidSymbol -> Maybe (Tree.Tree LiquidSymbol)
 termAt target = go (unPath target)
   where
     go [] term = Just term
-    go (index : rest) LiquidTerm{liquidChildren}
+    go (index : rest) term
         | index < 0 = Nothing
-        | otherwise = case drop index liquidChildren of
+        | otherwise = case drop index (Tree.subForest term) of
             child : _ -> go rest child
             [] -> Nothing
 
@@ -53,7 +43,7 @@ termAt target = go (unPath target)
 newtype State = State {unState :: Int}
     deriving (Eq, Ord, Show)
 
--- | The ranked alphabet label carried by one LTA transition.
+-- | The label carried by one LTA transition or annotated term node.
 data LiquidSymbol = LiquidSymbol !Symbol !Refinement
     deriving (Eq, Ord, Show, Generic)
 

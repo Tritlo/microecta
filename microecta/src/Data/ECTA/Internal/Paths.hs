@@ -47,6 +47,7 @@ import Data.Hashable (Hashable (..))
 import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
@@ -416,7 +417,9 @@ instance Ord PathEClass where
 pattern PathEClass :: [Path] -> PathEClass
 pattern PathEClass ps <- PathEClass' _ ps
   where
-    PathEClass ps = PathEClass' (toPathTrie $ nub ps) (sort $ nub ps)
+    PathEClass ps =
+        let paths = Set.toAscList $ Set.fromList ps
+         in PathEClass' (toPathTrie paths) paths
 
 -- | Extract the paths in an equality class.
 unPathEClass :: PathEClass -> [Path]

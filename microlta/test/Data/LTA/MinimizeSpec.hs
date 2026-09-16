@@ -1,5 +1,6 @@
 module Data.LTA.MinimizeSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import qualified Data.Map.Strict as Map
@@ -9,7 +10,7 @@ import Data.LTA (
     AutomatonError,
     Entailment,
     Guard (Satisfies),
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     MinimizeError (StaleSimilarity),
     State (State),
     Subtyping (..),
@@ -134,7 +135,7 @@ spec =
                 checkMinimization (atomSubtyping solver) finalStateWithAlternative $ \reduced -> do
                     automatonInitial reduced `shouldBe` State 2
                     denotationAtMost solver 0 reduced
-                        >>= (`shouldBe` Right [LiquidTerm "other" Fixpoint.PTrue []])
+                        >>= (`shouldBe` Right [Tree.Node (LiquidSymbol "other" Fixpoint.PTrue) []])
 
         it "allows multiple representatives for one target and substitutes repeated states together" $
             withZ3 declarations $ \solver ->

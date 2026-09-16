@@ -1,5 +1,6 @@
 module Data.LTA.PruneSpec (spec) where
 
+import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import Data.List (permutations)
@@ -13,7 +14,7 @@ import Data.LTA (
     EnumerationError,
     Guard (And, Entails, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint,
-    LiquidTerm (LiquidTerm),
+    LiquidSymbol (LiquidSymbol),
     PruneError (PruneUnknown, ResidualLTAConstraint),
     State (State),
     Substitution (Substitution),
@@ -105,7 +106,7 @@ spec =
             let solver = Entailment $ \_ _ -> pure Unknown
                 absent = Same (path [0, 0]) (path [1, 0])
                 constraint = semanticConstraint $ And [Same (path [0]) (path [1]), absent]
-                leaf = LiquidTerm "a" Fixpoint.PTrue []
+                leaf = Tree.Node (LiquidSymbol "a" Fixpoint.PTrue) []
             case mkAutomaton
                 (State 0)
                 [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] constraint])
@@ -113,7 +114,7 @@ spec =
                 ] of
                 Left err -> expectationFailure $ show err
                 Right original -> do
-                    accepts solver original (LiquidTerm "pair" Fixpoint.PTrue [leaf, leaf]) >>= (`shouldBe` No)
+                    accepts solver original (Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [leaf, leaf]) >>= (`shouldBe` No)
                     lowerToEqualityAutomaton original `shouldBe` Left (ResidualLTAConstraint (State 0) absent)
 
         it "keeps semantic and syntactic split states distinct at Int bounds" $
@@ -125,8 +126,8 @@ spec =
                         , (State maxBound, [])
                         , (State minBound, [Transition "sentinel" Fixpoint.PTrue [] unconstrainedConstraint])
                         ]
-                    leafA = LiquidTerm "a" zero []
-                    leafB = LiquidTerm "b" one []
+                    leafA = Tree.Node (LiquidSymbol "a" zero) []
+                    leafB = Tree.Node (LiquidSymbol "b" one) []
                     semantic =
                         mkAutomaton (State 0) $
                             (State 0, [Transition "f" Fixpoint.PTrue [State 1] $ semanticConstraint $ Satisfies (path [0]) zero]) : rows
@@ -137,12 +138,14 @@ spec =
                 checkPrunedLanguage
                     solver
                     semantic
-                    [LiquidTerm "f" Fixpoint.PTrue [child] | child <- [leafA, leafB, LiquidTerm "sentinel" Fixpoint.PTrue []]]
+                    [ Tree.Node (LiquidSymbol "f" Fixpoint.PTrue) [child]
+                    | child <- [leafA, leafB, Tree.Node (LiquidSymbol "sentinel" Fixpoint.PTrue) []]
+                    ]
                     1
                 checkPrunedLanguage
                     solver
                     syntactic
-                    [LiquidTerm "pair" Fixpoint.PTrue [left, right] | left <- [leafA, leafB], right <- [leafA, leafB]]
+                    [Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [left, right] | left <- [leafA, leafB], right <- [leafA, leafB]]
                     2
 
         it "partitions substitution positions by their value-naming symbol" $
@@ -157,10 +160,12 @@ spec =
                 equalPairs = [("x", "x"), ("x", "y"), ("y", "x"), ("y", "y"), ("z", "z")]
                 differentPairs = filter (`notElem` equalPairs) allPairs
                 term (left, right) =
-                    LiquidTerm
-                        "scoped"
-                        Fixpoint.PTrue
-                        [LiquidTerm symbol Fixpoint.PTrue [] | symbol <- ["x", "y", left, right]]
+                    Tree.Node
+                        ( LiquidSymbol
+                            "scoped"
+                            Fixpoint.PTrue
+                        )
+                        [Tree.Node (LiquidSymbol symbol Fixpoint.PTrue) [] | symbol <- ["x", "y", left, right]]
                 automaton guard =
                     mkAutomaton
                         (State 0)
@@ -306,7 +311,7 @@ spec =
 checkPrunedLanguage ::
     Entailment ->
     Either error Automaton ->
-    [LiquidTerm] ->
+    [Tree.Tree LiquidSymbol] ->
     Int ->
     IO ()
 checkPrunedLanguage solver constructed terms expected =
@@ -327,8 +332,8 @@ checkPrunedLanguage solver constructed terms expected =
 
 -- | Compare denotations as sets without requiring an ordering for Fixpoint expressions.
 equivalentTermSets ::
-    Either EnumerationError [LiquidTerm] ->
-    Either EnumerationError [LiquidTerm] ->
+    Either EnumerationError [Tree.Tree LiquidSymbol] ->
+    Either EnumerationError [Tree.Tree LiquidSymbol] ->
     Bool
 equivalentTermSets (Right left) (Right right) =
     all (`elem` right) left && all (`elem` left) right
@@ -351,13 +356,13 @@ optionalDescendant guard =
         ]
 
 -- | Both finite terms of 'optionalDescendant' before its guard is checked.
-optionalDescendantTerms :: [LiquidTerm]
+optionalDescendantTerms :: [Tree.Tree LiquidSymbol]
 optionalDescendantTerms =
-    [ LiquidTerm "f" Fixpoint.PTrue [leaf]
-    , LiquidTerm "f" Fixpoint.PTrue [LiquidTerm "b" Fixpoint.PTrue [leaf]]
+    [ Tree.Node (LiquidSymbol "f" Fixpoint.PTrue) [leaf]
+    , Tree.Node (LiquidSymbol "f" Fixpoint.PTrue) [Tree.Node (LiquidSymbol "b" Fixpoint.PTrue) [leaf]]
     ]
   where
-    leaf = LiquidTerm "a" Fixpoint.PTrue []
+    leaf = Tree.Node (LiquidSymbol "a" Fixpoint.PTrue) []
 
 -- | Three independent choices constrained by positive equalities and entailment.
 equalTriples :: LiquidConstraint -> Either AutomatonError Automaton
@@ -487,7 +492,7 @@ syntacticPairs =
         ]
 
 -- | One accepted equal pair followed by two rejected unequal pairs.
-syntacticPairTerms :: [LiquidTerm]
+syntacticPairTerms :: [Tree.Tree LiquidSymbol]
 syntacticPairTerms =
     [ pair "shared" "shared"
     , pair "left" "shared"
@@ -495,10 +500,12 @@ syntacticPairTerms =
     ]
   where
     pair left right =
-        LiquidTerm
-            "pair"
-            Fixpoint.PTrue
-            [LiquidTerm left Fixpoint.PTrue [], LiquidTerm right Fixpoint.PTrue []]
+        Tree.Node
+            ( LiquidSymbol
+                "pair"
+                Fixpoint.PTrue
+            )
+            [Tree.Node (LiquidSymbol left Fixpoint.PTrue) [], Tree.Node (LiquidSymbol right Fixpoint.PTrue) []]
 
 -- | The same structural overlap reached below a wrapper on the left.
 nestedSyntacticPairs :: Either AutomatonError Automaton
@@ -555,31 +562,35 @@ negativeEquality :: Guard
 negativeEquality = Not $ Same (path [0]) (path [1])
 
 -- | All concrete pairs from the heterogeneous atom state.
-pairTerms :: [LiquidTerm]
-pairTerms = [LiquidTerm "pair" Fixpoint.PTrue [left, right] | left <- predicates, right <- predicates]
+pairTerms :: [Tree.Tree LiquidSymbol]
+pairTerms = [Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [left, right] | left <- predicates, right <- predicates]
 
 -- | All concrete pairs with the left atom below a box constructor.
-nestedPairTerms :: [LiquidTerm]
+nestedPairTerms :: [Tree.Tree LiquidSymbol]
 nestedPairTerms =
-    [ LiquidTerm
-        "pair"
-        Fixpoint.PTrue
-        [LiquidTerm "box" Fixpoint.PTrue [left], right]
+    [ Tree.Node
+        ( LiquidSymbol
+            "pair"
+            Fixpoint.PTrue
+        )
+        [Tree.Node (LiquidSymbol "box" Fixpoint.PTrue) [left], right]
     | left <- predicates
     , right <- predicates
     ]
 
 -- | Every actual-name and output-refinement combination.
-substitutionTerms :: [LiquidTerm]
+substitutionTerms :: [Tree.Tree LiquidSymbol]
 substitutionTerms =
-    [ LiquidTerm
-        "application"
-        Fixpoint.PTrue
-        [actual, LiquidTerm "n" Fixpoint.PTrue [], output]
+    [ Tree.Node
+        ( LiquidSymbol
+            "application"
+            Fixpoint.PTrue
+        )
+        [actual, Tree.Node (LiquidSymbol "n" Fixpoint.PTrue) [], output]
     | actual <- namedActuals
     , output <-
-        [ LiquidTerm "output-x" (value .==. variable "x") []
-        , LiquidTerm "output-y" (value .==. variable "y") []
+        [ Tree.Node (LiquidSymbol "output-x" (value .==. variable "x")) []
+        , Tree.Node (LiquidSymbol "output-y" (value .==. variable "y")) []
         ]
     ]
 
@@ -592,18 +603,18 @@ predicateTransitions =
     ]
 
 -- | Concrete formula terms matching 'predicateTransitions'.
-predicates :: [LiquidTerm]
+predicates :: [Tree.Tree LiquidSymbol]
 predicates =
-    [ LiquidTerm "predicate" (value .==. (0 :: Int)) []
-    , LiquidTerm "predicate" (value .==. (1 :: Int)) []
-    , LiquidTerm "predicate" (value .>=. (0 :: Int)) []
+    [ Tree.Node (LiquidSymbol "predicate" (value .==. (0 :: Int))) []
+    , Tree.Node (LiquidSymbol "predicate" (value .==. (1 :: Int))) []
+    , Tree.Node (LiquidSymbol "predicate" (value .>=. (0 :: Int))) []
     ]
 
 -- | Variable leaves used by the substitution example.
-namedActuals :: [LiquidTerm]
+namedActuals :: [Tree.Tree LiquidSymbol]
 namedActuals =
-    [ LiquidTerm "x" (value .==. (0 :: Int)) []
-    , LiquidTerm "y" (value .==. (1 :: Int)) []
+    [ Tree.Node (LiquidSymbol "x" (value .==. (0 :: Int))) []
+    , Tree.Node (LiquidSymbol "y" (value .==. (1 :: Int))) []
     ]
 
 -- | Direct semantic relation between sibling positions.
