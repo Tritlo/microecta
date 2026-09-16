@@ -245,7 +245,8 @@ The generator retains these names through `namedElements` and `nameGroups`.
 `Gen.inspect` returns this diagnostic graph; `Gen.support` retains the original
 semantic support. Each diagnostic symbol also retains its original symbol.
 See [generator inspection](../microecta-generator/README.md#inspect-a-generator)
-for the API and its limits.
+for the API and its limits. The [ASCII reading guide](../microecta-generator/README.md#read-the-ascii-tree)
+walks through `@1:0/0:1`, shared references, and equality paths.
 
 ## Pruning API
 
