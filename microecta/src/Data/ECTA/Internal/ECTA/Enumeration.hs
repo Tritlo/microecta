@@ -207,11 +207,14 @@ uvarCounter :: (Functor f) => (UVarGen -> f UVarGen) -> EnumerationState symbol 
 uvarCounter = lens _uvarCounter (\s c -> s{_uvarCounter = c})
 
 -- | Lens-compatible accessor for representative UVar tracking.
-uvarRepresentative :: (Functor f) => (UnionFind -> f UnionFind) -> EnumerationState symbol -> f (EnumerationState symbol)
+uvarRepresentative ::
+    (Functor f) => (UnionFind -> f UnionFind) -> EnumerationState symbol -> f (EnumerationState symbol)
 uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = uf})
 
 -- | Lens-compatible accessor for per-UVar enumeration values.
-uvarValues :: (Functor f) => (Seq (UVarValue symbol) -> f (Seq (UVarValue symbol))) -> EnumerationState symbol -> f (EnumerationState symbol)
+uvarValues ::
+    (Functor f) =>
+    (Seq (UVarValue symbol) -> f (Seq (UVarValue symbol))) -> EnumerationState symbol -> f (EnumerationState symbol)
 uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 -- | Initial state whose root UVar contains the node being enumerated.
@@ -325,7 +328,8 @@ assimilateUvarVal uvTarg uvSrc
                 setUVarValue (uvarToInt uvSrc) UVarEliminated
 
 -- | Intersect a node and inherited constraints into the value for a UVar.
-mergeNodeIntoUVarVal :: (Hashable symbol, Typeable symbol) => UVar -> Node symbol -> Seq SuspendedConstraint -> EnumerateM symbol ()
+mergeNodeIntoUVarVal ::
+    (Hashable symbol, Typeable symbol) => UVar -> Node symbol -> Seq SuspendedConstraint -> EnumerateM symbol ()
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
@@ -343,7 +347,9 @@ hasEmptyContents _ = False
 ---------------------
 
 -- | Enumerate one node under the suspended constraints currently in scope.
-enumerateNode :: forall symbol. (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
+enumerateNode ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
 enumerateNode _ EmptyNode = mzero
 enumerateNode scs n =
     let (hereConstraints, descendantConstraints) = Sequence.partition (\(SuspendedConstraint pt _) -> isTerminalPathTrie pt) scs
@@ -369,7 +375,8 @@ enumerateNode scs n =
                 return $ TermFragmentUVar uv
 
 -- | Enumerate one edge, introducing UVars for its equality classes.
-enumerateEdge :: (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Edge symbol -> EnumerateM symbol (TermFragment symbol)
+enumerateEdge ::
+    (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Edge symbol -> EnumerateM symbol (TermFragment symbol)
 enumerateEdge scs e = do
     -- With no constraints this is 'minBound', which passes the guard below,
     -- as it should: nothing constrains how many children the edge needs.
@@ -705,7 +712,12 @@ getAllTermsPruneWith recursionSymbol ost order oracle n =
 Use this when the caller is already composing lower-level enumeration actions
 in 'EnumerateM'. Most callers should prefer 'getAllTermsPrune'.
 -}
-enumPrune :: forall symbol a. (Hashable symbol, Typeable symbol, IsString symbol) => a -> (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) -> EnumerateM symbol (Term symbol)
+enumPrune ::
+    forall symbol a.
+    (Hashable symbol, Typeable symbol, IsString symbol) =>
+    a ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    EnumerateM symbol (Term symbol)
 enumPrune a oracle = enumPruneWith "Mu" a noExpansionPreference oracle
 
 -- | Monadic form of 'getAllTermsPruneWith', taking the recursion symbol first.
