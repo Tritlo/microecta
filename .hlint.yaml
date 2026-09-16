@@ -8,3 +8,6 @@
 - ignore: {name: "Avoid lambda"}
 - ignore: {name: "Use <$>"}
 - ignore: {name: "Redundant bracket"}
+
+# This constructor delays recursive substitution work until after memoization.
+- ignore: {name: "Use newtype instead of data", within: "Data.Tree.FTA.Interned.Type.SubstitutionPlan"}

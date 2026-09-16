@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Internal representation for finite ranked generators.
 module Data.Tree.Gen.Internal (
@@ -30,6 +31,7 @@ module Data.Tree.Gen.Internal (
 ) where
 
 import Data.Array (listArray, (!))
+import qualified Data.Bifunctor as Bifunctor
 
 import Data.Tree.Gen.Internal.Decoder (
     Plan (..),
@@ -267,7 +269,7 @@ frequency alternatives
                     )
                     ( frequencyGen
                         [ ( weight
-                          , (\(rank, value) -> (offset + rank, value))
+                          , (Bifunctor.first (offset +))
                                 <$> runRankSampler (rankedSampler ranked)
                           )
                         | (offset, (weight, ranked)) <- withOffsets alternatives
@@ -277,7 +279,7 @@ frequency alternatives
 
 -- | Combine equally weighted non-empty alternatives.
 oneof :: [Ranked a] -> Either RankedError (Ranked a)
-oneof = frequency . map (\ranked -> (1, ranked))
+oneof = frequency . map (1,)
 
 -- | Return the exact number of stable ranks.
 cardinality :: Ranked a -> Integer

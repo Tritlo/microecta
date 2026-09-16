@@ -59,7 +59,7 @@ module Data.LTA.StateMachineTraceLanguage (
 
 import Control.Monad (foldM, guard)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
@@ -364,9 +364,10 @@ decodeTraceNode "step" refinement [DecodedTrace events before, DecodedCommand co
                     after
         _ -> error "decodeTraceNode: pruned step has an invalid state transition"
 decodeTraceNode symbol _ [_, _] =
-    case lookup symbol commandSymbols of
-        Just command -> DecodedCommand command
-        Nothing -> DecodedScaffolding
+    maybe
+        DecodedScaffolding
+        DecodedCommand
+        (lookup symbol commandSymbols)
 decodeTraceNode _ _ _ = DecodedScaffolding
 
 -- | Constructor labels for the reusable command schemas.
@@ -699,9 +700,7 @@ validStep previous command =
 predictPrefixStep :: TracePrefix -> Command -> TracePrefix
 predictPrefixStep previous command =
     let before = prefixFinalState previous
-        (response, after) = case modelStep before command of
-            Just prediction -> prediction
-            Nothing -> (Accepted, before)
+        (response, after) = fromMaybe (Accepted, before) (modelStep before command)
      in TracePrefix
             (prefixEvents previous . (Event before command response after :))
             after

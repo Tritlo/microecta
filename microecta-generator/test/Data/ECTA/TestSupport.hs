@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- | Helpers shared by the generator specs.
 module Data.ECTA.TestSupport (
     aggregateRights,
@@ -33,6 +35,6 @@ decodesEveryRankExactly generator =
         Left err -> expectationFailure $ show err
         Right total ->
             runExact (Core.lowerWithRank generator)
-                `shouldBe` [ (1 % total, fmap (\value -> (rank, value)) (Core.unrank generator rank))
+                `shouldBe` [ (1 % total, fmap (rank,) (Core.unrank generator rank))
                            | rank <- [0 .. total - 1]
                            ]

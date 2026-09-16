@@ -531,7 +531,7 @@ massesAtSize (CyclicGrouped result) size = do
     if size < 1
         then pure Map.empty
         else do
-            let positive = Map.filter (> 0) $ fmap (\group -> keyedRecursiveMassAtSize group size) groups
+            let positive = Map.filter (> 0) $ fmap (`keyedRecursiveMassAtSize` size) groups
                 total = sum positive
             pure $
                 if total <= 0

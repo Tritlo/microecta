@@ -45,7 +45,7 @@ import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
 import qualified Data.List as List
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
@@ -68,7 +68,7 @@ import Utility.List (adjustAt, atMay)
 -----------------------------------------------------------------------
 
 -- | Path into an edge's children, represented as child indexes.
-data Path = Path ![Int]
+newtype Path = Path [Int]
     deriving (Eq, Ord, Show)
 
 -- | Extract the raw child-index list from a @Path@.
@@ -380,9 +380,7 @@ pathTrieDescend :: PathTrie -> Int -> PathTrie
 pathTrieDescend EmptyPathTrie _ = EmptyPathTrie
 pathTrieDescend TerminalPathTrie _ = EmptyPathTrie
 pathTrieDescend (PathTrie children) i =
-    case lookup i children of
-        Nothing -> EmptyPathTrie
-        Just pt -> pt
+    fromMaybe EmptyPathTrie (lookup i children)
 pathTrieDescend (PathTrieSingleChild j pt') i
     | i == j = pt'
     | otherwise = EmptyPathTrie
@@ -425,7 +423,7 @@ unPathEClass :: PathEClass -> [Path]
 unPathEClass (PathEClass' _ paths) = paths
 
 instance Pretty PathEClass where
-    pretty pec = "{" <> (Text.intercalate "=" $ map pretty $ unPathEClass pec) <> "}"
+    pretty pec = "{" <> Text.intercalate "=" (map pretty $ unPathEClass pec) <> "}"
 
 instance Hashable PathEClass where
     hashWithSalt salt = hashWithSalt salt . getPathTrie
@@ -499,7 +497,7 @@ instance Hashable EqConstraints where
 instance Pretty EqConstraints where
     pretty EqContradiction = "{contradiction}"
     pretty (EqConstraints eclasses) =
-        "{" <> (Text.intercalate "," $ map pretty eclasses) <> "}"
+        "{" <> Text.intercalate "," (map pretty eclasses) <> "}"
 
 --------- Destructors and patterns
 
@@ -648,7 +646,7 @@ combined constraints are satisfiable.
 -}
 unsafeSubsumptionOrderedEclasses :: EqConstraints -> [PathEClass]
 unsafeSubsumptionOrderedEclasses (EqConstraints pecs) = sortBy completedSubsumptionOrdering pecs
-unsafeSubsumptionOrderedEclasses EqContradiction = error $ "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"
+unsafeSubsumptionOrderedEclasses EqContradiction = error "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"
 
 -- | Pure conjunction used by the common automaton engine.
 instance Constraint EqConstraints where

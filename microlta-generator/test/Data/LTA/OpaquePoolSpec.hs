@@ -54,13 +54,13 @@ offsetSource =
 -- | The guard is the single source of the range requirement.
 sampledReads :: QC.Gen (LTA.LTAGen PageRead)
 sampledReads =
-    LTA.sampledNode "read-at" (\offset -> offset `requires` validOffset) $
+    LTA.sampledNode "read-at" (`requires` validOffset) $
         PageRead <$> LTA.opaquePool poolSize offsetSource
 
 -- | The same language through an ordinary pool, as the rejection control.
 unconstrainedReads :: LTA.LTAGen PageRead
 unconstrainedReads =
-    LTA.node "read-at" (\offset -> offset `requires` validOffset) $
+    LTA.node "read-at" (`requires` validOffset) $
         PageRead <$> LTA.freeze seed poolSize rawOffset
   where
     rawOffset = do
@@ -300,7 +300,7 @@ spec = do
         it "skips a huge computed right factor after semantic rejection on the left" $
             withZ3 declarations $ \solver -> do
                 let dead =
-                        LTA.node "dead" (\argument -> argument `requires` nonZero) $
+                        LTA.node "dead" (`requires` nonZero) $
                             LTA.leaf () "zero" (exactOffset 0)
                     generator = LTA.node "pair" unconstrained ((,) <$> LTA.children dead <*> LTA.children unavailableProduct)
                 result <- LTA.compile solver generator
@@ -361,7 +361,9 @@ unavailableProduct =
         "computed"
         (\_ -> error "an empty product evaluated a computed refinement")
         unconstrained
-        $ const (error "an empty product evaluated a generated value") <$> bitForest 64
+        ( error "an empty product evaluated a generated value"
+            <$ bitForest 64
+        )
 
 -- | Retain homogeneous vectors of positive width with small local relations.
 homogeneousBits :: Int -> LTA.LTAGen [Int]

@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | The source constructors and the preparation of deferred imports.
 
@@ -277,7 +278,7 @@ frequency alternatives = do
             (preparedOutcomes generator)
 
     recipeAlternative (weight, generator) =
-        fmap (\recipe -> (weight, recipe)) $ generatorRecipe generator
+        fmap (weight,) $ generatorRecipe generator
 
 -- | Place each choice branch at its own offset in one combined rank domain.
 withOffsets :: [(Integer, Prepared a)] -> [(Integer, Integer, Prepared a, Integer)]
@@ -306,7 +307,7 @@ shrinkChoice branches index = go [] branches
 
 -- | Combine equally weighted alternatives.
 oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)
-oneof = frequency . map (\generator -> (1, generator))
+oneof = frequency . map (1,)
 
 {- | Use a core LTA as a generator source with an explicit tree-height bound.
 

@@ -172,8 +172,8 @@ appendedBuffers =
     resultRefinement [] = error "appendedBuffers: missing result annotation"
 
 -- | One candidate result-length refinement for append.
-data LengthResult = LengthResult
-    { resultLength :: !Refinement
+newtype LengthResult = LengthResult
+    { resultLength :: Refinement
     }
 
 -- | Every result length reachable from the finite source-buffer universe.

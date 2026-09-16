@@ -126,9 +126,10 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
             (Just (_, leftRefinement), Just (_, rightRefinement)) ->
                 decide
                     substitutions
-                    ( withActualAssumptions substitutions
-                        $ applySubstitutions substitutions
-                        $ leftRefinement
+                    ( withActualAssumptions substitutions $
+                        applySubstitutions
+                            substitutions
+                            leftRefinement
                     )
                     (applySubstitutions substitutions rightRefinement)
             _ -> pure No
@@ -137,9 +138,10 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
             Just (_, targetRefinement) ->
                 decide
                     substitutions
-                    ( withActualAssumptions substitutions
-                        $ applySubstitutions substitutions
-                        $ targetRefinement
+                    ( withActualAssumptions substitutions $
+                        applySubstitutions
+                            substitutions
+                            targetRefinement
                     )
                     (applySubstitutions substitutions requirement)
             Nothing -> pure No

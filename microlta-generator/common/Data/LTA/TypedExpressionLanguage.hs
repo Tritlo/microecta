@@ -70,7 +70,7 @@ atoms =
 -- | A unary operation whose argument must establish non-negativity.
 nonNegativeExpressions :: LTA.LTAGen RefinedExpression
 nonNegativeExpressions =
-    LTA.node "sqrt" (\argument -> argument `requires` nonNegative) $ LTA.do
+    LTA.node "sqrt" (`requires` nonNegative) $ LTA.do
         argument <- atoms
         LTA.pure $ RefinedExpression (SquareRoot $ expression argument) true
 
@@ -118,8 +118,8 @@ dependentApplications =
                 descendant function [2] `isSubtypeOf` result
             ]
 
-data ResultType = ResultType
-    { resultRefinement :: !Refinement
+newtype ResultType = ResultType
+    { resultRefinement :: Refinement
     }
 
 resultTypes :: LTA.LTAGen ResultType

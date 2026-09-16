@@ -35,7 +35,7 @@ module Data.Tree.FTA.Generic (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (foldM)
+import Control.Monad (foldM, (<=<))
 import Data.Hashable (Hashable (hashWithSalt))
 import Data.Kind (Type)
 import Data.List (find)
@@ -117,7 +117,7 @@ Constraint layers can use their own interned string alphabet. The lookup table
 is shared by all calls through one partially applied decoder.
 -}
 decodeLabelledTerm :: TypedFTA guard a -> Term String -> Maybe a
-decodeLabelledTerm datatype = (>>= datatypeDecode datatype) . restore
+decodeLabelledTerm datatype = datatypeDecode datatype <=< restore
   where
     constructors =
         Map.fromList
