@@ -207,14 +207,12 @@ data Expr = Lit Int | Add Expr Expr
     deriving stock (Eq, Show, Generic)
     deriving anyclass (HasFTA)
 
--- | Generate selected expressions from a depth-bounded language.
+-- | Print every expression in a depth-bounded language.
 main :: IO ()
 main = do
     datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
     language <- either (fail . show) pure $ Gen.fromDatatypeUpToDepth 3 datatype
-    let count = Gen.cardinality language
-    print count
-    mapM_ (print . Gen.unrank language) [0, 2, 4, count - 1]
+    mapM_ (either (fail . show) print . Gen.unrank language) [0 .. Gen.cardinality language - 1]
 ```
 
 Add both `microfta` and `microfta-generator` to your component's
@@ -229,17 +227,50 @@ cabal exec -- runghc -package=microfta -package=microfta-generator Main.hs
 The output is:
 
 ```text
-38
-Right (Lit 0)
-Right (Add (Lit 0) (Lit 0))
-Right (Add (Lit 0) (Add (Lit 0) (Lit 0)))
-Right (Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 1)))
+Lit 0
+Lit 1
+Add (Lit 0) (Lit 0)
+Add (Lit 0) (Lit 1)
+Add (Lit 0) (Add (Lit 0) (Lit 0))
+Add (Lit 0) (Add (Lit 0) (Lit 1))
+Add (Lit 0) (Add (Lit 1) (Lit 0))
+Add (Lit 0) (Add (Lit 1) (Lit 1))
+Add (Lit 1) (Lit 0)
+Add (Lit 1) (Lit 1)
+Add (Lit 1) (Add (Lit 0) (Lit 0))
+Add (Lit 1) (Add (Lit 0) (Lit 1))
+Add (Lit 1) (Add (Lit 1) (Lit 0))
+Add (Lit 1) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 0) (Lit 0)) (Lit 0)
+Add (Add (Lit 0) (Lit 0)) (Lit 1)
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 0) (Lit 1)) (Lit 0)
+Add (Add (Lit 0) (Lit 1)) (Lit 1)
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 1) (Lit 0)) (Lit 0)
+Add (Add (Lit 1) (Lit 0)) (Lit 1)
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 1) (Lit 1)) (Lit 0)
+Add (Add (Lit 1) (Lit 1)) (Lit 1)
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 1))
 ```
 
 `fromDatatypeUpToDepth` compiles the bounded grammar and retains the decoder
 for `Expr`. `cardinality` gives the number of replay ranks. `unrank` constructs
-the member at a zero-based rank. The example prints four members of the
-38-expression language, including members at the maximum depth.
+the member at a zero-based rank. The example prints all 38 expressions in
+rank order. It handles replay errors before printing each `Expr` value.
 
 As in the recognition example, the bound includes the `Int` child of `Lit`.
 `Lit 0` has depth one. An `Add` of two literals has depth two. At depth three,
