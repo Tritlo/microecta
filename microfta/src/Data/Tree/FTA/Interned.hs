@@ -12,6 +12,7 @@ module Data.Tree.FTA.Interned (
     FTAImportError (..),
     toFTA,
     fromFTA,
+    toTree,
     module Data.Tree.FTA.Constraint,
     module Data.Tree.FTA.Interned.Type,
     module Data.Tree.FTA.Interned.Operations,
@@ -21,6 +22,7 @@ import qualified Control.Monad.State.Strict as State
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import qualified Data.Tree.FTA as FTA
@@ -79,6 +81,17 @@ toFTA root
             (edgeSymbol edge)
             (map stateOf $ edgeChildren edge)
             (edgeConstraint edge)
+
+{- | Render a closed interned grammar for 'Tree.drawTree'.
+
+The view retains transition constraints. Recursive and shared references use
+the same finite representation as 'FTA.toTree'. Open roots and invalid ranked
+alphabets return the errors from 'toFTA'.
+-}
+toTree ::
+    (Hashable symbol, Ord symbol, Show symbol, Typeable symbol, Constraint constraint, Show constraint) =>
+    Node symbol constraint -> Either (FTAViewError symbol) (Tree.Tree String)
+toTree = fmap FTA.toTree . toFTA
 
 -- | Failure while importing a finite explicit-state graph.
 newtype FTAImportError state = RecursiveFTAState state
