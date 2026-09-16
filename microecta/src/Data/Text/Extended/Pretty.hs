@@ -22,4 +22,4 @@ instance {-# OVERLAPPABLE #-} (Show a) => Pretty a where
 
 instance (Pretty symbol) => Pretty (Term symbol) where
     pretty (Term s []) = pretty s
-    pretty (Term s ts) = pretty s <> "(" <> (Text.intercalate ", " $ map pretty ts) <> ")"
+    pretty (Term s ts) = pretty s <> "(" <> Text.intercalate ", " (map pretty ts) <> ")"

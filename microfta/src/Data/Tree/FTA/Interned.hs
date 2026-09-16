@@ -81,7 +81,7 @@ toFTA root
             (edgeConstraint edge)
 
 -- | Failure while importing a finite explicit-state graph.
-data FTAImportError state = RecursiveFTAState !state
+newtype FTAImportError state = RecursiveFTAState state
     deriving (Eq, Show)
 
 {- | Intern an acyclic explicit-state graph without interpreting constraints.

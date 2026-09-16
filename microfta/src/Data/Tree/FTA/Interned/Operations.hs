@@ -31,7 +31,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (Hashable (..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -159,9 +159,7 @@ refold node = memoTypeableWith genericRefoldCache go node
                 )
                 n
 
-        tryUnfold x = case HashMap.lookup x muNodeMap of
-            Just y -> y
-            Nothing -> x
+        tryUnfold x = fromMaybe x (HashMap.lookup x muNodeMap)
 
 {- | Unfold recursive nodes at most the given number of rounds.
 
@@ -376,7 +374,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             (EmptyNode, _) -> EmptyNode
             (_, EmptyNode) -> EmptyNode
             -- For closed terms, improve memoization performance by using the empty environment
-            _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> intersect l r
+            _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> l `intersect` r
             -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
             _ | l == r, Set.null (freeVars l) -> l
             -- Always intersect nodes in the same order. This is important for two reasons:

@@ -122,7 +122,7 @@ spec = do
 
         it "adds congruences" $
             mkEqConstraints (mkTestPathsN [[[0], [1]], [[2], [0]], [[0, 0], [0, 1]]])
-                `shouldBe` rawMkEqConstraints (sort $ (mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]))
+                `shouldBe` rawMkEqConstraints (sort (mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]))
 
         it "detects contradictions from congruences" $
             -- This test input is from unifying `(a -> b) -> (a -> b)` and `(a -> (a -> a)) -> (a -> ([a] -> a))`
