@@ -278,8 +278,9 @@ spec = do
                 containsOne (Branch left right) = containsOne left || containsOne right
                 failing member = leaves member >= 3 && containsOne member
             result <-
-                QC.quickCheckWithResult QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSize = 6, QC.maxSuccess = 500} $
-                    ECTAGen.forAll trees (not . failing)
+                QC.quickCheckWithResult
+                    QC.stdArgs{QC.replay = Just (QCRandom.mkQCGen 20260912, 0), QC.chatty = False, QC.maxSize = 6, QC.maxSuccess = 500}
+                    $ ECTAGen.forAll trees (not . failing)
             case result of
                 QC.Failure{QC.failingTestCase = [shown]} ->
                     let rank = read (takeWhile (/= ':') (drop 5 shown)) :: Integer

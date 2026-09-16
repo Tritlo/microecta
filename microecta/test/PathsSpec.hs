@@ -117,10 +117,12 @@ spec = do
                 \n -> mkEqConstraints (replicate n []) == EmptyConstraints
 
         it "completes equalities" $
-            mkEqConstraints (mkTestPaths1 [[1, 2], [2, 3], [4, 5], [6, 7], [7, 1]]) `shouldBe` rawMkEqConstraints (sort $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
+            mkEqConstraints (mkTestPaths1 [[1, 2], [2, 3], [4, 5], [6, 7], [7, 1]])
+                `shouldBe` rawMkEqConstraints (sort $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
 
         it "adds congruences" $
-            mkEqConstraints (mkTestPathsN [[[0], [1]], [[2], [0]], [[0, 0], [0, 1]]]) `shouldBe` rawMkEqConstraints (sort $ (mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]))
+            mkEqConstraints (mkTestPathsN [[[0], [1]], [[2], [0]], [[0, 0], [0, 1]]])
+                `shouldBe` rawMkEqConstraints (sort $ (mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]))
 
         it "detects contradictions from congruences" $
             -- This test input is from unifying `(a -> b) -> (a -> b)` and `(a -> (a -> a)) -> (a -> ([a] -> a))`

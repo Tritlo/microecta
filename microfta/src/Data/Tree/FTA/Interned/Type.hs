@@ -301,7 +301,9 @@ nodeIdentity _ = error "nodeIdentity: unexpected empty or unresolved node"
 
 -- | Replace an edge's children while preserving its symbol and constraints.
 {-# INLINEABLE setChildren #-}
-setChildren :: (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> [Node symbol constraint] -> Edge symbol constraint
+setChildren ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Edge symbol constraint -> [Node symbol constraint] -> Edge symbol constraint
 setChildren e ns = mkEdge (edgeSymbol e) ns (edgeConstraint e)
 
 -----------------------------------------------------------------
@@ -377,7 +379,9 @@ nodeIds = unsafePerformIO (newIORef 0)
 
 -- | Return the canonical node in its typed cache.
 {-# INLINEABLE internNode #-}
-internNode :: forall symbol constraint. (Typeable symbol, Typeable constraint) => UninternedNode symbol constraint -> Node symbol constraint
+internNode ::
+    forall symbol constraint.
+    (Typeable symbol, Typeable constraint) => UninternedNode symbol constraint -> Node symbol constraint
 internNode = intern
 
 {-# INLINEABLE identifyNode #-}
@@ -503,7 +507,9 @@ edgeIds = unsafePerformIO (newIORef 0)
 
 -- | Return the canonical edge in its typed cache.
 {-# INLINEABLE internEdge #-}
-internEdge :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => UninternedEdge symbol constraint -> Edge symbol constraint
+internEdge ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) => UninternedEdge symbol constraint -> Edge symbol constraint
 internEdge = intern
 
 -----------------------------------------------------------------
@@ -515,7 +521,9 @@ internEdge = intern
 -------------------
 
 -- | Build or match an unconstrained edge.
-pattern Edge :: (Hashable symbol, Typeable symbol, Constraint constraint) => symbol -> [Node symbol constraint] -> Edge symbol constraint
+pattern Edge ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    symbol -> [Node symbol constraint] -> Edge symbol constraint
 pattern Edge s ns <- (InternedEdge _ (UninternedEdge s ns _))
   where
     Edge s ns = internEdge $ UninternedEdge s ns noConstraint
@@ -537,7 +545,9 @@ removeEmptyEdges = filter (not . isEmptyEdge)
 
 -- | Build an edge with transition constraints.
 {-# INLINEABLE mkEdge #-}
-mkEdge :: (Hashable symbol, Typeable symbol, Constraint constraint) => symbol -> [Node symbol constraint] -> constraint -> Edge symbol constraint
+mkEdge ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    symbol -> [Node symbol constraint] -> constraint -> Edge symbol constraint
 mkEdge s ns ecs
     | contradictory ecs = emptyEdge s
     | otherwise = internEdge $ UninternedEdge s ns ecs
@@ -565,7 +575,9 @@ mkNode es = case removeEmptyEdges es of
   when nothing changes
 -}
 {-# INLINEABLE modifyNode #-}
-modifyNode :: (Typeable symbol, Typeable constraint) => Node symbol constraint -> ([Edge symbol constraint] -> [Edge symbol constraint]) -> Node symbol constraint
+modifyNode ::
+    (Typeable symbol, Typeable constraint) =>
+    Node symbol constraint -> ([Edge symbol constraint] -> [Edge symbol constraint]) -> Node symbol constraint
 modifyNode n@(Node es) f =
     let es' = f es
      in if es' == es
@@ -616,7 +628,9 @@ twice in total. 'matchMu' reuses both forms, so rebuilding an unchanged 'Mu'
 stays @O(1)@. Equality, hashing, and identification do not invoke the function
 inside the interning cache.
 -}
-pattern Mu :: (Hashable symbol, Typeable symbol, Constraint constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
+pattern Mu ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
 pattern Mu f <- (matchMu -> Just f)
   where
     Mu = createMu
@@ -631,7 +645,8 @@ Implementation note: 'createMu' and 'matchMu' interact in non-trivial ways; see 
 for performance considerations.
 -}
 {-# INLINEABLE createMu #-}
-createMu :: (Typeable symbol, Typeable constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
+createMu ::
+    (Typeable symbol, Typeable constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
 createMu = dropRedundantMu . createMuDontCleanup
   where
     dropRedundantMu :: Node symbol constraint -> Node symbol constraint
@@ -646,7 +661,8 @@ Interning a 'Mu' is what assigns the identity its body refers to, so the redunda
 afterwards. This is that first half, exported for tests that need to observe a redundant node before it is dropped.
 -}
 {-# INLINEABLE createMuDontCleanup #-}
-createMuDontCleanup :: (Typeable symbol, Typeable constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
+createMuDontCleanup ::
+    (Typeable symbol, Typeable constraint) => (Node symbol constraint -> Node symbol constraint) -> Node symbol constraint
 createMuDontCleanup f =
     internNode $
         UninternedMu
@@ -663,7 +679,9 @@ Implementation note: 'createMu' and 'matchMu' interact in non-trivial ways; see 
 for performance considerations.
 -}
 {-# INLINEABLE matchMu #-}
-matchMu :: (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Maybe (Node symbol constraint -> Node symbol constraint)
+matchMu ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint -> Maybe (Node symbol constraint -> Node symbol constraint)
 matchMu (InternedMu mu) = Just $ \n' ->
     if
         | n' == Rec (RecUnint (numNestedMu (internedMuBody mu))) ->
@@ -690,12 +708,16 @@ Postcondition:
 > substFree i (Rec i) == id
 -}
 {-# INLINEABLE substFree #-}
-substFree :: (Hashable symbol, Typeable symbol, Constraint constraint) => RecNodeId -> Node symbol constraint -> Node symbol constraint -> Node symbol constraint
+substFree ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    RecNodeId -> Node symbol constraint -> Node symbol constraint -> Node symbol constraint
 substFree old new = substFree' (Map.singleton old new)
 
 -- | Generalization of 'substFree' to multiple binders.
 {-# INLINEABLE substFree' #-}
-substFree' :: (Hashable symbol, Typeable symbol, Constraint constraint) => Map RecNodeId (Node symbol constraint) -> Node symbol constraint -> Node symbol constraint
+substFree' ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Map RecNodeId (Node symbol constraint) -> Node symbol constraint -> Node symbol constraint
 substFree' env node = case substitutionPlan node of
     SubstitutionPlan f -> f env
 
@@ -727,7 +749,11 @@ Forces all elements in the list
 sequenceSubstitutionPlans :: [SubstitutionPlan symbol constraint a] -> SubstitutionPlan symbol constraint [a]
 sequenceSubstitutionPlans = SubstitutionPlan . go []
   where
-    go :: [Map RecNodeId (Node symbol constraint) -> a] -> [SubstitutionPlan symbol constraint a] -> Map RecNodeId (Node symbol constraint) -> [a]
+    go ::
+        [Map RecNodeId (Node symbol constraint) -> a] ->
+        [SubstitutionPlan symbol constraint a] ->
+        Map RecNodeId (Node symbol constraint) ->
+        [a]
     -- The accumulator is reversed once here rather than on every environment
     -- the resulting function is applied to.
     go acc [] = let fs = reverse acc in \env -> map ($ env) fs
@@ -745,7 +771,10 @@ genericSubstitutionPlanCache :: TypeableMemoCache
 genericSubstitutionPlanCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericSubstitutionPlanCache #-}
 
-substitutionPlan :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> SubstitutionPlan symbol constraint (Node symbol constraint)
+substitutionPlan ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint -> SubstitutionPlan symbol constraint (Node symbol constraint)
 {-# INLINEABLE substitutionPlan #-}
 substitutionPlan inputNode = memoTypeableWith genericSubstitutionPlanCache onNode inputNode
   where
@@ -764,7 +793,10 @@ genericEdgeSubstitutionPlanCache :: TypeableMemoCache
 genericEdgeSubstitutionPlanCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericEdgeSubstitutionPlanCache #-}
 
-edgeSubstitutionPlan :: forall symbol constraint. (Hashable symbol, Typeable symbol, Constraint constraint) => Edge symbol constraint -> SubstitutionPlan symbol constraint (Edge symbol constraint)
+edgeSubstitutionPlan ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Edge symbol constraint -> SubstitutionPlan symbol constraint (Edge symbol constraint)
 {-# INLINEABLE edgeSubstitutionPlan #-}
 edgeSubstitutionPlan inputEdge = memoTypeableWith genericEdgeSubstitutionPlanCache onEdge inputEdge
   where

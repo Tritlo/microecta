@@ -98,7 +98,9 @@ explain (RelationalEqualityUnsupported _) =
 explain (RelationalSyntacticEqualityUnsupported _) =
     "The source observations do not decide this syntactic equality. Use fromLTA for ordinary bounded subtree equality. Scoped equality on compound subtrees remains unsupported by the compiler."
 explain (ResidualEquality state _) =
-    "State " <> show state <> " still has equality constraints that the selected ranker cannot count. Use compile with fromLTA and an explicit height bound."
+    "State "
+        <> show state
+        <> " still has equality constraints that the selected ranker cannot count. Use compile with fromLTA and an explicit height bound."
 explain RecursiveAutomaton =
     "This automaton is recursive. Use fromLTA with an explicit height bound, then compile the generator."
 explain (AmbiguousAutomaton state) =

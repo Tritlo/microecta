@@ -154,7 +154,9 @@ spec = do
                 datatype <- either (fail . show) pure $ Datatype.deriveFTAWith @(Maybe (Int, Int)) $ Datatype.domain @Int [0, 1, 2]
                 let annotate constructor
                         | Datatype.constructorType constructor == typeRep (Proxy @Int) =
-                            (maybe true (\literal -> Refinement.value .==. integer literal) $ readMaybe $ Datatype.constructorName constructor, unconstrainedConstraint)
+                            ( maybe true (\literal -> Refinement.value .==. integer literal) $ readMaybe $ Datatype.constructorName constructor
+                            , unconstrainedConstraint
+                            )
                         | Datatype.constructorName constructor == "(,)" =
                             (true, semanticConstraint $ Satisfies (path [1]) (Refinement.value .>. integer 0))
                         | otherwise = (true, unconstrainedConstraint)
@@ -264,7 +266,13 @@ spec = do
                 let zero = variable "v" .==. (0 :: Int)
                     rows =
                         [ (State 1, [Transition "a" zero [] unconstrainedConstraint, plain "box" [State 2]])
-                        , (State 2, [Transition "a" zero [] unconstrainedConstraint, Transition "a" (variable "v" .==. (1 :: Int)) [] unconstrainedConstraint])
+                        ,
+                            ( State 2
+                            ,
+                                [ Transition "a" zero [] unconstrainedConstraint
+                                , Transition "a" (variable "v" .==. (1 :: Int)) [] unconstrainedConstraint
+                                ]
+                            )
                         ]
                     absent = Satisfies (path [0, 0]) true
                     guards =

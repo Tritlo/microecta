@@ -15,7 +15,15 @@ import qualified Data.ECTA.Gen.QuickCheck as ECTA
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Recipe (requiredImplications, transparentCompiled, validateGenerator)
-import Data.LTA.Gen.Internal.Relational (ObservationKey, RecipeGroups, RelationalValue, acceptedAlphabet, acceptedSources, compileRecipe, ensureConsistentArities)
+import Data.LTA.Gen.Internal.Relational (
+    ObservationKey,
+    RecipeGroups,
+    RelationalValue,
+    acceptedAlphabet,
+    acceptedSources,
+    compileRecipe,
+    ensureConsistentArities,
+ )
 import Data.LTA.Gen.Internal.Replay (evaluateImplications, sourceShrinkRanks)
 import qualified Data.LTA.Gen.Internal.SourceIndex as Source
 import Data.LTA.Gen.Internal.Surface (prepareGenerator)
@@ -78,7 +86,10 @@ compileIndexedRecipe entailment generator (grouped, groups)
                 Compiled
                     (RelationalSupport acceptedSupport)
                     ranked
-                    (\rank -> maybe [] (sourceShrinkRanks generator (Source.cardinality sources) (Source.rank sources) table) $ Source.select sources rank)
+                    ( \rank ->
+                        maybe [] (sourceShrinkRanks generator (Source.cardinality sources) (Source.rank sources) table) $
+                            Source.select sources rank
+                    )
   where
     sources = acceptedSources groups
     generatedAt rank =

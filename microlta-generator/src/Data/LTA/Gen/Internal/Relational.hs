@@ -32,7 +32,13 @@ import Data.LTA.Gen.Internal.AutomatonCompile (constraintTerms, countAutomaton, 
 import qualified Data.LTA.Gen.Internal.AutomatonSource as AutomatonSource
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.IndexedGroup (indexedGroup)
-import Data.LTA.Gen.Internal.Recipe (childRecipeArity, knownEmptyChild, knownEmptyRecipe, rawRecipeCount, uniformlyWeightedRecipe)
+import Data.LTA.Gen.Internal.Recipe (
+    childRecipeArity,
+    knownEmptyChild,
+    knownEmptyRecipe,
+    rawRecipeCount,
+    uniformlyWeightedRecipe,
+ )
 import Data.LTA.Gen.Internal.Replay (cardinality, unrank)
 import qualified Data.LTA.Gen.Internal.SourceIndex as Source
 import Data.LTA.Gen.Internal.Surface (prepareGenerator)
@@ -265,10 +271,15 @@ compileSourceGroups requested compiled = do
                 alphabet =
                     Map.fromListWith
                         Set.union
-                        [(transitionSymbol transition, Set.singleton $ length $ transitionChildren transition) | transitions <- Map.elems $ automatonTransitions automaton, transition <- transitions]
+                        [ (transitionSymbol transition, Set.singleton $ length $ transitionChildren transition)
+                        | transitions <- Map.elems $ automatonTransitions automaton
+                        , transition <- transitions
+                        ]
             pure $
                 Map.fromList
-                    [ (ObservationKey $ Map.map (\(identifier, isLeaf) -> toObservation (labels IntMap.! identifier, isLeaf)) observations, GroupInfo alphabet $ Source.fromPrefix total count prefixAt)
+                    [ ( ObservationKey $ Map.map (\(identifier, isLeaf) -> toObservation (labels IntMap.! identifier, isLeaf)) observations
+                      , GroupInfo alphabet $ Source.fromPrefix total count prefixAt
+                      )
                     | (observations, (count, prefixAt)) <- Map.toList $ symbolicGroupsWith interpret requested root
                     ]
         _ -> Left RelationalPlanUnavailable
@@ -294,14 +305,17 @@ refinementForChildren (FixedRefinement refinement) _ = refinement
 refinementForChildren (RootComputedRefinement project) childKeys =
     project $ map observationKeyRoot childKeys
 refinementForChildren (ComputedRefinement _) _ =
-    error "microlta-generator bug in Data.LTA.Gen.Internal.Relational.refinementForChildren: a value-computed refinement reached relational compilation"
+    error
+        "microlta-generator bug in Data.LTA.Gen.Internal.Relational.refinementForChildren: a value-computed refinement reached relational compilation"
 
 -- | Root observation retained by every relational group.
 observationKeyRoot :: ObservationKey -> RootObservation
 observationKeyRoot (ObservationKey observations) =
     case Map.lookup (path []) observations of
         Just (rootObservation, _) -> rootObservation
-        Nothing -> error "microlta-generator bug in Data.LTA.Gen.Internal.Relational.compileRelational: child group has no root observation"
+        Nothing ->
+            error
+                "microlta-generator bug in Data.LTA.Gen.Internal.Relational.compileRelational: child group has no root observation"
 
 -- | Root refinement retained by every relational group.
 observationKeyRefinement :: ObservationKey -> Refinement
@@ -404,8 +418,10 @@ constraintDecision entailment symbol refinement constraint childKeys = do
         Yes -> Right True
         No -> Right False
         Unknown
-            | constraintEqualities constraint /= EmptyConstraints -> Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
-            | containsSyntacticEquality (constraintGuard constraint) -> Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
+            | constraintEqualities constraint /= EmptyConstraints ->
+                Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
+            | containsSyntacticEquality (constraintGuard constraint) ->
+                Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
             | otherwise -> Left SolverUnknown
   where
     ObservationKey observations = completeObservationKey symbol refinement childKeys
@@ -464,7 +480,9 @@ leafObservationKey requested symbol refinement =
 relationalGeneratedAt :: ECTA.ECTAGen (RelationalValue a) -> Integer -> Generated a
 relationalGeneratedAt generator rank =
     case ECTA.unrank generator rank of
-        Left err -> error $ "microlta-generator bug in Data.LTA.Gen.Internal.Relational.compileRelational: invalid retained rank: " <> show err
+        Left err ->
+            error $
+                "microlta-generator bug in Data.LTA.Gen.Internal.Relational.compileRelational: invalid retained rank: " <> show err
         Right (RelationalValue value witness) ->
             Generated 1 value (witnessTerm witness)
 

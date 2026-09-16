@@ -153,7 +153,12 @@ compileSymbolicAutomaton ::
     Automaton ->
     Either GeneratorError (Compiled a)
 compileSymbolicAutomaton buildValue support automaton = do
-    mapM_ validate [(state, transitionConstraint transition) | (state, transitions) <- Map.toList $ automatonTransitions automaton, transition <- transitions]
+    mapM_
+        validate
+        [ (state, transitionConstraint transition)
+        | (state, transitions) <- Map.toList $ automatonTransitions automaton
+        , transition <- transitions
+        ]
     (root, alphabet) <- symbolicGraph automaton
     terms <- first fromRankedError $ symbolicRankedWith interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (foldTerm alphabet LiquidTerm term)
@@ -179,7 +184,14 @@ symbolicGraph automaton = do
     root <- first (const RecursiveAutomaton) $ Interned.fromFTA renamed
     pure (root, IntMap.fromList $ zip [0 ..] alphabet)
   where
-    alphabet = sortOn name $ Map.keys $ Map.fromList [(FTA.transitionSymbol transition, ()) | transitions <- Map.elems $ automatonTransitions automaton, transition <- transitions]
+    alphabet =
+        sortOn name
+            $ Map.keys
+            $ Map.fromList
+                [ (FTA.transitionSymbol transition, ())
+                | transitions <- Map.elems $ automatonTransitions automaton
+                , transition <- transitions
+                ]
     name (LiquidSymbol symbol refinement) = (show symbol, show refinement)
     identifiers = Map.fromList $ zip alphabet [0 ..]
 
@@ -200,7 +212,11 @@ constraintTerms constraint = do
     guardTerms guard = Left guard
 
     complement terms = (1, []) : [(negate weight, classes) | (weight, classes) <- terms]
-    conjoin left right = [(leftWeight * rightWeight, leftClasses <> rightClasses) | (leftWeight, leftClasses) <- left, (rightWeight, rightClasses) <- right]
+    conjoin left right =
+        [ (leftWeight * rightWeight, leftClasses <> rightClasses)
+        | (leftWeight, leftClasses) <- left
+        , (rightWeight, rightClasses) <- right
+        ]
 
 {- | Require the pruned automaton to be an ordinary FTA before multiplying
 child cardinalities.

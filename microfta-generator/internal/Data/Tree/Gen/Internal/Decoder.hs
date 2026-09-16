@@ -168,7 +168,8 @@ compileRank (PlanMap transform plan) =
             let !value = decode index
              in transform value
 compileRank (PlanChoice branches) =
-    dispatchTree totalOutcomes $ offsetParts 0 [(branchCardinality, compileRank branch) | (branchCardinality, branch) <- branches]
+    dispatchTree totalOutcomes $
+        offsetParts 0 [(branchCardinality, compileRank branch) | (branchCardinality, branch) <- branches]
   where
     totalOutcomes = fromInteger $ sum $ map fst branches
 compileRank (PlanSized classes) =
