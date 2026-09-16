@@ -4,7 +4,7 @@
 
 Initial release.
 
-- `Data.Tree.Term`: the shared first-order term type.
+- Concrete terms use `Data.Tree.Tree` from `containers`.
 - `Data.Tree.FTA` and `Data.Tree.FTA.Syntax`: checked explicit-state finite
   tree automata with ranked-alphabet validation, cycle inspection, depth
   bounding, and reachable product intersection.
