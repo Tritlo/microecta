@@ -38,6 +38,7 @@ module Data.Tree.FTA (
 
 import Control.Monad (foldM_)
 import qualified Control.Monad.State.Strict as State
+import qualified Data.Bifunctor as Bifunctor
 import Data.Graph (SCC (AcyclicSCC, CyclicSCC), stronglyConnComp)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -249,7 +250,7 @@ boundDepth maximumDepth automaton
                     traverse (buildTransition remaining)
                         $ filter (\transition -> remaining > 0 || null (transitionChildren transition))
                         $ transitionsFrom automaton source
-                State.modify' $ \(allocated, rows) -> (allocated, Map.insert state outgoing rows)
+                State.modify' $ Bifunctor.second (Map.insert state outgoing)
                 pure state
     buildTransition remaining Transition{transitionSymbol, transitionChildren, transitionGuard} = do
         children <- traverse (\child -> buildState (child, remaining - 1)) transitionChildren

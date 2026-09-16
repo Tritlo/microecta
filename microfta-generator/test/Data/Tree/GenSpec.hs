@@ -12,7 +12,7 @@ spec = do
     describe "structural shrinking" $ do
         it "never offers a member larger than the current one across choice branches" $ do
             let languages = do
-                    small <- Tree.fromIndexed (Tree.Indexed 2 (\index -> [index])) :: Either Tree.RankedError (Tree.Ranked [Integer])
+                    small <- Tree.fromIndexed (Tree.Indexed 2 ((: []))) :: Either Tree.RankedError (Tree.Ranked [Integer])
                     let big = (\a b c -> a <> b <> c) <$> small <*> small <*> small
                     bigFirst <- Tree.oneof [big, small]
                     smallFirst <- Tree.oneof [small, big]

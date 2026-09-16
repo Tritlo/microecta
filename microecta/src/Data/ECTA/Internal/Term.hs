@@ -26,7 +26,7 @@ import Data.Tree.Term (Term (..))
 ---------------------------------------------------------------
 
 -- | Interned term or edge symbol.
-data Symbol = Symbol' {-# UNPACK #-} !InternedText
+newtype Symbol = Symbol' InternedText
     deriving (Eq, Ord)
 
 -- | Build or match a symbol from text.
