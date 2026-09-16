@@ -7,14 +7,15 @@ module Data.ECTA.FTA (
     ECTAState,
     ECTAFTAError (..),
     toFTA,
+    toTree,
 ) where
 
+import Data.Tree (Tree)
 import Data.Typeable (Typeable)
 
 import Data.Hashable (Hashable)
 
-import Data.ECTA (Node)
-import Data.ECTA.Internal.ECTA.Type (toInterned)
+import Data.ECTA.Internal.ECTA.Type (Node, toInterned)
 import Data.ECTA.Paths (EqConstraints)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Interned as Common
@@ -39,3 +40,15 @@ toFTA root = case Common.toFTA (toInterned root) of
     Left Common.OpenNode -> Left OpenECTA
     Left (Common.InvalidFTA err) -> Left (InvalidFTA err)
     Right graph -> Right graph
+
+{- | Display the reachable ECTA graph with 'Data.Tree.drawTree'.
+
+Transition labels retain equality constraints. Cycles end with @mu@ references;
+other shared states end with @ref@ references. Open recursive variables fail as
+in 'toFTA'. This operation does not enumerate terms or solve constraints.
+-}
+toTree ::
+    (Hashable symbol, Ord symbol, Typeable symbol, Show symbol) =>
+    Node symbol ->
+    Either (ECTAFTAError symbol) (Tree String)
+toTree = fmap FTA.toTree . toFTA
