@@ -4,6 +4,7 @@
 module Data.Tree.FTASyntaxSpec (spec) where
 
 import Data.Hashable (Hashable (..))
+import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
 
@@ -36,6 +37,12 @@ spec = do
                         automaton
                         (Term "add" [Term "zero" [], Term "zero" []])
                         `shouldBe` True
+                    Automaton.toTree automaton
+                        `shouldBe` Tree.Node
+                            "state Expression"
+                            [ Tree.Node "\"zero\" [()]" []
+                            , Tree.Node "\"add\" [()]" [Tree.Node "mu Expression" [], Tree.Node "mu Expression" []]
+                            ]
 
         it "constructs the ordinary product intersection" $ do
             let left =
@@ -88,6 +95,7 @@ spec = do
             Common.edgeCount graph `shouldBe` 25
             Common.mapNodes id graph `shouldBe` graph
             Common.union [graph, graph] `shouldBe` graph
+            fmap (length . Tree.flatten) (Common.toTree graph) `shouldBe` Right 74
 
         it "keeps different constraint types and values distinct in the caches" $ do
             let plain = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
@@ -117,6 +125,7 @@ spec = do
         it "rejects an open recursive node in an explicit graph view" $ do
             let open = Common.Rec (Common.RecUnint 0) :: Common.PlainNode String
             Common.toFTA open `shouldBe` Left Common.OpenNode
+            Common.toTree open `shouldBe` Left Common.OpenNode
 
         it "unfolds a recursive node a bounded number of times and refolds it" $ do
             let naturals = Common.createMu $ \rec ->
@@ -133,14 +142,17 @@ spec = do
                     ]
             case FTA.automaton 0 rows of
                 Left err -> expectationFailure $ show err
-                Right graph -> case Common.fromFTA graph of
-                    Left err -> expectationFailure $ show err
-                    Right node -> do
-                        acceptPlain node (Term "pair" [Term "leaf" [], Term "leaf" []]) `shouldBe` True
-                        acceptPlain node (Term "pair" [Term "pair" [], Term "leaf" []]) `shouldBe` False
-                        case Common.toFTA node of
-                            Left err -> expectationFailure $ show err
-                            Right view -> length (Automaton.states view) `shouldBe` 2
+                Right graph -> do
+                    Tree.flatten (Automaton.toTree graph)
+                        `shouldBe` ["state 0", "\"pair\" [()]", "state 1", "\"leaf\" [()]", "ref 1", "\"leaf\" [()]"]
+                    case Common.fromFTA graph of
+                        Left err -> expectationFailure $ show err
+                        Right node -> do
+                            acceptPlain node (Term "pair" [Term "leaf" [], Term "leaf" []]) `shouldBe` True
+                            acceptPlain node (Term "pair" [Term "pair" [], Term "leaf" []]) `shouldBe` False
+                            case Common.toFTA node of
+                                Left err -> expectationFailure $ show err
+                                Right view -> length (Automaton.states view) `shouldBe` 2
 
         it "removes an alternative that another alternative already accepts" $ do
             let leaf = Common.Node [Common.Edge "a" []] :: Common.PlainNode String

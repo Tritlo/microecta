@@ -16,6 +16,7 @@ module Data.LTA.Automaton (
     transitionLiquidSymbol,
     replaceTransitionChildren,
     Automaton,
+    toTree,
     EqualityAutomaton,
     AutomatonError (..),
     InternedAutomatonError (..),
@@ -38,6 +39,7 @@ module Data.LTA.Automaton (
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.Tree (Tree)
 
 import Data.ECTA.Paths (EqConstraints, Path, unPath)
 import Data.ECTA.Term (Symbol)
@@ -95,6 +97,15 @@ replaceTransitionChildren children transition =
 
 -- | A validated LTA, possibly with recursive states.
 type Automaton = FTA.FTA State LiquidSymbol LiquidConstraint
+
+{- | Display the reachable LTA graph with 'Data.Tree.drawTree'.
+
+Transition labels retain refinements and constraints. Cycles end with @mu@
+references; other shared states end with @ref@ references. This operation does
+not enumerate terms or call a solver.
+-}
+toTree :: Automaton -> Tree String
+toTree = FTA.toTree
 
 -- | The ECTA-shaped result of discharging every semantic guard in an LTA.
 type EqualityAutomaton = FTA.FTA State LiquidSymbol EqConstraints
