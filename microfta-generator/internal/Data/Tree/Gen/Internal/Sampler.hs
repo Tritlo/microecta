@@ -22,6 +22,7 @@ module Data.Tree.Gen.Internal.Sampler (
     uniformSampler,
 ) where
 
+import qualified Data.Bifunctor as Bifunctor
 import Data.List (mapAccumL)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
@@ -134,7 +135,7 @@ mapSampler :: (a -> b) -> Sampler a -> Sampler b
 mapSampler transform sampler =
     Sampler
         (transform <$> runValueSampler sampler)
-        ( (\(rank, value) -> (rank, transform value))
+        ( (Bifunctor.second transform)
             <$> runRankSampler sampler
         )
 
@@ -348,7 +349,7 @@ choiceSampleIndexBy choose alternatives =
             ( runChoose
                 choose
                 [ ( weight
-                  , (\(position, value) -> (offset + position, value))
+                  , (Bifunctor.first (offset +))
                         <$> runRankAtSize sampling size
                   )
                 | (weight, offset, sampling) <- parts size
@@ -414,7 +415,7 @@ boundedSampler classes sampling =
         )
         ( chooseWeighted
             [ ( count
-              , (\(position, value) -> (offset + position, value))
+              , (Bifunctor.first (offset +))
                     <$> runRankAtSize sampling size
               )
             | (size, count, offset) <- offsetClasses 0 classes

@@ -41,7 +41,7 @@ interpCommandEquiv (Union uv1 uv2) = equate uv1 uv2
 interpCommandEquiv (CheckEquiv uv1 uv2) = tell . (: []) =<< equivalent uv1 uv2
 
 interpCommandPersistentUF :: UnionFindCommand -> PersistentUFTestM ()
-interpCommandPersistentUF (Union uv1 uv2) = modify (union uv1 uv2)
+interpCommandPersistentUF (Union uv1 uv2) = modify (uv1 `union` uv2)
 interpCommandPersistentUF (CheckEquiv uv1 uv2) = do
     uf <- get
     let (uv1Rep, uf') = find uv1 uf
