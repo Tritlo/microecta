@@ -18,6 +18,8 @@ import qualified Data.Map.Strict as Map
 
 import Data.ECTA (Node (EmptyNode), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
+import Data.ECTA.Gen.Internal.Inspection
+import Data.ECTA.Gen.Internal.Support (familyNodeWith, keySymbol, restrictToKeyWith)
 import Data.ECTA.Gen.Internal.Types
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (
@@ -137,7 +139,7 @@ recur build
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the language that is still being defined.
     placeholder supportNode index sampling =
-        Recursive supportNode index sampling False True Nothing
+        Recursive supportNode index sampling False True Nothing (plainInspection supportNode)
 
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
@@ -151,6 +153,18 @@ recur build
     automaton = createMu $ \self ->
         either (const EmptyNode) recursiveSupport $
             bodyOf (Cyclic $ Right $ placeholder self tied tiedSampling)
+
+    inspection = Inspection name graph
+      where
+        name = either (const Nothing) (inspectionName . recursiveInspection) probed
+        graph = createMu $ \self ->
+            either (const EmptyNode) (inspectionGraph . recursiveInspection)
+                $ bodyOf
+                $ Cyclic
+                $ Right
+                $ (placeholder EmptyNode tied tiedSampling)
+                    { recursiveInspection = Inspection name self
+                    }
 
     -- Built against a probe rather than the knot: reading whether the
     -- occurrence is used, and whether it is guarded, must not count
@@ -177,6 +191,7 @@ recur build
                         (recursiveWeighted body)
                         False
                         Nothing
+                        inspection
 
 {- | Build a recursive grouped family from its own languages.
 
@@ -248,7 +263,7 @@ recurGrouped build
     -- the family that is still being defined.
     placeholder supportNode index sampling masses =
         KeyedRecursive
-            (Recursive supportNode index sampling False True Nothing)
+            (Recursive supportNode index sampling False True Nothing $ plainInspection supportNode)
             masses
             False
     noMass = emptyMassIndex
@@ -347,6 +362,45 @@ recurGrouped build
             | key <- keys
             ]
 
+    -- Diagnostic labels use a separate knot. Counts, masses, and sampling do
+    -- not need to build this graph or evaluate its retained labels.
+    inspectionNames =
+        either
+            (const Map.empty)
+            (fmap $ inspectionName . recursiveInspection . keyedRecursiveLanguage)
+            probed
+    nameForKey key = Map.findWithDefault Nothing key inspectionNames
+    namesBySymbol = Map.fromList [(keySymbol $ positionOf key, nameForKey key) | key <- keys]
+    labelKey symbol = InspectionSymbol symbol $ Map.findWithDefault Nothing symbol namesBySymbol
+    inspectionFamily = createMu $ \self ->
+        let bodies = fromRight Map.empty $ bodyGroups $ inspectionOccurrences self
+         in familyNodeWith
+                labelKey
+                [ ( positionOf key
+                  , maybe
+                        EmptyNode
+                        (inspectionGraph . recursiveInspection . keyedRecursiveLanguage)
+                        (Map.lookup key bodies)
+                  )
+                | key <- keys
+                ]
+    inspectionOccurrences self =
+        Map.fromList
+            [ ( key
+              , let group = placeholder EmptyNode (indexAt key) (samplingAt key) (massAt key)
+                 in group
+                        { keyedRecursiveLanguage =
+                            (keyedRecursiveLanguage group)
+                                { recursiveInspection =
+                                    Inspection
+                                        (nameForKey key)
+                                        (restrictToKeyWith labelKey (positionOf key) self)
+                                }
+                        }
+              )
+            | key <- keys
+            ]
+
     probeBody =
         build
             $ CyclicGrouped
@@ -378,6 +432,10 @@ recurGrouped build
                             familyWeighted
                             False
                             Nothing
+                            ( Inspection
+                                (nameForKey key)
+                                (restrictToKeyWith labelKey (positionOf key) inspectionFamily)
+                            )
                         )
                         (massAt key)
                         familyMassWeighted

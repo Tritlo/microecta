@@ -20,6 +20,7 @@ import Data.ECTA (Edge (Edge), Node (Node), mkEdge, reducePartially)
 import Data.ECTA.Gen.Internal.Bucket
 import Data.ECTA.Gen.Internal.Chain
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
@@ -124,8 +125,30 @@ joinGroupedStatic left right related =
              in -- Every group came from two non-empty outcome buckets. Keep
                 -- support reduction lazy; the outcome index already proves
                 -- that the joined language is non-empty.
-                (\outcomes -> Static joined outcomes False)
+                (\outcomes -> Static joined outcomes False $ inspectionJoined groups)
                     <$> joinOutcomeIndex left right groups
+  where
+    inspectionJoined groups =
+        Inspection Nothing $
+            Node
+                [ mkEdge
+                    (plainSymbol joinSymbol)
+                    [ side leftKeyedSymbol (fmap outcomeInspection . joinGroupLeft)
+                    , side rightKeyedSymbol (fmap outcomeInspection . joinGroupRight)
+                    ]
+                    (mkEqConstraints [[path [0, 0], path [1, 0]]])
+                ]
+      where
+        side symbol outcomes =
+            Node
+                [ Edge
+                    (plainSymbol symbol)
+                    [ singletonNode $ Term (plainSymbol $ keySymbol $ joinGroupIndex group) []
+                    , singletonNode outcome
+                    ]
+                | group <- groups
+                , outcome <- toList $ outcomes group
+                ]
 
 -- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
@@ -186,6 +209,12 @@ joinOutcomeIndex left right groups = do
                     / totalMass
                 )
                 (outcomeValue leftOutcome, outcomeValue rightOutcome)
+                ( Term
+                    (plainSymbol joinSymbol)
+                    [ Term (plainSymbol leftKeyedSymbol) [fmap plainSymbol keyTerm, outcomeInspection leftOutcome]
+                    , Term (plainSymbol rightKeyedSymbol) [fmap plainSymbol keyTerm, outcomeInspection rightOutcome]
+                    ]
+                )
 
     selectValue index =
         let (_, leftOutcome, rightOutcome) = selectPair index
@@ -299,6 +328,7 @@ joinNBucketStatic componentIndex operation arguments =
             (chainPlan (outcomePlan operationOutcomes) arguments)
         )
         False
+        (joinInspection componentIndex (staticInspection operation) $ chainInspections arguments)
   where
     keyTerms =
         [ Term (argKeySymbol componentIndex position) []
@@ -321,7 +351,7 @@ joinNBucketStatic componentIndex operation arguments =
         checkIndex totalOutcomes index
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
         operationOutcome <- outcomeSelect operationOutcomes operationIndex
-        (argumentTerms, argumentsMass, value) <-
+        (argumentTerms, argumentInspections, argumentsMass, value) <-
             selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
         let operationTerm =
                 Term centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
@@ -330,6 +360,17 @@ joinNBucketStatic componentIndex operation arguments =
                 (Term joinNSymbol (operationTerm : argumentTerms))
                 (outcomeMass operationOutcome * argumentsMass)
                 value
+                ( Term (plainSymbol joinNSymbol) $
+                    Term
+                        (plainSymbol centerKeyedSymbol)
+                        ( zipWith
+                            (\term inspection -> fmap (\symbol -> InspectionSymbol symbol $ inspectionName inspection) term)
+                            keyTerms
+                            (chainInspections arguments)
+                            <> [outcomeInspection operationOutcome]
+                        )
+                        : argumentInspections
+                )
 
     selectValue index =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
@@ -355,6 +396,7 @@ recursiveJoin componentIndex operation arguments =
             joinedWeighted
             joinedOccurrence
             Nothing
+            (joinInspection componentIndex (recursiveInspection operationRecursive) $ recursiveInspections arguments)
         )
         joinedMasses
         joinedMassWeighted

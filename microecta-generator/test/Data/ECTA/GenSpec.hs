@@ -3,10 +3,14 @@
 
 module Data.ECTA.GenSpec (spec) where
 
+import qualified Data.Bifunctor as Bifunctor
 import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Data.String (fromString)
+import Data.Text (Text)
+import Data.Tree (flatten)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldReturn, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
@@ -14,6 +18,7 @@ import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (Node (Node), edgeChildren, edgeSymbol, getAllTerms, nodeRepresents)
+import qualified Data.ECTA as ECTA
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
@@ -126,6 +131,17 @@ expectedPmf =
     , path <- [minBound .. maxBound]
     ]
 
+-- | Read source and key names through the public typed graph view.
+inspectionLabels :: ECTAGen value -> Either String [Text]
+inspectionLabels generator = do
+    inspection <- Bifunctor.first show $ ECTAGen.inspect generator
+    tree <- Bifunctor.first show $ ECTA.toTree $ ECTAGen.inspectionGraph inspection
+    pure
+        [ label
+        | Right edge <- flatten tree
+        , Just label <- [ECTAGen.displayLabel $ edgeSymbol edge]
+        ]
+
 spec :: Spec
 spec = do
     describe "ECTAGen joins" $ do
@@ -155,6 +171,7 @@ spec = do
                                     witnesses `shouldSatisfy` all (nodeRepresents support)
                                 (Left err, _) -> expectationFailure $ show err
                                 (_, Left err) -> expectationFailure $ show err
+                    inspectionLabels fromAutomaton `shouldBe` Right []
                     check $ ECTAGen.upToSize 6 $ label fromAutomaton
                     check $ label $ ECTAGen.upToSize 6 fromAutomaton
 
@@ -331,14 +348,19 @@ spec = do
                 signature (_, leftKey, rightKey, resultKey) =
                     leftKey :* rightKey :-> resultKey
                 operations =
-                    ECTAGen.regroupBy signature $
-                        ECTAGen.groupBy fst (ECTAGen.elements centers)
+                    ECTAGen.regroupBy signature
+                        $ ECTAGen.groupBy fst
+                        $ ECTAGen.namedElements [(fromString $ snd center, center) | center <- centers]
                 grouped =
                     ECTAGen.ungroup $
                         ECTAGen.apply
                             ((,,) <$> operations)
-                            ( ECTAGen.groupBy fst (ECTAGen.elements lefts)
-                                :& ECTAGen.groupBy fst (ECTAGen.elements rights)
+                            ( ECTAGen.nameGroups
+                                (fromString . show)
+                                (ECTAGen.groupBy fst $ ECTAGen.namedElements [(fromString $ snd value, value) | value <- lefts])
+                                :& ECTAGen.nameGroups
+                                    (fromString . show)
+                                    (ECTAGen.groupBy fst $ ECTAGen.namedElements [(fromString $ snd value, value) | value <- rights])
                                 :& ANil
                             )
                 accepted =
@@ -362,6 +384,13 @@ spec = do
             ECTAGen.pmf (ECTAGen.atKey (0 :* 0 :-> 0) operations)
                 `shouldBe` Right (zip (take 2 centers) [1 % 2, 1 % 2])
             ECTAGen.pmf grouped `shouldBe` Right expected
+            case inspectionLabels grouped of
+                Left err -> expectationFailure err
+                Right labels ->
+                    labels `shouldSatisfy` \found ->
+                        all
+                            ((`elem` found) . fromString)
+                            ["common", "rare", "left-a", "left-b", "left-c", "right-a", "0", "1"]
 
     describe "indexed and opaque sources" $ do
         it "decodes a transparent source from stable indices" $
@@ -409,13 +438,40 @@ spec = do
             ECTAGen.cardinality (freeze 0) `shouldBe` Left ECTAGen.EmptyGenerator
             ECTAGen.cardinality (freeze (-1)) `shouldBe` Left ECTAGen.EmptyGenerator
 
-        it "reuses one indexed choice through fmap" $
+        it "reuses one indexed choice through fmap" $ do
             ECTAGen.pmf
                 ( do
                     user <- ECTAGen.elements [Alice, Bob]
                     pure (user, user)
                 )
                 `shouldBe` Right [((Alice, Alice), 1 % 2), ((Bob, Bob), 1 % 2)]
+            let integers = ECTAGen.namedElements [(fromString "zero", 0), (fromString "one", 1)] :: ECTAGen Int
+                booleans = ECTAGen.namedElements [(fromString "false", False), (fromString "true", True)]
+                shifted = (+ 10) <$> integers
+                paired = (,) <$> integers <*> booleans
+                applied = ECTAGen.namedElements [(fromString "increment", (+ 1))] <*> integers
+            ECTAGen.support shifted `shouldBe` ECTAGen.support integers
+            traverse (ECTAGen.unrank shifted) [0, 1] `shouldBe` Right [10, 11]
+            inspectionLabels shifted `shouldBe` inspectionLabels integers
+            traverse (ECTAGen.unrank paired) [0 .. 3]
+                `shouldBe` Right [(0, False), (0, True), (1, False), (1, True)]
+            case ECTAGen.support paired of
+                Right (Node [edge]) -> case edgeChildren edge of
+                    [left, right] -> left `shouldBe` right
+                    children -> expectationFailure $ "unexpected source children: " <> show children
+                result -> expectationFailure $ "unexpected source support: " <> show result
+            case ECTAGen.inspect paired of
+                Right inspection -> case ECTAGen.inspectionGraph inspection of
+                    Node [edge] -> case edgeChildren edge of
+                        [left, right] -> left `shouldNotBe` right
+                        children -> expectationFailure $ "unexpected inspection children: " <> show children
+                    graph -> expectationFailure $ "unexpected inspection graph: " <> show graph
+                Left err -> expectationFailure $ show err
+            fmap sort (inspectionLabels paired)
+                `shouldBe` Right (map fromString ["false", "one", "true", "zero"])
+            traverse (ECTAGen.unrank applied) [0, 1] `shouldBe` Right [1, 2]
+            fmap sort (inspectionLabels applied)
+                `shouldBe` Right (map fromString ["increment", "one", "zero"])
 
         it "exposes exact cardinality and deterministic unranking" $ do
             let users = ECTAGen.elements [Alice, Bob, Carol]
@@ -424,6 +480,17 @@ spec = do
                 `shouldBe` Right [Alice, Bob, Carol]
             ECTAGen.unrank users 3
                 `shouldBe` Left (ECTAGen.SelectionOutOfRange 3 3)
+            let named = ECTAGen.namedElements [(fromString $ show user, user) | user <- [Alice, Bob, Carol]]
+                lazyNames = ECTAGen.namedElements [(error "source name evaluated", user) | user <- [Alice, Bob, Carol]]
+                lazyGroups = ECTAGen.nameGroups (\_ -> error "group name evaluated") $ ECTAGen.keyed DeclaredUsers lazyNames
+                selected = ECTAGen.atKey DeclaredUsers lazyGroups
+            ECTAGen.support named `shouldBe` ECTAGen.support users
+            traverse (ECTAGen.unrank named) [0 .. 2] `shouldBe` Right [Alice, Bob, Carol]
+            fmap sort (inspectionLabels named)
+                `shouldBe` Right (map fromString ["Alice", "Bob", "Carol"])
+            ECTAGen.support selected `shouldBe` ECTAGen.support users
+            ECTAGen.cardinality selected `shouldBe` Right 3
+            traverse (ECTAGen.unrank selected) [0 .. 2] `shouldBe` Right [Alice, Bob, Carol]
 
         it "finds a finite structural minimum beyond rank zero" $ do
             let larger = (,) <$> ECTAGen.elements [0 :: Int] <*> ECTAGen.elements [0 :: Int]
@@ -507,10 +574,22 @@ spec = do
 
     describe "declared groups" $ do
         it "retains source-rank order inside each computed group" $ do
-            let source = ECTAGen.elements [("b", 0 :: Int), ("a", 1), ("b", 2), ("a", 3)]
+            let values = [("b", 0 :: Int), ("a", 1), ("b", 2), ("a", 3)]
+                source = ECTAGen.elements values
                 selected = ECTAGen.atKey "a" $ ECTAGen.groupBy fst source
+                namedSource = ECTAGen.namedElements [(fromString $ key <> show value, (key, value)) | (key, value) <- values]
+                namedGroups = ECTAGen.nameGroups fromString $ ECTAGen.groupBy fst namedSource
+                namedSelected = ECTAGen.atKey "a" namedGroups
+                regrouped = ECTAGen.atKey True $ ECTAGen.regroupBy (== "a") namedGroups
             traverse (ECTAGen.unrank selected) [0, 1]
                 `shouldBe` Right [("a", 1), ("a", 3)]
+            ECTAGen.support namedSelected `shouldBe` ECTAGen.support selected
+            fmap ECTAGen.inspectionName (ECTAGen.inspect namedSelected)
+                `shouldBe` Right (Just $ fromString "a")
+            fmap sort (inspectionLabels namedSelected) `shouldBe` Right (map fromString ["a1", "a3"])
+            fmap sort (inspectionLabels regrouped) `shouldBe` Right (map fromString ["a1", "a3"])
+            fmap ECTAGen.inspectionName (ECTAGen.inspect regrouped) `shouldBe` Right Nothing
+            traverse (ECTAGen.unrank regrouped) [0, 1] `shouldBe` Right [("a", 1), ("a", 3)]
 
         it "preserves a finite source's support, ranks, and distribution" $ do
             let source =

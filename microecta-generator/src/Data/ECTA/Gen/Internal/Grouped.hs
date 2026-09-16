@@ -10,6 +10,7 @@ module Data.ECTA.Gen.Internal.Grouped (
     groupBy,
     regroupBy,
     mapWithKey,
+    nameGroups,
     atKey,
     ungroup,
 
@@ -31,6 +32,7 @@ module Data.ECTA.Gen.Internal.Grouped (
 ) where
 
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
@@ -78,13 +80,15 @@ groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 {- | Reclassify the groups without enumerating their values.
 
 When several old keys map to one new key, their compact supports are merged and
-their probability masses are preserved.
+their probability masses are preserved. Previous group names are cleared;
+use 'nameGroups' to name the new keys. Source descriptions remain available.
 -}
 regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped gen oldKey a -> Grouped gen newKey a
 regroupBy regroup (CyclicGrouped result) =
     CyclicGrouped $ do
         groups <- result
         pure
+            $ Map.map clearRecursiveName
             $ Map.mapMaybe mergeRecursiveGroups
             $ Map.foldlWithKey'
                 ( \regrouped oldKey group ->
@@ -92,10 +96,19 @@ regroupBy regroup (CyclicGrouped result) =
                 )
                 Map.empty
                 groups
+  where
+    clearRecursiveName group = group{keyedRecursiveLanguage = named}
+      where
+        recursive = keyedRecursiveLanguage group
+        named = recursive{recursiveInspection = (recursiveInspection recursive){inspectionName = Nothing}}
 regroupBy _ (Grouped (Left err)) = Grouped $ Left err
 regroupBy regroup (Grouped (Right buckets)) =
-    Grouped $ traverse mergeBucketGroup grouped
+    Grouped $ fmap (fmap clearName) $ traverse mergeBucketGroup grouped
   where
+    clearName bucket = bucket{keyedBucketStatic = named}
+      where
+        static = keyedBucketStatic bucket
+        named = static{staticInspection = (staticInspection static){inspectionName = Nothing}}
     grouped =
         Map.foldlWithKey'
             ( \groups oldKey bucket ->
@@ -122,6 +135,7 @@ mapWithKey transform (CyclicGrouped result) =
                 (recursiveWeighted recursive)
                 (recursiveOccurrence recursive)
                 Nothing
+                (recursiveInspection recursive)
             )
             (keyedRecursiveMasses group)
             (keyedRecursiveMassWeighted group)
@@ -134,6 +148,25 @@ mapWithKey transform (Grouped result) =
         KeyedBucket
             (keyedBucketMass bucket)
             (mapStatic (transform key) $ keyedBucketStatic bucket)
+
+{- | Retain a display name for each group without inspecting its members.
+
+Names describe the retained keys. They do not affect key comparison, support,
+ranks, or generated values. Formatting runs only when inspection needs it.
+-}
+nameGroups :: (key -> Text) -> Grouped gen key a -> Grouped gen key a
+nameGroups render (Grouped result) = Grouped $ fmap (Map.mapWithKey nameBucket) result
+  where
+    nameBucket key bucket = bucket{keyedBucketStatic = named}
+      where
+        static = keyedBucketStatic bucket
+        named = static{staticInspection = (staticInspection static){inspectionName = Just $ render key}}
+nameGroups render (CyclicGrouped result) = CyclicGrouped $ fmap (Map.mapWithKey nameGroup) result
+  where
+    nameGroup key group = group{keyedRecursiveLanguage = named}
+      where
+        recursive = keyedRecursiveLanguage group
+        named = recursive{recursiveInspection = (recursiveInspection recursive){inspectionName = Just $ render key}}
 
 {- | Select one retained group as an ordinary conditional generator.
 

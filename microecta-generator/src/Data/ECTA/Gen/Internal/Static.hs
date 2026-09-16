@@ -16,6 +16,7 @@ module Data.ECTA.Gen.Internal.Static (
     -- * Building languages
     pureStatic,
     indexedStatic,
+    indexedStaticWithLabels,
     termStatic,
     applyStatic,
     frequencyStatic,
@@ -42,15 +43,18 @@ import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
+import Data.Text (Text)
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Support (
     applySymbol,
     frequencySymbol,
     indexedSymbol,
     labelSupport,
     labelTerm,
+    labelTermWith,
     pureSymbol,
  )
 import Data.ECTA.Term (Symbol, Term (Term))
@@ -69,6 +73,8 @@ data Outcome a = Outcome
     { outcomeTerm :: Term Symbol
     , outcomeMass :: Rational
     , outcomeValue :: a
+    , outcomeInspection :: Term InspectionSymbol
+    -- ^ Source descriptions for a selected outcome, built only for inspection.
     }
 
 -- | A finite language with exact cardinality and rank-based selection.
@@ -123,6 +129,8 @@ data Static a = Static
     sets this marker so 'recursiveFromStatic' can preserve them as one source
     choice. The sampler itself already lives in 'staticOutcomes'.
     -}
+    , staticInspection :: Inspection
+    -- ^ Diagnostic structure. Counting and decoding do not force this field.
     }
 
 -- | The one-outcome language of a single value.
@@ -135,17 +143,22 @@ pureStatic value =
             (Just 1)
             ( \index -> do
                 checkIndex 1 index
-                pure $ Outcome (Term pureSymbol []) 1 value
+                pure $ Outcome (Term pureSymbol []) 1 value (Term (plainSymbol pureSymbol) [])
             )
             (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
         )
         False
+        (Inspection Nothing $ Node [Edge (plainSymbol pureSymbol) []])
 
 -- | The language of one finite indexed source.
 indexedStatic :: Indexed a -> Static a
-indexedStatic indexed =
+indexedStatic = indexedStaticWithLabels $ const Nothing
+
+-- | Retain source names independently of values and rank decoding.
+indexedStaticWithLabels :: (Integer -> Maybe Text) -> Indexed a -> Static a
+indexedStaticWithLabels label indexed =
     Static
         (Node [Edge (indexedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
         ( mkOutcomeIndex
@@ -157,7 +170,9 @@ indexedStatic indexed =
             (PlanSelect totalOutcomes $ indexedSelect indexed)
         )
         False
+        (Inspection Nothing $ Node [Edge (namedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
   where
+    namedSymbol index = InspectionSymbol (indexedSymbol index) (label index)
     totalOutcomes = indexedCardinality indexed
     select index = do
         checkIndex totalOutcomes index
@@ -166,6 +181,7 @@ indexedStatic indexed =
                 (Term (indexedSymbol index) [])
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
+                (Term (namedSymbol index) [])
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 
@@ -178,6 +194,7 @@ termStatic supportNode ranked =
         supportNode
         (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
         False
+        (plainInspection supportNode)
   where
     total = Ranked.cardinality ranked
     mass = 1 / fromInteger total
@@ -185,7 +202,7 @@ termStatic supportNode ranked =
     select rank = do
         checkIndex total rank
         let term = valueAt rank
-        pure $ Outcome term mass term
+        pure $ Outcome term mass term (fmap plainSymbol term)
 
 -- | The applicative product of a function language and an argument language.
 applyStatic :: Static (a -> b) -> Static a -> Static b
@@ -214,6 +231,11 @@ applyStatic functions values =
             )
         )
         False
+        ( Inspection Nothing $
+            Node
+                [ Edge (plainSymbol applySymbol) [inspectionGraph $ staticInspection functions, inspectionGraph $ staticInspection values]
+                ]
+        )
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
@@ -233,6 +255,7 @@ applyStatic functions values =
                 )
                 (outcomeMass functionOutcome * outcomeMass valueOutcome)
                 (outcomeValue functionOutcome $ outcomeValue valueOutcome)
+                (Term (plainSymbol applySymbol) [outcomeInspection functionOutcome, outcomeInspection valueOutcome])
 
     selectValue index =
         let (functionIndex, valueIndex) = splitIndex index
@@ -265,6 +288,7 @@ frequencyStatic alternatives =
             )
         )
         False
+        (choiceInspection $ map (staticInspection . snd) alternatives)
   where
     totalWeight = sum $ map fst alternatives
     numbered = zip [0 :: Int ..] alternatives
@@ -300,6 +324,7 @@ frequencyStatic alternatives =
                     * outcomeMass child
                 )
                 (outcomeValue child)
+                (Term (plainSymbol $ frequencySymbol branchIndex) [outcomeInspection child])
 
     selectValue index =
         let (_, _, static, childIndex) = selectBranch index rankedBranches
@@ -320,6 +345,7 @@ mapStatic transform static =
         (staticSupport static)
         (mapOutcomeIndex transform $ staticOutcomes static)
         (staticAtomic static)
+        (staticInspection static)
 
 -- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
@@ -339,6 +365,7 @@ mapOutcome transform outcome =
         (outcomeTerm outcome)
         (outcomeMass outcome)
         (transform $ outcomeValue outcome)
+        (outcomeInspection outcome)
 
 -- | Make every outcome of a finite language contribute one unit of size.
 atomicStatic :: Static a -> Static a
@@ -374,6 +401,7 @@ labelStatic symbol static =
     static
         { staticSupport = labelSupport symbol $ staticSupport static
         , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
+        , staticInspection = labelInspection symbol $ staticInspection static
         }
 
 labelOutcomeTerms :: Symbol -> OutcomeIndex a -> OutcomeIndex a
@@ -385,7 +413,10 @@ labelOutcomeTerms symbol outcomes =
 -- | Relabel the retained term of one finite outcome.
 labelOutcome :: Symbol -> Outcome a -> Outcome a
 labelOutcome symbol outcome =
-    outcome{outcomeTerm = labelTerm symbol $ outcomeTerm outcome}
+    outcome
+        { outcomeTerm = labelTerm symbol $ outcomeTerm outcome
+        , outcomeInspection = labelTermWith originalSymbol (plainSymbol symbol) $ outcomeInspection outcome
+        }
 
 -- | Sample one outcome sequence by its masses.
 sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)

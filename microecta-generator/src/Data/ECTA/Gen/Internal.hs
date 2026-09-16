@@ -14,6 +14,8 @@ module Data.ECTA.Gen.Internal (
     explain,
 
     -- * Languages
+    Inspection (..),
+    InspectionSymbol (..),
     Outcome (..),
     ArgChain (..),
     OutcomeIndex (..),
@@ -77,6 +79,7 @@ module Data.ECTA.Gen.Internal (
 import Data.ECTA.Gen.Internal.Bucket
 import Data.ECTA.Gen.Internal.Chain
 import Data.ECTA.Gen.Internal.Error
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Join
 import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static

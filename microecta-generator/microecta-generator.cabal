@@ -85,6 +85,7 @@ library
     Data.ECTA.Gen.Internal.Error
     Data.ECTA.Gen.Internal.Grouped
     Data.ECTA.Gen.Internal.Inspect
+    Data.ECTA.Gen.Internal.Inspection
     Data.ECTA.Gen.Internal.Join
     Data.ECTA.Gen.Internal.Recursion
     Data.ECTA.Gen.Internal.Recursive
@@ -96,6 +97,7 @@ library
     array >=0.5 && <0.6,
     base >=4.21 && <5,
     containers >=0.7 && <0.9,
+    hashable >=1.5 && <1.6,
     microecta >=0.2.0.0 && <0.3,
     microecta-generator:internal,
     microfta >=0.1.0.0 && <0.2,
@@ -177,6 +179,7 @@ test-suite unit-tests
     microfta >=0.1.0.0 && <0.2,
     microfta-generator:internal >=0.1.0.0 && <0.2,
     QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
 
 benchmark typed-expression-speed
   import: warnings, extensions

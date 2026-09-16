@@ -31,6 +31,7 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (frequencySymbol, labelSupport, labelTerm)
 import Data.ECTA.Term (Symbol, Term)
@@ -77,6 +78,8 @@ data Recursive a = Recursive
     mapped or combined value no longer stands for one term of the
     support.
     -}
+    , recursiveInspection :: Inspection
+    -- ^ A lazy diagnostic graph with occurrence labels and source values.
     }
 
 -- | View a finite language as one size-stratified recursive component.
@@ -89,6 +92,7 @@ recursiveFromStatic static =
         weighted
         False
         Nothing
+        (staticInspection static)
   where
     outcomes = staticOutcomes static
     index = outcomeSizeIndex outcomes
@@ -132,13 +136,19 @@ boundedStatic bound recursive
                     plan
                 )
                 False
+                (recursiveInspection recursive)
   where
     select index = case recursiveTerm recursive of
         Nothing -> Left CannotInspectRecursiveGenerator
         Just readTerm -> do
             checkIndex totalOutcomes index
             let value = selectValue index
-            pure $ Outcome (readTerm value) (1 / fromInteger totalOutcomes) value
+            pure $
+                Outcome
+                    (readTerm value)
+                    (1 / fromInteger totalOutcomes)
+                    value
+                    (fmap plainSymbol $ readTerm value)
 
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
@@ -167,6 +177,7 @@ labelRecursive symbol recursive =
     recursive
         { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
         , recursiveTerm = fmap (labelTerm symbol .) $ recursiveTerm recursive
+        , recursiveInspection = labelInspection symbol $ recursiveInspection recursive
         }
 
 {- | One recursive language conditioned on a retained key.
@@ -238,6 +249,7 @@ mergeRecursiveGroups alternatives =
                 weighted
                 (any (recursiveOccurrence . keyedRecursiveLanguage) alternatives)
                 Nothing
+                (choiceInspection $ map (recursiveInspection . keyedRecursiveLanguage) alternatives)
             )
             masses
             massWeighted

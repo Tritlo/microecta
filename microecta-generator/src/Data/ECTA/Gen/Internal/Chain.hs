@@ -16,6 +16,7 @@ module Data.ECTA.Gen.Internal.Chain (
     -- * Finite chains
     chainLength,
     chainSupports,
+    chainInspections,
     chainCardinality,
     chainUniformMass,
     chainSampler,
@@ -25,6 +26,7 @@ module Data.ECTA.Gen.Internal.Chain (
 
     -- * Recursive chains
     recursiveSupports,
+    recursiveInspections,
     recursiveChainIndex,
     recursiveChainMass,
     recursiveChainSampling,
@@ -39,6 +41,7 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA (Node)
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (argKeyedSymbol)
@@ -106,6 +109,11 @@ chainLength (ChainCons _ rest) = 1 + chainLength rest
 chainSupports :: ArgStatics operation result -> [Node Symbol]
 chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
+
+-- | Diagnostic metadata of each matched finite argument group.
+chainInspections :: ArgStatics operation result -> [Inspection]
+chainInspections ChainNil = []
+chainInspections (ChainCons static rest) = staticInspection static : chainInspections rest
 
 -- | Product of the argument group cardinalities.
 chainCardinality :: ArgStatics operation result -> Integer
@@ -177,14 +185,20 @@ selectChain ::
     ArgStatics operation result ->
     [Term Symbol] ->
     Integer ->
-    Either ECTAGenError ([Term Symbol], Rational, result)
-selectChain value ChainNil _ _ = Right ([], 1, value)
+    Either ECTAGenError ([Term Symbol], [Term InspectionSymbol], Rational, result)
+selectChain value ChainNil _ _ = Right ([], [], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
-    (terms, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
+    (terms, inspections, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
     pure
         ( Term argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
+        , Term
+            (plainSymbol argKeyedSymbol)
+            [ fmap (\symbol -> InspectionSymbol symbol $ inspectionName $ staticInspection static) keyTerm
+            , outcomeInspection outcome
+            ]
+            : inspections
         , outcomeMass outcome * mass
         , value
         )
@@ -198,6 +212,12 @@ recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
 recursiveSupports ChainNil = []
 recursiveSupports (ChainCons recursive rest) =
     recursiveSupport (keyedRecursiveLanguage recursive) : recursiveSupports rest
+
+-- | Diagnostic metadata of each matched recursive argument group.
+recursiveInspections :: ArgChain KeyedRecursive operation result -> [Inspection]
+recursiveInspections ChainNil = []
+recursiveInspections (ChainCons recursive rest) =
+    recursiveInspection (keyedRecursiveLanguage recursive) : recursiveInspections rest
 
 -- | Consume the argument groups into the operation, left to right.
 recursiveChainIndex ::
