@@ -2,9 +2,14 @@
 
 `microlta` is the Liquid Tree Automata layer over `microfta`'s `Data.Tree.FTA`.
 It also uses `microecta` for equality constraints and the optional ECTA bridge.
-A transition
-has a ranked constructor, its Liquid Fixpoint refinement, child states, and the
-paper's Boolean constraint language. Syntactic `Same` and semantic `Entails`
+Concrete annotated terms use `Data.Tree.Tree LiquidSymbol`. Construct a node
+with `Tree.Node (LiquidSymbol symbol refinement) children`. The label retains
+strict symbol and refinement fields. The tree label and child list use the
+standard lazy `Data.Tree` representation. `eraseRefinements` maps each label
+to its constructor symbol.
+
+A transition has a ranked constructor, its Liquid Fixpoint refinement, child
+states, and the paper's Boolean constraint language. Syntactic `Same` and semantic `Entails`
 are LTA atoms. Guards support substitution, negation, conjunction, and disjunction.
 Refinement implication is discharged through the small `Entailment`
 boundary; `Data.LTA.LiquidFixpoint.withZ3` supplies the reusable Z3

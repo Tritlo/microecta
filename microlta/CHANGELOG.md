@@ -4,6 +4,8 @@
 
 Initial release.
 
+- Concrete annotated terms use `Data.Tree.Tree LiquidSymbol` from `containers`.
+  The same label type describes term nodes and automaton transitions.
 - `Data.LTA`: liquid tree automata over Liquid Fixpoint refinements, with the
   paper's Boolean guard language, actual-for-formal position substitution,
   transition-level semantic pruning, similarity, minimization, recursive

@@ -25,7 +25,6 @@ module Data.LTA (
     path,
     unPath,
     Refinement,
-    LiquidTerm (..),
     LiquidSymbol (..),
     eraseRefinements,
 

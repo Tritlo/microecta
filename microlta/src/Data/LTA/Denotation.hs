@@ -14,6 +14,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, get, modify', runStateT)
 import Data.List (nub)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.LTA.Automaton (
     Automaton,
@@ -22,11 +23,12 @@ import Data.LTA.Automaton (
     automatonTransitions,
     transitionChildren,
     transitionConstraint,
+    transitionLiquidSymbol,
     transitionRefinement,
     transitionSymbol,
  )
 import Data.LTA.Evaluate (evaluateConstraint)
-import Data.LTA.Types (LiquidTerm (..), State)
+import Data.LTA.Types (LiquidSymbol (LiquidSymbol), State)
 import Data.LTA.Verdict (Entailment, Verdict (..), andM, andVerdict, orM)
 
 -- | Failure while computing the bounded denotation from Figure 6.
@@ -36,24 +38,24 @@ newtype EnumerationError
     deriving (Eq, Show)
 
 -- | Decide whether an annotated term is accepted from the initial state.
-accepts :: Entailment -> Automaton -> LiquidTerm -> IO Verdict
+accepts :: Entailment -> Automaton -> Tree.Tree LiquidSymbol -> IO Verdict
 accepts entailment automaton =
     acceptsFrom (automatonInitial automaton)
   where
     acceptsFrom state term =
         orM $ map (acceptsTransition term) (Map.findWithDefault [] state $ automatonTransitions automaton)
 
-    acceptsTransition term transition
-        | transitionSymbol transition /= liquidSymbol term = pure No
-        | transitionRefinement transition /= liquidRefinement term = pure No
-        | length (transitionChildren transition) /= length (liquidChildren term) = pure No
+    acceptsTransition term@(Tree.Node (LiquidSymbol symbol refinement) children) transition
+        | transitionSymbol transition /= symbol = pure No
+        | transitionRefinement transition /= refinement = pure No
+        | length (transitionChildren transition) /= length children = pure No
         | otherwise = do
             childrenVerdict <-
                 andM $
                     zipWith
                         acceptsFrom
                         (transitionChildren transition)
-                        (liquidChildren term)
+                        children
             case childrenVerdict of
                 No -> pure No
                 _ -> do
@@ -72,7 +74,7 @@ denotationAtMost ::
     Entailment ->
     Int ->
     Automaton ->
-    IO (Either EnumerationError [LiquidTerm])
+    IO (Either EnumerationError [Tree.Tree LiquidSymbol])
 denotationAtMost entailment maximumHeight automaton
     | maximumHeight < 0 = pure $ Right []
     | otherwise = fmap fst $ runStateT (enumerateFrom maximumHeight $ automatonInitial automaton) Map.empty
@@ -82,7 +84,7 @@ denotationAtMost entailment maximumHeight automaton
     enumerateFrom ::
         Int ->
         State ->
-        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+        StateT (Map.Map (State, Int) [Tree.Tree LiquidSymbol]) IO (Either EnumerationError [Tree.Tree LiquidSymbol])
     enumerateFrom remaining state = do
         cache <- get
         case Map.lookup (state, remaining) cache of
@@ -100,7 +102,7 @@ denotationAtMost entailment maximumHeight automaton
         Int ->
         State ->
         [Transition] ->
-        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+        StateT (Map.Map (State, Int) [Tree.Tree LiquidSymbol]) IO (Either EnumerationError [Tree.Tree LiquidSymbol])
     enumerateTransitions _ _ [] = pure $ Right []
     enumerateTransitions remaining state (transition : rest) = do
         current <- enumerateTransition remaining state transition
@@ -112,7 +114,7 @@ denotationAtMost entailment maximumHeight automaton
         Int ->
         State ->
         Transition ->
-        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+        StateT (Map.Map (State, Int) [Tree.Tree LiquidSymbol]) IO (Either EnumerationError [Tree.Tree LiquidSymbol])
     enumerateTransition remaining state transition
         | null children = checkCandidates state transition [[]]
         | remaining == 0 = pure $ Right []
@@ -127,14 +129,13 @@ denotationAtMost entailment maximumHeight automaton
     checkCandidates ::
         State ->
         Transition ->
-        [[LiquidTerm]] ->
-        StateT (Map.Map (State, Int) [LiquidTerm]) IO (Either EnumerationError [LiquidTerm])
+        [[Tree.Tree LiquidSymbol]] ->
+        StateT (Map.Map (State, Int) [Tree.Tree LiquidSymbol]) IO (Either EnumerationError [Tree.Tree LiquidSymbol])
     checkCandidates _ _ [] = pure $ Right []
     checkCandidates state transition (children : rest) = do
         let term =
-                LiquidTerm
-                    (transitionSymbol transition)
-                    (transitionRefinement transition)
+                Tree.Node
+                    (transitionLiquidSymbol transition)
                     children
         verdict <- liftIO $ evaluateConstraint entailment (transitionConstraint transition) term
         case verdict of
