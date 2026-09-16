@@ -1,4 +1,4 @@
-{- | Symbols and concrete terms accepted by ECTAs.
+{- | Symbols accepted by ECTAs.
 
 Terms are ordinary first-order trees. They are the concrete values produced by
 the enumeration API in "Data.ECTA".
@@ -7,7 +7,6 @@ the package.
 -}
 module Data.ECTA.Internal.Term (
     Symbol (.., Symbol),
-    Term (..),
 ) where
 
 import Data.Hashable (Hashable (..))
@@ -19,7 +18,6 @@ import Text.Read (Read (..))
 import Data.Interned.Text (InternedText, internedTextId)
 
 import Data.Text.Extended.Pretty
-import Data.Tree.Term (Term (..))
 
 ---------------------------------------------------------------
 -------------------------- Symbols ----------------------------

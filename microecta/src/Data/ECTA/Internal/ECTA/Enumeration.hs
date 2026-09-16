@@ -2,7 +2,7 @@
 
 {- | Nondeterministic enumeration for ECTAs.
 
-Enumeration builds 'TermFragment's before expanding them to concrete @Term@s.
+Enumeration builds 'TermFragment's before expanding them to concrete @Tree.Tree@s.
 Equality constraints are represented by suspended path-trie obligations that
 point at UVars. When enumeration descends through an edge, those obligations
 descend with it; when an obligation reaches the current node, the corresponding
@@ -69,6 +69,7 @@ import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
 import Data.String (IsString (..))
+import qualified Data.Tree as Tree
 import Type.Reflection (Typeable, typeRep)
 
 import Data.ECTA.Internal.ECTA.Operations
@@ -118,10 +119,10 @@ instance (Hashable symbol) => Hashable (PartialSymbol symbol) where
         salt `hashWithSalt` (2 :: Int)
 
 -- | Convert a fragment to a term while retaining holes outside the alphabet.
-termFragToTruncatedTerm :: TermFragment symbol -> Term (PartialSymbol symbol)
+termFragToTruncatedTerm :: TermFragment symbol -> Tree.Tree (PartialSymbol symbol)
 termFragToTruncatedTerm (TermFragmentNode symbol children) =
-    Term (ConcreteSymbol symbol) (map termFragToTruncatedTerm children)
-termFragToTruncatedTerm (TermFragmentUVar uv) = Term (UVarHole uv) []
+    Tree.Node (ConcreteSymbol symbol) (map termFragToTruncatedTerm children)
+termFragToTruncatedTerm (TermFragmentUVar uv) = Tree.Node (UVarHole uv) []
 
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
@@ -577,30 +578,30 @@ A recursive node whose constraints have not been settled is still pending
 expansion, so it is reported as a hole. An oracle that parks checks on holes
 would otherwise read it as final and settle a check that has not been decided.
 -}
-expandPartialTermFrag :: TermFragment symbol -> EnumerateM symbol (Term (PartialSymbol symbol))
+expandPartialTermFrag :: TermFragment symbol -> EnumerateM symbol (Tree.Tree (PartialSymbol symbol))
 expandPartialTermFrag (TermFragmentNode symbol children) =
-    Term (ConcreteSymbol symbol) <$> mapM expandPartialTermFrag children
+    Tree.Node (ConcreteSymbol symbol) <$> mapM expandPartialTermFrag children
 expandPartialTermFrag (TermFragmentUVar uv) = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandPartialTermFrag fragment
-        UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Term TruncatedRecursion []
-        _ -> return $ Term (UVarHole uv) []
+        UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Tree.Node TruncatedRecursion []
+        _ -> return $ Tree.Node (UVarHole uv) []
 
 -- | Expand a complete term fragment into a concrete term.
-expandTermFrag :: (IsString symbol) => TermFragment symbol -> EnumerateM symbol (Term symbol)
+expandTermFrag :: (IsString symbol) => TermFragment symbol -> EnumerateM symbol (Tree.Tree symbol)
 expandTermFrag = expandTermFragWith "Mu"
 
 -- | 'expandTermFrag' with an explicit symbol for truncated recursion.
-expandTermFragWith :: symbol -> TermFragment symbol -> EnumerateM symbol (Term symbol)
+expandTermFragWith :: symbol -> TermFragment symbol -> EnumerateM symbol (Tree.Tree symbol)
 expandTermFragWith recursionSymbol = go
   where
-    go (TermFragmentNode s ts) = Term s <$> mapM go ts
+    go (TermFragmentNode s ts) = Tree.Node s <$> mapM go ts
     go (TermFragmentUVar uv) = do
         val <- getUVarValue uv
         case val of
             UVarEnumerated t -> go t
-            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Tree.Node recursionSymbol []
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
@@ -611,15 +612,15 @@ same @Mu@ marker 'expandTermFrag' gives a nested one. Any other unenumerated
 state is not reachable once enumeration reports itself finished, and drops the
 branch rather than guessing.
 -}
-expandUVar :: (IsString symbol) => UVar -> EnumerateM symbol (Term symbol)
+expandUVar :: (IsString symbol) => UVar -> EnumerateM symbol (Tree.Tree symbol)
 expandUVar = expandUVarWith "Mu"
 
-expandUVarWith :: symbol -> UVar -> EnumerateM symbol (Term symbol)
+expandUVarWith :: symbol -> UVar -> EnumerateM symbol (Tree.Tree symbol)
 expandUVarWith recursionSymbol uv = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandTermFragWith recursionSymbol fragment
-        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Tree.Node recursionSymbol []
         _ -> mzero
 
 ---------------------
@@ -632,7 +633,7 @@ Where 'getAllTerms' embeds a recursion marker into the caller's alphabet, this
 uses 'TruncatedRecursion'. Any genuinely unresolved non-recursive variable remains
 a 'UVarHole', as it does in 'expandPartialTermFrag'.
 -}
-getAllTruncatedTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [Term (PartialSymbol symbol)]
+getAllTruncatedTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [Tree.Tree (PartialSymbol symbol)]
 getAllTruncatedTerms n = map fst $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
@@ -674,7 +675,7 @@ getAllTermsPrune ::
     a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     Node symbol ->
-    [Term symbol]
+    [Tree.Tree symbol]
 getAllTermsPrune ost oracle = getAllTermsPruneWith "Mu" ost noExpansionPreference oracle
 
 {- | 'getAllTermsPrune' with an explicit recursion symbol and a say in which
@@ -703,7 +704,7 @@ getAllTermsPruneWith ::
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     Node symbol ->
-    [Term symbol]
+    [Tree.Tree symbol]
 getAllTermsPruneWith recursionSymbol ost order oracle n =
     map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith recursionSymbol ost order oracle
 
@@ -717,7 +718,7 @@ enumPrune ::
     (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    EnumerateM symbol (Term symbol)
+    EnumerateM symbol (Tree.Tree symbol)
 enumPrune a oracle = enumPruneWith "Mu" a noExpansionPreference oracle
 
 -- | Monadic form of 'getAllTermsPruneWith', taking the recursion symbol first.
@@ -728,7 +729,7 @@ enumPruneWith ::
     a ->
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    EnumerateM symbol (Term symbol)
+    EnumerateM symbol (Tree.Tree symbol)
 enumPruneWith recursionSymbol a order oracle = do
     finished <- enumerateFully' a order oracle
     if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
@@ -752,13 +753,13 @@ need each term once. And a constraint whose paths descend into a truncated
 'Mu' is dropped rather than checked, so a result term containing the marker is
 not evidence that the language below it is non-empty.
 -}
-getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Term symbol]
+getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Tree.Tree symbol]
 getAllTerms = getAllTermsWith "Mu"
 
 -- | 'getAllTerms' with an explicit symbol for truncated recursion.
-getAllTermsWith :: (Hashable symbol, Typeable symbol) => symbol -> Node symbol -> [Term symbol]
+getAllTermsWith :: (Hashable symbol, Typeable symbol) => symbol -> Node symbol -> [Tree.Tree symbol]
 getAllTermsWith recursionSymbol n =
     map fst $ flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
         expandUVarWith recursionSymbol (intToUVar 0)
-{-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol -> [Term Symbol] #-}
+{-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol -> [Tree.Tree Symbol] #-}
