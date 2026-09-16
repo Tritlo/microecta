@@ -174,12 +174,19 @@ graph =
   where
     nonNegative = value .>=. (0 :: Int)
 
--- | Choose state names and mark recursive and shared references.
+-- | Show state names, reference markers, and occurrence locations.
 renderNode :: StateView State -> String
-renderNode view = case fmap (("q" ++) . show . unState) view of
-    Expanded name -> name
-    Recursive name -> "mu " ++ name
-    Shared name -> "ref " ++ name
+renderNode view = prefix ++ "q" ++ show (unState (viewNode view)) ++ " @" ++ renderPath (viewPath view)
+  where
+    prefix = case view of
+        Expanded{} -> ""
+        Recursive{} -> "mu "
+        Shared{} -> "ref "
+
+-- | Render zero-based alternative and child indexes from the root.
+renderPath :: ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | (alternative, child) <- steps]
 
 -- | Render symbols, nontrivial refinements, and complete constraints.
 renderTransition :: Transition -> String
@@ -220,11 +227,11 @@ cabal exec -- runghc -package=microlta -package=liquid-fixpoint Main.hs
 This program prints:
 
 ```text
-q0
+q0 @root
 |
 `- sqrt [refinement(0) entails v >= 0]
    |
-   `- q1
+   `- q1 @0:0
       |
       `- zero {v >= 0}
 ```
@@ -235,9 +242,19 @@ refinements and `Top` guards. `constraintAsGuard` recovers the complete
 constraint, including cached equalities. Guards other than `Satisfies` use a
 `Show` fallback, so the renderer retains every obligation.
 
-`Recursive state` ends a cycle; `Shared state` refers to a state expanded
-earlier. The example displays these as `mu qN` and `ref qN`. This view does not
-enumerate terms or call a solver.
+`Recursive` ends a cycle; `Shared` refers to a state expanded earlier. The
+example displays these as `mu qN` and `ref qN`. `viewNode` retains the original
+state, while `viewPath` locates each occurrence, including references.
+`ViewPath` is `[(Int, Int)]`; each pair selects a zero-based alternative and its
+zero-based child. The root is `[]`, displayed as `@root`. `@0:1/2:0` follows
+child 1 of alternative 0, then child 0 of alternative 2.
+
+View paths are graph-view locations, not persistent state identities. They
+include alternative indexes and differ from the child-only paths in guards
+and equality constraints. `map snd` gives the child-only route for one
+occurrence; the finite view does not list every route through a shared graph.
+`toTree` builds these paths on demand. Normal generation does not build them.
+This view does not enumerate terms or call a solver.
 
 ## Cycles and pruning
 

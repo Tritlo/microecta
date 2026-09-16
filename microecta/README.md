@@ -160,14 +160,19 @@ graph = ECTA.createMu $ \self ->
 
 -- | Use application-specific names for the original nodes.
 renderNode :: ECTA.StateView (ECTA.Node String) -> String
-renderNode view = case fmap name view of
-    ECTA.Expanded label -> label
-    ECTA.Recursive label -> "mu " <> label
-    ECTA.Shared label -> "ref " <> label
+renderNode view = case fmap (\node -> name node <> " @" <> renderViewPath (ECTA.viewPath view)) view of
+    ECTA.Expanded _ label -> label
+    ECTA.Recursive _ label -> "mu " <> label
+    ECTA.Shared _ label -> "ref " <> label
   where
     name node
         | node == leaf = "literal"
         | otherwise = "expression"
+
+-- | Identify the alternative and child at each step from the view root.
+renderViewPath :: ECTA.ViewPath -> String
+renderViewPath [] = "root"
+renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep equality paths while omitting empty constraints.
 renderEdge :: ECTA.Edge String -> String
@@ -192,25 +197,39 @@ main = do
 This program prints:
 
 ```text
-expression
+expression @root
 |
 +- Pair [0 = 1]
 |  |
-|  +- literal
+|  +- literal @0:0
 |  |  |
 |  |  `- Int
 |  |
-|  `- ref literal
+|  `- ref literal @0:1
 |
 `- Again
    |
-   `- mu expression
+   `- mu expression @1:0
 ```
 
 `Expanded`, `Recursive`, and `Shared` identify node definitions and references.
 The example chooses the names `expression` and `literal`, and prints equality
 paths instead of their internal trie representation. The renderer preserves
 contradictions as `[false]` and omits only empty equality constraints.
+
+`viewNode` retains the original node. `viewPath :: ViewPath` locates each
+occurrence, including recursive and shared references. `ViewPath` is
+`[(Int, Int)]`; each pair selects a zero-based edge alternative and then its
+zero-based child. The root is `[]`, displayed as `@root`. For example,
+`@0:1/2:0` follows child 1 of alternative 0, then child 0 of alternative 2.
+References have their own occurrence paths and retain the node of their
+definition.
+
+These paths locate occurrences in one graph view. They are not persistent
+node identities or the child-only `Path` used by equality constraints.
+`map snd` extracts the child-only route for one occurrence. The finite view
+does not list every route through a shared or recursive graph. Paths are built
+only when `toTree` is requested; normal generation does not build them.
 
 The view traverses the interned graph directly. Unlike `toFTA`, it does not
 require a ranked alphabet. An open recursive variable returns `Left OpenECTA`.
@@ -220,8 +239,8 @@ component's `build-depends` when you import `Data.Tree` directly.
 For the actual typed-expression generator, see
 [`DrawTypedExpressions.hs`](../microecta-generator/examples/DrawTypedExpressions.hs).
 Run `cabal run ecta-draw-typed-expressions` from the workspace root. It draws
-finite and recursive supports with local state names and readable equality
-paths. It shortens the private `$ecta-gen/` prefix to `gen:`. Source indices and
+finite and recursive supports with local state names, occurrence locations,
+and readable equality paths. It shortens the private `$ecta-gen/` prefix to `gen:`. Source indices and
 key IDs remain opaque: the support graph does not retain their decoded Haskell
 values or type names.
 

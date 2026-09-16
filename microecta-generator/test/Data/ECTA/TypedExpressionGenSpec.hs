@@ -1,8 +1,9 @@
 module Data.ECTA.TypedExpressionGenSpec (spec) where
 
-import Data.Either (rights)
+import Data.Either (lefts, rights)
 import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.String (fromString)
 import qualified Data.Tree as Tree
@@ -154,8 +155,15 @@ spec =
                     case ECTA.toTree node of
                         Left err -> expectationFailure $ show err
                         Right tree -> do
-                            Tree.rootLabel tree `shouldBe` Left (ECTA.Expanded node)
+                            Tree.rootLabel tree `shouldBe` Left (ECTA.Expanded [] node)
                             length (rights $ Tree.flatten tree) `shouldBe` ECTA.edgeCount node
+                            let views = lefts $ Tree.flatten tree
+                                follow current [] = Just current
+                                follow current ((alternative, child) : rest) = do
+                                    edge <- listToMaybe $ drop alternative $ nodeEdges current
+                                    next <- listToMaybe $ drop child $ edgeChildren edge
+                                    follow next rest
+                            map (follow node . ECTA.viewPath) views `shouldBe` map (Just . ECTA.viewNode) views
                 Left err -> expectationFailure $ show err
 
         it "keeps the domain labels that close grouped do-blocks" $

@@ -240,15 +240,23 @@ transition, including its symbol, children, and annotation. Use `fmap` to choose
 the strings for `drawTree`. For the recursive `naturals` grammar above:
 
 ```haskell
+import Data.List (intercalate)
 import Data.Tree (drawTree)
 import qualified Data.Tree.FTA as FTA
 
--- | Choose state names and mark recursive and shared references.
+-- | Show state names, reference markers, and occurrence locations.
 renderNode :: FTA.StateView Int -> String
-renderNode view = case fmap (("q" ++) . show) view of
-    FTA.Expanded name -> name
-    FTA.Recursive name -> "mu " ++ name
-    FTA.Shared name -> "ref " ++ name
+renderNode view = prefix ++ "q" ++ show (FTA.viewNode view) ++ " @" ++ renderPath (FTA.viewPath view)
+  where
+    prefix = case view of
+        FTA.Expanded{} -> ""
+        FTA.Recursive{} -> "mu "
+        FTA.Shared{} -> "ref "
+
+-- | Render zero-based alternative and child indexes from the root.
+renderPath :: FTA.ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | (alternative, child) <- steps]
 
 -- | Draw the natural-number grammar with plain constructor labels.
 drawNaturals :: IO ()
@@ -258,20 +266,33 @@ drawNaturals = do
 ```
 
 ```text
-q0
+q0 @root
 |
 +- zero
 |
 `- successor
    |
-   `- mu q0
+   `- mu q0 @1:0
 ```
 
-Each expanded state contains its transition alternatives. `Recursive state`
-refers to a state on the current path. `Shared state` refers to a state expanded
-earlier. Each state is expanded once. The example displays these references as
+Each expanded state contains its transition alternatives. `Recursive` refers
+to a state on the current path. `Shared` refers to a state expanded earlier.
+Each state is expanded once. The example displays these references as
 `mu` and `ref`, and omits the plain grammar's `()` annotation. These display
 choices belong to the caller; `toTree` retains the original labels.
+
+`viewNode` contains the original state. `viewPath :: ViewPath` locates this
+occurrence in the finite graph view. `ViewPath` is `[(Int, Int)]`; each pair
+selects a zero-based transition alternative and then its zero-based child.
+The root is `[]`, displayed as `@root`. For example, `@0:1/2:0` follows child 1
+of alternative 0, then child 0 of alternative 2. Recursive and shared references
+have their own occurrence paths but retain the state of their definition.
+
+This is a graph-view location, not a persistent state identity or a child-only
+equality path. `map snd` extracts the child-only route for one occurrence. The
+finite view does not list every route through a shared or recursive graph.
+Paths are built when `toTree` is requested; normal generation does not build
+them.
 
 `Common.toTree` provides the same view for interned graphs. Its state labels
 contain `Common.Node symbol constraint`; its transition labels contain

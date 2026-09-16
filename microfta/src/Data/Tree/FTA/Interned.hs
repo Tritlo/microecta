@@ -12,6 +12,7 @@ module Data.Tree.FTA.Interned (
     FTAImportError (..),
     toFTA,
     fromFTA,
+    ViewPath,
     StateView (..),
     toTree,
     module Data.Tree.FTA.Constraint,
@@ -26,7 +27,7 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.Tree.FTA (StateView (..))
+import Data.Tree.FTA (StateView (..), ViewPath)
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Constraint
 import Data.Tree.FTA.Internal.Tree (toTreeBy)

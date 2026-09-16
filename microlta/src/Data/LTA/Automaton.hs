@@ -16,6 +16,7 @@ module Data.LTA.Automaton (
     transitionLiquidSymbol,
     replaceTransitionChildren,
     Automaton,
+    ViewPath,
     StateView (..),
     toTree,
     EqualityAutomaton,
@@ -44,7 +45,7 @@ import Data.Tree (Tree)
 
 import Data.ECTA.Paths (EqConstraints, Path, unPath)
 import Data.ECTA.Term (Symbol)
-import Data.Tree.FTA (StateView (..))
+import Data.Tree.FTA (StateView (..), ViewPath)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Interned as Interned
 

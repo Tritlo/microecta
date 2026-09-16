@@ -34,6 +34,7 @@ module Data.Tree.FTA (
     intersect,
     intersectWith,
     accepts,
+    ViewPath,
     StateView (..),
     toTree,
 ) where
@@ -47,7 +48,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.Tree.FTA.Internal.Tree (StateView (..), toTreeBy)
+import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, toTreeBy)
 import Data.Tree.Term (Term (Term))
 
 -- | One ranked transition from a parent state to child states.
@@ -96,6 +97,7 @@ data FTAError state symbol
 
 'Left' labels contain state definitions or references. 'Right' labels contain
 the original transitions, including symbols, child states, and annotations.
+Each node label also retains its 'viewPath' from the root of this view.
 Use @fmap (either renderState renderTransition)@ to prepare a tree for
 'Tree.drawTree'. Each state is expanded once, so sharing and recursion keep
 the view finite. This operation does not enumerate terms or interpret guards.

@@ -25,6 +25,7 @@ main :: IO ()
 main = do
     putStrLn "Private $ecta-gen/ labels use gen:. Source indices and key IDs remain opaque."
     putStrLn "State names q0, q1, ... are local to each drawing."
+    putStrLn "Locations use @alternative:child/..., with @root for the initial state."
     drawSupport "Exact depth 1: both result types" $ expressionGenAtDepth 1
     drawSupport "Exact depth 1: TInt" $ Gen.atKey TInt $ depthByType 1
     drawSupport "Recursive: TInt" $ Gen.atKey TInt recursiveExpressions
@@ -43,11 +44,19 @@ renderTree ::
     Tree String
 renderTree tree = fmap (either renderState renderTransition) tree
   where
-    names = Map.fromList $ zip [state | Left (FTA.Expanded state) <- flatten tree] [0 :: Int ..]
+    names = Map.fromList $ zip [state | Left (FTA.Expanded _ state) <- flatten tree] [0 :: Int ..]
     name state = "q" <> show (names Map.! state)
-    renderState (FTA.Expanded state) = name state
-    renderState (FTA.Recursive state) = "mu " <> name state
-    renderState (FTA.Shared state) = "ref " <> name state
+    renderState view = case fmap label view of
+        FTA.Expanded _ rendered -> rendered
+        FTA.Recursive _ rendered -> "mu " <> rendered
+        FTA.Shared _ rendered -> "ref " <> rendered
+      where
+        label state = name state <> " @" <> renderViewPath (FTA.viewPath view)
+
+-- | Print the location of this occurrence in the finite graph view.
+renderViewPath :: FTA.ViewPath -> String
+renderViewPath [] = "root"
+renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep the symbol and print equalities with child paths instead of trie internals.
 renderTransition :: ECTA.Edge Symbol -> String

@@ -128,6 +128,7 @@ module Data.ECTA (
 
     -- * Visualization
     ECTAFTAError (..),
+    ViewPath,
     StateView (..),
     toTree,
 
@@ -171,7 +172,7 @@ module Data.ECTA (
     noExpansionPreference,
 ) where
 
-import Data.ECTA.FTA (ECTAFTAError (..), StateView (..), toTree)
+import Data.ECTA.FTA (ECTAFTAError (..), StateView (..), ViewPath, toTree)
 import Data.ECTA.Internal.ECTA.Enumeration
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type

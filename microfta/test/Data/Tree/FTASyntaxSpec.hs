@@ -39,12 +39,12 @@ spec = do
                         `shouldBe` True
                     Automaton.toTree automaton
                         `shouldBe` Tree.Node
-                            (Left $ Automaton.Expanded Expression)
+                            (Left $ Automaton.Expanded [] Expression)
                             [ Tree.Node (Right $ Automaton.Transition "zero" [] ()) []
                             , Tree.Node
                                 (Right $ Automaton.Transition "add" [Expression, Expression] ())
-                                [ Tree.Node (Left $ Automaton.Recursive Expression) []
-                                , Tree.Node (Left $ Automaton.Recursive Expression) []
+                                [ Tree.Node (Left $ Automaton.Recursive [(1, 0)] Expression) []
+                                , Tree.Node (Left $ Automaton.Recursive [(1, 1)] Expression) []
                                 ]
                             ]
                     let functionLabels = Tree.flatten $ Automaton.toTree $ Automaton.mapGuards (const not) automaton
@@ -151,11 +151,11 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right graph -> do
                     Tree.flatten (Automaton.toTree graph)
-                        `shouldBe` [ Left $ Automaton.Expanded 0
+                        `shouldBe` [ Left $ Automaton.Expanded [] 0
                                    , Right $ Automaton.Transition "pair" [1, 1] ()
-                                   , Left $ Automaton.Expanded 1
+                                   , Left $ Automaton.Expanded [(0, 0)] 1
                                    , Right $ Automaton.Transition "leaf" [] ()
-                                   , Left $ Automaton.Shared 1
+                                   , Left $ Automaton.Shared [(0, 1)] 1
                                    , Right $ Automaton.Transition "leaf" [] ()
                                    ]
                     case Common.fromFTA graph of

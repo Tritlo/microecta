@@ -6,6 +6,7 @@ does not solve or discard them.
 module Data.ECTA.FTA (
     ECTAState,
     ECTAFTAError (..),
+    ViewPath,
     StateView (..),
     toFTA,
     toTree,
@@ -19,7 +20,7 @@ import Data.Hashable (Hashable)
 
 import Data.ECTA.Internal.ECTA.Type (Edge (ECTAEdge), Node, fromInterned, toInterned)
 import Data.ECTA.Paths (EqConstraints)
-import Data.Tree.FTA (StateView (..))
+import Data.Tree.FTA (StateView (..), ViewPath)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Interned as Common
 
