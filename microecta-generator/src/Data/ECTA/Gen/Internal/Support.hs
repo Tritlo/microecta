@@ -112,8 +112,7 @@ keyNode index = Node [Edge (keySymbol index) []]
 
 -- | The ECTA node accepting exactly one term.
 singletonNode :: (Hashable symbol, Typeable symbol) => Tree.Tree symbol -> Node symbol
-singletonNode (Tree.Node symbol children) =
-    Node [Edge symbol $ map singletonNode children]
+singletonNode = Tree.foldTree $ \symbol children -> Node [Edge symbol children]
 
 {- | One joined edge: the operation group, one group per argument, and one
 equality constraint per argument tying each argument to the operation's key

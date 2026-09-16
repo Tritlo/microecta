@@ -126,7 +126,7 @@ decodeLabelledTerm datatype = datatypeDecode datatype <=< restore
             , transition <- transitions
             , let constructor = FTA.transitionSymbol transition
             ]
-    restore (Tree.Node label children) = Tree.Node <$> Map.lookup label constructors <*> traverse restore children
+    restore = traverse (`Map.lookup` constructors)
 
 -- | Finite literal alternatives for primitive field types.
 newtype Domains = Domains (Map.Map TypeRep [Constructor])

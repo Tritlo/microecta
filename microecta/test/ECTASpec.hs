@@ -2082,8 +2082,7 @@ applied functionSymbol argumentSymbol =
 
 -- | Lift a concrete term into the alphabet used by partial enumeration.
 partialTerm :: Tree.Tree symbol -> Tree.Tree (PartialSymbol symbol)
-partialTerm (Tree.Node symbol children) =
-    Tree.Node (ConcreteSymbol symbol) (map partialTerm children)
+partialTerm = fmap ConcreteSymbol
 
 {- | A node with two independent holes, one per equality class.
 

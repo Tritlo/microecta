@@ -171,11 +171,11 @@ compileSymbolicAutomaton buildValue support automaton = do
     interpret constraint = case constraintTerms constraint of
         Right terms -> terms
         Left _ -> error "compileSymbolicAutomaton: unsupported guard after validation"
-    foldTerm alphabet build (Tree.Node identifier childTerms) =
+    foldTerm alphabet build = Tree.foldTree $ \identifier childValues ->
         let LiquidSymbol symbol refinement = alphabet IntMap.! identifier
-         in build symbol refinement $ map (foldTerm alphabet build) childTerms
+         in build symbol refinement childValues
     nodeCount :: Tree.Tree Int -> Integer
-    nodeCount (Tree.Node _ childTerms) = 1 + sum (map nodeCount childTerms)
+    nodeCount = Tree.foldTree $ \_ counts -> 1 + sum counts
 
 -- | Give symbolic ranks a textual alphabet order independent of interning order.
 symbolicGraph :: Automaton -> Either GeneratorError (Interned.Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)

@@ -78,12 +78,12 @@ toECTA automaton = do
 
 -- | Decode one term enumerated from an 'EqualityView'.
 decodeTerm :: EqualityView -> Tree.Tree Int -> Either EqualityViewError LiquidTerm
-decodeTerm EqualityView{equalityAlphabet} = go
+decodeTerm EqualityView{equalityAlphabet} = Tree.foldTree decode
   where
-    go (Tree.Node identifier children) = do
+    decode identifier children = do
         LiquidSymbol symbol refinement <-
             maybe
                 (Left $ UnknownEqualityLabel identifier)
                 Right
                 (IntMap.lookup identifier equalityAlphabet)
-        LiquidTerm symbol refinement <$> traverse go children
+        LiquidTerm symbol refinement <$> sequence children
