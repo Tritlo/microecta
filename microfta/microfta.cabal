@@ -92,6 +92,7 @@ test-suite unit-tests
   other-modules: Data.Tree.FTASyntaxSpec
   build-depends:
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microfta,

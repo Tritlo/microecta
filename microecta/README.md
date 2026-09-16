@@ -120,6 +120,55 @@ unaryF = TemplateNode "f" [Hole] :: Template Symbol
 anyF = TemplatePrefix "f" [] :: Template Symbol
 ```
 
+## Visualize the automaton
+
+`toTree` returns `Either (ECTAFTAError symbol) (Tree String)`. Use `drawTree`
+from `containers` to print the reachable graph:
+
+```haskell
+import Data.ECTA
+import Data.ECTA.Paths (mkEqConstraints, path)
+import Data.Tree (drawTree)
+
+graph :: Node String
+graph = createMu $ \self ->
+    Node
+        [ mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
+        , Edge "Again" [self]
+        ]
+  where
+    leaf = Node [Edge "Int" []]
+
+main :: IO ()
+main = case toTree graph of
+    Left err -> print err
+    Right tree -> putStrLn (drawTree tree)
+```
+
+This program prints:
+
+```text
+state InternedState 3
+|
++- "Pair" [EqConstraints [PathEClass' {getPathTrie = PathTrie [(0,TerminalPathTrie),(1,TerminalPathTrie)], getOrigPaths = [Path [0],Path [1]]}]]
+|  |
+|  +- state InternedState 0
+|  |  |
+|  |  `- "Int" [EqConstraints []]
+|  |
+|  `- ref InternedState 0
+|
+`- "Again" [EqConstraints []]
+   |
+   `- mu InternedState 3
+```
+
+The labels use `Show` and retain equality constraints. A cycle ends with
+`mu <state>`; another reference to an expanded shared state ends with
+`ref <state>`. Numeric state identities can differ if other graphs were built
+first. Open recursive variables return `Left OpenECTA`. This view does not
+enumerate terms or solve constraints.
+
 ## Pruning API
 
 `getAllTermsPrune` lets a caller drop branches of the enumeration before they
