@@ -48,6 +48,7 @@ import qualified Data.Tree.FTA.Syntax as Syntax
 | Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
 | Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
 | Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. `fromFTA` requires an acyclic input. |
+| Visualize a grammar | `FTA.toTree`, `Common.toTree` | A finite `Data.Tree.Tree String` for `drawTree`. Interned conversion can report an invalid root. |
 
 `FTA` and `Common` are two representations in this package. `FTA` retains
 explicit state names. `Common` uses interned nodes and edges to share structure.
@@ -222,6 +223,40 @@ Cycles are valid. `PlainFTA` uses `()` for transition annotations.
 input annotations. Apply `stripGuards` to the result of two plain FTAs before
 calling `accepts`. Use `intersectWith` when you need a different annotation
 combination. `stripGuards` removes annotations; it does not solve constraints.
+
+## Visualize a grammar
+
+`FTA.toTree` returns a `Data.Tree.Tree String`. Use `drawTree` to display it.
+The recursive `naturals` grammar above produces a finite diagram:
+
+```haskell
+import Data.Tree (drawTree)
+import qualified Data.Tree.FTA as FTA
+
+drawNaturals :: IO ()
+drawNaturals = either (fail . show) (putStr . drawTree . FTA.toTree) naturals
+```
+
+```text
+state 0
+|
++- "zero" [()]
+|
+`- "successor" [()]
+   |
+   `- mu 0
+```
+
+Each state contains its transition alternatives. Transition labels show the
+symbol and annotation; `()` is the ordinary unconstrained annotation. A `mu`
+leaf refers to a state on the current path. A `ref` leaf refers to a state
+expanded earlier. Each state is expanded once. The view contains only states
+reachable from the initial state. It does not enumerate the accepted values.
+
+`Common.toTree` provides the same view for interned graphs. It returns
+`Either (FTAViewError symbol) (Tree String)`, because an interned root can have
+an open recursive variable or an invalid ranked alphabet. Add `containers` to
+your component's `build-depends` when you import `Data.Tree` directly.
 
 ## Generate a language up to a depth bound
 
