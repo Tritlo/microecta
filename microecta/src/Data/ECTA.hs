@@ -126,6 +126,10 @@ module Data.ECTA (
     dropEdgeConstraints,
     dropConstraints,
 
+    -- * Visualization
+    ECTAFTAError (..),
+    toTree,
+
     -- * Concrete membership
     nodeRepresents,
     edgeRepresents,
@@ -166,6 +170,7 @@ module Data.ECTA (
     noExpansionPreference,
 ) where
 
+import Data.ECTA.FTA (ECTAFTAError (..), toTree)
 import Data.ECTA.Internal.ECTA.Enumeration
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
