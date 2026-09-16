@@ -62,13 +62,14 @@ import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
 import Data.List (inits, tails)
 import Data.Maybe (mapMaybe)
+import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
-import Data.ECTA.Internal.Term
+import Data.ECTA.Internal.Term (Symbol)
 import qualified Data.Tree.FTA.Interned.Operations as Common
 
 import Data.Interned.Extended.HashTableBased (Id)
@@ -119,7 +120,7 @@ must.
 'unsafeGetEclasses' is safe here: 'mkEdge' collapses a contradictory
 constraint set to 'emptyEdge', so no interned edge carries 'EqContradiction'.
 -}
-equalitiesSatisfied :: (Eq symbol) => EqConstraints -> Term symbol -> Bool
+equalitiesSatisfied :: (Eq symbol) => EqConstraints -> Tree.Tree symbol -> Bool
 equalitiesSatisfied equalities t = all eclassSatisfied (unsafeGetEclasses equalities)
   where
     eclassSatisfied :: PathEClass -> Bool
@@ -450,9 +451,9 @@ getSubnodeById :: forall symbol. Node symbol -> Id -> Maybe (Node symbol)
 getSubnodeById = coerce (Common.getSubnodeById @symbol @EqConstraints)
 
 -- | Recognize through the common traversal and the equality interpreter.
-nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Term symbol -> Bool
+nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Tree.Tree symbol -> Bool
 nodeRepresents node = Common.nodeRepresentsWith equalitiesSatisfied (toInterned node)
 
 -- | Recognize one edge through the common traversal.
-edgeRepresents :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Term symbol -> Bool
+edgeRepresents :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Tree.Tree symbol -> Bool
 edgeRepresents = coerce (Common.edgeRepresentsWith @symbol @EqConstraints equalitiesSatisfied)

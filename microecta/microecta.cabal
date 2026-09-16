@@ -4,7 +4,7 @@ version: 0.2.0.0
 synopsis: Small equality-constrained tree automata core
 description:
   Equality-constrained tree automata, enumeration, and ECTA-to-FTA views
-  over the shared ordinary tree types from microfta.
+  over Data.Tree trees and the shared automaton engine from microfta.
 
 homepage: https://github.com/Tritlo/microecta/tree/main/microecta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues

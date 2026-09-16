@@ -78,6 +78,7 @@ module Data.ECTA.Gen (
 import qualified Data.Array as Array
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
@@ -106,7 +107,7 @@ import Data.ECTA.Gen.Internal.Size (
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 
 {- | A transparent generator whose values are classified by a projected key.
 
@@ -440,7 +441,7 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
+fromECTA :: Node Symbol -> ECTAGen gen (Tree.Tree Symbol)
 fromECTA node =
     Cyclic $ do
         index <- automatonIndex node

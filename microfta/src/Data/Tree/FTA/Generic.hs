@@ -43,13 +43,13 @@ import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (Proxy))
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Tree as Tree
 import Data.Typeable (TypeRep, Typeable, splitTyConApp, tyConModule, tyConName, tyConPackage, typeRep)
 import GHC.Generics hiding (Constructor)
 import qualified GHC.Generics as Generic
 import Text.Read (readMaybe)
 
 import qualified Data.Tree.FTA as FTA
-import Data.Tree.Term (Term (Term))
 
 -- | One constructor field, including its zero-based child position.
 data Field = Field
@@ -100,9 +100,9 @@ constructorLabel constructor = encodeName (typeLabel $ constructorType construct
 data TypedFTA guard a = TypedFTA
     { datatypeFTA :: !(FTA.FTA TypeRep Constructor guard)
     -- ^ The finite grammar, including any caller-supplied annotations.
-    , datatypeEncode :: a -> Term Constructor
+    , datatypeEncode :: a -> Tree.Tree Constructor
     -- ^ Encode a value. The codec does not restrict the configured domains.
-    , datatypeDecode :: Term Constructor -> Maybe a
+    , datatypeDecode :: Tree.Tree Constructor -> Maybe a
     -- ^ Decode a value. The codec does not interpret transition annotations.
     }
 
@@ -116,7 +116,7 @@ annotateDatatype annotate datatype =
 Constraint layers can use their own interned string alphabet. The lookup table
 is shared by all calls through one partially applied decoder.
 -}
-decodeLabelledTerm :: TypedFTA guard a -> Term String -> Maybe a
+decodeLabelledTerm :: TypedFTA guard a -> Tree.Tree String -> Maybe a
 decodeLabelledTerm datatype = datatypeDecode datatype <=< restore
   where
     constructors =
@@ -126,7 +126,7 @@ decodeLabelledTerm datatype = datatypeDecode datatype <=< restore
             , transition <- transitions
             , let constructor = FTA.transitionSymbol transition
             ]
-    restore (Term label children) = Term <$> Map.lookup label constructors <*> traverse restore children
+    restore = traverse (`Map.lookup` constructors)
 
 -- | Finite literal alternatives for primitive field types.
 newtype Domains = Domains (Map.Map TypeRep [Constructor])
@@ -185,13 +185,13 @@ class (Typeable a) => HasFTA a where
     describeType proxy = Algebraic (typeRep proxy) $ gConstructors (typeRep proxy) (Proxy @(Rep a))
 
     -- | Encode a datatype value as a constructor term.
-    encodeTerm :: a -> Term Constructor
-    default encodeTerm :: (Generic a, GConstructors (Rep a)) => a -> Term Constructor
+    encodeTerm :: a -> Tree.Tree Constructor
+    default encodeTerm :: (Generic a, GConstructors (Rep a)) => a -> Tree.Tree Constructor
     encodeTerm = gEncode (typeRep $ Proxy @a) . from
 
     -- | Decode a constructor term. Reject wrong types, labels, and arities.
-    decodeTerm :: Term Constructor -> Maybe a
-    default decodeTerm :: (Generic a, GConstructors (Rep a)) => Term Constructor -> Maybe a
+    decodeTerm :: Tree.Tree Constructor -> Maybe a
+    default decodeTerm :: (Generic a, GConstructors (Rep a)) => Tree.Tree Constructor -> Maybe a
     decodeTerm = fmap to . gDecode (typeRep $ Proxy @a)
 
 -- | Derive a grammar whose fields need no explicit atomic domains.
@@ -236,8 +236,8 @@ descriptionType (Algebraic typ _) = typ
 -- | Generic sums retain constructor alternatives and their codecs.
 class GConstructors (f :: Type -> Type) where
     gConstructors :: TypeRep -> Proxy f -> [(Constructor, [Description])]
-    gEncode :: TypeRep -> f p -> Term Constructor
-    gDecode :: TypeRep -> Term Constructor -> Maybe (f p)
+    gEncode :: TypeRep -> f p -> Tree.Tree Constructor
+    gDecode :: TypeRep -> Tree.Tree Constructor -> Maybe (f p)
 
 instance (GConstructors f) => GConstructors (M1 D metadata f) where
     gConstructors typ _ = gConstructors typ (Proxy @f)
@@ -252,8 +252,8 @@ instance (GConstructors left, GConstructors right) => GConstructors (left :+: ri
 
 instance (Generic.Constructor metadata, GFields fields) => GConstructors (M1 C metadata fields) where
     gConstructors typ _ = [(genericConstructor @metadata @fields typ, map snd $ gFields $ Proxy @fields)]
-    gEncode typ (M1 fields) = Term (genericConstructor @metadata @fields typ) (gEncodeFields fields)
-    gDecode typ (Term constructor children)
+    gEncode typ (M1 fields) = Tree.Node (genericConstructor @metadata @fields typ) (gEncodeFields fields)
+    gDecode typ (Tree.Node constructor children)
         | constructor == genericConstructor @metadata @fields typ = do
             (fields, rest) <- gDecodeFields children
             if null rest then Just $ M1 fields else Nothing
@@ -274,8 +274,8 @@ genericConstructor typ =
 -- | Generic products retain field order and consume one term per field.
 class GFields (f :: Type -> Type) where
     gFields :: Proxy f -> [(Maybe String, Description)]
-    gEncodeFields :: f p -> [Term Constructor]
-    gDecodeFields :: [Term Constructor] -> Maybe (f p, [Term Constructor])
+    gEncodeFields :: f p -> [Tree.Tree Constructor]
+    gDecodeFields :: [Tree.Tree Constructor] -> Maybe (f p, [Tree.Tree Constructor])
 
 instance GFields U1 where
     gFields _ = []
@@ -308,12 +308,12 @@ instance (GFields left, GFields right) => GFields (left :*: right) where
         pure (left :*: right, rest)
 
 -- | Encode one atomic value. Atomic constructor labels contain its literal.
-encodeAtomic :: forall a. (Typeable a, Show a) => a -> Term Constructor
-encodeAtomic value = Term (Constructor (typeRep $ Proxy @a) (show value) []) []
+encodeAtomic :: forall a. (Typeable a, Show a) => a -> Tree.Tree Constructor
+encodeAtomic value = Tree.Node (Constructor (typeRep $ Proxy @a) (show value) []) []
 
 -- | Decode a literal only when its type and nullary shape match.
-decodeAtomic :: forall a. (Typeable a, Read a) => Term Constructor -> Maybe a
-decodeAtomic (Term (Constructor typ literal []) [])
+decodeAtomic :: forall a. (Typeable a, Read a) => Tree.Tree Constructor -> Maybe a
+decodeAtomic (Tree.Node (Constructor typ literal []) [])
     | typ == typeRep (Proxy @a) = readMaybe literal
 decodeAtomic _ = Nothing
 

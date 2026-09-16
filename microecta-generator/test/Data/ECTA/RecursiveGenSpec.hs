@@ -8,6 +8,7 @@ import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
@@ -28,7 +29,7 @@ import Data.ECTA (
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
@@ -365,5 +366,5 @@ spec = do
                 `shouldBe` Left CannotCountConstrainedEdges
 
 -- | The head symbol of a term, as a coverage key.
-termSymbol :: Term Symbol -> String
+termSymbol :: Tree.Tree Symbol -> String
 termSymbol = show
