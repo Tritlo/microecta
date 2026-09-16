@@ -8,6 +8,7 @@ one size class at a time, and an opaque one with
 module Data.ECTA.Gen.Internal.Inspect (
     -- * Structure
     support,
+    inspect,
     cardinality,
     countAtSize,
     minimumSize,
@@ -54,6 +55,17 @@ support :: ECTAGen gen a -> Either ECTAGenError (Node Symbol)
 support (Transparent result) = staticSupport <$> result
 support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator
+
+{- | Read retained source descriptions and group names as a diagnostic graph.
+
+The graph preserves construction context and equality obligations. It does
+not reduce constraints or enumerate complete generated values. Use 'support'
+for semantic operations. An unnamed source retains its original symbols.
+-}
+inspect :: ECTAGen gen a -> Either ECTAGenError Inspection
+inspect (Transparent result) = staticInspection <$> result
+inspect (Cyclic result) = recursiveInspection <$> result
+inspect (Opaque _) = Left CannotInspectOpaqueGenerator
 
 {- | Return the exact number of ranks in a transparent generator.
 

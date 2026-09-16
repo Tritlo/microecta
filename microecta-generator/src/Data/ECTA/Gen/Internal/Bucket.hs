@@ -19,6 +19,7 @@ import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (singletonNode)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
@@ -50,6 +51,7 @@ bucketFromOutcomes retainAtomic outcomes = do
                 (PlanSelect totalOutcomes selectValue)
             )
             retainAtomic
+            (Inspection Nothing $ Node [inspectionEdge $ outcomeInspection outcome | outcome <- outcomes])
   where
     bucketMass = sum $ map outcomeMass outcomes
     conditional =
@@ -61,6 +63,7 @@ bucketFromOutcomes retainAtomic outcomes = do
     uniformMass = commonValue $ Just . outcomeMass <$> toList conditional
     bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- outcomes]
     termEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
+    inspectionEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
 
     select index = do
         checkIndex totalOutcomes index

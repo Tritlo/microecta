@@ -17,6 +17,7 @@ module Data.ECTA.Gen (
     Indexed (..),
     fromIndexed,
     elements,
+    namedElements,
     fromECTA,
     fromFTAUpToDepth,
     fromDatatypeUpToDepth,
@@ -41,6 +42,7 @@ module Data.ECTA.Gen (
     groupBy,
     regroupBy,
     mapWithKey,
+    nameGroups,
     atKey,
     apply,
     frequencies,
@@ -60,6 +62,9 @@ module Data.ECTA.Gen (
     isOpaque,
 
     -- * Inspection
+    Inspection (..),
+    InspectionSymbol (..),
+    inspect,
     support,
     cardinality,
     sizes,
@@ -94,7 +99,9 @@ import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.ECTA.Gen.Internal.Grouped
 import Data.ECTA.Gen.Internal.Inspect
+import Data.ECTA.Gen.Internal.Inspection (choiceInspection, plainInspection)
 import Data.ECTA.Gen.Internal.Recursion
+import Data.ECTA.Gen.Internal.Static (indexedStaticWithLabels)
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.ECTA.Paths (EqConstraints)
@@ -150,7 +157,7 @@ fromECTA :: Node Symbol -> ECTAGen gen (Tree.Tree Symbol)
 fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
-        pure $ Recursive supportNode index (uniformSampleIndex index) False False $ Just id
+        pure $ Recursive supportNode index (uniformSampleIndex index) False False (Just id) (plainInspection supportNode)
 
 {- | Compile an annotated FTA up to a constructor-depth bound.
 
@@ -194,6 +201,26 @@ elements values =
     total = length values
     indexed = Array.listArray (0, total - 1) values
 
+{- | Choose uniformly from named source values.
+
+Names are retained for inspection and may describe functions. They do not
+change the support symbols, rank order, weights, or values. Mapping a source
+preserves its source names; it does not claim to name the mapped results.
+-}
+namedElements :: [(Text.Text, a)] -> ECTAGen gen a
+namedElements values
+    | total <= 0 = Transparent $ Left EmptyGenerator
+    | otherwise =
+        Transparent
+            $ Right
+            $ indexedStaticWithLabels
+                (Just . fst . entry)
+                (Indexed (toInteger total) (snd . entry))
+  where
+    total = length values
+    indexed = Array.listArray (0, total - 1) values
+    entry index = indexed Array.! fromInteger index
+
 -- | Choose one generator with the supplied positive relative weight.
 frequency ::
     (GenBackend gen) =>
@@ -227,6 +254,7 @@ frequency alternatives
                             (any recursiveWeighted views)
                             (any recursiveOccurrence views)
                             Nothing
+                            (choiceInspection $ map recursiveInspection views)
                 else Left WeightedRecursiveAlternatives
     | otherwise =
         Opaque $

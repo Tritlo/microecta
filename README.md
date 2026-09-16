@@ -24,7 +24,8 @@ flowchart BT
   lg --> eg
 ```
 
-`microfta` owns `Data.Tree.Term`, the shared `Data.Tree.FTA.Interned` engine,
+Concrete terms use `Data.Tree.Tree` from `containers`.
+`microfta` owns the shared `Data.Tree.FTA.Interned` engine,
 and the named-state `Data.Tree.FTA` graph. The interned engine has the types
 `Node symbol constraint` and `Edge symbol constraint`. Ordinary automata use
 `()`, ECTAs use `EqConstraints`, and LTAs can use `LiquidConstraint`.
@@ -184,8 +185,9 @@ source archives of its workspace dependencies. Publish `microfta` first,
 then `microfta-generator` and `microecta`, then `microecta-generator` and
 `microlta`, and finally `microlta-generator`.
 
-Code that imports `Data.Tree.FTA`, `Data.Tree.FTA.Interned`, or `Data.Tree.Term`
+Code that imports `Data.Tree.FTA` or `Data.Tree.FTA.Interned`
 must declare `microfta`.
+Code that imports `Data.Tree` directly must declare `containers`.
 Code that imports `Data.Tree.Gen` or `Data.Tree.FTA.Gen` must declare
 `microfta-generator`. The `Data.Tree.Gen.Internal.*` modules live in that
 package's public `internal` sublibrary; depend on

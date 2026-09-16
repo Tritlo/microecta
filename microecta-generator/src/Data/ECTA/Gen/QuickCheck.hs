@@ -53,6 +53,7 @@ module Data.ECTA.Gen.QuickCheck (
     Indexed (..),
     fromIndexed,
     elements,
+    namedElements,
     pool,
     freeze,
     fromECTA,
@@ -79,6 +80,7 @@ module Data.ECTA.Gen.QuickCheck (
     groupBy,
     regroupBy,
     mapWithKey,
+    nameGroups,
     atKey,
     apply,
     frequencies,
@@ -96,6 +98,9 @@ module Data.ECTA.Gen.QuickCheck (
     upToSize,
 
     -- * Inspection
+    Inspection (..),
+    InspectionSymbol (..),
+    inspect,
     support,
     cardinality,
     sizes,
@@ -129,6 +134,7 @@ module Data.ECTA.Gen.QuickCheck (
 import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
+import Data.Text (Text)
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
@@ -139,6 +145,8 @@ import Data.ECTA.Gen (
     Args (..),
     ECTAGenError (..),
     Indexed (..),
+    Inspection (..),
+    InspectionSymbol (..),
     NodeLayer,
     On (..),
     Sig (..),
@@ -248,6 +256,10 @@ fromIndexed = ECTA.fromIndexed
 elements :: [a] -> ECTAGen a
 elements = ECTA.elements
 
+-- | Choose named source values without changing their ranks or distribution.
+namedElements :: [(Text, a)] -> ECTAGen a
+namedElements = ECTA.namedElements
+
 {- | Sample a finite pool from an ordinary QuickCheck generator.
 
 The outer 'QC.Gen' draws the pool once. The resulting 'ECTAGen' is finite and
@@ -316,6 +328,10 @@ regroupBy = ECTA.regroupBy
 -- | Map group values with access to their retained key.
 mapWithKey :: (key -> a -> b) -> Grouped key a -> Grouped key b
 mapWithKey = ECTA.mapWithKey
+
+-- | Retain lazy display names for keys without inspecting group members.
+nameGroups :: (key -> Text) -> Grouped key a -> Grouped key a
+nameGroups = ECTA.nameGroups
 
 -- | Return the exact cardinality of each retained group.
 sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
@@ -391,6 +407,10 @@ relate = ECTA.relate
 -- | Return the ECTA support of an inspectable generator.
 support :: ECTAGen a -> Either ECTAGenError (Node Symbol)
 support = ECTA.support
+
+-- | Read source names and group names from the retained diagnostic graph.
+inspect :: ECTAGen a -> Either ECTAGenError Inspection
+inspect = ECTA.inspect
 
 -- | Return the exact number of ranks in a transparent generator.
 cardinality :: ECTAGen a -> Either ECTAGenError Integer

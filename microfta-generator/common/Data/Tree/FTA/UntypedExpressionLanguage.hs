@@ -20,11 +20,11 @@ module Data.Tree.FTA.UntypedExpressionLanguage (
     handwrittenExpressionGen,
 ) where
 
+import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
-import Data.Tree.Term (Term (Term))
 
 -- | Integer expressions with no explicit type annotation.
 data Expression
@@ -122,22 +122,22 @@ expressionAutomaton =
         Right automaton -> automaton
 
 -- | Generate a generic ranked term at one exact depth.
-genericTermAtDepth :: Int -> QC.Gen (Term String)
+genericTermAtDepth :: Int -> QC.Gen (Tree.Tree String)
 genericTermAtDepth depth
-    | depth <= 0 = QC.elements [Term "zero" [], Term "one" []]
+    | depth <= 0 = QC.elements [Tree.Node "zero" [], Tree.Node "one" []]
     | otherwise = do
         symbol <- QC.elements ["add", "multiply"]
         left <- genericTermAtDepth $ depth - 1
         right <- genericTermAtDepth $ depth - 1
-        pure $ Term symbol [left, right]
+        pure $ Tree.Node symbol [left, right]
 
 -- | Decode a recognized generic term into the example datatype.
-expressionFromTerm :: Term String -> Maybe Expression
-expressionFromTerm (Term "zero" []) = Just $ Literal 0
-expressionFromTerm (Term "one" []) = Just $ Literal 1
-expressionFromTerm (Term "add" [left, right]) =
+expressionFromTerm :: Tree.Tree String -> Maybe Expression
+expressionFromTerm (Tree.Node "zero" []) = Just $ Literal 0
+expressionFromTerm (Tree.Node "one" []) = Just $ Literal 1
+expressionFromTerm (Tree.Node "add" [left, right]) =
     Add <$> expressionFromTerm left <*> expressionFromTerm right
-expressionFromTerm (Term "multiply" [left, right]) =
+expressionFromTerm (Tree.Node "multiply" [left, right]) =
     Multiply <$> expressionFromTerm left <*> expressionFromTerm right
 expressionFromTerm _ = Nothing
 

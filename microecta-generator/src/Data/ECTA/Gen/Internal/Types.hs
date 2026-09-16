@@ -39,6 +39,7 @@ import qualified Data.Map.Strict as Map
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal
+import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal.Decoder (RankDecoder (..))
 import Data.Tree.Gen.Internal.Sampler
@@ -175,6 +176,7 @@ instance Functor (Grouped gen key) where
                     (recursiveWeighted recursive)
                     (recursiveOccurrence recursive)
                     Nothing
+                    (recursiveInspection recursive)
                 )
                 (keyedRecursiveMasses group)
                 (keyedRecursiveMassWeighted group)
@@ -193,6 +195,7 @@ instance (Functor gen) => Functor (ECTAGen gen) where
                 (recursiveWeighted recursive)
                 (recursiveOccurrence recursive)
                 Nothing
+                (recursiveInspection recursive)
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (GenBackend gen) => Applicative (ECTAGen gen) where
@@ -225,6 +228,11 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
                         (recursiveWeighted left || recursiveWeighted right)
                         (recursiveOccurrence left || recursiveOccurrence right)
                         Nothing
+                        ( Inspection Nothing $
+                            Node
+                                [ Edge (plainSymbol applySymbol) [inspectionGraph $ recursiveInspection left, inspectionGraph $ recursiveInspection right]
+                                ]
+                        )
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 

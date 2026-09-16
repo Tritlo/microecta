@@ -135,6 +135,7 @@ benchmark untyped-expression-speed
 
   build-depends:
     base >=4.21 && <5,
+    containers >=0.7 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator,
     process >=1.6 && <1.7,

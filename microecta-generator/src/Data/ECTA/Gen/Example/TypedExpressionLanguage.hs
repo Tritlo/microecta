@@ -60,6 +60,7 @@ module Data.ECTA.Gen.Example.TypedExpressionLanguage (
     frequencyInteger,
 ) where
 
+import qualified Data.Text as Text
 import qualified Test.QuickCheck as QC
 
 import Data.ECTA.Gen.QuickCheck (ECTAGen, Grouped, Sig ((:*), (:->)))
@@ -177,8 +178,9 @@ compileConditional result condition ifTrue ifFalse =
 unaryFunctionsBySignature ::
     Grouped UnarySignature (TypedExpression -> TypedExpression)
 unaryFunctionsBySignature =
-    compileNot
-        <$ ECTAGen.keyed unarySignature (ECTAGen.elements [()])
+    ECTAGen.nameGroups (Text.pack . show) $
+        compileNot
+            <$ ECTAGen.keyed unarySignature (ECTAGen.namedElements [("Not :: Bool -> Bool", ())])
 
 {- | Function instances grouped by their complete ground signature.
 
@@ -190,7 +192,20 @@ of functions having that signature.
 -}
 binaryFunctionsBySignature :: Grouped BinarySignature BinaryFunctionInstance
 binaryFunctionsBySignature =
-    ECTAGen.groupBy binarySignature (ECTAGen.elements binaryFunctionInstances)
+    ECTAGen.nameGroups (Text.pack . show)
+        $ ECTAGen.groupBy binarySignature
+        $ ECTAGen.namedElements
+            [ ( Text.pack (show $ binaryFunction instance_)
+                    <> " :: "
+                    <> typeName (firstArgumentType instance_)
+                    <> " -> "
+                    <> typeName (secondArgumentType instance_)
+                    <> " -> "
+                    <> typeName (binaryResultType instance_)
+              , instance_
+              )
+            | instance_ <- binaryFunctionInstances
+            ]
 
 -- | One conditional builder per possible branch and result type.
 conditionalFunctionsBySignature ::
@@ -198,8 +213,15 @@ conditionalFunctionsBySignature ::
         ConditionalSignature
         (TypedExpression -> TypedExpression -> TypedExpression -> TypedExpression)
 conditionalFunctionsBySignature =
-    compileConditional
-        <$> ECTAGen.groupBy conditionalSignature (ECTAGen.elements allTypes)
+    ECTAGen.nameGroups (Text.pack . show) $
+        compileConditional
+            <$> ECTAGen.groupBy
+                conditionalSignature
+                ( ECTAGen.namedElements
+                    [ ("If :: Bool -> " <> Text.intercalate " -> " (replicate 3 $ typeName result), result)
+                    | result <- allTypes
+                    ]
+                )
 
 {- | Literals grouped by their ground type.
 
@@ -208,7 +230,18 @@ applications match compatible children and equate their ECTA paths without
 enumerating or inspecting every expression.
 -}
 literalsByType :: Grouped Type TypedExpression
-literalsByType = ECTAGen.groupBy expressionType (ECTAGen.elements literals)
+literalsByType =
+    ECTAGen.nameGroups typeName
+        $ ECTAGen.groupBy expressionType
+        $ ECTAGen.namedElements
+            [ (Text.pack (show $ expression literal) <> " :: " <> typeName (expressionType literal), literal)
+            | literal <- literals
+            ]
+
+-- | Use domain type names in diagnostic groups and source signatures.
+typeName :: Type -> Text.Text
+typeName TInt = "Int"
+typeName TBool = "Bool"
 
 -- | Add one unary application layer.
 unaryLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
@@ -248,11 +281,12 @@ next depth.
 -}
 applicationLayer :: Grouped Type TypedExpression -> Grouped Type TypedExpression
 applicationLayer children =
-    ECTAGen.uniformlyGrouped
-        [ unaryLayer children
-        , binaryLayer children
-        , conditionalLayer children
-        ]
+    ECTAGen.nameGroups typeName $
+        ECTAGen.uniformlyGrouped
+            [ unaryLayer children
+            , binaryLayer children
+            , conditionalLayer children
+            ]
 
 {- | Exact-depth expressions grouped by result type.
 

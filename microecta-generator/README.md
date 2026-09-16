@@ -292,6 +292,105 @@ coverage :: Either ECTAGenError (Map UserId Integer)
 coverage = ECTAGen.countBy authenticatedUser authentication
 ```
 
+## Inspect a generator
+
+Use `namedElements` to retain source names, including names for function values.
+Use `nameGroups` to retain display names for classified keys without decoding
+their members. Both functions preserve semantic support, ranks, and weights.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import qualified Data.ECTA.Gen.QuickCheck as Gen
+
+-- | Two named integer source choices.
+integers :: Gen.ECTAGen Int
+integers = Gen.namedElements [("zero", 0), ("one", 1)]
+
+-- | Apply a named function to the integer source.
+incremented :: Gen.ECTAGen Int
+incremented = Gen.namedElements [("increment", (+ 1))] <*> integers
+```
+
+`Gen.inspect incremented` returns an `Inspection`. Its `inspectionGraph` is an
+`ECTA.Node InspectionSymbol`. Pass it to `ECTA.toTree`, then render the typed
+labels with `fmap` and `Data.Tree.drawTree`. Each `InspectionSymbol` retains
+`originalSymbol` and an optional `displayLabel`. `inspectionName` holds a group
+name when one is available. `ViewPath` locations belong to the graph passed to
+`toTree`.
+
+Source names describe source choices. `fmap` preserves those names; it does not
+infer names for mapped results. `regroupBy` clears old group names because the
+keys change. Apply `nameGroups` after regrouping to name the new keys. Source
+names remain available through grouping, application, and recursion.
+
+The diagnostic graph preserves construction structure and equality obligations.
+Names distinguish occurrences that share one semantic node, such as integer
+and Boolean sources with the same rank indices. The graph does not run equality
+reduction. Use `Gen.support` for membership and other semantic operations.
+
+Counts and rank decoding do not evaluate display names or construct the
+diagnostic graph. Retaining the extra fields and closures still uses memory.
+Inspecting the graph also allocates its nodes and formatted names.
+
+Run `cabal run ecta-draw-typed-expressions` to draw the actual finite and recursive
+expression generators. The [complete renderer](examples/DrawTypedExpressions.hs)
+shows source choices such as `Add :: Int -> Int -> Int` and `IntLiteral 0 :: Int`,
+with `Int` and `Bool` labels on the equality witnesses.
+
+### Read the ASCII tree
+
+The drawing alternates between state lines (`q0`, `q1`, ...) and transition
+lines (`choice 0`, `if`, `Add :: Int -> Int -> Int`, ...). At a state, choose
+one transition alternative. A chosen transition uses all of its child states
+in order. For example, the two alternatives below `q5` select `Add` or
+`Multiply`; the children below `binary-application` supply its operation and
+both arguments.
+
+Each state occurrence has a local name and a root-relative location:
+
+```text
+q14 @1:0/0:1
+```
+
+`q14` identifies the state in this drawing. The text after `@` identifies this
+occurrence of that state. Read each `alternative:child` pair as two zero-based
+indexes: select a transition alternative, then select one of its children.
+Index `0` means the first item. A slash starts the next step from the reached
+state. `@root` means the initial state, with no steps.
+
+In the depth-one `Int` drawing, `@1:0/0:1` means:
+
+| Step | Current state | Select alternative | Select child | Reach |
+|---|---|---|---|---|
+| `1:0` | `q0` | `1`: `choice 1` | `0`: its only child | `q9`, the conditional state |
+| `0:1` | `q9` | `0`: `if` | `1`: the condition argument | `q14` |
+
+The location is stored as `[(1, 0), (0, 1)]` in `viewPath`. The child indexes
+include the operation: below `if`, child `0` holds the operation, child `1`
+holds its condition argument, and children `2` and `3` hold its two branches.
+The condition argument has its own type witness and value child. One further
+step, `0:1`, reaches its Boolean literal choices at `@1:0/0:1/0:1`.
+
+References stop repeated expansion:
+
+| State line | Meaning |
+|---|---|
+| `q7 @0:0/0:1/0:1` | Expand state `q7` at this occurrence. |
+| `ref q7 @0:0/0:2/0:1` | Reuse the same state from another occurrence. |
+| `mu q0 @...` | Refer to an ancestor state and stop the recursive expansion. |
+
+A reference's `@` path locates the reference, not the earlier definition.
+State names and occurrence paths belong to one drawing. They can change when
+the graph or its alternative order changes.
+
+Equality annotations use a different path notation. In
+`binary-application [0.1 = 2.0, 0.0 = 1.0]`, each dot-separated path starts at
+that transition and follows child indexes only. Thus `0.1` reaches the
+operation's second type witness, and `2.0` reaches the second argument's type
+witness. The equality requires those subterms to agree. These paths do not
+contain alternative indexes and do not start at the drawing's root.
+
 ## Recursive languages
 
 `recur` builds a generator from its own language, so a language can be

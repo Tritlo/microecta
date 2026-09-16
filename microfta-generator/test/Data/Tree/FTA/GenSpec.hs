@@ -10,6 +10,7 @@ module Data.Tree.FTA.GenSpec (spec) where
 import Control.Exception (evaluate)
 import Data.List (nub)
 import Data.Proxy (Proxy (Proxy))
+import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
 import System.Timeout (timeout)
@@ -18,7 +19,6 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
 import Control.Monad (void)
-import qualified Data.Tree as Tree
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
