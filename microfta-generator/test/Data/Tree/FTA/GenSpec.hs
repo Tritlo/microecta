@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE EmptyDataDeriving #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -24,7 +25,7 @@ import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.FTA.UntypedExpressionLanguage as Expressions
 import qualified Data.Tree.Gen as Ranked
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (pattern Term)
 
 -- | A derived recursive fixture with named child positions.
 data DerivedTree = Leaf Bool | Fork DerivedTree DerivedTree

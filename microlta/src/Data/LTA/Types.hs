@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {- | Terms, refinements, and the scalar names of a liquid tree automaton.
 
@@ -18,7 +19,7 @@ import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 
 import Data.ECTA.Paths (Path, unPath)
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term, pattern Term)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A logical refinement understood by Liquid Fixpoint.

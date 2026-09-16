@@ -43,7 +43,7 @@ import Data.Interned.Extended.HashTableBased (Id)
 import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
 import Data.Tree.FTA.Interned.Type
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 import Utility.Fixpoint
 import Utility.HashJoin
 

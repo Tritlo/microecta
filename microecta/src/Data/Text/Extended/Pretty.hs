@@ -8,7 +8,7 @@ module Data.Text.Extended.Pretty (
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 ----------------------------------------------------------------------
 

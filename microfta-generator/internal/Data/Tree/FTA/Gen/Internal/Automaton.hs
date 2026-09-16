@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 
 -- | Shared size indexing for ordinary, possibly recursive automata.
@@ -24,7 +25,7 @@ import Data.Tree.Gen.Internal.Size (
     productIndex,
     withMinimumMemberSize,
  )
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 {- | Count accepting runs by their number of tree nodes.
 

@@ -1,18 +1,18 @@
 -- | Ordinary first-order trees shared by the tree-automata APIs.
-module Data.Tree.Term (Term (..)) where
+module Data.Tree.Term (Term, pattern Term) where
 
-import Data.Hashable (Hashable (..))
+import Data.Tree (Tree (Node))
 
-{- | A concrete first-order term over an arbitrary symbol alphabet.
+{- | A concrete term represented by the standard containers rose tree.
 
-'fmap' changes the alphabet without changing the tree's shape.
+The label and child list are lazy. The type uses the standard 'Tree' instances,
+including its 'Read' and 'Show' representation. Import the constructor pattern
+with @import Data.Tree.Term (Term, pattern Term)@ and @PatternSynonyms@.
 -}
-data Term symbol = Term !symbol ![Term symbol]
-    deriving (Eq, Ord, Read, Show)
+type Term = Tree
 
-instance Functor Term where
-    fmap f (Term symbol children) = Term (f symbol) (map (fmap f) children)
+-- | Construct or match a term without adding a wrapper or forcing its fields.
+pattern Term :: symbol -> [Term symbol] -> Term symbol
+pattern Term symbol children = Node symbol children
 
-instance (Hashable symbol) => Hashable (Term symbol) where
-    hashWithSalt salt (Term symbol children) =
-        salt `hashWithSalt` symbol `hashWithSalt` children
+{-# COMPLETE Term #-}

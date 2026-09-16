@@ -7,7 +7,8 @@ the package.
 -}
 module Data.ECTA.Internal.Term (
     Symbol (.., Symbol),
-    Term (..),
+    Term,
+    pattern Term,
 ) where
 
 import Data.Hashable (Hashable (..))
@@ -19,7 +20,7 @@ import Text.Read (Read (..))
 import Data.Interned.Text (InternedText, internedTextId)
 
 import Data.Text.Extended.Pretty
-import Data.Tree.Term (Term (..))
+import Data.Tree.Term (Term, pattern Term)
 
 ---------------------------------------------------------------
 -------------------------- Symbols ----------------------------

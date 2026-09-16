@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
 
 {- | The ordinary-FTA member of the three-example progression.
@@ -24,7 +25,7 @@ import qualified Test.QuickCheck as QC
 
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 -- | Integer expressions with no explicit type annotation.
 data Expression

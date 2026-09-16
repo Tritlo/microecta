@@ -32,7 +32,7 @@ import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, node
 import qualified Data.ECTA as ECTA
 import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPath, unPathEClass)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol), Term, pattern Term)
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..), Static, termStatic)
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRanked)

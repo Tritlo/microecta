@@ -53,7 +53,7 @@ import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
 import Data.Tree.FTA.Constraint (Constraint (..))
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 import Utility.Fixpoint
 import Utility.List (adjustAt, atMay)
 

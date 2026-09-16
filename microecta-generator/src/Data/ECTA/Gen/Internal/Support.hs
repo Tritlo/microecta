@@ -55,7 +55,7 @@ import Data.ECTA (
 import Data.ECTA.Internal.ECTA.Operations (unfoldOuterRec)
 import Data.ECTA.Internal.ECTA.Type (Node (Mu))
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol), Term, pattern Term)
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.

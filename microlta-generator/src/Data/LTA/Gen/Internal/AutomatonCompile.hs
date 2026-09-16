@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 {- | Compile a core LTA directly into a ranked generator.
 
 The core 'prune' pass runs first. An equality-free, unambiguous result uses
@@ -33,7 +35,7 @@ import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks)
 import qualified Data.Tree.FTA.Interned as Interned
 import qualified Data.Tree.Gen as Tree
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 {- | Prune and rank a finite acyclic LTA.
 

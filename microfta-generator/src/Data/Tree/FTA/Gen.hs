@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 {- | Compile ordinary finite-language FTAs into ranked generators.
 
 The FTA remains the inspectable support. This module adds exact cardinality,
@@ -37,7 +39,7 @@ import Data.Tree.FTA.Generic (Constructor, TypedFTA, datatypeDecode, datatypeFTA
 import Data.Tree.Gen (Ranked, RankedError)
 import qualified Data.Tree.Gen as Ranked
 import qualified Data.Tree.Gen.Internal as Internal
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 import Data.Typeable (TypeRep)
 
 -- | A finite ranked language whose members retain their ordinary FTA terms.

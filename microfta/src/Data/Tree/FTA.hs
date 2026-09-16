@@ -49,7 +49,7 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, toTreeBy)
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition

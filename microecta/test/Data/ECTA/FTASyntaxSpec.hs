@@ -9,7 +9,7 @@ import qualified Data.ECTA.FTA.Syntax as ECTA
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (pattern Term)
 
 data State = Expression | Atom
     deriving (Eq, Ord, Show)

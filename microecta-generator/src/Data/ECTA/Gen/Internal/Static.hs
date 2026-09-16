@@ -57,7 +57,7 @@ import Data.ECTA.Gen.Internal.Support (
     labelTermWith,
     pureSymbol,
  )
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term, pattern Term)
 import Data.Tree.Gen.Internal (Indexed (..))
 import qualified Data.Tree.Gen.Internal as Ranked
 import Data.Tree.Gen.Internal.Decoder (

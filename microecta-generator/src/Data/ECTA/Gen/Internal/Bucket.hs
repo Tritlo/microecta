@@ -21,7 +21,7 @@ import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (singletonNode)
-import Data.ECTA.Term (Term (Term))
+import Data.ECTA.Term (pattern Term)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.

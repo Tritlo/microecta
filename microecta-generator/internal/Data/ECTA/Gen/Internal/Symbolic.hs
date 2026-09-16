@@ -15,7 +15,7 @@ import Data.Tree.FTA.Interned (Node (Node))
 import Data.Tree.FTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.Tree.FTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
 import qualified Data.Tree.Gen.Internal as Ranked
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 -- | A constructor context whose variables denote whole subtree languages.
 data Fragment symbol = Variable Int | Constructor symbol [Fragment symbol]

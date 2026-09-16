@@ -195,9 +195,11 @@ The explicit-state interface is useful when a grammar comes from a file or
 state names are part of your application:
 
 ```haskell
+{-# LANGUAGE PatternSynonyms #-}
+
 import Data.Tree.FTA (FTAError, PlainFTA, accepts)
 import qualified Data.Tree.FTA.Syntax as Syntax
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (pattern Term)
 
 naturals :: Either (FTAError Int String) (PlainFTA Int String)
 naturals =

@@ -64,7 +64,7 @@ import Data.ECTA (Edge (Edge), Node (EmptyNode, Node))
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (frequencyInteger)
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term, pattern Term)
 
 {- | Security labels. The derived 'Ord' is the flow order, MAC's @Less@ at
 the value level: @Public <= Private@ and nothing flows down. Because the

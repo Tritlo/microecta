@@ -46,7 +46,7 @@ import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (argKeyedSymbol)
 import Data.ECTA.Gen.Sig (Sig (..))
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term, pattern Term)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (SizeIndex, productIndex)

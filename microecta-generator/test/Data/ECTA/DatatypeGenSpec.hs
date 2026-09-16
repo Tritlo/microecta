@@ -17,7 +17,7 @@ import qualified Data.ECTA.Gen as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import qualified Data.ECTA.Paths as Paths
-import Data.ECTA.Term (Term (Term))
+import Data.ECTA.Term (pattern Term)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Interned

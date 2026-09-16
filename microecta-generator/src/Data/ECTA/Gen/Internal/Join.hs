@@ -25,7 +25,7 @@ import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Term (Term))
+import Data.ECTA.Term (pattern Term)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
 

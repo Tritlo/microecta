@@ -49,7 +49,7 @@ import qualified GHC.Generics as Generic
 import Text.Read (readMaybe)
 
 import qualified Data.Tree.FTA as FTA
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 -- | One constructor field, including its zero-based child position.
 data Field = Field

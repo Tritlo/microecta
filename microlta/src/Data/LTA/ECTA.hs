@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {- | A semantics-preserving optimization from reduced LTAs to MicroECTA.
 
@@ -23,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import qualified Data.ECTA as ECTA
-import Data.ECTA.Term (Term (Term))
+import Data.ECTA.Term (Term, pattern Term)
 import Data.LTA (
     EqualityAutomaton,
     LiquidSymbol (LiquidSymbol),

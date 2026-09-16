@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Compact private ECTA support for a finite imported group.
 module Data.LTA.Gen.Internal.IndexedGroup (indexedGroup) where
@@ -7,7 +8,7 @@ import qualified Data.Map.Strict as Map
 
 import qualified Data.ECTA as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol, Term, pattern Term)
 
 {- | Represent each index below the bound with one binary-code term.
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Data.Tree.FTASyntaxSpec (spec) where
@@ -13,7 +14,7 @@ import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.FTA.Syntax as FTA
-import Data.Tree.Term (Term (Term))
+import Data.Tree.Term (Term, pattern Term)
 
 data State = Expression
     deriving (Eq, Ord, Show)
