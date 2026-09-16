@@ -14,6 +14,7 @@ import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.Gen.Internal.Size (
@@ -24,7 +25,6 @@ import Data.Tree.Gen.Internal.Size (
     productIndex,
     withMinimumMemberSize,
  )
-import Data.Tree.Term (Term (Term))
 
 {- | Count accepting runs by their number of tree nodes.
 
@@ -35,7 +35,7 @@ This module belongs to the @internal@ sublibrary. It is an integration
 interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
 -}
-automatonIndex :: (Ord state) => FTA.PlainFTA state symbol -> SizeIndex (Term symbol)
+automatonIndex :: (Ord state) => FTA.PlainFTA state symbol -> SizeIndex (Tree.Tree symbol)
 automatonIndex automaton = tableIndex (FTA.initialState automaton) (FTA.transitionTable automaton)
 
 {- | Index ordinary transition rows supplied by a graph adapter.
@@ -44,7 +44,7 @@ Missing rows accept nothing. Constraint layers must validate their annotations
 before supplying ordinary rows. This worker does not interpret constraints.
 -}
 tableIndex ::
-    (Ord state) => state -> Map.Map state [FTA.Transition state symbol ()] -> SizeIndex (Term symbol)
+    (Ord state) => state -> Map.Map state [FTA.Transition state symbol ()] -> SizeIndex (Tree.Tree symbol)
 tableIndex initial rows = indexOf initial
   where
     minima = minimumSizes rows
@@ -61,7 +61,7 @@ tableIndex initial rows = indexOf initial
         mapIndex ($ []) $
             foldl'
                 consumeChild
-                (constantIndex $ Term $ FTA.transitionSymbol transition)
+                (constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
                 (map indexOf $ FTA.transitionChildren transition)
     consumeChild built child = productIndex (mapIndex prepend built) child
     prepend build term arguments = build (term : arguments)

@@ -16,7 +16,8 @@ the useful core small, direct, and quick to build.
 
 ## Shared tree foundation
 
-The tree datatype and common interned automaton engine belong to `microfta`.
+Concrete terms use `Data.Tree.Tree` from `containers`.
+The common interned automaton engine belongs to `microfta`.
 ECTA's `Node symbol` and `Edge symbol` specialize the common types with
 `EqConstraints`. Their wrappers preserve the existing construction patterns
 without copying graphs. The shared engine owns interning, recursion,
@@ -26,14 +27,14 @@ equality interpretation, path propagation, reduction, and enumeration.
 without allocation. Use them to combine common construction with ECTA-specific
 operations.
 
-`Data.ECTA.Term` re-exports the same `Term` datatype. ECTA-specific symbols,
-path operations, and pretty-printing remain in this package.
+`Data.ECTA.Term` exports `Symbol`. Import `Data.Tree` directly for concrete
+terms. ECTA-specific path operations and pretty-printing remain in this package.
 
 `Data.ECTA.FTA.toFTA` exposes an ECTA through the shared graph and retains its
 `EqConstraints` annotations. `Data.ECTA.FTA.Syntax` constructs such annotated
 rows. These operations do not solve or discard equality constraints.
-Applications that directly import `Data.Tree.FTA` or `Data.Tree.Term` must
-also declare `microfta` in `build-depends`.
+Applications that directly import `Data.Tree.FTA` must declare `microfta`
+in `build-depends`. Direct `Data.Tree` imports require `containers`.
 
 ## Core API
 
@@ -43,6 +44,7 @@ The main entry point is `Data.ECTA`.
 import Data.ECTA
 import Data.ECTA.Paths
 import Data.ECTA.Term
+import qualified Data.Tree as Tree
 ```
 
 An ECTA is a `Node symbol`, which is a set of outgoing `Edge symbol`s. An edge
@@ -84,7 +86,7 @@ instance Hashable NatSymbol
 zeroOrOne :: Node NatSymbol
 zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
 
-terms :: [Term NatSymbol]
+terms :: [Tree.Tree NatSymbol]
 terms = getAllTermsWith Recursion zeroOrOne
 ```
 
@@ -122,52 +124,131 @@ anyF = TemplatePrefix "f" [] :: Template Symbol
 
 ## Visualize the automaton
 
-`toTree` returns `Either (ECTAFTAError symbol) (Tree String)`. Use `drawTree`
-from `containers` to print the reachable graph:
+`toTree` retains the original nodes and edges in typed labels:
 
 ```haskell
-import Data.ECTA
-import Data.ECTA.Paths (mkEqConstraints, path)
+toTree ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol ->
+    Either (ECTAFTAError symbol)
+        (Tree (Either (StateView (Node symbol)) (Edge symbol)))
+```
+
+`Left` contains an expanded node or a recursive or shared reference. `Right`
+contains an original edge, including its equality constraints. Map the labels
+to strings with `fmap (either renderNode renderEdge)` before using `drawTree`.
+The renderer can choose domain names because node labels retain the nodes:
+
+```haskell
+module Main (main) where
+
+import Data.List (intercalate)
 import Data.Tree (drawTree)
 
-graph :: Node String
-graph = createMu $ \self ->
-    Node
-        [ mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
-        , Edge "Again" [self]
-        ]
-  where
-    leaf = Node [Edge "Int" []]
+import qualified Data.ECTA as ECTA
+import Data.ECTA.Paths (mkEqConstraints, path, subsumptionOrderedEclasses, unPath, unPathEClass)
 
+-- | The one literal state in this example.
+leaf :: ECTA.Node String
+leaf = ECTA.Node [ECTA.Edge "Int" []]
+
+-- | Equal pairs and recursive wrappers share the same expression state.
+graph :: ECTA.Node String
+graph = ECTA.createMu $ \self ->
+    ECTA.Node
+        [ ECTA.mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
+        , ECTA.Edge "Again" [self]
+        ]
+
+-- | Use application-specific names for the original nodes.
+renderNode :: ECTA.StateView (ECTA.Node String) -> String
+renderNode view = case fmap (\node -> name node <> " @" <> renderViewPath (ECTA.viewPath view)) view of
+    ECTA.Expanded _ label -> label
+    ECTA.Recursive _ label -> "mu " <> label
+    ECTA.Shared _ label -> "ref " <> label
+  where
+    name node
+        | node == leaf = "literal"
+        | otherwise = "expression"
+
+-- | Identify the alternative and child at each step from the view root.
+renderViewPath :: ECTA.ViewPath -> String
+renderViewPath [] = "root"
+renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
+
+-- | Keep equality paths while omitting empty constraints.
+renderEdge :: ECTA.Edge String -> String
+renderEdge edge = ECTA.edgeSymbol edge <> constraints
+  where
+    constraints = case subsumptionOrderedEclasses $ ECTA.edgeEcs edge of
+        Nothing -> " [false]"
+        Just [] -> ""
+        Just classes -> " [" <> intercalate ", " (map renderClass classes) <> "]"
+    renderClass = intercalate " = " . map renderPath . unPathEClass
+    renderPath target = case unPath target of
+        [] -> "root"
+        indexes -> intercalate "." $ map show indexes
+
+-- | Choose labels after constructing the typed graph view.
 main :: IO ()
-main = case toTree graph of
-    Left err -> print err
-    Right tree -> putStrLn (drawTree tree)
+main = do
+    tree <- either (fail . show) pure $ ECTA.toTree graph
+    putStr $ drawTree $ fmap (either renderNode renderEdge) tree
 ```
 
 This program prints:
 
 ```text
-state InternedState 3
+expression @root
 |
-+- "Pair" [EqConstraints [PathEClass' {getPathTrie = PathTrie [(0,TerminalPathTrie),(1,TerminalPathTrie)], getOrigPaths = [Path [0],Path [1]]}]]
++- Pair [0 = 1]
 |  |
-|  +- state InternedState 0
+|  +- literal @0:0
 |  |  |
-|  |  `- "Int" [EqConstraints []]
+|  |  `- Int
 |  |
-|  `- ref InternedState 0
+|  `- ref literal @0:1
 |
-`- "Again" [EqConstraints []]
+`- Again
    |
-   `- mu InternedState 3
+   `- mu expression @1:0
 ```
 
-The labels use `Show` and retain equality constraints. A cycle ends with
-`mu <state>`; another reference to an expanded shared state ends with
-`ref <state>`. Numeric state identities can differ if other graphs were built
-first. Open recursive variables return `Left OpenECTA`. This view does not
-enumerate terms or solve constraints.
+`Expanded`, `Recursive`, and `Shared` identify node definitions and references.
+The example chooses the names `expression` and `literal`, and prints equality
+paths instead of their internal trie representation. The renderer preserves
+contradictions as `[false]` and omits only empty equality constraints.
+
+`viewNode` retains the original node. `viewPath :: ViewPath` locates each
+occurrence, including recursive and shared references. `ViewPath` is
+`[(Int, Int)]`; each pair selects a zero-based edge alternative and then its
+zero-based child. The root is `[]`, displayed as `@root`. For example,
+`@0:1/2:0` follows child 1 of alternative 0, then child 0 of alternative 2.
+References have their own occurrence paths and retain the node of their
+definition.
+
+These paths locate occurrences in one graph view. They are not persistent
+node identities or the child-only `Path` used by equality constraints.
+`map snd` extracts the child-only route for one occurrence. The finite view
+does not list every route through a shared or recursive graph. Paths are built
+only when `toTree` is requested; normal generation does not build them.
+
+The view traverses the interned graph directly. Unlike `toFTA`, it does not
+require a ranked alphabet. An open recursive variable returns `Left OpenECTA`.
+It does not enumerate terms or solve constraints. Add `containers` to your
+component's `build-depends` when you import `Data.Tree` directly.
+
+For the actual typed-expression generator, see
+[`DrawTypedExpressions.hs`](../microecta-generator/examples/DrawTypedExpressions.hs).
+Run `cabal run ecta-draw-typed-expressions` from the workspace root. It draws
+finite and recursive diagnostic graphs with local state names, occurrence
+locations, source names, function signatures, and type-group witnesses.
+The generator retains these names through `namedElements` and `nameGroups`.
+`Gen.inspect` returns this diagnostic graph; `Gen.support` retains the original
+semantic support. Each diagnostic symbol also retains its original symbol.
+See [generator inspection](../microecta-generator/README.md#inspect-a-generator)
+for the API and its limits. The [ASCII reading guide](../microecta-generator/README.md#read-the-ascii-tree)
+walks through `@1:0/0:1`, shared references, and equality paths.
 
 ## Pruning API
 
@@ -188,13 +269,13 @@ What makes a term worth rejecting is entirely the caller's business.
 `microecta` supplies the callbacks, `expandPartialTermFrag` to read a partial
 term, and no opinion about which shapes matter. Its `PartialSymbol` alphabet
 keeps concrete symbols, unexpanded `UVarHole`s, and `TruncatedRecursion`
-distinct; no placeholder can collide with a real symbol. `Term` is a functor,
+distinct; no placeholder can collide with a real symbol. `Tree.Tree` is a functor,
 so a caller that deliberately wants one concrete alphabet can materialize a
 partial term with `fmap resolvePartial`.
 
 ```haskell
 -- Drop any branch whose partial term already contains a forbidden symbol.
-prunedTerms :: [Symbol] -> Node Symbol -> [Term Symbol]
+prunedTerms :: [Symbol] -> Node Symbol -> [Tree.Tree Symbol]
 prunedTerms forbidden =
   getAllTermsPrune () $ \() _ event ->
     case event of
@@ -203,9 +284,9 @@ prunedTerms forbidden =
         partial <- expandPartialTermFrag fragment
         pure (any (`occursIn` partial) forbidden, ())
   where
-    occursIn s (Term (ConcreteSymbol s') ts) =
+    occursIn s (Tree.Node (ConcreteSymbol s') ts) =
       s == s' || any (occursIn s) ts
-    occursIn s (Term _ ts) = any (occursIn s) ts
+    occursIn s (Tree.Node _ ts) = any (occursIn s) ts
 ```
 
 A `Right node` decision covers a whole UVar, so it removes every term under
@@ -227,7 +308,7 @@ be settled before the branch it will kill is enumerated:
 
 ```haskell
 -- Expand a hole some parked check is waiting on, if one is available.
-resolveParkedFirst :: ExpansionOrder (IntMap [Term])
+resolveParkedFirst :: ExpansionOrder (IntMap [Tree.Tree Symbol])
 resolveParkedFirst parked candidates =
   listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
 
@@ -286,7 +367,7 @@ the pieces that downstream projects still use:
 
 ## Dependency Surface
 
-The library depends on `microfta` for the shared tree and automaton engine, plus:
+The library depends on `microfta` for the shared automaton engine, plus:
 
 - `containers`, `unordered-containers`
 - `hashable`, `intern`

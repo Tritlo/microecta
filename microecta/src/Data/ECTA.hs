@@ -48,20 +48,20 @@ A node is a set of alternatives, and enumeration reads them back:
 
 >>> let choices = Node [Edge "a" [], Edge "b" []] :: Node Symbol
 >>> getAllTerms choices
-[Term "a" [],Term "b" []]
+[Node {rootLabel = "a", subForest = []},Node {rootLabel = "b", subForest = []}]
 
 'intersect' keeps what both accept:
 
 >>> let other = Node [Edge "b" [], Edge "c" []] :: Node Symbol
 >>> getAllTerms (intersect choices other)
-[Term "b" []]
+[Node {rootLabel = "b", subForest = []}]
 
 An equality constraint ties two positions together, which is what an ECTA has
 that an ordinary tree automaton does not:
 
 >>> let alts = Node [Edge "a" [], Edge "b" []] :: Node Symbol
 >>> getAllTerms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
-[Term "p" [Term "a" [],Term "a" []],Term "p" [Term "b" [],Term "b" []]]
+[Node {rootLabel = "p", subForest = [Node {rootLabel = "a", subForest = []},Node {rootLabel = "a", subForest = []}]},Node {rootLabel = "p", subForest = [Node {rootLabel = "b", subForest = []},Node {rootLabel = "b", subForest = []}]}]
 
 Templates restrict that language without discarding its constraints. Here the
 right child fixes the hole on the left because the edge requires equality:
@@ -69,7 +69,7 @@ right child fixes the hole on the left because the edge requires equality:
 >>> let pairs = Node [mkEdge "pair" [alts, alts] (mkEqConstraints [[path [0], path [1]]])]
 >>> let rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
 >>> getAllTerms (termsMatching rightIsA pairs)
-[Term "pair" [Term "a" [],Term "a" []]]
+[Node {rootLabel = "pair", subForest = [Node {rootLabel = "a", subForest = []},Node {rootLabel = "a", subForest = []}]}]
 
 An algebraic datatype works as the alphabet too; no string conversion is
 involved. 'getAllTermsWith' takes the symbol to use if enumeration truncates at
@@ -79,7 +79,7 @@ recursion:
 >>> instance Hashable NatSymbol
 >>> let zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
 >>> getAllTermsWith Recursion zeroOrOne
-[Term Zero [],Term Succ [Term Zero []]]
+[Node {rootLabel = Zero, subForest = []},Node {rootLabel = Succ, subForest = [Node {rootLabel = Zero, subForest = []}]}]
 
 Recursive automata are represented with 'createMu'. Internally nodes and edges
 are hash-consed, so equality and memoized operations can use compact identities
@@ -128,6 +128,8 @@ module Data.ECTA (
 
     -- * Visualization
     ECTAFTAError (..),
+    ViewPath,
+    StateView (..),
     toTree,
 
     -- * Concrete membership
@@ -146,9 +148,9 @@ module Data.ECTA (
 
     >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]]) :: Node Symbol
     >>> getAllTerms nat
-    [Term "Mu" []]
+    [Node {rootLabel = "Mu", subForest = []}]
     >>> getAllTerms (unfoldBounded 2 nat)
-    [Term "z" [],Term "s" [Term "z" []]]
+    [Node {rootLabel = "z", subForest = []},Node {rootLabel = "s", subForest = [Node {rootLabel = "z", subForest = []}]}]
     -}
     EnumerateM,
     runEnumerateM,
@@ -170,7 +172,7 @@ module Data.ECTA (
     noExpansionPreference,
 ) where
 
-import Data.ECTA.FTA (ECTAFTAError (..), toTree)
+import Data.ECTA.FTA (ECTAFTAError (..), StateView (..), ViewPath, toTree)
 import Data.ECTA.Internal.ECTA.Enumeration
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
