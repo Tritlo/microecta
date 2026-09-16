@@ -9,6 +9,7 @@ import Data.List (sort)
 import Data.Ratio ((%))
 import qualified Data.Set as Set
 import Data.String (fromString)
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
@@ -17,7 +18,6 @@ import qualified Data.ECTA.Gen as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import qualified Data.ECTA.Paths as Paths
-import Data.ECTA.Term (Term (Term))
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Interned
@@ -160,7 +160,7 @@ spec = do
                     evaluate $
                         ECTAGen.cardinality generator == Right 1
                             && case ECTAGen.unrank generator 0 of
-                                Right (Term symbol _) -> symbol == fromString "pair"
+                                Right (Tree.Node symbol _) -> symbol == fromString "pair"
                                 Left _ -> False
             completed `shouldBe` Just True
 
@@ -201,4 +201,4 @@ spec = do
             let generator = ECTAGen.fromFTAUpToDepth 1 intersection
             ECTAGen.cardinality generator `shouldBe` Right 1
             ECTAGen.unrank generator 0
-                `shouldBe` Right (Term (fromString "pair") [Term (fromString "b") [], Term (fromString "b") []])
+                `shouldBe` Right (Tree.Node (fromString "pair") [Tree.Node (fromString "b") [], Tree.Node (fromString "b") []])

@@ -1,6 +1,6 @@
 module Data.LTA.SyntaxSpec (spec) where
 
-import Data.List (isInfixOf)
+import Data.Either (rights)
 import Data.Tree (flatten)
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
@@ -73,9 +73,11 @@ spec =
             case LTA.fromInterned root of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    let labels = flatten $ LTA.toTree automaton
-                    labels `shouldSatisfy` any (show (LTA.LiquidSymbol "zero" nonNegative) `isInfixOf`)
-                    labels `shouldSatisfy` any (show (LTA.Entails (LTA.path [0]) (LTA.path [1])) `isInfixOf`)
+                    let edges = rights $ flatten $ LTA.toTree automaton
+                    [(LTA.transitionSymbol edge, LTA.transitionRefinement edge) | edge <- edges]
+                        `shouldSatisfy` elem ("zero", nonNegative)
+                    map (LTA.constraintAsGuard . LTA.transitionConstraint) edges
+                        `shouldSatisfy` elem (LTA.Entails (LTA.path [0]) (LTA.path [1]))
                     mapM (accepts tableEntailment automaton) terms
                         >>= (`shouldBe` [Yes, Yes, No, Yes])
                     LTA.denotationAtMost tableEntailment 1 automaton

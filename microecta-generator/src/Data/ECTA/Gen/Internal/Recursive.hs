@@ -26,13 +26,14 @@ module Data.ECTA.Gen.Internal.Recursive (
 ) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (frequencySymbol)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol)
 import Data.Tree.Gen.Internal.Decoder (Plan (..))
 import Data.Tree.Gen.Internal.Sampler
 import Data.Tree.Gen.Internal.Size (
@@ -70,7 +71,7 @@ data Recursive a = Recursive
     set on the placeholders and cleared on the finished result, and is
     therefore not the Boolean knot @usedOccurrence@ is.
     -}
-    , recursiveTerm :: Maybe (a -> Term Symbol)
+    , recursiveTerm :: Maybe (a -> Tree.Tree Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
     mapped or combined value no longer stands for one term of the
@@ -109,7 +110,7 @@ classes retain their count-based probability. Finite choices closed with
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
-Members carry a retained t'Term' only when the values are the accepted terms
+Members carry a retained t'Tree.Tree' only when the values are the accepted terms
 themselves, as they are for an automaton read with @fromECTA@; otherwise
 inspection through 'outcomeSelect' reports
 'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking

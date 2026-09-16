@@ -28,6 +28,7 @@ module Data.ECTA.Gen.Internal.Support (
 ) where
 
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 
 import Data.ECTA (
     Edge (Edge),
@@ -35,7 +36,7 @@ import Data.ECTA (
     mkEdge,
  )
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol))
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.
@@ -86,8 +87,8 @@ keyNode :: Int -> Node Symbol
 keyNode index = Node [Edge (keySymbol index) []]
 
 -- | The ECTA node accepting exactly one term.
-singletonNode :: Term Symbol -> Node Symbol
-singletonNode (Term symbol children) =
+singletonNode :: Tree.Tree Symbol -> Node Symbol
+singletonNode (Tree.Node symbol children) =
     Node [Edge symbol $ map singletonNode children]
 
 {- | One joined edge: the operation group, one group per argument, and one
@@ -108,7 +109,7 @@ joinNode componentIndex operationSupport argumentSupports =
         ]
   where
     keyNodes =
-        [ singletonNode $ Term (argKeySymbol componentIndex position) []
+        [ singletonNode $ Tree.Node (argKeySymbol componentIndex position) []
         | position <- [0 .. length argumentSupports - 1]
         ]
     operationNode =

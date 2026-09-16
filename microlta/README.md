@@ -128,16 +128,30 @@ oracle against which optimized pruning and generation can be checked.
 
 ## Visualize the automaton
 
-`toTree :: Automaton -> Tree String` converts the reachable graph for
-visualization with `drawTree` from `containers`:
+`toTree` converts the reachable graph to a finite tree with typed labels:
+
+```haskell
+toTree :: Automaton -> Tree (Either (StateView State) Transition)
+```
+
+`Left` contains a state definition or reference. `Right` contains the complete
+transition, including its refinement and constraint. Map these labels to
+strings before using `drawTree` from `containers`. This example defines its own
+renderer and uses Liquid Fixpoint's `showpp` for refinement formulas:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 
+module Main (main) where
+
 import Data.LTA
 import Data.LTA.Refinement (true, value, (.>=.))
+import Data.List (intercalate)
+import qualified Data.Text as Text
 import Data.Tree (drawTree)
+import Language.Fixpoint.Types (showpp)
 
+-- | A square root whose argument must have a nonnegative refinement.
 graph :: Either AutomatonError Automaton
 graph =
     mkAutomaton
@@ -160,28 +174,87 @@ graph =
   where
     nonNegative = value .>=. (0 :: Int)
 
+-- | Show state names, reference markers, and occurrence locations.
+renderNode :: StateView State -> String
+renderNode view = prefix ++ "q" ++ show (unState (viewNode view)) ++ " @" ++ renderPath (viewPath view)
+  where
+    prefix = case view of
+        Expanded{} -> ""
+        Recursive{} -> "mu "
+        Shared{} -> "ref "
+
+-- | Render zero-based alternative and child indexes from the root.
+renderPath :: ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | (alternative, child) <- steps]
+
+-- | Render symbols, nontrivial refinements, and complete constraints.
+renderTransition :: Transition -> String
+renderTransition transition =
+    Text.unpack name ++ refinementLabel ++ guardLabel
+  where
+    Symbol name = transitionSymbol transition
+    refinement = transitionRefinement transition
+    refinementLabel
+        | refinement == true = ""
+        | otherwise = " {" ++ showpp refinement ++ "}"
+    guardLabel = case constraintAsGuard (transitionConstraint transition) of
+        Top -> ""
+        Satisfies position predicate ->
+            " [refinement("
+                ++ intercalate "." (map show (unPath position))
+                ++ ") entails "
+                ++ showpp predicate
+                ++ "]"
+        guard -> " [" ++ show guard ++ "]"
+
+-- | Draw the graph with the chosen state and transition labels.
 main :: IO ()
-main = case graph of
-    Left err -> print err
-    Right automaton -> putStrLn (drawTree (toTree automaton))
+main = do
+    automaton <- either (fail . show) pure graph
+    putStr $ drawTree $ fmap (either renderNode renderTransition) $ toTree automaton
+```
+
+Add `microlta`, `containers`, `text`, and `liquid-fixpoint` to the component's
+`build-depends`. To run the example in this checkout, save it as `Main.hs` at
+the workspace root:
+
+```sh
+cabal build microlta
+cabal exec -- runghc -package=microlta -package=liquid-fixpoint Main.hs
 ```
 
 This program prints:
 
 ```text
-state State {unState = 0}
+q0 @root
 |
-`- LiquidSymbol "sqrt" (PAnd []) [LiquidConstraint {constraintEqualities = EqConstraints [], constraintGuard = Satisfies (Path [0]) (PAtom Ge (EVar "v") (ECon (I 0)))}]
+`- sqrt [refinement(0) entails v >= 0]
    |
-   `- state State {unState = 1}
+   `- q1 @0:0
       |
-      `- LiquidSymbol "zero" (PAtom Ge (EVar "v") (ECon (I 0))) [LiquidConstraint {constraintEqualities = EqConstraints [], constraintGuard = Top}]
+      `- zero {v >= 0}
 ```
 
-The labels use `Show` and retain transition symbols, refinements, and
-constraints. A cycle ends with `mu <state>`; another reference to an expanded
-shared state ends with `ref <state>`. This view does not enumerate terms or call
-a solver.
+`renderNode` and `renderTransition` are caller code. Change them to use domain
+names or a different constraint notation. The example omits only `true`
+refinements and `Top` guards. `constraintAsGuard` recovers the complete
+constraint, including cached equalities. Guards other than `Satisfies` use a
+`Show` fallback, so the renderer retains every obligation.
+
+`Recursive` ends a cycle; `Shared` refers to a state expanded earlier. The
+example displays these as `mu qN` and `ref qN`. `viewNode` retains the original
+state, while `viewPath` locates each occurrence, including references.
+`ViewPath` is `[(Int, Int)]`; each pair selects a zero-based alternative and its
+zero-based child. The root is `[]`, displayed as `@root`. `@0:1/2:0` follows
+child 1 of alternative 0, then child 0 of alternative 2.
+
+View paths are graph-view locations, not persistent state identities. They
+include alternative indexes and differ from the child-only paths in guards
+and equality constraints. `map snd` gives the child-only route for one
+occurrence; the finite view does not list every route through a shared graph.
+`toTree` builds these paths on demand. Normal generation does not build them.
+This view does not enumerate terms or call a solver.
 
 ## Cycles and pruning
 

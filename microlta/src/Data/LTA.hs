@@ -62,6 +62,8 @@ module Data.LTA (
     transitionConstraint,
     transitionEqualities,
     Automaton,
+    ViewPath,
+    StateView (..),
     toTree,
     EqualityAutomaton,
     AutomatonError (..),

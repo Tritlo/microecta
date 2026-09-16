@@ -27,12 +27,13 @@ import Data.List (partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
 import qualified Data.ECTA as ECTA
 import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPath, unPathEClass)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol))
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..), Static, termStatic)
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRanked)
@@ -48,7 +49,7 @@ Fails on an automaton with free recursive variables, which is not a closed
 language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
-automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Term Symbol))
+automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Tree.Tree Symbol))
 automatonIndex root
     | not $ Set.null $ freeVars root = Left OpenAutomaton
     | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges
@@ -128,7 +129,7 @@ plans. Equal child positions select one term from the intersection of their
 languages. Nested equality paths and overlapping alternatives use symbolic
 equality contexts and intersection counts. Only a selected term is constructed.
 -}
-finiteAutomaton :: Node Symbol -> Either ECTAGenError (Static (Term Symbol))
+finiteAutomaton :: Node Symbol -> Either ECTAGenError (Static (Tree.Tree Symbol))
 finiteAutomaton root =
     case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
@@ -161,7 +162,7 @@ finiteAutomaton root =
             pure $ do
                 rankedGroups <- sequence selected
                 let slots = foldl' addGroup (pure Map.empty) (zip groups rankedGroups)
-                pure $ (\values -> Term (edgeSymbol edge) [values Map.! index | index <- [0 .. length children - 1]]) <$> slots
+                pure $ (\values -> Tree.Node (edgeSymbol edge) [values Map.! index | index <- [0 .. length children - 1]]) <$> slots
       where
         children = edgeChildren edge
     buildGroup children positions =
