@@ -3,8 +3,8 @@
 ## 0.2.0.0 - Unreleased
 
 This is a major bump rather than 0.1.1.0 because the public API changed; see
-the entries marked breaking below. Existing code that only builds ECTAs,
-reduces them, or enumerates them needs no migration.
+the entries marked breaking below. Existing code that only builds ECTAs
+or reduces them needs no migration.
 
 * Specialize the shared `microfta` interned engine with `EqConstraints`.
   Preserve the public `Node` and `Edge` construction patterns through erased
@@ -12,10 +12,13 @@ reduces them, or enumerates them needs no migration.
   enumeration in this package. Remove the independent graph implementation.
 * Re-export the moved interning, memoization, fixpoint, and hash-join modules
   from `microfta`. Their existing module names remain available.
-* Use `microfta` for the shared `Term` datatype and ordinary FTA graph.
-  `Data.ECTA.Term` still re-exports `Term`. Its ECTA-specific path and pretty
-  instances retain their behavior. Direct `Data.Tree.*` imports require a
-  `microfta` dependency.
+* Breaking: use `Data.Tree.Tree` from `containers` for concrete terms.
+  Replace the `Term` type with `Tree` and the `Term` constructor with `Node`.
+  `Data.ECTA.Term` exports only `Symbol`. The ECTA-specific path and pretty
+  instances retain their behavior. `Show` and `Read` use the standard `Node`
+  record format. Add `containers` for direct `Data.Tree` imports.
+  The ordinary FTA graph remains in `microfta`; direct `Data.Tree.FTA` imports
+  require a `microfta` dependency.
 * Add `Data.ECTA.FTA` and `Data.ECTA.FTA.Syntax` to expose equality-constrained
   transitions through the ordinary graph without discarding their constraints.
 * Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8

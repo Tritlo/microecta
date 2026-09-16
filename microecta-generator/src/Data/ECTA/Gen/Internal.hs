@@ -84,6 +84,7 @@ import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
+import qualified Data.Tree as Tree
 
 import Data.ECTA (
     Edge (Edge),
@@ -106,7 +107,7 @@ import Data.ECTA.Gen.Internal.Size (
  )
 import Data.ECTA.Gen.Sig (Sig (..))
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol), Term (Term))
+import Data.ECTA.Term (Symbol (Symbol))
 
 {- | A finite source addressed by a stable integer index.
 
@@ -315,7 +316,7 @@ guidance = intercalate "\n"
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome a = Outcome
-    { outcomeTerm :: Term Symbol
+    { outcomeTerm :: Tree.Tree Symbol
     , outcomeMass :: Rational
     , outcomeValue :: a
     }
@@ -394,7 +395,7 @@ data Recursive a = Recursive
     set on the placeholders and cleared on the finished result, and is
     therefore not the Boolean knot @usedOccurrence@ is.
     -}
-    , recursiveTerm :: Maybe (a -> Term Symbol)
+    , recursiveTerm :: Maybe (a -> Tree.Tree Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
     mapped or combined value no longer stands for one term of the
@@ -433,7 +434,7 @@ classes retain their count-based probability. Finite choices closed with
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
-Members carry a retained t'Term' only when the values are the accepted terms
+Members carry a retained t'Tree.Tree' only when the values are the accepted terms
 themselves, as they are for an automaton read with @fromECTA@; otherwise
 inspection through 'outcomeSelect' reports
 'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
@@ -597,7 +598,7 @@ bucketFromOutcomes retainAtomic outcomes = do
     totalOutcomes = toInteger $ length outcomes
     uniformMass = commonValue $ Just . outcomeMass <$> toList conditional
     bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- outcomes]
-    termEdge (Term symbol children) = Edge symbol $ map singletonNode children
+    termEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
 
     select index = do
         checkIndex totalOutcomes index
@@ -693,7 +694,7 @@ pureStatic value =
             (Just 1)
             ( \index -> do
                 checkIndex 1 index
-                pure $ Outcome (Term pureSymbol []) 1 value
+                pure $ Outcome (Tree.Node pureSymbol []) 1 value
             )
             (\_ -> value)
             (uniformSampler 1 $ const value)
@@ -721,7 +722,7 @@ indexedStatic indexed =
         checkIndex totalOutcomes index
         pure $
             Outcome
-                (Term (indexedSymbol index) [])
+                (Tree.Node (indexedSymbol index) [])
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
 
@@ -765,7 +766,7 @@ applyStatic functions values =
         valueOutcome <- outcomeSelect valueOutcomes valueIndex
         pure $
             Outcome
-                ( Term
+                ( Tree.Node
                     applySymbol
                     [outcomeTerm functionOutcome, outcomeTerm valueOutcome]
                 )
@@ -832,7 +833,7 @@ frequencyStatic alternatives =
         child <- outcomeSelect (staticOutcomes static) childIndex
         pure $
             Outcome
-                (Term (frequencySymbol branchIndex) [outcomeTerm child])
+                (Tree.Node (frequencySymbol branchIndex) [outcomeTerm child])
                 ( fromInteger weight
                     / fromInteger totalWeight
                     * outcomeMass child
@@ -993,14 +994,14 @@ joinOutcomeIndex left right groups = do
     select index = do
         checkIndex totalOutcomes index
         let (group, leftOutcome, rightOutcome) = selectPair index
-            keyTerm = Term (keySymbol $ joinGroupIndex group) []
+            keyTerm = Tree.Node (keySymbol $ joinGroupIndex group) []
             leftTerm =
-                Term leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
+                Tree.Node leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
             rightTerm =
-                Term rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
+                Tree.Node rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
         pure $
             Outcome
-                (Term joinSymbol [leftTerm, rightTerm])
+                (Tree.Node joinSymbol [leftTerm, rightTerm])
                 ( outcomeMass leftOutcome
                     * outcomeMass rightOutcome
                     / totalMass
@@ -1168,7 +1169,7 @@ joinNBucketStatic componentIndex operation arguments =
         False
   where
     keyTerms =
-        [ Term (argKeySymbol componentIndex position) []
+        [ Tree.Node (argKeySymbol componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
     joined =
@@ -1191,10 +1192,10 @@ joinNBucketStatic componentIndex operation arguments =
         (argumentTerms, argumentsMass, value) <-
             selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
         let operationTerm =
-                Term centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
+                Tree.Node centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
         pure $
             Outcome
-                (Term joinNSymbol (operationTerm : argumentTerms))
+                (Tree.Node joinNSymbol (operationTerm : argumentTerms))
                 (outcomeMass operationOutcome * argumentsMass)
                 value
 
@@ -1220,7 +1221,7 @@ joinNode componentIndex operationSupport argumentSupports =
         ]
   where
     keyNodes =
-        [ singletonNode $ Term (argKeySymbol componentIndex position) []
+        [ singletonNode $ Tree.Node (argKeySymbol componentIndex position) []
         | position <- [0 .. length argumentSupports - 1]
         ]
     operationNode =
@@ -1497,16 +1498,16 @@ chainDecoder (ChainCons static rest) =
 selectChain ::
     operation ->
     ArgStatics operation result ->
-    [Term Symbol] ->
+    [Tree.Tree Symbol] ->
     Integer ->
-    Either ECTAGenError ([Term Symbol], Rational, result)
+    Either ECTAGenError ([Tree.Tree Symbol], Rational, result)
 selectChain value ChainNil _ _ = Right ([], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
     (terms, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
     pure
-        ( Term argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
+        ( Tree.Node argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
         , outcomeMass outcome * mass
         , value
         )
@@ -1539,8 +1540,8 @@ keyNode :: Int -> Node Symbol
 keyNode index = Node [Edge (keySymbol index) []]
 
 -- | The ECTA node accepting exactly one term.
-singletonNode :: Term Symbol -> Node Symbol
-singletonNode (Term symbol children) =
+singletonNode :: Tree.Tree Symbol -> Node Symbol
+singletonNode (Tree.Node symbol children) =
     Node [Edge symbol $ map singletonNode children]
 
 -- | Enumerate a language as normalized mass and value pairs.

@@ -60,7 +60,10 @@ library
     TypeOperators
     ViewPatterns
 
-  other-modules: Data.CacheFamily
+  other-modules:
+    Data.CacheFamily
+    Data.Tree.FTA.Internal.Tree
+
   exposed-modules:
     Data.Interned.Extended.HashTableBased
     Data.Memoization
@@ -71,7 +74,6 @@ library
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
     Data.Tree.FTA.Syntax
-    Data.Tree.Term
     Utility.Fixpoint
     Utility.HashJoin
 

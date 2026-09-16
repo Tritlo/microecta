@@ -13,11 +13,11 @@ module Data.ECTA.Template (
 
 import Data.Hashable (Hashable)
 import Data.Maybe (mapMaybe)
+import qualified Data.Tree as Tree
 import Type.Reflection (Typeable)
 
 import Data.ECTA.Internal.ECTA.Operations (reducePartially)
 import Data.ECTA.Internal.ECTA.Type
-import Data.ECTA.Internal.Term
 
 -- | Pattern over first-order terms.
 data Template symbol
@@ -34,22 +34,22 @@ data Template symbol
     deriving (Eq, Ord, Read, Show)
 
 -- | Test a concrete term against a template.
-matchesTemplate :: (Eq symbol) => Template symbol -> Term symbol -> Bool
+matchesTemplate :: (Eq symbol) => Template symbol -> Tree.Tree symbol -> Bool
 matchesTemplate Hole _ = True
-matchesTemplate (AnyNode templates) (Term _ children) =
+matchesTemplate (AnyNode templates) (Tree.Node _ children) =
     exactChildrenMatch templates children
-matchesTemplate (TemplateNode symbol templates) (Term termSymbol children) =
+matchesTemplate (TemplateNode symbol templates) (Tree.Node termSymbol children) =
     symbol == termSymbol && exactChildrenMatch templates children
-matchesTemplate (AnyPrefix templates) (Term _ children) =
+matchesTemplate (AnyPrefix templates) (Tree.Node _ children) =
     childPrefixMatches templates children
-matchesTemplate (TemplatePrefix symbol templates) (Term termSymbol children) =
+matchesTemplate (TemplatePrefix symbol templates) (Tree.Node termSymbol children) =
     symbol == termSymbol && childPrefixMatches templates children
 
-exactChildrenMatch :: (Eq symbol) => [Template symbol] -> [Term symbol] -> Bool
+exactChildrenMatch :: (Eq symbol) => [Template symbol] -> [Tree.Tree symbol] -> Bool
 exactChildrenMatch templates children =
     length templates == length children && childPrefixMatches templates children
 
-childPrefixMatches :: (Eq symbol) => [Template symbol] -> [Term symbol] -> Bool
+childPrefixMatches :: (Eq symbol) => [Template symbol] -> [Tree.Tree symbol] -> Bool
 childPrefixMatches [] _ = True
 childPrefixMatches (template : templates) (child : children) =
     matchesTemplate template child && childPrefixMatches templates children
