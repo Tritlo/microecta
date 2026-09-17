@@ -15,6 +15,7 @@ module Data.Tree.Gen.Internal.Decoder (
     compilePlan,
 ) where
 
+import qualified Data.Map.Lazy as Map
 import GHC.Arr (listArray, unsafeAt)
 
 {- | Symbolic rank-decoding structure retained beside every outcome index.
@@ -143,7 +144,7 @@ compilePlan totalOutcomes plan
 
 {- | Compile a normalized plan to one decoder over the given rank type.
 
-Choices become weight-balanced comparison trees, products decode by
+Choices use cumulative-offset maps, products decode by
 quotient and remainder, small leaves read tabulated arrays, and every
 decoded argument is bound strictly before the operation closure is applied:
 the operation is an unknown function, so an unforced argument would be
@@ -168,15 +169,11 @@ compileRank (PlanMap transform plan) =
             let !value = decode index
              in transform value
 compileRank (PlanChoice branches) =
-    dispatchTree totalOutcomes $
+    dispatchParts $
         offsetParts 0 [(branchCardinality, compileRank branch) | (branchCardinality, branch) <- branches]
-  where
-    totalOutcomes = fromInteger $ sum $ map fst branches
 compileRank (PlanSized classes) =
-    dispatchTree totalOutcomes $
+    dispatchParts $
         offsetParts 0 [(classCount, decodeInt) | (_, classCount, _, decodeInt) <- classes]
-  where
-    totalOutcomes = fromInteger $ sum [classCount | (_, classCount, _, _) <- classes]
 compileRank (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
     -- One fused decoder per binary application: one closure, one or two
     -- quotient-remainder steps, instead of two nested product closures.
@@ -256,16 +253,14 @@ compileLargeRank (PlanMap transform plan) =
             let !value = decode index
              in transform value
 compileLargeRank (PlanChoice branches) =
-    dispatchTree totalOutcomes $
+    dispatchParts $
         offsetParts
             0
             [ (branchCardinality, compileLocalRank branch)
             | (branchCardinality, branch) <- branches
             ]
-  where
-    totalOutcomes = sum $ map fst branches
 compileLargeRank (PlanSized classes) =
-    dispatchTree totalOutcomes $
+    dispatchParts $
         offsetParts
             0
             [ ( classCount
@@ -275,8 +270,6 @@ compileLargeRank (PlanSized classes) =
               )
             | (_, classCount, decode, decodeInt) <- classes
             ]
-  where
-    totalOutcomes = sum [classCount | (_, classCount, _, _) <- classes]
 compileLargeRank (PlanAp outerRadix (PlanAp innerRadix planF planX1) planX2)
     | outerRadix > 1
     , innerRadix > 1 =
@@ -332,42 +325,24 @@ compileLocalRank plan
 -- | Pair each part decoder with its cumulative rank offset.
 offsetParts :: (Integral rank) => rank -> [(Integer, rank -> a)] -> [(rank, rank -> a)]
 offsetParts _ [] = []
-offsetParts offset ((partCardinality, decode) : rest) =
-    (offset, decode) : offsetParts (offset + fromInteger partCardinality) rest
+offsetParts offset ((partCardinality, decode) : rest)
+    | partCardinality > 0 =
+        (offset, decode) : offsetParts (offset + fromInteger partCardinality) rest
+    | otherwise = offsetParts offset rest
 
-{- | Dispatch a rank to the part holding it, rebased into that part.
-
-The tree splits where the cumulative cardinality crosses the midpoint of the
-covered range, so heavy parts sit near the root and the expected number of
-comparisons tracks how the mass is distributed.
--}
-dispatchTree :: (Integral rank) => rank -> [(rank, rank -> a)] -> rank -> a
-dispatchTree _ [(offset, decode)]
+-- | Dispatch a rank through the cumulative offsets and rebase it into its part.
+dispatchParts :: (Integral rank) => [(rank, rank -> a)] -> rank -> a
+dispatchParts [(offset, decode)]
     | offset == 0 = decode
     | otherwise = \index -> decode (index - offset)
-dispatchTree upper parts =
-    let low = case parts of
-            (offset, _) : _ -> offset
-            [] ->
-                error
-                    "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchTree: \
-                    \no part to dispatch to"
-        -- Written this way so a total cardinality near maxBound does not
-        -- overflow the sum and send the split the wrong way.
-        midpoint = low + (upper - low) `div` 2
-        (lowParts, highParts) =
-            case break (\(offset, _) -> offset > midpoint) parts of
-                (allParts, []) -> (init allParts, [last allParts])
-                split -> split
-        pivot = case highParts of
-            (offset, _) : _ -> offset
-            [] ->
-                error
-                    "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchTree: \
-                    \no part to dispatch to"
-        decodeLow = dispatchTree pivot lowParts
-        decodeHigh = dispatchTree upper highParts
+dispatchParts parts =
+    let table = Map.fromDistinctAscList parts
      in \index ->
-            if index < pivot
-                then decodeLow index
-                else decodeHigh index
+            case Map.lookupLE index table of
+                Just (offset, decode) -> decode (index - offset)
+                Nothing -> case parts of
+                    (offset, decode) : _ -> decode (index - offset)
+                    [] ->
+                        error
+                            "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchParts: \
+                            \no part to dispatch to"
