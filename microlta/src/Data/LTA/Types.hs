@@ -13,7 +13,9 @@ module Data.LTA.Types (
     LiquidSymbol (..),
 ) where
 
+import Control.Monad (foldM)
 import Data.Hashable (Hashable)
+import Data.List ((!?))
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
@@ -30,14 +32,7 @@ eraseRefinements = fmap $ \(LiquidSymbol symbol _) -> symbol
 
 -- | Read the subterm at one position. An absent position gives 'Nothing'.
 termAt :: Path -> Tree.Tree LiquidSymbol -> Maybe (Tree.Tree LiquidSymbol)
-termAt target = go (unPath target)
-  where
-    go [] term = Just term
-    go (index : rest) term
-        | index < 0 = Nothing
-        | otherwise = case drop index (Tree.subForest term) of
-            child : _ -> go rest child
-            [] -> Nothing
+termAt target term = foldM (\node index -> Tree.subForest node !? index) term (unPath target)
 
 -- | An integer identity for one LTA state.
 newtype State = State {unState :: Int}

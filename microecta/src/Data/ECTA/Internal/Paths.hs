@@ -44,7 +44,7 @@ import Prelude hiding (round)
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
-import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
+import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy, (!?))
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as Set
@@ -56,7 +56,7 @@ import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
 import Data.Tree.FTA.Constraint (Constraint (..))
 import Utility.Fixpoint
-import Utility.List (adjustAt, atMay)
+import Utility.List (adjustAt)
 
 -------------------------------------------------------
 
@@ -144,7 +144,7 @@ instance Pathable (Tree.Tree symbol) (Tree.Tree symbol) where
     type Emptyable (Tree.Tree symbol) = Maybe (Tree.Tree symbol)
 
     getPath EmptyPath t = Just t
-    getPath (ConsPath p ps) (Tree.Node _ ts) = case atMay p ts of
+    getPath (ConsPath p ps) (Tree.Node _ ts) = case ts !? p of
         Nothing -> Nothing
         Just t -> getPath ps t
 
