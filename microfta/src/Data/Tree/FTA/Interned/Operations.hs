@@ -116,9 +116,7 @@ onNormalNodes :: forall symbol constraint m. (Monoid m) => (Node symbol constrai
 onNormalNodes f n@(InternedNode _) = f n
 onNormalNodes _ _ = mempty
 
------------------------
------- Folding
------------------------
+-- Folding
 
 -- | Unfold one outer 'Mu' layer.
 {-# INLINEABLE unfoldOuterRec #-}
@@ -187,9 +185,7 @@ unfoldBounded rounds
                     n -> n
                 )
 
-------------
------- Size operations
-------------
+-- Size operations
 
 -- | Count reachable non-recursive nodes, sharing-aware.
 {-# INLINEABLE nodeCount #-}
@@ -239,9 +235,7 @@ dropConstraints node = memoTypeableWith genericDropConstraintsCache go node
     dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
     dropNodeConstraints n = n
 
-------------
------- Intersect
-------------
+-- Intersect
 
 -- | Result of comparing one alternative with the remaining alternatives.
 data RuleOutRes symbol constraint = Keep | RuledOutBy (Edge symbol constraint)
@@ -315,10 +309,6 @@ intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameS
             (edgeConstraint e1 `conjoinConstraints` edgeConstraint e2)
 {-# INLINEABLE intersectEdgeSameSymbol #-}
 
-------------
------- New intersection
-------------
-
 -- | Intersection of two automata.
 intersect ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
@@ -326,7 +316,7 @@ intersect ::
 intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 {-# INLINEABLE intersect #-}
 
------- Intersection internals
+-- Intersection internals
 
 {- | Intersection domain
 
@@ -455,9 +445,7 @@ intersectOpenEdge input = memoTypeableWith genericIntersectOpenEdgeCache worker 
             (zipWith (\a b -> intersectOpen (dom, a, b)) (edgeChildren l) (edgeChildren r))
             (edgeConstraint l `conjoinConstraints` edgeConstraint r)
 
-------------
------- Union
-------------
+-- Union
 
 {- | Union a list of automata by concatenating their alternatives.
 

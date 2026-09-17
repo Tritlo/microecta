@@ -1,5 +1,3 @@
-{-# LANGUAGE NamedFieldPuns #-}
-
 {- | Ordinary finite-state tree automata.
 
 An FTA has a finite set of states and ranked transitions. The @guard@ parameter

@@ -4,8 +4,6 @@ module Utility.Fixpoint (
     fixMaybe,
 ) where
 
---------------------------------------------------------------
-
 -- | Iterate until stable with no iteration bound.
 fixUnbounded :: (Eq a) => (a -> a) -> a -> a
 fixUnbounded f x =

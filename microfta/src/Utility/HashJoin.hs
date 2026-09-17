@@ -10,9 +10,7 @@ import Data.Hashable (Hashable)
 
 import qualified Data.HashMap.Lazy as HashMap
 
--------------------------------------
---- Hash join / clustering / nub
---------------------------------
+-- Hash join / clustering / nub
 
 {- | Remove duplicates by a stable identity.
 

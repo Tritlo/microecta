@@ -1,6 +1,3 @@
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Interned nodes and edges with a constraint parameter.
 module Data.Tree.FTA.Interned.Type (
     RecNodeId (..),
@@ -48,11 +45,7 @@ import Data.Interned.Extended.HashTableBased
 import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
 
----------------------------------------------------------------------------------------------
-
------------------------------------------------------------------
--------------------------- Mu node table ------------------------
------------------------------------------------------------------
+-- Mu node table
 
 -- | Internal identifier for references to recursive Interned automaton nodes.
 data RecNodeId
@@ -129,9 +122,7 @@ instance Hashable IntersectId where
     hashWithSalt salt (UnsafeIntersectId left right) =
         salt `hashWithSalt` left `hashWithSalt` right
 
------------------------------------------------------------------
------------------------------ Edges -----------------------------
------------------------------------------------------------------
+-- Edges
 
 -- | One outgoing alternative of an Interned automaton node.
 data Edge symbol constraint = InternedEdge
@@ -168,9 +159,7 @@ instance Ord (Edge symbol constraint) where
 instance Hashable (Edge symbol constraint) where
     hashWithSalt s e = s `hashWithSalt` (edgeId e)
 
------------------------------------------------------------------
------------------------------- Nodes ----------------------------
------------------------------------------------------------------
+-- Nodes
 
 -- | Interned recursive node payload.
 data InternedMu symbol constraint = MkInternedMu
@@ -287,9 +276,7 @@ freeVars (InternedNode node) = internedNodeFree node
 freeVars (InternedMu mu) = Set.delete (RecInt (internedMuId mu)) (freeVars (internedMuBody mu))
 freeVars (Rec i) = Set.singleton i
 
-----------------------
------- Getters and setters
-----------------------
+-- Getters and setters
 
 -- | Stable interned identity for non-empty, interned nodes.
 {-# INLINEABLE nodeIdentity #-}
@@ -306,9 +293,7 @@ setChildren ::
     Edge symbol constraint -> [Node symbol constraint] -> Edge symbol constraint
 setChildren e ns = mkEdge (edgeSymbol e) ns (edgeConstraint e)
 
------------------------------------------------------------------
-------------------------- Interning Nodes -----------------------
------------------------------------------------------------------
+-- Interning Nodes
 
 -- | Non-canonical node description used before hash-consing.
 data UninternedNode symbol constraint
@@ -468,9 +453,7 @@ o It /is/ important that the placeholder we pick here is uniquely determined by 
 shape :: (RecNodeId -> Node symbol constraint) -> Node symbol constraint
 shape f = f (RecUnint (numNestedMu (f RecDepth)))
 
------------------------------------------------------------------
------------------------- Interning Edges ------------------------
------------------------------------------------------------------
+-- Interning Edges
 
 -- | Edge payload before interning.
 data UninternedEdge symbol constraint = UninternedEdge
@@ -512,13 +495,9 @@ internEdge ::
     (Hashable symbol, Typeable symbol, Constraint constraint) => UninternedEdge symbol constraint -> Edge symbol constraint
 internEdge = intern
 
------------------------------------------------------------------
------------------------ Smart constructors ----------------------
------------------------------------------------------------------
+-- Smart constructors
 
--------------------
------- Edge constructors
--------------------
+-- Edge constructors
 
 -- | Build or match an unconstrained edge.
 pattern Edge ::
@@ -552,9 +531,7 @@ mkEdge s ns ecs
     | contradictory ecs = emptyEdge s
     | otherwise = internEdge $ UninternedEdge s ns ecs
 
--------------------
------- Node constructors
--------------------
+-- Node constructors
 
 {-# COMPLETE Node, EmptyNode, Mu, Rec #-}
 
@@ -587,7 +564,7 @@ modifyNode n@(Node es) f =
                 Node es'
 modifyNode _ _ = error "modifyNode: unexpected empty, recursive, or unresolved node"
 
------- Mu
+-- Mu
 
 {- | Pattern only a Mu constructor
 
@@ -721,7 +698,7 @@ substFree' ::
 substFree' env node = case substitutionPlan node of
     SubstitutionPlan f -> f env
 
------- Substitution internals
+-- Substitution internals
 
 {- | A graph rebuild prepared for an environment of recursive substitutions.
 
