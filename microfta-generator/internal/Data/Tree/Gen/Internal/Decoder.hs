@@ -335,14 +335,21 @@ dispatchParts :: (Integral rank) => [(rank, rank -> a)] -> rank -> a
 dispatchParts [(offset, decode)]
     | offset == 0 = decode
     | otherwise = \index -> decode (index - offset)
-dispatchParts parts =
-    let table = Map.fromDistinctAscList parts
-     in \index ->
-            case Map.lookupLE index table of
-                Just (offset, decode) -> decode (index - offset)
-                Nothing -> case parts of
-                    (offset, decode) : _ -> decode (index - offset)
-                    [] ->
-                        error
-                            "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchParts: \
-                            \no part to dispatch to"
+dispatchParts parts = compileTable (Map.fromDistinctAscList parts)
+  where
+    -- \| Compile the branches once to avoid allocating a lookup result per rank.
+    compileTable table
+        | Map.null table =
+            error
+                "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchParts: \
+                \no part to dispatch to"
+        | Map.size table == 1 =
+            let (offset, decode) = Map.findMin table
+             in \index -> decode (index - offset)
+        | otherwise =
+            let (low, high) = Map.splitAt (Map.size table `quot` 2) table
+                pivot = fst (Map.findMin high)
+                decodeLow = compileTable low
+                decodeHigh = compileTable high
+             in \index ->
+                    if index < pivot then decodeLow index else decodeHigh index
