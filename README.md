@@ -19,6 +19,9 @@ Bounded annotated imports count nested equality and overlapping alternatives sym
 `microlta` interprets refinement-labelled automata with a solver.
 `microlta-generator` compiles guarded sources and bounded imports into pure generation.
 
+GHC 9.14 is the supported compiler series. The workspace selects GHC 9.14.1.
+The packages require `base >=4.22 && <4.23` and `containers >=0.8 && <0.9`.
+
 Build and test the workspace:
 
 ```sh

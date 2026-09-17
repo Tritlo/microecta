@@ -209,7 +209,7 @@ isPureSupport _ = False
 isFrequencyEdge :: Edge Symbol -> Bool
 isFrequencyEdge edge =
     isFrequencySymbol (edgeSymbol edge)
-        && length (edgeChildren edge) == 1
+        && compareLength (edgeChildren edge) 1 == EQ
         && edgeEcs edge == EmptyConstraints
 
 -- | Close one private applicative term spine with a domain constructor.

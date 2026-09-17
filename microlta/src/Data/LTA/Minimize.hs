@@ -101,7 +101,7 @@ similarity :: Subtyping -> Automaton -> IO (Either SimilarityError Similarity)
 similarity subtyping automaton = go [] $ unorderedPairs $ locatedTransitions automaton
   where
     go related [] = pure $ Right $ Similarity automaton $ reverse related
-    go related (((leftId, left) :&: (rightId, right)) : rest) = do
+    go related (((leftId, left), (rightId, right)) : rest) = do
         leftToRight <- isTransitionSubtypeOf subtyping automaton left right
         case leftToRight of
             Yes -> go ((leftId, rightId) : related) rest
@@ -258,10 +258,7 @@ locatedTransitions automaton =
     , (ordinal, transition) <- zip [0 ..] transitions
     ]
 
--- | An unordered pair without exposing a tuple nested inside the recursion pattern.
-data Pair a = a :&: a
-
 -- | Every unordered pair of distinct list elements, preserving first-seen order.
-unorderedPairs :: [a] -> [Pair a]
+unorderedPairs :: [a] -> [(a, a)]
 unorderedPairs [] = []
-unorderedPairs (value : rest) = map (value :&:) rest <> unorderedPairs rest
+unorderedPairs (value : rest) = [(value, other) | other <- rest] <> unorderedPairs rest
