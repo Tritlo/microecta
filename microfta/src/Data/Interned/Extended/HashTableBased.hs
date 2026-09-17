@@ -21,9 +21,7 @@ of the package README.
 -}
 module Data.Interned.Extended.HashTableBased (
     Id,
-    Cache (..),
-    freshCache,
-    freshCachePair,
+    Cache,
     freshCacheWith,
     Interned (..),
     intern,
@@ -47,29 +45,9 @@ data Cache t = Cache
     -- ^ Map from structural descriptions to canonical interned values.
     }
 
--- | Allocate an empty interning cache.
-freshCache :: IO (Cache t)
-freshCache =
-    Cache
-        <$> newIORef 0
-        <*> newIORef HashMap.empty
-
 -- | Allocate a typed cache that uses a shared identity counter.
 freshCacheWith :: IORef Id -> IO (Cache t)
 freshCacheWith ids = Cache ids <$> newIORef HashMap.empty
-
-{- | Allocate two empty caches that draw identities from one counter.
-
-Use this when one logical interned type has separate fast-path and fallback
-tables: their contents need not mix, but their public identities must remain
-globally distinct.
--}
-freshCachePair :: IO (Cache left, Cache right)
-freshCachePair = do
-    ids <- newIORef 0
-    left <- Cache ids <$> newIORef HashMap.empty
-    right <- Cache ids <$> newIORef HashMap.empty
-    return (left, right)
 
 -- | Values that can be hash-consed through a global cache.
 class

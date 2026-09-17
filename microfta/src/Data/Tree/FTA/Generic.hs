@@ -14,7 +14,6 @@ module Data.Tree.FTA.Generic (
     HasFTA (encodeTerm, decodeTerm),
     TypedFTA,
     datatypeFTA,
-    datatypeEncode,
     datatypeDecode,
     decodeLabelledTerm,
     annotateDatatype,
@@ -31,7 +30,6 @@ module Data.Tree.FTA.Generic (
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, (<=<))
-import Data.Hashable (Hashable (hashWithSalt))
 import Data.Kind (Type)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
@@ -62,12 +60,6 @@ data Constructor = Constructor
     }
     deriving (Eq, Ord, Show)
 
-instance Hashable Constructor where
-    hashWithSalt salt constructor =
-        salt
-            `hashWithSalt` constructorLabel constructor
-            `hashWithSalt` [(fieldPosition field, fieldName field, show $ fieldType field) | field <- constructorFields constructor]
-
 -- | Find a named record field. Positional fields have no selector name.
 fieldNamed :: String -> Constructor -> Maybe Field
 fieldNamed name = find ((== Just name) . fieldName) . constructorFields
@@ -95,8 +87,6 @@ constructorLabel constructor = encodeName (typeLabel $ constructorType construct
 data TypedFTA guard a = TypedFTA
     { datatypeFTA :: !(FTA.FTA TypeRep Constructor guard)
     -- ^ The finite grammar, including any caller-supplied annotations.
-    , datatypeEncode :: a -> Tree.Tree Constructor
-    -- ^ Encode a value. The codec does not restrict the configured domains.
     , datatypeDecode :: Tree.Tree Constructor -> Maybe a
     -- ^ Decode a value. The codec does not interpret transition annotations.
     }
@@ -202,7 +192,7 @@ deriveFTAWith :: forall a. (HasFTA a) => Domains -> Either DeriveError (TypedFTA
 deriveFTAWith (Domains domains) = do
     rows <- visit [] Map.empty (describeType $ Proxy @a)
     graph <- either (Left . InvalidDerivedFTA) Right $ FTA.mkFTA (typeRep $ Proxy @a) (Map.toList rows)
-    pure $ TypedFTA graph encodeTerm decodeTerm
+    pure $ TypedFTA graph decodeTerm
   where
     visit ancestors rows description
         | Map.member typ rows = Right rows

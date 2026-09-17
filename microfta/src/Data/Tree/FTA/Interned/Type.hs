@@ -781,9 +781,3 @@ edgeSubstitutionPlan inputEdge = memoTypeableWith genericEdgeSubstitutionPlanCac
     onEdge e =
         SubstitutionPlan $ case sequenceSubstitutionPlans (map substitutionPlan (edgeChildren e)) of
             SubstitutionPlan !f -> setChildren e . f
-
--- | Display the interned payloads through the same graph representation.
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (InternedNode symbol constraint)
-
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (InternedMu symbol constraint)
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (UninternedEdge symbol constraint)

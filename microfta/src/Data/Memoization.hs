@@ -23,7 +23,6 @@ number of distinct inputs rather than with the work done. See the memory
 section of the package README.
 -}
 module Data.Memoization (
-    MemoCacheTag (..),
     MemoCache,
     TypeableMemoCache,
     newMemoCache,
@@ -42,20 +41,9 @@ import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import GHC.IO (unsafeDupablePerformIO)
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
-
-{- | Name of a memo table.
-
-The name is not stored in the table. It labels the call site for readers and
-makes distinct source uses visibly distinct; table identity still belongs to
-the particular 'memo' application, not to the text of the tag.
--}
-newtype MemoCacheTag
-    = NameTag Text
-    deriving (Eq, Ord, Show)
 
 memoIO :: forall a b. (Hashable a) => (a -> b) -> IO (a -> IO b)
 memoIO f = do
@@ -76,9 +64,9 @@ memoIO f = do
     return f'
 
 -- | Memoize a pure unary function in a process-global mutable hash table.
-memo :: (Hashable a) => MemoCacheTag -> (a -> b) -> (a -> b)
+memo :: (Hashable a) => (a -> b) -> (a -> b)
 {-# NOINLINE memo #-}
-memo !_tag f =
+memo f =
     let f' = unsafePerformIO (memoIO f)
      in \x -> unsafePerformIO (f' x)
 
@@ -90,8 +78,8 @@ entry. On a workload with 64k distinct first arguments that costs 167 MB
 against this version's 68 MB, for no gain: measured on the core benchmark, the
 pair key is within noise on time and allocates 0.1% more.
 -}
-memo2 :: (Hashable a, Hashable b) => MemoCacheTag -> (a -> b -> c) -> a -> b -> c
-memo2 tag f = curry (memo tag (uncurry f))
+memo2 :: (Hashable a, Hashable b) => (a -> b -> c) -> a -> b -> c
+memo2 f = curry (memo (uncurry f))
 
 {- | A memo table whose argument and result types are known statically.
 

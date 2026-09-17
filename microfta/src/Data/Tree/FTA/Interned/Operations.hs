@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Constraint-independent operations on shared interned automata.
 module Data.Tree.FTA.Interned.Operations (
     nodeMapChildren,
@@ -14,7 +12,6 @@ module Data.Tree.FTA.Interned.Operations (
     edgeCount,
     maxIndegree,
     union,
-    unionMapMaybe,
     nodeRepresentsWith,
     edgeRepresentsWith,
     dropEdgeConstraints,
@@ -33,7 +30,7 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -69,7 +66,7 @@ mapNodes f = go
   where
     -- This table belongs to this transformation.
     go :: Node symbol constraint -> Node symbol constraint
-    go = memo (NameTag "mapNodes") (mapNodesStep go f)
+    go = memo (mapNodesStep go f)
     {-# NOINLINE go #-}
 
 -- | Perform one recursive traversal step using the supplied recursive call.
@@ -456,13 +453,6 @@ special handling.
 {-# INLINEABLE union #-}
 union :: (Hashable symbol, Typeable symbol, Constraint constraint) => [Node symbol constraint] -> Node symbol constraint
 union = Node . concatMap nodeEdges
-
--- | Union the nodes a partial function produces; see 'union'.
-{-# INLINEABLE unionMapMaybe #-}
-unionMapMaybe ::
-    (Hashable symbol, Typeable symbol, Constraint constraint) =>
-    (a -> Maybe (Node symbol constraint)) -> [a] -> Node symbol constraint
-unionMapMaybe f = union . mapMaybe f
 
 -- | Recognize a term with an explicit pure constraint interpreter.
 {-# INLINEABLE nodeRepresentsWith #-}

@@ -6,7 +6,6 @@ and concrete-term interpreter. Nodes and edges retain canonical identities.
 -}
 module Data.Tree.FTA.Interned (
     PlainNode,
-    PlainEdge,
     InternedState,
     FTAViewError (..),
     FTAImportError (..),
@@ -36,9 +35,6 @@ import Data.Tree.FTA.Interned.Type
 
 -- | An interned ordinary automaton.
 type PlainNode symbol = Node symbol ()
-
--- | An interned ordinary transition.
-type PlainEdge symbol = Edge symbol ()
 
 -- | State identity in the explicit view of an interned automaton.
 data InternedState = EmptyState | InternedState !Int
