@@ -1,5 +1,5 @@
 -- | Backend-independent value and rank sampling.
-module Data.Tree.Gen.Internal.Sampler (
+module Data.Ranked.Internal.Sampler (
     GenBackend (..),
     Exact (..),
     Sampler (..),
@@ -28,7 +28,7 @@ import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
 import GHC.Arr (listArray, unsafeAt)
 
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Size (
     SizeIndex,
     countAtSize,
     sizeClassSelect,
@@ -182,7 +182,7 @@ atomicSampleIndex sampler =
   where
     wrongSize size =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Sampler.atomicSampleIndex: "
+            "microfta-generator bug in Data.Ranked.Internal.Sampler.atomicSampleIndex: "
                 <> "an atom has no members of size "
                 <> show size
 
@@ -193,7 +193,7 @@ emptySampleIndex =
   where
     unavailable =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Sampler.emptySampleIndex: "
+            "microfta-generator bug in Data.Ranked.Internal.Sampler.emptySampleIndex: "
                 <> "an empty language has no members to sample"
 
 -- | Map sampled values while keeping their size-class positions.
@@ -432,7 +432,7 @@ chooseWeighted [(_, generated)] = generated
 chooseWeighted alternatives@(_ : _ : _) = frequencyGen alternatives
 chooseWeighted [] =
     error $
-        "microfta-generator bug in Data.Tree.Gen.Internal.Sampler.chooseWeighted: "
+        "microfta-generator bug in Data.Ranked.Internal.Sampler.chooseWeighted: "
             <> "no live alternative"
 
 -- | Choose from exact rational masses after removing their common scale.
@@ -445,7 +445,7 @@ chooseMassWeighted alternatives =
         weighted@(_ : _ : _) -> frequencyGen weighted
         [] ->
             error $
-                "microfta-generator bug in Data.Tree.Gen.Internal.Sampler.chooseMassWeighted: "
+                "microfta-generator bug in Data.Ranked.Internal.Sampler.chooseMassWeighted: "
                     <> "no positive mass"
 
 {- | Convert rational masses to the smallest equivalent integer weights.

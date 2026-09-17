@@ -25,7 +25,7 @@ This module belongs to the @internal@ sublibrary. It is an integration
 interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
 -}
-module Data.Tree.Gen.Internal.Size (
+module Data.Ranked.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
     probeIndex,
     probeIndexWithMinimum,
@@ -43,7 +43,7 @@ module Data.Tree.Gen.Internal.Size (
     sizeClasses,
 ) where
 
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Decoder (Plan (..))
 
 {- | The size classes of one language: how many members each holds, and how
 to select one by its position in the class.
@@ -89,15 +89,15 @@ probeIndexWithMinimum :: Maybe Int -> SizeIndex a
 probeIndexWithMinimum minimumSize' =
     SizeIndex
         ( error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.probeIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.probeIndex: \
             \a probe counts no size classes; only its metadata is read"
         )
         ( error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.probeIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.probeIndex: \
             \a probe decodes no members; only its metadata is read"
         )
         ( error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.probeIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.probeIndex: \
             \a probe decodes no members; only its metadata is read"
         )
         minimumSize'
@@ -169,13 +169,13 @@ sizeIndex (PlanSelect cardinality' decode) =
     select 1 position = (position, decode position)
     select size _ =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.sizeIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.sizeIndex: \
             \a leaf has no members of size "
                 <> show size
     selectInt 1 position = decode $ toInteger position
     selectInt size _ =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.sizeIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.sizeIndex: \
             \a leaf has no members of size "
                 <> show size
 sizeIndex (PlanSelectOnDemand cardinality' decode) =
@@ -235,14 +235,14 @@ sizeIndex (PlanSized classes) =
         (_, offset, _, decode, _) : _ -> (offset + position, decode position)
         [] ->
             error $
-                "microfta-generator bug in Data.Tree.Gen.Internal.Size.sizeIndex: \
+                "microfta-generator bug in Data.Ranked.Internal.Size.sizeIndex: \
                 \no size class of size "
                     <> show size
     selectInt size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
         (_, _, _, _, decodeInt) : _ -> decodeInt position
         [] ->
             error $
-                "microfta-generator bug in Data.Tree.Gen.Internal.Size.sizeIndex: \
+                "microfta-generator bug in Data.Ranked.Internal.Size.sizeIndex: \
                 \no size class of size "
                     <> show size
 
@@ -254,7 +254,7 @@ constantIndex value =
     select 1 0 = (0, value)
     select size position =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.constantIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.constantIndex: \
             \no member at size "
                 <> show size
                 <> " position "
@@ -262,7 +262,7 @@ constantIndex value =
     selectInt 1 0 = value
     selectInt size position =
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.constantIndex: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.constantIndex: \
             \no member at size "
                 <> show size
                 <> " position "
@@ -379,7 +379,7 @@ rankAt ranks size position = case drop (size - 1) ranks of
     rank : _ -> rank + position
     [] ->
         error $
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.rankAt: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.rankAt: \
             \no size class of size "
                 <> show size
 
@@ -407,7 +407,7 @@ partAt size = go
   where
     go [] _ =
         error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.partAt: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.partAt: \
             \position outside the size class"
     go ((offset, inner) : rest) position
         | position < count = (offset, inner, position)
@@ -421,7 +421,7 @@ partAtInt size = go
   where
     go [] _ =
         error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.partAtInt: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.partAtInt: \
             \position outside the size class"
     go (inner : rest) position
         | position < count = (inner, position)
@@ -442,7 +442,7 @@ productSplit indexF indexX size = go [1 .. size - 1]
   where
     go [] _ =
         error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.productSplit: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.productSplit: \
             \position outside the product size class"
     go (functionSize : rest) position
         | position < block =
@@ -464,7 +464,7 @@ productSplitInt indexF indexX size = go [1 .. size - 1]
   where
     go [] _ =
         error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Size.productSplitInt: \
+            "microfta-generator bug in Data.Ranked.Internal.Size.productSplitInt: \
             \position outside the product size class"
     go (functionSize : rest) position
         | position < block =

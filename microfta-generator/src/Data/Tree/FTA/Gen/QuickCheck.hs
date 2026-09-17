@@ -9,9 +9,9 @@ module Data.Tree.FTA.Gen.QuickCheck (
 
 import qualified Test.QuickCheck as QC
 
+import qualified Data.Ranked.QuickCheck as Ranked
 import Data.Tree.FTA.Gen
 import Data.Tree.FTA.Gen.Do
-import qualified Data.Tree.Gen.QuickCheck as Ranked
 
 -- | Lower a finite FTA generator to QuickCheck.
 toGen :: FTAGen symbol a -> QC.Gen a

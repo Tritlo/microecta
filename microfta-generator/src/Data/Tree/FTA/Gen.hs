@@ -32,12 +32,12 @@ import qualified Data.Map.Lazy as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Tree as Tree
 
+import Data.Ranked (Ranked, RankedError)
+import qualified Data.Ranked as Ranked
+import qualified Data.Ranked.Internal as Internal
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Automaton
 import Data.Tree.FTA.Generic (Constructor, TypedFTA, datatypeDecode, datatypeFTA)
-import Data.Tree.Gen (Ranked, RankedError)
-import qualified Data.Tree.Gen as Ranked
-import qualified Data.Tree.Gen.Internal as Internal
 import Data.Typeable (TypeRep)
 
 -- | A finite ranked language whose members retain their ordinary FTA terms.
