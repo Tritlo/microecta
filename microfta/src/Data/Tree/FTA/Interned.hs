@@ -103,7 +103,8 @@ newtype FTAImportError state = RecursiveFTAState state
 {- | Intern an acyclic explicit-state graph without interpreting constraints.
 
 Each state is compiled once. Use 'FTA.boundDepth' before importing a recursive
-graph. Constraint layers can annotate the source before this conversion.
+graph. The cycle check covers the whole transition table, so a cycle among
+unreachable states is also rejected. Constraint layers can annotate the source before this conversion.
 -}
 fromFTA ::
     (Ord state, Hashable symbol, Typeable symbol, Constraint constraint) =>

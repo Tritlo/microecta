@@ -214,6 +214,8 @@ deriveFTA = deriveFTAWith mempty
 
 States are fully applied types. A repeated type reuses its row. Recursion that
 grows a type argument is rejected before it can create an infinite state set.
+The check is syntactic: a type constructor applied to a larger argument than
+an ancestor on the same path is rejected, even when that growth would stop.
 -}
 deriveFTAWith :: forall a. (HasFTA a) => Domains -> Either DeriveError (TypedFTA () a)
 deriveFTAWith (Domains domains) = do

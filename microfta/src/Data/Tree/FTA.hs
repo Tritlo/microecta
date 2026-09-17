@@ -3,9 +3,8 @@
 {- | Ordinary finite-state tree automata.
 
 An FTA has a finite set of states and ranked transitions. The @guard@ parameter
-is merely a transition annotation: use @()@ for an ordinary FTA,
-"Data.ECTA.Paths" equality constraints for an ECTA view, or a liquid guard for
-an LTA. Constraint theories stay in their own packages.
+is only a transition annotation: use @()@ for an ordinary FTA, or a constraint
+from a constraint theory. Constraint theories stay in their own packages.
 
 Cycles are valid and describe infinite tree languages. Consumers that require
 a finite language can inspect 'cycleState'. 'intersect' constructs the standard
@@ -228,7 +227,8 @@ stripGuards = void
 
 A leaf has depth zero. A negative bound produces an empty initial state.
 Equal state-depth pairs share one row. The result has consecutive integer
-states. Labels, constraints, and transition order remain unchanged.
+states. A state that has no transition within its remaining depth keeps an
+empty row; the interned import removes such dead alternatives. Labels, constraints, and transition order remain unchanged.
 -}
 boundDepth :: (Ord state) => Int -> FTA state symbol guard -> FTA Int symbol guard
 boundDepth maximumDepth automaton

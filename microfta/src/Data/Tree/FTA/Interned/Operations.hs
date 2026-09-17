@@ -55,7 +55,12 @@ nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
 nodeMapChildren f (Node es) = Node (map f es)
 nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
--- | Transform each reachable node. Memoize separately for each transformation.
+{- | Transform each reachable node. Memoize separately for each transformation.
+
+Under a 'Mu', the body is rebuilt three times with different placeholders, so
+the function also receives 'Rec' nodes that hold 'RecDepth' and 'RecUnint'.
+Return such nodes unchanged.
+-}
 {-# INLINEABLE mapNodes #-}
 mapNodes ::
     forall symbol constraint.
@@ -366,7 +371,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             -- Always intersect nodes in the same order. This is important for two reasons:
             --
             -- 1. It will increase the probability of a cache hit (i.e., improve memoization)
-            -- 2. It will increase the probability of being able to use 'ieRecInt'
+            -- 2. It will increase the probability of being able to use 'idRecInt'
             _ | l > r -> intersectOpen (dom, r, l)
             -- If we have seen this exact problem before, refer to enclosing Mu.
             _ | Set.member (IntersectId i j) (idRecInt dom) -> Rec (RecIntersect (IntersectId i j))
@@ -375,7 +380,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
             (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
             -- When encountering a free variable, look up the corresponding value in the environment.
-            -- (Recall that the case for already-seen intersection problems is are handled above.)
+            -- (Recall that already-seen intersection problems are handled above.)
             (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
             (_, Rec r') -> intersectOpen (dom, l, findFreeVar r')
             -- Finally, the real intersection work happens here

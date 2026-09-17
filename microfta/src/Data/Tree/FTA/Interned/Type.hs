@@ -373,7 +373,7 @@ identifyNode i (UninternedMu depthShape s n) =
         MkInternedMu
             { internedMuId = i
             , internedMuBody = n (RecInt i)
-            , -- In order to establish the invariant for internedMuNoId, we need to know
+            , -- In order to establish the invariant for internedMuShape, we need to know
               --
               -- >    substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
               -- > == internedMuShape
@@ -556,7 +556,7 @@ An identity function
 will run in O(1) time:
 
 > foo (Mu f) = Mu f
->   -- { expand view patern }
+>   -- { expand view pattern }
 > foo node | Just f <- matchMu node = createMu f
 >   -- { case for @InternedMu mu@ }
 > foo (InternedMu mu) | Just f <- matchMu (InternedMu m) = createMu f
@@ -565,7 +565,7 @@ will run in O(1) time:
 >                          if | n' == Rec (RecUnint (numNestedMu (internedMuBody mu))) ->
 >                                internedMuShape mu
 >                            | n' == Rec RecDepth ->
->                                internedMuShape mu
+>                                internedMuDepthShape mu
 >                            | otherwise ->
 >                                substFree (internedMuId mu) n' (internedMuBody mu)
 >                       in createMu f

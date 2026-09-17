@@ -54,10 +54,8 @@ memo f = unsafePerformIO $ do
 {- | Memoize a pure binary function in one table keyed by the pair.
 
 Nesting two unary tables instead would allocate a fresh hash table for every
-distinct first argument -- around a kilobyte each, before storing a single
-entry. On a workload with 64k distinct first arguments that costs 167 MB
-against this version's 68 MB, for no gain: measured on the core benchmark, the
-pair key is within noise on time and allocates 0.1% more.
+distinct first argument, before storing a single entry. One table keyed by the
+pair costs the same time on the core benchmark.
 -}
 memo2 :: (Hashable a, Hashable b) => (a -> b -> c) -> a -> b -> c
 memo2 f = curry (memo (uncurry f))
