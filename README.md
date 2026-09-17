@@ -33,11 +33,10 @@ Interning, recursive substitution, traversal, union, and structural intersection
 use the same implementation. Constraint interpretation stays in its own layer.
 `Data.LTA.fromInterned` validates an interned liquid graph for LTA operations.
 
-`Data.Tree.FTA.Syntax`
-constructs ordinary FTAs; `Data.ECTA.FTA.Syntax` owns equality-constrained
-transitions, while `Data.LTA.Syntax` owns refinement-labelled transitions whose
-guards use the paper's complete Boolean LTA constraint language. Constraint
-theories remain in their own namespaces.
+Ordinary and equality-constrained automata are built with `Data.Tree.FTA.mkFTA`.
+`Data.LTA.Syntax` owns refinement-labelled transitions whose guards use the
+paper's complete Boolean LTA constraint language. Constraint theories remain
+in their own namespaces.
 
 `microfta-generator` owns `Data.Tree.Gen`, which provides exact
 finite ranks, backend-independent sampling, and shrinking, while
@@ -170,17 +169,13 @@ hlint --ignore-suggestions microfta microfta-generator microecta microecta-gener
 cabal-gild --mode check */*.cabal
 ```
 
-The examples in the public entry-point modules are executable. Run them with
+The examples in the ECTA entry-point modules are executable. Run them with
 [`doctest`](https://hackage.haskell.org/package/doctest):
 
 ```sh
 cabal install doctest
-cabal repl --with-repl=doctest lib:microfta
-cabal repl --with-repl=doctest lib:microfta-generator
 cabal repl --with-repl=doctest lib:microecta
 cabal repl --with-repl=doctest lib:microecta-generator
-cabal repl --with-repl=doctest lib:microlta
-cabal repl --with-repl=doctest lib:microlta-generator
 ```
 
 `scripts/release.sh PACKAGE --check-only` validates one package and the local
