@@ -234,14 +234,18 @@ dropConstraints node = memoTypeableWith genericDropConstraintsCache go node
 
 -- Intersect
 
--- | Remove edges that are subsumed by another edge with the same symbol.
+{- | Remove edges that are subsumed by another edge with the same symbol.
+
+The input is the alternative list of a node, which is already free of
+duplicates. The comparison order within a symbol group follows the input.
+-}
 {-# INLINEABLE dropRedundantEdges #-}
 dropRedundantEdges ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) => [Edge symbol constraint] -> [Edge symbol constraint]
 dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
-    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
+    clusters = clusterByHash edgeSymbol origEs
 
     reduceCluster :: [Edge symbol constraint] -> [Edge symbol constraint]
     reduceCluster [] = []
