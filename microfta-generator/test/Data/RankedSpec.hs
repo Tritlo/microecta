@@ -1,11 +1,11 @@
-module Data.Tree.GenSpec (spec) where
+module Data.RankedSpec (spec) where
 
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
-import qualified Data.Tree.Gen as Tree
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import qualified Data.Ranked as Tree
+import Data.Ranked.Internal.Sampler (Exact (..))
 
 spec :: Spec
 spec = do

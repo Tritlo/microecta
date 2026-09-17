@@ -21,7 +21,7 @@ import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (singletonNode)
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.
 data KeyedBucket a = KeyedBucket

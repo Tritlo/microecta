@@ -2,7 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- | QuickCheck lowering for finite ranked generators.
-module Data.Tree.Gen.QuickCheck (
+module Data.Ranked.QuickCheck (
     toGen,
     toGenWithRank,
     forAll,
@@ -12,7 +12,7 @@ import Data.List (mapAccumL, sortOn)
 import Data.Ord (Down (Down))
 import qualified Test.QuickCheck as QC
 
-import qualified Data.Tree.Gen as Tree
+import qualified Data.Ranked as Tree
 
 newtype QuickCheckBackend a = QuickCheckBackend (QC.Gen a)
     deriving newtype (Functor, Applicative)
