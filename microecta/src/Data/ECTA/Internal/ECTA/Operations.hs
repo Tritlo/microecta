@@ -60,7 +60,7 @@ module Data.ECTA.Internal.ECTA.Operations (
 
 import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
-import Data.List (inits, tails)
+import Data.List (compareLength, inits, tails, (!?))
 import Data.Maybe (mapMaybe)
 import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
@@ -82,7 +82,7 @@ import Data.Memoization (
     newMemoCache,
     newTypeableMemoCache,
  )
-import Utility.List (adjustAt, atMay)
+import Utility.List (adjustAt)
 
 ------------------------------------------------------------------------------------
 
@@ -147,7 +147,7 @@ requirePath (ConsPath p ps) (Node es) =
     Node
         $ map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e)))
         $ filter
-            (\e -> length (edgeChildren e) > p)
+            (\e -> compareLength (edgeChildren e) p == GT)
             es
 requirePath _ (Rec _) = error "requirePath: unexpected Rec"
 
@@ -165,7 +165,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
-        goEdge (Edge _ ns) = getPath ps <$> atMay p ns
+        goEdge (Edge _ ns) = getPath ps <$> ns !? p
     getPath p _ = error $ "getPath: unexpected path " <> show p <> " for unresolved node"
 
     getAllAtPath _ EmptyNode = []
@@ -174,7 +174,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
-        goEdge (Edge _ ns) = atMay p ns
+        goEdge (Edge _ ns) = ns !? p
     getAllAtPath p _ = error $ "getAllAtPath: unexpected path " <> show p <> " for unresolved node"
 
     modifyAtPath f EmptyPath n = f n
@@ -190,12 +190,12 @@ instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symb
     type Emptyable (Node symbol) = Node symbol
 
     getPath EmptyPath ns = union ns
-    getPath (ConsPath p ps) ns = case atMay p ns of
+    getPath (ConsPath p ps) ns = case ns !? p of
         Nothing -> EmptyNode
         Just n -> getPath ps n
 
     getAllAtPath EmptyPath _ = []
-    getAllAtPath (ConsPath p ps) ns = case atMay p ns of
+    getAllAtPath (ConsPath p ps) ns = case ns !? p of
         Nothing -> []
         Just n -> getAllAtPath ps n
 

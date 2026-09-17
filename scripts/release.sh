@@ -118,6 +118,8 @@ if [[ ${#dependencies[@]} -gt 0 ]]; then
   done
 
   {
+    echo "with-compiler: ghc-9.14.1"
+    echo
     echo "packages:"
     printf '  %s\n' "${project_packages[@]}"
     echo
@@ -132,7 +134,7 @@ if [[ ${#dependencies[@]} -gt 0 ]]; then
 else
   (
     cd "$release_tmp/$package-$version"
-    cabal test all -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test all --with-compiler=ghc-9.14.1 -O2 --ghc-options=-Werror --test-show-details=direct
   )
 fi
 

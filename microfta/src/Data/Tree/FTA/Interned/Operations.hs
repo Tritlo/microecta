@@ -29,8 +29,10 @@ module Data.Tree.FTA.Interned.Operations (
 import Control.Monad.State.Strict (State, evalState, get, modify')
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (Hashable (..))
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
@@ -92,20 +94,20 @@ guarantees about traversal order.
 -}
 {-# INLINEABLE crush #-}
 crush :: forall symbol constraint m. (Monoid m) => (Node symbol constraint -> m) -> Node symbol constraint -> m
-crush f = \n -> evalState (go n) Set.empty
+crush f = \n -> evalState (go n) IntSet.empty
   where
-    go :: Node symbol constraint -> State (Set Id) m
+    go :: Node symbol constraint -> State IntSet m
     go EmptyNode = return mempty
     go (Rec _) = return mempty
     go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
     go n@(InternedNode node) = do
         seen <- get
         let nId = nodeIdentity n
-        if Set.member nId seen
+        if IntSet.member nId seen
             then
                 return mempty
             else do
-                modify' (Set.insert nId)
+                modify' (IntSet.insert nId)
                 mappend (f n) . mconcat <$> mapM (\e -> mconcat <$> mapM go (edgeChildren e)) (internedNodeEdges node)
 
 -- | Run a fold function only on normal non-recursive nodes.
@@ -331,7 +333,7 @@ intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 Information required to compute the intersection of open terms.
 -}
 data IntersectionDom symbol constraint = ID
-    { idFree :: Map Id (Node symbol constraint)
+    { idFree :: IntMap (Node symbol constraint)
     -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
     -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
@@ -341,14 +343,14 @@ data IntersectionDom symbol constraint = ID
 instance Hashable (IntersectionDom symbol constraint) where
     -- Implementation notes:
     --
-    -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
+    -- - Both `IntMap.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
     -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-    hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
+    hashWithSalt s (ID free recInt) = hashWithSalt s (IntMap.toList free, Set.toList recInt)
 
 -- | An intersection environment with no free or pending variables.
 {-# INLINEABLE emptyIntersectionDom #-}
 emptyIntersectionDom :: IntersectionDom symbol constraint
-emptyIntersectionDom = ID Map.empty Set.empty
+emptyIntersectionDom = ID IntMap.empty Set.empty
 
 -- | Tables for node intersection in a recursive environment.
 genericIntersectOpenCache :: TypeableMemoCache
@@ -374,7 +376,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             (EmptyNode, _) -> EmptyNode
             (_, EmptyNode) -> EmptyNode
             -- For closed terms, improve memoization performance by using the empty environment
-            _ | Set.null (freeVars l), Set.null (freeVars r), not (Map.null (idFree dom)) -> l `intersect` r
+            _ | Set.null (freeVars l), Set.null (freeVars r), not (IntMap.null (idFree dom)) -> l `intersect` r
             -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
             _ | l == r, Set.null (freeVars l) -> l
             -- Always intersect nodes in the same order. This is important for two reasons:
@@ -411,14 +413,14 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
         extendEnv :: [(Id, Node symbol constraint)] -> IntersectionDom symbol constraint
         extendEnv bindings =
             ID
-                { idFree = Map.union (Map.fromList bindings) (idFree dom)
+                { idFree = IntMap.union (IntMap.fromList bindings) (idFree dom)
                 , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
                 }
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
         findFreeVar :: RecNodeId -> Node symbol constraint
-        findFreeVar (RecInt intId) | Just n <- Map.lookup intId (idFree dom) = n
+        findFreeVar (RecInt intId) | Just n <- IntMap.lookup intId (idFree dom) = n
         findFreeVar recId = error $ "findFreeVar: unexpected " <> show recId
 
         -- We only insert a 'Mu' node when necessary.

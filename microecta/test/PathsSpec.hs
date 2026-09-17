@@ -1,5 +1,6 @@
 module PathsSpec (spec) where
 
+import qualified Data.IntMap.Lazy as IntMap
 import Data.List (nub, sort, subsequences, (\\))
 
 import Test.Hspec
@@ -28,12 +29,11 @@ instance Arbitrary PathTrie where
 
     shrink EmptyPathTrie = []
     shrink TerminalPathTrie = []
-    shrink (PathTrieSingleChild _ pt) = [pt]
     shrink (PathTrie children) =
-        map snd children
-            ++ [ PathTrie children'
-               | children' <- subsequences children \\ [children]
-               , length children' >= 2
+        IntMap.elems children
+            ++ [ PathTrie (IntMap.fromDistinctAscList children')
+               | children' <- subsequences (IntMap.toAscList children) \\ [IntMap.toAscList children]
+               , not (null children')
                ]
 
 -----------------------------------
