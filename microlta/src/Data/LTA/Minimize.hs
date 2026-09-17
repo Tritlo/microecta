@@ -261,4 +261,4 @@ locatedTransitions automaton =
 -- | Every unordered pair of distinct list elements, preserving first-seen order.
 unorderedPairs :: [a] -> [(a, a)]
 unorderedPairs [] = []
-unorderedPairs (value : rest) = map ((,) value) rest <> unorderedPairs rest
+unorderedPairs (value : rest) = [(value, other) | other <- rest] <> unorderedPairs rest
