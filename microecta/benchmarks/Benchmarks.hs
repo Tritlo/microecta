@@ -4,6 +4,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Data.Function (on)
+import qualified Data.IntMap.Lazy as IntMap
 import Data.List (sort, sortBy)
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
@@ -210,22 +211,8 @@ legacyComparePathTrie _ EmptyPathTrie = GT
 legacyComparePathTrie TerminalPathTrie TerminalPathTrie = EQ
 legacyComparePathTrie TerminalPathTrie _ = LT
 legacyComparePathTrie _ TerminalPathTrie = GT
-legacyComparePathTrie (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2) =
-    case compare i1 i2 of
-        EQ -> legacyComparePathTrie pt1 pt2
-        result -> result
-legacyComparePathTrie (PathTrieSingleChild i1 pt1) (PathTrie ((i2, pt2) : _)) =
-    case compare i1 i2 of
-        EQ -> case legacyComparePathTrie pt1 pt2 of
-            EQ -> LT
-            result -> result
-        result -> result
-legacyComparePathTrie (PathTrieSingleChild _ _) (PathTrie []) =
-    error "legacyComparePathTrie: invalid empty PathTrie children"
-legacyComparePathTrie left@(PathTrie _) right@(PathTrieSingleChild _ _) =
-    flipOrdering $ legacyComparePathTrie right left
 legacyComparePathTrie (PathTrie children1) (PathTrie children2) =
-    legacyComparePathTrieChildren children1 children2
+    legacyComparePathTrieChildren (IntMap.toAscList children1) (IntMap.toAscList children2)
 
 legacyComparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
 legacyComparePathTrieChildren [] [] = EQ
@@ -238,11 +225,6 @@ legacyComparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
         EQ -> case legacyComparePathTrie pt1 pt2 of
             EQ -> legacyComparePathTrieChildren rest1 rest2
             result -> result
-
-flipOrdering :: Ordering -> Ordering
-flipOrdering LT = GT
-flipOrdering EQ = EQ
-flipOrdering GT = LT
 
 typeSearchNode :: Node Symbol
 typeSearchNode =

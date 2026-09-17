@@ -16,7 +16,7 @@ copyright: 2026 Matthias Pall Gissurarson
 license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
-tested-with: ghc ==9.12.2 || ==9.14.1
+tested-with: ghc ==9.14.1
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -93,8 +93,8 @@ library
 
   build-depends:
     array >=0.5 && <0.6,
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microecta >=0.2.0.0 && <0.3,
     microecta-generator:internal,
     microfta >=0.1.0.0 && <0.2,
@@ -113,8 +113,8 @@ library internal
     Data.ECTA.Gen.Internal.Symbolic
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     microecta >=0.2.0.0 && <0.3,
     microfta >=0.1.0.0 && <0.2,
@@ -127,7 +127,7 @@ executable ecta-finite-languages
   hs-source-dirs: examples
   default-language: Haskell2010
   build-depends:
-    base >=4.21 && <5,
+    base >=4.22 && <4.23,
     microecta >=0.2.0.0 && <0.3,
     microecta-generator,
     microfta >=0.1.0.0 && <0.2,
@@ -159,8 +159,8 @@ test-suite unit-tests
     Data.ECTA.TypedExpressionLanguage
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hspec >=2.11 && <2.12,
     microecta >=0.2.0.0 && <0.3,
     microecta-generator,
@@ -182,7 +182,7 @@ benchmark typed-expression-speed
 
   other-modules: Data.ECTA.TypedExpressionLanguage
   build-depends:
-    base >=4.21 && <5,
+    base >=4.22 && <4.23,
     microecta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
@@ -201,8 +201,8 @@ benchmark pool-experiment
 
   other-modules: Data.ECTA.TypedExpressionLanguage
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microecta-generator,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,

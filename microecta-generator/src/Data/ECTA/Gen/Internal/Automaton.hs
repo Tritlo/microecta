@@ -23,7 +23,7 @@ term twice; such an automaton is rejected rather than miscounted.
 module Data.ECTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton) where
 
 import qualified Control.Monad.State.Strict as State
-import Data.List (partition, sortOn, tails)
+import Data.List (compareLength, partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
@@ -183,7 +183,7 @@ finiteAutomaton root =
 needsPathExpansion :: EqConstraints -> Bool
 needsPathExpansion constraints = case subsumptionOrderedEclasses constraints of
     Nothing -> False
-    Just classes -> any (any ((/= 1) . length . unPath) . unPathEClass) classes
+    Just classes -> any (any ((/= EQ) . (`compareLength` 1) . unPath) . unPathEClass) classes
 
 -- | Partition direct child positions into equality classes in child order.
 childGroups :: Int -> EqConstraints -> Maybe [[Int]]
