@@ -1,17 +1,29 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE KindSignatures #-}
 
 {- | Derive a regular tree grammar and term codecs from an algebraic datatype.
 
 Derive 'Generic', then declare an empty 'HasFTA' instance. Recursive fields
-refer to the same type state. Primitive fields need an explicit finite domain.
+refer to the same type state. Atomic fields need an explicit finite domain.
 The grammar describes constructor structure. Constraint layers add invariants.
+
+Atomic types have no constructors in the grammar; their values are literals.
+'Int', 'Integer', 'Char', and 'Text' are atomic. Make another type atomic
+with @deriving via@, or with 'atomic' and handwritten codecs:
+
+@
+deriving via (Atomic Double) instance HasFTA Double
+@
 -}
 module Data.Tree.FTA.Generic (
-    HasFTA (encodeTerm, decodeTerm),
+    HasFTA (..),
+    Description,
+    atomic,
+    Atomic (..),
     TypedFTA,
     datatypeFTA,
     datatypeDecode,
@@ -148,8 +160,25 @@ data DeriveError
 
 -- | Structural alternatives for one type. Child descriptions remain lazy.
 data Description
-    = Atomic TypeRep
-    | Algebraic TypeRep [(Constructor, [Description])]
+    = AtomicType TypeRep
+    | AlgebraicType TypeRep [(Constructor, [Description])]
+
+-- | Describe a type whose values are literals from a finite domain.
+atomic :: forall a. (Typeable a) => Proxy a -> Description
+atomic = AtomicType . typeRep
+
+{- | Make a type atomic through @deriving via@.
+
+Literals are written with 'Show' and read back with 'Read'. The grammar and
+the codecs use the type inside the wrapper, so the wrapper does not appear in
+labels or domains.
+-}
+newtype Atomic a = Atomic a
+
+instance (Typeable a, Show a, Read a) => HasFTA (Atomic a) where
+    describeType _ = atomic (Proxy @a)
+    encodeTerm (Atomic value) = encodeAtomic value
+    decodeTerm = fmap Atomic . decodeAtomic
 
 {- | Datatypes whose finite constructor structure has a regular tree grammar.
 
@@ -162,9 +191,10 @@ grammar, which are the terms 'encodeTerm' produces. The generators decode
 generated terms without a fallback.
 -}
 class (Typeable a) => HasFTA a where
+    -- | Describe the type as atomic, or as its constructors and their fields.
     describeType :: Proxy a -> Description
     default describeType :: (GConstructors (Rep a)) => Proxy a -> Description
-    describeType proxy = Algebraic (typeRep proxy) $ gConstructors (typeRep proxy) (Proxy @(Rep a))
+    describeType proxy = AlgebraicType (typeRep proxy) $ gConstructors (typeRep proxy) (Proxy @(Rep a))
 
     -- | Encode a datatype value as a constructor term.
     encodeTerm :: a -> Tree.Tree Constructor
@@ -195,10 +225,10 @@ deriveFTAWith (Domains domains) = do
         | Map.member typ rows = Right rows
         | Just prior <- find (growsInto typ) ancestors = Left $ NonRegularRecursion prior typ
         | otherwise = case description of
-            Atomic _ -> case Map.lookup typ domains of
+            AtomicType _ -> case Map.lookup typ domains of
                 Nothing -> Left $ MissingDomain typ
                 Just constructors -> Right $ Map.insert typ [FTA.Transition constructor [] () | constructor <- constructors] rows
-            Algebraic _ constructors
+            AlgebraicType _ constructors
                 | Map.member typ domains -> Left $ NonAtomicDomain typ
                 | otherwise ->
                     let transitions = [FTA.Transition constructor (map descriptionType children) () | (constructor, children) <- constructors]
@@ -212,8 +242,8 @@ deriveFTAWith (Domains domains) = do
 
 -- | Read the type identity without inspecting a recursive description.
 descriptionType :: Description -> TypeRep
-descriptionType (Atomic typ) = typ
-descriptionType (Algebraic typ _) = typ
+descriptionType (AtomicType typ) = typ
+descriptionType (AlgebraicType typ _) = typ
 
 -- | Generic sums retain constructor alternatives and their codecs.
 class GConstructors (f :: Type -> Type) where
@@ -299,25 +329,10 @@ decodeAtomic (Tree.Node (Constructor typ literal []) [])
     | typ == typeRep (Proxy @a) = readMaybe literal
 decodeAtomic _ = Nothing
 
-instance HasFTA Int where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Integer where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Char where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Text where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
+deriving via (Atomic Int) instance HasFTA Int
+deriving via (Atomic Integer) instance HasFTA Integer
+deriving via (Atomic Char) instance HasFTA Char
+deriving via (Atomic Text) instance HasFTA Text
 
 instance HasFTA Bool
 instance HasFTA ()

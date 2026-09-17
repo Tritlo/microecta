@@ -138,9 +138,12 @@ Use `deriveFTA @YourType` when no primitive field needs a domain. `Bool`,
 lists, `Maybe`, `Either`, unit, and tuples have built-in `HasFTA` instances.
 Derive `HasFTA` for each user datatype in a mutually recursive family.
 
-`Int`, `Integer`, `Char`, and `Text` require explicit finite domains. Combine
-domains with `(<>)`; for example, `domain @Int [0, 1] <> domain @Char ['a', 'b']`.
-A missing domain produces `Left (MissingDomain ...)`.
+`Int`, `Integer`, `Char`, and `Text` are atomic: they require explicit finite
+domains. Combine domains with `(<>)`; for example,
+`domain @Int [0, 1] <> domain @Char ['a', 'b']`. A missing domain produces
+`Left (MissingDomain ...)`. Make another `Show` and `Read` type atomic with
+`deriving via (Atomic Double) instance HasFTA Double`, or write an instance
+with `describeType = atomic` and your own codecs.
 
 The derived graph retains constructor names, field types, and record selector
 names. `fieldNamed` locates a record field. `annotateDatatype` adds constructor
