@@ -44,9 +44,10 @@ import Prelude hiding (round)
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
+import qualified Data.IntMap.Lazy as IntMap
 import Data.List (compareLength, groupBy, isSubsequenceOf, nub, sort, sortBy, (!?))
 import qualified Data.List as List
-import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (mapMaybe, maybeToList)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
@@ -161,8 +162,7 @@ instance Pathable (Tree.Tree symbol) (Tree.Tree symbol) where
 getMaxNonemptyIndex :: PathTrie -> Maybe Int
 getMaxNonemptyIndex EmptyPathTrie = Nothing
 getMaxNonemptyIndex TerminalPathTrie = Nothing
-getMaxNonemptyIndex (PathTrieSingleChild i _) = Just i
-getMaxNonemptyIndex (PathTrie children) = Just $ fst (last children)
+getMaxNonemptyIndex (PathTrie children) = fst <$> IntMap.lookupMax children
 
 ---------------------
 ------- Path tries
@@ -170,37 +170,20 @@ getMaxNonemptyIndex (PathTrie children) = Just $ fst (last children)
 
 {- | Trie of paths used to index equality constraints.
 
-Most constraint tries in the original workloads are either empty, terminal, or
-one path component wide for many levels.  `PathTrieSingleChild` keeps that hot
-case compact. The multi-child case used to be a dense child table, which made
-lookup cheap but forced GHC to optimise large recursive structure code. The
-sparse representation keeps only non-empty children in sorted order. That
-keeps union, ordering, and subsumption as linear merges over present children,
-while avoiding the `-O2` compile-time memory blow-up from the dense code.
-
-Invariant for @PathTrie@: children are sorted by component, contain no
-@EmptyPathTrie@ entries, and contain at least two children.  Constructors are
-exported for tests and compatibility, so functions that rebuild multi-child
-tries should restore that invariant before returning.
+Each child map is non-empty. Empty children are not permitted. Child values
+are lazy, so traversal can stop before it evaluates an unrelated branch.
 -}
 data PathTrie
-    = -- | No paths.
-      EmptyPathTrie
-    | -- | Exactly the empty path.
-      TerminalPathTrie
-    | -- | A compact node with exactly one child at the given path component.
-      PathTrieSingleChild {-# UNPACK #-} !Int !PathTrie
-    | -- | Sparse multi-child node. See the invariant on @PathTrie@.
-      PathTrie ![(Int, PathTrie)]
+    = EmptyPathTrie
+    | TerminalPathTrie
+    | PathTrie !(IntMap.IntMap PathTrie)
     deriving (Eq, Show)
 
 instance Hashable PathTrie where
     hashWithSalt salt EmptyPathTrie = salt `hashWithSalt` (0 :: Int)
     hashWithSalt salt TerminalPathTrie = salt `hashWithSalt` (1 :: Int)
-    hashWithSalt salt (PathTrieSingleChild i pt) =
-        salt `hashWithSalt` (2 :: Int) `hashWithSalt` i `hashWithSalt` pt
     hashWithSalt salt (PathTrie children) =
-        List.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int)) children
+        List.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int)) (IntMap.toAscList children)
 
 -- | Check for the trie containing no paths.
 isEmptyPathTrie :: PathTrie -> Bool
@@ -219,8 +202,7 @@ pathTrieHasAtLeastTwoPaths = go False
     go :: Bool -> PathTrie -> Bool
     go _ EmptyPathTrie = False
     go seenOne TerminalPathTrie = seenOne
-    go seenOne (PathTrieSingleChild _ pt) = go seenOne pt
-    go seenOne (PathTrie children) = goChildren seenOne children
+    go seenOne (PathTrie children) = goChildren seenOne (IntMap.toAscList children)
 
     goChildren :: Bool -> [(Int, PathTrie)] -> Bool
     goChildren _ [] = False
@@ -233,8 +215,7 @@ pathTrieHasAtLeastTwoPaths = go False
     pathTrieHasAnyPath :: PathTrie -> Bool
     pathTrieHasAnyPath EmptyPathTrie = False
     pathTrieHasAnyPath TerminalPathTrie = True
-    pathTrieHasAnyPath (PathTrieSingleChild _ pt) = pathTrieHasAnyPath pt
-    pathTrieHasAnyPath (PathTrie children) = any (pathTrieHasAnyPath . snd) children
+    pathTrieHasAnyPath (PathTrie children) = any pathTrieHasAnyPath children
 
 -- | A pending sibling branch and the path depth at which it diverges.
 data PathTrieChoice = PathTrieChoice !Int ![(Int, PathTrie)]
@@ -260,46 +241,19 @@ comparePathTrieBranches _ choices1 TerminalPathTrie choices2 TerminalPathTrie =
     comparePathTrieChoices choices1 choices2
 comparePathTrieBranches _ _ TerminalPathTrie _ _ = LT
 comparePathTrieBranches _ _ _ _ TerminalPathTrie = GT
-comparePathTrieBranches depth choices1 (PathTrieSingleChild i1 pt1) choices2 (PathTrieSingleChild i2 pt2) =
-    case compare i1 i2 of
-        EQ -> comparePathTrieBranches (depth + 1) choices1 pt1 choices2 pt2
-        result -> result
-comparePathTrieBranches _ _ (PathTrieSingleChild _ _) _ (PathTrie []) =
-    error "comparePathTries: invalid empty child list"
-comparePathTrieBranches depth choices1 (PathTrieSingleChild i1 pt1) choices2 (PathTrie ((i2, pt2) : rest2)) =
-    case compare i1 i2 of
-        EQ ->
-            comparePathTrieBranches
-                (depth + 1)
-                choices1
-                pt1
-                (rememberPathTrieChoice depth rest2 choices2)
-                pt2
-        result -> result
-comparePathTrieBranches _ _ (PathTrie []) _ _ =
-    error "comparePathTries: invalid empty child list"
-comparePathTrieBranches depth choices1 (PathTrie ((i1, pt1) : rest1)) choices2 (PathTrieSingleChild i2 pt2) =
-    case compare i1 i2 of
-        EQ ->
-            comparePathTrieBranches
-                (depth + 1)
-                (rememberPathTrieChoice depth rest1 choices1)
-                pt1
-                choices2
-                pt2
-        result -> result
-comparePathTrieBranches _ _ _ _ (PathTrie []) =
-    error "comparePathTries: invalid empty child list"
-comparePathTrieBranches depth choices1 (PathTrie ((i1, pt1) : rest1)) choices2 (PathTrie ((i2, pt2) : rest2)) =
-    case compare i1 i2 of
-        EQ ->
-            comparePathTrieBranches
-                (depth + 1)
-                (rememberPathTrieChoice depth rest1 choices1)
-                pt1
-                (rememberPathTrieChoice depth rest2 choices2)
-                pt2
-        result -> result
+comparePathTrieBranches depth choices1 (PathTrie children1) choices2 (PathTrie children2) =
+    case (IntMap.toAscList children1, IntMap.toAscList children2) of
+        ((i1, pt1) : rest1, (i2, pt2) : rest2) ->
+            case compare i1 i2 of
+                EQ ->
+                    comparePathTrieBranches
+                        (depth + 1)
+                        (rememberPathTrieChoice depth rest1 choices1)
+                        pt1
+                        (rememberPathTrieChoice depth rest2 choices2)
+                        pt2
+                result -> result
+        _ -> error "comparePathTries: invalid empty child list"
 
 {- | Compare the next paths after two equal paths have ended.
 
@@ -345,9 +299,10 @@ toPathTrie [EmptyPath] = TerminalPathTrie
 toPathTrie ps@(firstPath : _) =
     if all (\p -> headOf p == headOf firstPath) ps
         then
-            PathTrieSingleChild (headOf firstPath) (toPathTrie $ map tailOf ps)
+            let child = toPathTrie $ map tailOf ps
+             in child `seq` PathTrie (IntMap.singleton (headOf firstPath) child)
         else
-            PathTrie children
+            PathTrie (IntMap.fromDistinctAscList children)
   where
     groups =
         groupBy ((==) `on` headOf) $
@@ -372,19 +327,15 @@ toPathTrie ps@(firstPath : _) =
 fromPathTrie :: PathTrie -> [Path]
 fromPathTrie EmptyPathTrie = []
 fromPathTrie TerminalPathTrie = [EmptyPath]
-fromPathTrie (PathTrieSingleChild i pt) = map (ConsPath i) $ fromPathTrie pt
 fromPathTrie (PathTrie children) =
-    concatMap (\(i, pt) -> map (ConsPath i) $ fromPathTrie pt) children
+    concatMap (\(i, pt) -> map (ConsPath i) $ fromPathTrie pt) (IntMap.toAscList children)
 
 -- | Descend through one child index, returning 'EmptyPathTrie' if absent.
 pathTrieDescend :: PathTrie -> Int -> PathTrie
 pathTrieDescend EmptyPathTrie _ = EmptyPathTrie
 pathTrieDescend TerminalPathTrie _ = EmptyPathTrie
 pathTrieDescend (PathTrie children) i =
-    fromMaybe EmptyPathTrie (lookup i children)
-pathTrieDescend (PathTrieSingleChild j pt') i
-    | i == j = pt'
-    | otherwise = EmptyPathTrie
+    IntMap.findWithDefault EmptyPathTrie i children
 
 --------------------------------------------------------------------------
 ---------------------- Equality constraints over paths -------------------
@@ -445,25 +396,8 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
     go TerminalPathTrie TerminalPathTrie = False
     go TerminalPathTrie _ = True
     go _ TerminalPathTrie = False
-    go (PathTrieSingleChild i1 pt1) (PathTrieSingleChild i2 pt2) =
-        (i1 == i2) && go pt1 pt2
-    go (PathTrieSingleChild i1 pt1) (PathTrie children2) = case lookup i1 children2 of
-        Nothing -> False
-        Just pt2 -> go pt1 pt2
-    go (PathTrie children1) (PathTrieSingleChild i2 pt2) = case lookup i2 children1 of
-        Nothing -> False
-        Just pt1 -> go pt1 pt2
-    go (PathTrie children1) (PathTrie children2) = anyMatchingChild children1 children2
-
-    -- Both child lists are sorted, so this keeps the old dense-table behaviour
-    -- without scanning absent indexes or doing repeated linear lookups.
-    anyMatchingChild [] _ = False
-    anyMatchingChild _ [] = False
-    anyMatchingChild left@((i1, pt1) : rest1) right@((i2, pt2) : rest2) =
-        case compare i1 i2 of
-            LT -> anyMatchingChild rest1 right
-            GT -> anyMatchingChild left rest2
-            EQ -> go pt1 pt2 || anyMatchingChild rest1 rest2
+    go (PathTrie children1) (PathTrie children2) =
+        or $ IntMap.intersectionWith go children1 children2
 
 {- | Total ordering used when choosing constraint-propagation order.
 
