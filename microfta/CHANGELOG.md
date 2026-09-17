@@ -13,6 +13,7 @@ Initial release.
   and structural intersection are shared; `Constraint` supplies the theory.
 - `Data.Tree.FTA.Generic`: derive a regular tree grammar, term codecs, and
   constructor metadata from an algebraic datatype with `Generic`, with
-  explicit finite domains for atomic fields.
+  explicit finite domains for atomic fields. `Atomic` and `atomic` declare
+  further atomic types.
 - `Data.Tree.FTA.Interned.Cache` and `Data.Tree.FTA.Interned.Memo`: the
   process-global interning and memoization tables the engine uses.
