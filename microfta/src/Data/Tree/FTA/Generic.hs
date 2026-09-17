@@ -1,25 +1,31 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
 
 {- | Derive a regular tree grammar and term codecs from an algebraic datatype.
 
 Derive 'Generic', then declare an empty 'HasFTA' instance. Recursive fields
-refer to the same type state. Primitive fields need an explicit finite domain.
+refer to the same type state. Atomic fields need an explicit finite domain.
 The grammar describes constructor structure. Constraint layers add invariants.
+
+Atomic types have no constructors in the grammar; their values are literals.
+'Int', 'Integer', 'Char', and 'Text' are atomic. Make another type atomic
+with @deriving via@, or with 'atomic' and handwritten codecs:
+
+@
+deriving via (Atomic Double) instance HasFTA Double
+@
 -}
 module Data.Tree.FTA.Generic (
-    HasFTA (encodeTerm, decodeTerm),
+    HasFTA (..),
+    Description,
+    atomic,
+    Atomic (..),
     TypedFTA,
     datatypeFTA,
-    datatypeEncode,
     datatypeDecode,
     decodeLabelledTerm,
     annotateDatatype,
@@ -36,12 +42,12 @@ module Data.Tree.FTA.Generic (
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, (<=<))
-import Data.Hashable (Hashable (hashWithSalt))
+import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Kind (Type)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (Proxy))
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 import Data.Typeable (TypeRep, Typeable, splitTyConApp, tyConModule, tyConName, tyConPackage, typeRep)
@@ -66,12 +72,6 @@ data Constructor = Constructor
     , constructorFields :: ![Field]
     }
     deriving (Eq, Ord, Show)
-
-instance Hashable Constructor where
-    hashWithSalt salt constructor =
-        salt
-            `hashWithSalt` constructorLabel constructor
-            `hashWithSalt` [(fieldPosition field, fieldName field, show $ fieldType field) | field <- constructorFields constructor]
 
 -- | Find a named record field. Positional fields have no selector name.
 fieldNamed :: String -> Constructor -> Maybe Field
@@ -100,8 +100,6 @@ constructorLabel constructor = encodeName (typeLabel $ constructorType construct
 data TypedFTA guard a = TypedFTA
     { datatypeFTA :: !(FTA.FTA TypeRep Constructor guard)
     -- ^ The finite grammar, including any caller-supplied annotations.
-    , datatypeEncode :: a -> Tree.Tree Constructor
-    -- ^ Encode a value. The codec does not restrict the configured domains.
     , datatypeDecode :: Tree.Tree Constructor -> Maybe a
     -- ^ Decode a value. The codec does not interpret transition annotations.
     }
@@ -144,13 +142,9 @@ are removed in their first-occurrence order. An empty domain accepts nothing.
 When domains are combined, the rightmost domain for a type takes precedence.
 -}
 domain :: forall a. (Typeable a, Show a) => [a] -> Domains
-domain values = Domains $ Map.singleton typ $ unique Set.empty [Constructor typ (show value) [] | value <- values]
+domain values = Domains $ Map.singleton typ $ nubOrd [Constructor typ (show value) [] | value <- values]
   where
     typ = typeRep (Proxy @a)
-    unique _ [] = []
-    unique seen (value : rest)
-        | Set.member value seen = unique seen rest
-        | otherwise = value : unique (Set.insert value seen) rest
 
 -- | Failure while deriving a finite grammar.
 data DeriveError
@@ -166,8 +160,25 @@ data DeriveError
 
 -- | Structural alternatives for one type. Child descriptions remain lazy.
 data Description
-    = Atomic TypeRep
-    | Algebraic TypeRep [(Constructor, [Description])]
+    = AtomicType TypeRep
+    | AlgebraicType TypeRep [(Constructor, [Description])]
+
+-- | Describe a type whose values are literals from a finite domain.
+atomic :: forall a. (Typeable a) => Proxy a -> Description
+atomic = AtomicType . typeRep
+
+{- | Make a type atomic through @deriving via@.
+
+Literals are written with 'Show' and read back with 'Read'. The grammar and
+the codecs use the type inside the wrapper, so the wrapper does not appear in
+labels or domains.
+-}
+newtype Atomic a = Atomic a
+
+instance (Typeable a, Show a, Read a) => HasFTA (Atomic a) where
+    describeType _ = atomic (Proxy @a)
+    encodeTerm (Atomic value) = encodeAtomic value
+    decodeTerm = fmap Atomic . decodeAtomic
 
 {- | Datatypes whose finite constructor structure has a regular tree grammar.
 
@@ -180,9 +191,10 @@ grammar, which are the terms 'encodeTerm' produces. The generators decode
 generated terms without a fallback.
 -}
 class (Typeable a) => HasFTA a where
+    -- | Describe the type as atomic, or as its constructors and their fields.
     describeType :: Proxy a -> Description
     default describeType :: (GConstructors (Rep a)) => Proxy a -> Description
-    describeType proxy = Algebraic (typeRep proxy) $ gConstructors (typeRep proxy) (Proxy @(Rep a))
+    describeType proxy = AlgebraicType (typeRep proxy) $ gConstructors (typeRep proxy) (Proxy @(Rep a))
 
     -- | Encode a datatype value as a constructor term.
     encodeTerm :: a -> Tree.Tree Constructor
@@ -202,21 +214,23 @@ deriveFTA = deriveFTAWith mempty
 
 States are fully applied types. A repeated type reuses its row. Recursion that
 grows a type argument is rejected before it can create an infinite state set.
+The check is syntactic: a type constructor applied to a larger argument than
+an ancestor on the same path is rejected, even when that growth would stop.
 -}
 deriveFTAWith :: forall a. (HasFTA a) => Domains -> Either DeriveError (TypedFTA () a)
 deriveFTAWith (Domains domains) = do
     rows <- visit [] Map.empty (describeType $ Proxy @a)
-    graph <- either (Left . InvalidDerivedFTA) Right $ FTA.mkFTA (typeRep $ Proxy @a) (Map.toList rows)
-    pure $ TypedFTA graph encodeTerm decodeTerm
+    graph <- first InvalidDerivedFTA $ FTA.mkFTA (typeRep $ Proxy @a) (Map.toList rows)
+    pure $ TypedFTA graph decodeTerm
   where
     visit ancestors rows description
         | Map.member typ rows = Right rows
         | Just prior <- find (growsInto typ) ancestors = Left $ NonRegularRecursion prior typ
         | otherwise = case description of
-            Atomic _ -> case Map.lookup typ domains of
+            AtomicType _ -> case Map.lookup typ domains of
                 Nothing -> Left $ MissingDomain typ
                 Just constructors -> Right $ Map.insert typ [FTA.Transition constructor [] () | constructor <- constructors] rows
-            Algebraic _ constructors
+            AlgebraicType _ constructors
                 | Map.member typ domains -> Left $ NonAtomicDomain typ
                 | otherwise ->
                     let transitions = [FTA.Transition constructor (map descriptionType children) () | (constructor, children) <- constructors]
@@ -230,8 +244,8 @@ deriveFTAWith (Domains domains) = do
 
 -- | Read the type identity without inspecting a recursive description.
 descriptionType :: Description -> TypeRep
-descriptionType (Atomic typ) = typ
-descriptionType (Algebraic typ _) = typ
+descriptionType (AtomicType typ) = typ
+descriptionType (AlgebraicType typ _) = typ
 
 -- | Generic sums retain constructor alternatives and their codecs.
 class GConstructors (f :: Type -> Type) where
@@ -317,25 +331,10 @@ decodeAtomic (Tree.Node (Constructor typ literal []) [])
     | typ == typeRep (Proxy @a) = readMaybe literal
 decodeAtomic _ = Nothing
 
-instance HasFTA Int where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Integer where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Char where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
-
-instance HasFTA Text where
-    describeType = Atomic . typeRep
-    encodeTerm = encodeAtomic
-    decodeTerm = decodeAtomic
+deriving via (Atomic Int) instance HasFTA Int
+deriving via (Atomic Integer) instance HasFTA Integer
+deriving via (Atomic Char) instance HasFTA Char
+deriving via (Atomic Text) instance HasFTA Text
 
 instance HasFTA Bool
 instance HasFTA ()

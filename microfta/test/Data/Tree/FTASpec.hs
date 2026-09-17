@@ -1,34 +1,31 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Data.Tree.FTASyntaxSpec (spec) where
+module Data.Tree.FTASpec (spec) where
 
 import Data.Hashable (Hashable (..))
+import Data.Monoid (Sum (..))
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
 
+import Data.Tree.FTA (Transition (Transition))
 import qualified Data.Tree.FTA as Automaton
 import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
-import qualified Data.Tree.FTA.Syntax as FTA
 
 data State = Expression
     deriving (Eq, Ord, Show)
 
 spec :: Spec
 spec = do
-    describe "shared FTA construction syntax" $ do
-        it "builds an ordinary recursive FTA without unit annotations" $
-            case FTA.automaton
+    describe "explicit-state automata" $ do
+        it "builds an ordinary recursive FTA" $
+            case Automaton.mkFTA
                 Expression
-                [ FTA.row
-                    Expression
-                    [ FTA.transition "zero" []
-                    , FTA.transition "add" [Expression, Expression]
-                    ]
-                ] of
+                [(Expression, [Transition "zero" [] (), Transition "add" [Expression, Expression] ()])] of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
                     Automaton.accepts automaton (Tree.Node "zero" []) `shouldBe` True
@@ -50,14 +47,8 @@ spec = do
                     [Automaton.transitionGuard edge True | Right edge <- functionLabels] `shouldBe` [False, False]
 
         it "constructs the ordinary product intersection" $ do
-            let left =
-                    FTA.automaton
-                        Expression
-                        [FTA.row Expression [FTA.transition "left" [], FTA.transition "shared" []]]
-                right =
-                    FTA.automaton
-                        Expression
-                        [FTA.row Expression [FTA.transition "shared" [], FTA.transition "right" []]]
+            let left = Automaton.mkFTA Expression [(Expression, [Transition "left" [] (), Transition "shared" [] ()])]
+                right = Automaton.mkFTA Expression [(Expression, [Transition "shared" [] (), Transition "right" [] ()])]
             case (left, right) of
                 (Right leftAutomaton, Right rightAutomaton) ->
                     case Automaton.intersect leftAutomaton rightAutomaton of
@@ -89,6 +80,8 @@ spec = do
                 shared = Common.intersect naturals evens :: Common.PlainNode String
                 terms = take 9 $ iterate (\term -> Tree.Node "succ" [term]) (Tree.Node "zero" [])
             map (acceptPlain shared) terms `shouldBe` map even [0 :: Int .. 8]
+            let recursiveNodes = Common.crush (\case Common.InternedMu _ -> Sum (1 :: Int); _ -> Sum 0)
+            getSum (recursiveNodes $ Common.Node [Common.Edge "pair" [naturals, naturals]]) `shouldBe` 1
             case Common.toFTA shared of
                 Left err -> expectationFailure $ show err
                 Right graph -> map (Automaton.accepts graph) terms `shouldBe` map even [0 :: Int .. 8]
@@ -143,10 +136,10 @@ spec = do
 
         it "imports an acyclic explicit graph and exposes it again unchanged" $ do
             let rows =
-                    [ FTA.row (0 :: Int) [FTA.transition "pair" [1, 1], FTA.transition "leaf" []]
-                    , FTA.row 1 [FTA.transition "leaf" []]
+                    [ (0 :: Int, [Transition "pair" [1, 1] (), Transition "leaf" [] ()])
+                    , (1, [Transition "leaf" [] ()])
                     ]
-            case FTA.automaton 0 rows of
+            case Automaton.mkFTA 0 rows of
                 Left err -> expectationFailure $ show err
                 Right graph -> do
                     Tree.flatten (Automaton.toTree graph)

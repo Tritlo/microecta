@@ -30,13 +30,12 @@ The table uses these module aliases:
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Generic as Generic
 import qualified Data.Tree.FTA.Interned as Common
-import qualified Data.Tree.FTA.Syntax as Syntax
 ```
 
 | Operation | API | Result |
 | --- | --- | --- |
 | Derive a grammar from a datatype | `Generic.deriveFTA`, `Generic.deriveFTAWith` | A grammar with constructor metadata and typed codecs. |
-| Build a grammar with named states | `Syntax.automaton`, `FTA.mkFTA` | A checked explicit-state graph. |
+| Build a grammar with named states | `FTA.mkFTA` | A checked explicit-state graph. |
 | Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
 | Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
@@ -139,9 +138,12 @@ Use `deriveFTA @YourType` when no primitive field needs a domain. `Bool`,
 lists, `Maybe`, `Either`, unit, and tuples have built-in `HasFTA` instances.
 Derive `HasFTA` for each user datatype in a mutually recursive family.
 
-`Int`, `Integer`, `Char`, and `Text` require explicit finite domains. Combine
-domains with `(<>)`; for example, `domain @Int [0, 1] <> domain @Char ['a', 'b']`.
-A missing domain produces `Left (MissingDomain ...)`.
+`Int`, `Integer`, `Char`, and `Text` are atomic: they require explicit finite
+domains. Combine domains with `(<>)`; for example,
+`domain @Int [0, 1] <> domain @Char ['a', 'b']`. A missing domain produces
+`Left (MissingDomain ...)`. Make another `Show` and `Read` type atomic with
+`deriving via (Atomic Double) instance HasFTA Double`, or write an instance
+with `describeType = atomic` and your own codecs.
 
 The derived graph retains constructor names, field types, and record selector
 names. `fieldNamed` locates a record field. `annotateDatatype` adds constructor
@@ -196,19 +198,10 @@ state names are part of your application:
 
 ```haskell
 import qualified Data.Tree as Tree
-import Data.Tree.FTA (FTAError, PlainFTA, accepts)
-import qualified Data.Tree.FTA.Syntax as Syntax
+import Data.Tree.FTA (FTAError, PlainFTA, Transition (Transition), accepts, mkFTA)
 
 naturals :: Either (FTAError Int String) (PlainFTA Int String)
-naturals =
-    Syntax.automaton
-        0
-        [ Syntax.row
-            0
-            [ Syntax.transition "zero" []
-            , Syntax.transition "successor" [0]
-            ]
-        ]
+naturals = mkFTA 0 [(0, [Transition "zero" [] (), Transition "successor" [0] ()])]
 
 oneAccepted :: Either (FTAError Int String) Bool
 oneAccepted = fmap (`accepts` Tree.Node "successor" [Tree.Node "zero" []]) naturals
@@ -302,119 +295,12 @@ graph directly and does not validate symbol arities. Neither view enumerates
 the accepted values. Add `containers` to your component's `build-depends` when
 you import `Data.Tree` directly.
 
-## Generate a language up to a depth bound
+## Generate a language
 
-Add [`microfta-generator`](../microfta-generator/README.md) to turn a grammar
-into a generator. This complete example generates expressions with literals
-`0` and `1`, up to constructor-tree depth 3:
-
-```haskell
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE TypeApplications #-}
-
-module Main (main) where
-
-import GHC.Generics (Generic)
-
-import qualified Data.Tree.FTA.Gen as Gen
-import Data.Tree.FTA.Generic (HasFTA, deriveFTAWith, domain)
-
--- | Arithmetic expressions with integer literals.
-data Expr = Lit Int | Add Expr Expr
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (HasFTA)
-
--- | Print every expression in a depth-bounded language.
-main :: IO ()
-main = do
-    datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
-    language <- either (fail . show) pure $ Gen.fromDatatypeUpToDepth 3 datatype
-    mapM_ (either (fail . show) print . Gen.unrank language) [0 .. Gen.cardinality language - 1]
-```
-
-Add both `microfta` and `microfta-generator` to your component's
-`build-depends`. In this checkout, save the program as `Main.hs` at the
-workspace root and run:
-
-```sh
-cabal build microfta-generator
-cabal exec -- runghc -package=microfta -package=microfta-generator Main.hs
-```
-
-The output is:
-
-```text
-Lit 0
-Lit 1
-Add (Lit 0) (Lit 0)
-Add (Lit 0) (Lit 1)
-Add (Lit 0) (Add (Lit 0) (Lit 0))
-Add (Lit 0) (Add (Lit 0) (Lit 1))
-Add (Lit 0) (Add (Lit 1) (Lit 0))
-Add (Lit 0) (Add (Lit 1) (Lit 1))
-Add (Lit 1) (Lit 0)
-Add (Lit 1) (Lit 1)
-Add (Lit 1) (Add (Lit 0) (Lit 0))
-Add (Lit 1) (Add (Lit 0) (Lit 1))
-Add (Lit 1) (Add (Lit 1) (Lit 0))
-Add (Lit 1) (Add (Lit 1) (Lit 1))
-Add (Add (Lit 0) (Lit 0)) (Lit 0)
-Add (Add (Lit 0) (Lit 0)) (Lit 1)
-Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 0))
-Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 1))
-Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 0))
-Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 1))
-Add (Add (Lit 0) (Lit 1)) (Lit 0)
-Add (Add (Lit 0) (Lit 1)) (Lit 1)
-Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 0))
-Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 1))
-Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 0))
-Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 1))
-Add (Add (Lit 1) (Lit 0)) (Lit 0)
-Add (Add (Lit 1) (Lit 0)) (Lit 1)
-Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 0))
-Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 1))
-Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 0))
-Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 1))
-Add (Add (Lit 1) (Lit 1)) (Lit 0)
-Add (Add (Lit 1) (Lit 1)) (Lit 1)
-Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 0))
-Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 1))
-Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 0))
-Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 1))
-```
-
-`fromDatatypeUpToDepth` compiles the bounded grammar and retains the decoder
-for `Expr`. `cardinality` gives the number of replay ranks. `unrank` constructs
-the member at a zero-based rank. The example prints all 38 expressions in
-rank order. It handles replay errors before printing each `Expr` value.
-
-As in the recognition example, the bound includes the `Int` child of `Lit`.
-`Lit 0` has depth one. An `Add` of two literals has depth two. At depth three,
-either child of the outer `Add` can itself be an `Add`.
-
-Change `fromDatatypeUpToDepth 3` to `fromDatatypeUpToDepth 4` to generate a
-larger language:
-
-| Maximum depth | Number of expressions |
-| --- | ---: |
-| 2 | 6 |
-| 3 | 38 |
-| 4 | 1,446 |
-
-Each next depth permits the two literals and every ordered pair of expressions
-from the previous depth: `2 + n * n` choices. The rank decoder constructs the
-selected values from the compiled grammar.
-
-The QuickCheck adapter adds random sampling and shrinking. Counts and replay
-ranks identify accepting derivations; an ambiguous handwritten grammar can
-give one term several ranks. This derived expression grammar is unambiguous.
-
-For another complete example, see
-[`FinitePairs.hs`](../microfta-generator/examples/FinitePairs.hs), or run
-`cabal run fta-pairs` from the workspace root.
+`microfta` does not enumerate or sample languages. The `microfta-generator`
+package compiles a grammar into a ranked generator with replay, sampling, and
+shrinking. Its README contains a complete example that generates every
+expression of a bounded depth.
 
 ## Module guide
 
@@ -422,7 +308,6 @@ For another complete example, see
 | --- | --- |
 | `Data.Tree.FTA.Generic` | Datatype derivation, finite domains, metadata, and typed codecs. |
 | `Data.Tree.FTA` | Checked transition graphs, recognition, depth bounds, and product intersection. |
-| `Data.Tree.FTA.Syntax` | Named states and transitions without unit-annotation boilerplate. |
 | `Data.Tree.FTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 | `Data.Tree.FTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
