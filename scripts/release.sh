@@ -58,8 +58,7 @@ if [[ "$check_only" == false ]] && ! git diff --cached --quiet --exit-code; then
 fi
 
 version="$(awk '/^version:/ {print $2; exit}' "$package/$package.cabal")"
-if [[ "$publish" == true && -f "$package/CHANGELOG.md" ]] \
-  && grep -q "^## $version - Unreleased$" "$package/CHANGELOG.md"; then
+if [[ "$publish" == true ]] && grep -q "^## $version - Unreleased$" "$package/CHANGELOG.md"; then
   echo "Error: date the $version changelog entry before publishing." >&2
   exit 1
 fi
