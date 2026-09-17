@@ -31,8 +31,8 @@ operations.
 terms. ECTA-specific path operations and pretty-printing remain in this package.
 
 `Data.ECTA.FTA.toFTA` exposes an ECTA through the shared graph and retains its
-`EqConstraints` annotations. `Data.ECTA.FTA.Syntax` constructs such annotated
-rows. These operations do not solve or discard equality constraints.
+`EqConstraints` annotations. These operations do not solve or discard
+equality constraints.
 Applications that directly import `Data.Tree.FTA` must declare `microfta`
 in `build-depends`. Direct `Data.Tree` imports require `containers`.
 
@@ -353,17 +353,17 @@ the pieces that downstream projects still use:
   reduction, traversal, and enumeration.
 - `Data.ECTA.Paths` and `Data.ECTA.Term` expose the public path, equality
   constraint, symbol, and concrete term types used by `Data.ECTA`.
-- `Data.ECTA.FTA` and `Data.ECTA.FTA.Syntax` expose the ECTA view of the
-  ordinary automaton supplied by `microfta`.
+- `Data.ECTA.FTA` exposes the ECTA view of the ordinary automaton supplied by
+  `microfta`.
 - `Application.TermSearch.*` is the small compatibility layer for downstream
   term-search-shaped type encodings.
 - `Data.ECTA.Internal.*` contains the equality algorithms and the common-engine
   facade. These modules are exposed for downstream code that already relies on
   lower-level operations, but new code should start with `Data.ECTA`.
-- `Data.Interned.Extended.HashTableBased`, `Data.Memoization`,
-  `Utility.Fixpoint`, and `Utility.HashJoin` are re-exported from `microfta`.
-  `Data.Persistent.UnionFind` and the remaining utilities belong to ECTA.
-  Import these support modules directly only when extending the internals.
+- The interning and memo tables live in `microfta`, under
+  `Data.Tree.FTA.Interned`. `Data.Persistent.UnionFind` and the remaining
+  utilities belong to ECTA. Import these support modules directly only when
+  extending the internals.
 
 ## Dependency Surface
 

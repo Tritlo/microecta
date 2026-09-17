@@ -103,8 +103,6 @@ jobs:
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microfta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 

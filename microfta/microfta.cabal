@@ -58,22 +58,16 @@ library
     TypeOperators
     ViewPatterns
 
-  other-modules:
-    Data.CacheFamily
-    Data.Tree.FTA.Internal.Tree
-
+  other-modules: Data.Tree.FTA.Internal.Tree
   exposed-modules:
-    Data.Interned.Extended.HashTableBased
-    Data.Memoization
     Data.Tree.FTA
     Data.Tree.FTA.Constraint
     Data.Tree.FTA.Generic
     Data.Tree.FTA.Interned
+    Data.Tree.FTA.Interned.Cache
+    Data.Tree.FTA.Interned.Memo
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
-    Data.Tree.FTA.Syntax
-    Utility.Fixpoint
-    Utility.HashJoin
 
   build-depends:
     base >=4.22 && <4.23,
@@ -88,7 +82,7 @@ test-suite unit-tests
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  other-modules: Data.Tree.FTASyntaxSpec
+  other-modules: Data.Tree.FTASpec
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,

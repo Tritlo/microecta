@@ -1,6 +1,3 @@
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Interned nodes and edges with a constraint parameter.
 module Data.Tree.FTA.Interned.Type (
     RecNodeId (..),
@@ -30,7 +27,6 @@ module Data.Tree.FTA.Interned.Type (
     matchMu,
 ) where
 
-import Data.CacheFamily (CacheFamily, newCacheFamily, selectCache)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.IORef (IORef, newIORef)
@@ -43,16 +39,12 @@ import Type.Reflection (Typeable)
 
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Interned.Extended.HashTableBased
+import Data.Tree.FTA.Interned.Cache
 
-import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
+import Data.Tree.FTA.Interned.Memo
 
----------------------------------------------------------------------------------------------
-
------------------------------------------------------------------
--------------------------- Mu node table ------------------------
------------------------------------------------------------------
+-- Mu node table
 
 -- | Internal identifier for references to recursive Interned automaton nodes.
 data RecNodeId
@@ -129,9 +121,7 @@ instance Hashable IntersectId where
     hashWithSalt salt (UnsafeIntersectId left right) =
         salt `hashWithSalt` left `hashWithSalt` right
 
------------------------------------------------------------------
------------------------------ Edges -----------------------------
------------------------------------------------------------------
+-- Edges
 
 -- | One outgoing alternative of an Interned automaton node.
 data Edge symbol constraint = InternedEdge
@@ -168,9 +158,7 @@ instance Ord (Edge symbol constraint) where
 instance Hashable (Edge symbol constraint) where
     hashWithSalt s e = s `hashWithSalt` (edgeId e)
 
------------------------------------------------------------------
------------------------------- Nodes ----------------------------
------------------------------------------------------------------
+-- Nodes
 
 -- | Interned recursive node payload.
 data InternedMu symbol constraint = MkInternedMu
@@ -287,9 +275,7 @@ freeVars (InternedNode node) = internedNodeFree node
 freeVars (InternedMu mu) = Set.delete (RecInt (internedMuId mu)) (freeVars (internedMuBody mu))
 freeVars (Rec i) = Set.singleton i
 
-----------------------
------- Getters and setters
-----------------------
+-- Getters and setters
 
 -- | Stable interned identity for non-empty, interned nodes.
 {-# INLINEABLE nodeIdentity #-}
@@ -306,9 +292,7 @@ setChildren ::
     Edge symbol constraint -> [Node symbol constraint] -> Edge symbol constraint
 setChildren e ns = mkEdge (edgeSymbol e) ns (edgeConstraint e)
 
------------------------------------------------------------------
-------------------------- Interning Nodes -----------------------
------------------------------------------------------------------
+-- Interning Nodes
 
 -- | Non-canonical node description used before hash-consing.
 data UninternedNode symbol constraint
@@ -356,17 +340,6 @@ instance Hashable (UninternedNode symbol constraint) where
                 `hashWithSalt` depthShape
                 `hashWithSalt` s
 
-instance (Typeable symbol, Typeable constraint) => Interned (Node symbol constraint) where
-    type Uninterned (Node symbol constraint) = UninternedNode symbol constraint
-    data Description (Node symbol constraint) = DNode !(UninternedNode symbol constraint)
-        deriving (Eq)
-    describe = DNode
-    identify = identifyNode
-    cache = selectCache nodeCaches (freshCacheWith nodeIds)
-
-instance Hashable (Description (Node symbol constraint)) where
-    hashWithSalt salt (DNode node) = salt `hashWithSalt` node
-
 -- | Typed node caches share one identity sequence across all automaton types.
 nodeCaches :: CacheFamily
 nodeCaches = unsafePerformIO newCacheFamily
@@ -382,7 +355,7 @@ nodeIds = unsafePerformIO (newIORef 0)
 internNode ::
     forall symbol constraint.
     (Typeable symbol, Typeable constraint) => UninternedNode symbol constraint -> Node symbol constraint
-internNode = intern
+internNode = intern (selectCache nodeCaches (freshCacheWith nodeIds)) identifyNode
 
 {-# INLINEABLE identifyNode #-}
 identifyNode :: Id -> UninternedNode symbol constraint -> Node symbol constraint
@@ -391,8 +364,8 @@ identifyNode i (UninternedNode es) =
         MkInternedNode
             { internedNodeId = i
             , internedNodeEdges = es
-            , internedNodeNumNestedMu = maximum (0 : concatMap (map numNestedMu . edgeChildren) es) -- depth is always >= 0
-            , internedNodeFree = Set.unions (concatMap (map freeVars . edgeChildren) es)
+            , internedNodeNumNestedMu = maximum (0 : [numNestedMu child | edge <- es, child <- edgeChildren edge])
+            , internedNodeFree = Set.unions [freeVars child | edge <- es, child <- edgeChildren edge]
             }
 identifyNode _ UninternedEmptyNode = EmptyNode
 identifyNode i (UninternedMu depthShape s n) =
@@ -400,7 +373,7 @@ identifyNode i (UninternedMu depthShape s n) =
         MkInternedMu
             { internedMuId = i
             , internedMuBody = n (RecInt i)
-            , -- In order to establish the invariant for internedMuNoId, we need to know
+            , -- In order to establish the invariant for internedMuShape, we need to know
               --
               -- >    substFree (RecInt internedMuId) (Rec (RecUnint (numNestedMu internedMuBody))) internedMuBody
               -- > == internedMuShape
@@ -468,9 +441,7 @@ o It /is/ important that the placeholder we pick here is uniquely determined by 
 shape :: (RecNodeId -> Node symbol constraint) -> Node symbol constraint
 shape f = f (RecUnint (numNestedMu (f RecDepth)))
 
------------------------------------------------------------------
------------------------- Interning Edges ------------------------
------------------------------------------------------------------
+-- Interning Edges
 
 -- | Edge payload before interning.
 data UninternedEdge symbol constraint = UninternedEdge
@@ -483,17 +454,6 @@ data UninternedEdge symbol constraint = UninternedEdge
 instance (Hashable symbol, Constraint constraint) => Hashable (UninternedEdge symbol constraint) where
     hashWithSalt salt (UninternedEdge symbol children ecs) =
         salt `hashWithSalt` symbol `hashWithSalt` children `hashWithSalt` ecs
-
-instance (Hashable symbol, Typeable symbol, Constraint constraint) => Interned (Edge symbol constraint) where
-    type Uninterned (Edge symbol constraint) = UninternedEdge symbol constraint
-    data Description (Edge symbol constraint) = DEdge !(UninternedEdge symbol constraint)
-        deriving (Eq)
-    describe = DEdge
-    identify = InternedEdge
-    cache = selectCache edgeCaches (freshCacheWith edgeIds)
-
-instance (Hashable symbol, Constraint constraint) => Hashable (Description (Edge symbol constraint)) where
-    hashWithSalt salt (DEdge edge) = salt `hashWithSalt` edge
 
 -- | Typed edge caches share one identity sequence across all automaton types.
 edgeCaches :: CacheFamily
@@ -510,15 +470,11 @@ edgeIds = unsafePerformIO (newIORef 0)
 internEdge ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) => UninternedEdge symbol constraint -> Edge symbol constraint
-internEdge = intern
+internEdge = intern (selectCache edgeCaches (freshCacheWith edgeIds)) InternedEdge
 
------------------------------------------------------------------
------------------------ Smart constructors ----------------------
------------------------------------------------------------------
+-- Smart constructors
 
--------------------
------- Edge constructors
--------------------
+-- Edge constructors
 
 -- | Build or match an unconstrained edge.
 pattern Edge ::
@@ -552,9 +508,7 @@ mkEdge s ns ecs
     | contradictory ecs = emptyEdge s
     | otherwise = internEdge $ UninternedEdge s ns ecs
 
--------------------
------- Node constructors
--------------------
+-- Node constructors
 
 {-# COMPLETE Node, EmptyNode, Mu, Rec #-}
 
@@ -587,7 +541,7 @@ modifyNode n@(Node es) f =
                 Node es'
 modifyNode _ _ = error "modifyNode: unexpected empty, recursive, or unresolved node"
 
------- Mu
+-- Mu
 
 {- | Pattern only a Mu constructor
 
@@ -602,7 +556,7 @@ An identity function
 will run in O(1) time:
 
 > foo (Mu f) = Mu f
->   -- { expand view patern }
+>   -- { expand view pattern }
 > foo node | Just f <- matchMu node = createMu f
 >   -- { case for @InternedMu mu@ }
 > foo (InternedMu mu) | Just f <- matchMu (InternedMu m) = createMu f
@@ -611,7 +565,7 @@ will run in O(1) time:
 >                          if | n' == Rec (RecUnint (numNestedMu (internedMuBody mu))) ->
 >                                internedMuShape mu
 >                            | n' == Rec RecDepth ->
->                                internedMuShape mu
+>                                internedMuDepthShape mu
 >                            | otherwise ->
 >                                substFree (internedMuId mu) n' (internedMuBody mu)
 >                       in createMu f
@@ -721,7 +675,7 @@ substFree' ::
 substFree' env node = case substitutionPlan node of
     SubstitutionPlan f -> f env
 
------- Substitution internals
+-- Substitution internals
 
 {- | A graph rebuild prepared for an environment of recursive substitutions.
 
@@ -804,9 +758,3 @@ edgeSubstitutionPlan inputEdge = memoTypeableWith genericEdgeSubstitutionPlanCac
     onEdge e =
         SubstitutionPlan $ case sequenceSubstitutionPlans (map substitutionPlan (edgeChildren e)) of
             SubstitutionPlan !f -> setChildren e . f
-
--- | Display the interned payloads through the same graph representation.
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (InternedNode symbol constraint)
-
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (InternedMu symbol constraint)
-deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (UninternedEdge symbol constraint)
