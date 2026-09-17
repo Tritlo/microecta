@@ -5,7 +5,7 @@
 {-# LANGUAGE TupleSections #-}
 
 -- | Internal representation for finite ranked generators.
-module Data.Tree.Gen.Internal (
+module Data.Ranked.Internal (
     Indexed (..),
     WeightedIndexed (..),
     Ranked,
@@ -33,25 +33,25 @@ module Data.Tree.Gen.Internal (
 import Data.Array (listArray, (!))
 import qualified Data.Bifunctor as Bifunctor
 
-import Data.Tree.Gen.Internal.Decoder (
+import Data.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     compilePlan,
     planCardinality,
  )
-import Data.Tree.Gen.Internal.Sampler (
+import Data.Ranked.Internal.Sampler (
     GenBackend (..),
     Sampler (..),
     mapSampler,
     productSampler,
     uniformSampler,
  )
-import Data.Tree.Gen.Internal.Shrink (
+import Data.Ranked.Internal.Shrink (
     planMemberSize,
     shrinkPlanRank,
     smallerPlanMembers,
  )
-import Data.Tree.Gen.Internal.Size (SizeIndex, sizeClasses, sizeIndex)
+import Data.Ranked.Internal.Size (SizeIndex, sizeClasses, sizeIndex)
 
 -- | A finite source addressed by a stable zero-based integer index.
 data Indexed a = Indexed
@@ -69,7 +69,7 @@ every ticket below the total weight. These callback invariants are the caller's
 responsibility; checking them would enumerate the source.
 
 The public contracts of the ranked API are documented again in
-"Data.Tree.Gen"; keep the two in step. This module belongs to the @internal@
+"Data.Ranked"; keep the two in step. This module belongs to the @internal@
 sublibrary. It is an integration
 interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
