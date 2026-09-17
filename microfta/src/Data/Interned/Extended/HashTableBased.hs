@@ -23,6 +23,7 @@ module Data.Interned.Extended.HashTableBased (
     Id,
     Cache,
     freshCacheWith,
+    insertKeepingFirst,
     Interned (..),
     intern,
 ) where
@@ -71,6 +72,23 @@ class
     -- | Process-global cache for this interned type.
     cache :: Cache t
 
+{- | Insert a value unless the key is present, and return the stored value.
+
+The first writer wins and nothing forces the value: forcing it may build a
+value that interns or memoizes, which would re-enter this update and
+diverge. The winner is read back outside the update. The pragma matters:
+callers lose their specialization when this is a separate function.
+-}
+insertKeepingFirst :: (Hashable key) => IORef (HashMap key value) -> key -> value -> IO value
+{-# INLINE insertKeepingFirst #-}
+insertKeepingFirst ref key value = do
+    existing <- HashMap.lookup key <$> readIORef ref
+    case existing of
+        Just found -> pure found
+        Nothing -> do
+            atomicModifyIORef' ref $ \table -> (HashMap.insertWith (\_new old -> old) key value table, ())
+            fromMaybe value . HashMap.lookup key <$> readIORef ref
+
 -- | Return the canonical interned representative for an uninterned value.
 intern :: forall t. (Interned t) => Uninterned t -> t
 {-# INLINEABLE intern #-}
@@ -80,14 +98,7 @@ intern !bt = unsafeDupablePerformIO $ do
         Just t -> return t
         Nothing -> do
             i <- atomicModifyIORef' (fresh c) (\next -> (next + 1, next))
-            let t = identify i bt
-            -- insertWith keeps whatever is already there, so the first writer
-            -- wins and nothing forces @t@: forcing it builds the value, which
-            -- interns, which would re-enter this update and diverge.
-            atomicModifyIORef' (content c) $ \m ->
-                (HashMap.insertWith (\_new old -> old) dt t m, ())
-            -- Re-read outside the update to pick up whoever won.
-            fromMaybe t . HashMap.lookup dt <$> readIORef (content c)
+            insertKeepingFirst (content c) dt (identify i bt)
   where
     c = cache :: Cache t
     !dt = describe bt

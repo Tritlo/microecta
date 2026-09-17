@@ -30,11 +30,12 @@ module Data.Tree.FTA.Generic (
 
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, (<=<))
+import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Kind (Type)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (Proxy))
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 import Data.Typeable (TypeRep, Typeable, splitTyConApp, tyConModule, tyConName, tyConPackage, typeRep)
@@ -129,13 +130,9 @@ are removed in their first-occurrence order. An empty domain accepts nothing.
 When domains are combined, the rightmost domain for a type takes precedence.
 -}
 domain :: forall a. (Typeable a, Show a) => [a] -> Domains
-domain values = Domains $ Map.singleton typ $ unique Set.empty [Constructor typ (show value) [] | value <- values]
+domain values = Domains $ Map.singleton typ $ nubOrd [Constructor typ (show value) [] | value <- values]
   where
     typ = typeRep (Proxy @a)
-    unique _ [] = []
-    unique seen (value : rest)
-        | Set.member value seen = unique seen rest
-        | otherwise = value : unique (Set.insert value seen) rest
 
 -- | Failure while deriving a finite grammar.
 data DeriveError
@@ -191,7 +188,7 @@ grows a type argument is rejected before it can create an infinite state set.
 deriveFTAWith :: forall a. (HasFTA a) => Domains -> Either DeriveError (TypedFTA () a)
 deriveFTAWith (Domains domains) = do
     rows <- visit [] Map.empty (describeType $ Proxy @a)
-    graph <- either (Left . InvalidDerivedFTA) Right $ FTA.mkFTA (typeRep $ Proxy @a) (Map.toList rows)
+    graph <- first InvalidDerivedFTA $ FTA.mkFTA (typeRep $ Proxy @a) (Map.toList rows)
     pure $ TypedFTA graph decodeTerm
   where
     visit ancestors rows description

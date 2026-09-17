@@ -39,6 +39,6 @@ function sees exactly the pairs whose keys are equal however the key hashes.
 -}
 hashJoin :: (Hashable k) => (a -> k) -> (a -> a -> b) -> [a] -> [a] -> [b]
 hashJoin key j l1 l2 =
-    concatMap (\x -> map (j x) (HashMap.lookupDefault [] (key x) right)) l1
+    [j x y | x <- l1, y <- HashMap.findWithDefault [] (key x) right]
   where
     right = HashMap.fromListWith (++) [(key x, [x]) | x <- l2]

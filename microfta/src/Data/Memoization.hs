@@ -39,36 +39,18 @@ import Data.CacheFamily (CacheFamily, newCacheFamily, selectCache)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.Maybe (fromMaybe)
+import Data.IORef (IORef, newIORef)
+import Data.Interned.Extended.HashTableBased (insertKeepingFirst)
 import GHC.IO (unsafeDupablePerformIO)
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
 
-memoIO :: forall a b. (Hashable a) => (a -> b) -> IO (a -> IO b)
-memoIO f = do
-    ref <- newIORef (HashMap.empty :: HashMap a b)
-    let f' x = do
-            cached <- HashMap.lookup x <$> readIORef ref
-            case cached of
-                Just r -> return r
-                Nothing -> do
-                    -- @r@ is never forced under the update: forcing it runs
-                    -- the memoized computation, which interns, which comes
-                    -- back through here and would diverge. Two racers may each
-                    -- insert their own thunk; both compute the same answer,
-                    -- because everything memoized here is pure.
-                    let r = f x
-                    atomicModifyIORef' ref (\m -> (HashMap.insert x r m, ()))
-                    return r
-    return f'
-
 -- | Memoize a pure unary function in a process-global mutable hash table.
 memo :: (Hashable a) => (a -> b) -> (a -> b)
 {-# NOINLINE memo #-}
-memo f =
-    let f' = unsafePerformIO (memoIO f)
-     in \x -> unsafePerformIO (f' x)
+memo f = unsafePerformIO $ do
+    table <- newMemoCache
+    pure (memoWith table f)
 
 {- | Memoize a pure binary function in one table keyed by the pair.
 
@@ -95,18 +77,7 @@ newMemoCache = MemoCache <$> newIORef HashMap.empty
 -- | Memoize one application in an explicitly supplied table.
 memoWith :: (Hashable a) => MemoCache a b -> (a -> b) -> a -> b
 {-# INLINEABLE memoWith #-}
-memoWith (MemoCache ref) f x = unsafeDupablePerformIO $ do
-    cached <- HashMap.lookup x <$> readIORef ref
-    case cached of
-        Just result -> return result
-        Nothing -> do
-            let result = f x
-            -- Keep the winner without forcing either result thunk. The
-            -- computation may itself re-enter this or another memo table.
-            atomicModifyIORef' ref $ \m ->
-                (HashMap.insertWith (\_new old -> old) x result m, ())
-            winner <- HashMap.lookup x <$> readIORef ref
-            return $ fromMaybe result winner
+memoWith (MemoCache ref) f x = unsafeDupablePerformIO $ insertKeepingFirst ref x (f x)
 
 -- | Binary variant of 'memoWith', using one table keyed by the pair.
 memo2With :: (Hashable a, Hashable b) => MemoCache (a, b) c -> (a -> b -> c) -> a -> b -> c

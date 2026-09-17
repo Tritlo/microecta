@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFunctor #-}
+
 {- | Ordinary finite-state tree automata.
 
 An FTA has a finite set of states and ranked transitions. The @guard@ parameter
@@ -37,10 +39,10 @@ module Data.Tree.FTA (
     toTree,
 ) where
 
-import Control.Monad (foldM_)
+import Control.Monad (foldM_, void)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.Bifunctor as Bifunctor
-import Data.Graph (SCC (AcyclicSCC, CyclicSCC), stronglyConnComp)
+import Data.Graph (SCC (CyclicSCC), stronglyConnComp)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -57,7 +59,7 @@ data Transition state symbol guard = Transition
     , transitionGuard :: !guard
     -- ^ Constraint-specific annotation; @()@ for an ordinary FTA.
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Functor)
 
 -- | A validated finite-state tree automaton with one initial state.
 data FTA state symbol guard = FTA
@@ -66,7 +68,7 @@ data FTA state symbol guard = FTA
     , transitionTable :: !(Map state [Transition state symbol guard])
     -- ^ Complete outgoing-transition rows, keyed by parent state.
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Functor)
 
 -- | An ordinary FTA with no transition constraints.
 type PlainFTA state symbol = FTA state symbol ()
@@ -180,7 +182,7 @@ languages but restrict what constraints may inspect inside them.
 -}
 cyclicStates :: (Ord state) => FTA state symbol guard -> Set.Set state
 cyclicStates automaton =
-    Set.fromList $ concatMap componentStates components
+    Set.fromList $ concat [component | CyclicSCC component <- components]
   where
     components = stronglyConnComp $ map dependencyNode (states automaton)
 
@@ -192,9 +194,6 @@ cyclicStates automaton =
           , child <- transitionChildren transition
           ]
         )
-
-    componentStates (CyclicSCC component) = component
-    componentStates (AcyclicSCC _) = []
 
 -- | Change constructor labels and check that the result stays ranked.
 mapSymbols ::
@@ -208,13 +207,7 @@ mapSymbols transform FTA{initialState, transitionTable} =
 
 -- | Change transition annotations without changing the accepted tree shapes.
 mapGuards :: (guard -> other) -> FTA state symbol guard -> FTA state symbol other
-mapGuards transform FTA{initialState, transitionTable} =
-    FTA
-        initialState
-        (fmap (map mapTransition) transitionTable)
-  where
-    mapTransition Transition{transitionSymbol, transitionChildren, transitionGuard} =
-        Transition transitionSymbol transitionChildren (transform transitionGuard)
+mapGuards = fmap
 
 {- | Set transition annotations with access to their state and constructor.
 
@@ -222,18 +215,14 @@ The graph structure remains unchanged. Constraint layers can interpret the
 result without defining its states and transitions again.
 -}
 annotate :: (state -> Transition state symbol guard -> other) -> FTA state symbol guard -> FTA state symbol other
-annotate transform FTA{initialState, transitionTable} =
-    FTA initialState $ Map.mapWithKey (\state -> map $ annotateTransition state) transitionTable
+annotate transform automaton =
+    automaton{transitionTable = Map.mapWithKey (map . annotateTransition) (transitionTable automaton)}
   where
-    annotateTransition state transition =
-        Transition
-            (transitionSymbol transition)
-            (transitionChildren transition)
-            (transform state transition)
+    annotateTransition state transition = transition{transitionGuard = transform state transition}
 
 -- | Forget transition annotations, yielding an ordinary FTA.
 stripGuards :: FTA state symbol guard -> PlainFTA state symbol
-stripGuards = mapGuards (const ())
+stripGuards = void
 
 {- | Retain terms whose leaves are at most the given depth from the root.
 
@@ -306,7 +295,7 @@ intersectWith matchSymbol combineGuard left right =
   where
     initial = ProductState (initialState left) (initialState right)
 
-    build _ [] rows = reverse rows
+    build _ [] rows = rows
     build visited (productState : pending) rows
         | Set.member productState visited = build visited pending rows
         | otherwise =

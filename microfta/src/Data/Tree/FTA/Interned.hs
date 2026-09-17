@@ -19,7 +19,7 @@ module Data.Tree.FTA.Interned (
     module Data.Tree.FTA.Interned.Operations,
 ) where
 
-import qualified Control.Monad.State.Strict as State
+import Data.Bifunctor (first)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -61,9 +61,7 @@ toFTA ::
 toFTA root
     | not (Set.null $ freeVars root) = Left OpenNode
     | otherwise =
-        case FTA.mkFTA (stateOf root) (Map.toList $ collect Map.empty [root]) of
-            Left err -> Left (InvalidFTA err)
-            Right graph -> Right graph
+        first InvalidFTA $ FTA.mkFTA (stateOf root) (Map.toList $ collect Map.empty [root])
   where
     collect seen [] = seen
     collect seen (node : pending)
@@ -112,22 +110,15 @@ fromFTA ::
     FTA.FTA state symbol constraint -> Either (FTAImportError state) (Node symbol constraint)
 fromFTA graph = case FTA.cycleState graph of
     Just state -> Left $ RecursiveFTAState state
-    Nothing -> Right $ State.evalState (buildState $ FTA.initialState graph) Map.empty
+    Nothing -> Right $ nodes Map.! FTA.initialState graph
   where
-    buildState state = do
-        built <- State.get
-        case Map.lookup state built of
-            Just node -> pure node
-            Nothing -> do
-                edges <- traverse buildTransition $ FTA.transitionsFrom graph state
-                let node = case edges of
-                        [] -> EmptyNode
-                        _ -> Node edges
-                State.modify' $ Map.insert state node
-                pure node
-    buildTransition transition = do
-        children <- traverse buildState $ FTA.transitionChildren transition
-        pure $ mkEdge (FTA.transitionSymbol transition) children (FTA.transitionGuard transition)
+    -- The map is lazy in its values, so each state is built once, on demand.
+    nodes = fmap (mkNode . map edge) (FTA.transitionTable graph)
+    edge transition =
+        mkEdge
+            (FTA.transitionSymbol transition)
+            (map (nodes Map.!) (FTA.transitionChildren transition))
+            (FTA.transitionGuard transition)
 
 -- | Name the empty state or read the shared canonical identity.
 stateOf :: Node symbol constraint -> InternedState

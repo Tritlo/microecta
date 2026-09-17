@@ -376,8 +376,8 @@ identifyNode i (UninternedNode es) =
         MkInternedNode
             { internedNodeId = i
             , internedNodeEdges = es
-            , internedNodeNumNestedMu = maximum (0 : concatMap (map numNestedMu . edgeChildren) es) -- depth is always >= 0
-            , internedNodeFree = Set.unions (concatMap (map freeVars . edgeChildren) es)
+            , internedNodeNumNestedMu = maximum (0 : [numNestedMu child | edge <- es, child <- edgeChildren edge])
+            , internedNodeFree = Set.unions [freeVars child | edge <- es, child <- edgeChildren edge]
             }
 identifyNode _ UninternedEmptyNode = EmptyNode
 identifyNode i (UninternedMu depthShape s n) =

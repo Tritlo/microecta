@@ -1,9 +1,9 @@
 -- | Process-global families of caches, separated by their runtime types.
 module Data.CacheFamily (CacheFamily, newCacheFamily, selectCache) where
 
-import Control.Applicative ((<|>))
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.Maybe (listToMaybe, mapMaybe)
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
 
@@ -27,5 +27,4 @@ selectCache (CacheFamily ref) allocate = unsafePerformIO $ do
                 Just found -> (entries, found)
                 Nothing -> (toDyn candidate : entries, candidate)
   where
-    findCache [] = Nothing
-    findCache (entry : rest) = fromDynamic entry <|> findCache rest
+    findCache = listToMaybe . mapMaybe fromDynamic

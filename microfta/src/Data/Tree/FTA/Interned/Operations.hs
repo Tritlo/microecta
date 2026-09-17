@@ -234,9 +234,6 @@ dropConstraints node = memoTypeableWith genericDropConstraintsCache go node
 
 -- Intersect
 
--- | Result of comparing one alternative with the remaining alternatives.
-data RuleOutRes symbol constraint = Keep | RuledOutBy (Edge symbol constraint)
-
 -- | Remove edges that are subsumed by another edge with the same symbol.
 {-# INLINEABLE dropRedundantEdges #-}
 dropRedundantEdges ::
@@ -254,24 +251,19 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
         --
         -- No noticeable difference in overall wall clock time (7/2/21),
         -- but a few % reduction in calls to intersectEdgeSameSymbol
-        (RuledOutBy e', es') -> reduceCluster (e' : es')
-        (Keep, es') -> e : reduceCluster es'
+        (Just e', es') -> reduceCluster (e' : es')
+        (Nothing, es') -> e : reduceCluster es'
 
+    -- Drop the alternatives that @e@ accepts, or report one that accepts @e@.
     ruleOut ::
-        Edge symbol constraint -> [Edge symbol constraint] -> (RuleOutRes symbol constraint, [Edge symbol constraint])
-    ruleOut _ [] = (Keep, [])
-    ruleOut e (x : xs) =
-        let e' = intersectEdgeSameSymbol e x
-         in if e' == x
-                then
-                    ruleOut e xs
-                else
-                    if e' == e
-                        then
-                            (RuledOutBy x, xs)
-                        else
-                            let (res, notRuledOut) = ruleOut e xs
-                             in (res, x : notRuledOut)
+        Edge symbol constraint -> [Edge symbol constraint] -> (Maybe (Edge symbol constraint), [Edge symbol constraint])
+    ruleOut _ [] = (Nothing, [])
+    ruleOut e (x : xs)
+        | common == x = ruleOut e xs
+        | common == e = (Just x, xs)
+        | otherwise = let (res, notRuledOut) = ruleOut e xs in (res, x : notRuledOut)
+      where
+        common = intersectEdgeSameSymbol e x
 
 -- | Intersect two edges when they have the same symbol.
 {-# INLINEABLE intersectEdge #-}
@@ -297,13 +289,12 @@ intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameS
   where
     go e1 e2
         | e2 < e1 = intersectEdgeSameSymbol e2 e1
-    go e1 e2
         | length (edgeChildren e1) /= length (edgeChildren e2) = emptyEdge (edgeSymbol e1)
-    go e1 e2 =
-        mkEdge
-            (edgeSymbol e1)
-            (zipWith intersect (edgeChildren e1) (edgeChildren e2))
-            (edgeConstraint e1 `conjoinConstraints` edgeConstraint e2)
+        | otherwise =
+            mkEdge
+                (edgeSymbol e1)
+                (zipWith intersect (edgeChildren e1) (edgeChildren e2))
+                (edgeConstraint e1 `conjoinConstraints` edgeConstraint e2)
 {-# INLINEABLE intersectEdgeSameSymbol #-}
 
 -- | Intersection of two automata.
