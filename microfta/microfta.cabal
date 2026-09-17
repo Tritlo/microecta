@@ -15,7 +15,7 @@ copyright: 2021-2024 Jimmy Koppel, 2026 Matthias Pall Gissurarson
 license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
-tested-with: ghc ==9.12.2 || ==9.14.1
+tested-with: ghc ==9.14.1
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -35,9 +35,7 @@ common warnings
     -Wincomplete-uni-patterns
     -Wpartial-fields
     -Wredundant-constraints
-
-  if impl(ghc >=9.14)
-    ghc-options: -Wno-pattern-namespace-specifier
+    -Wno-pattern-namespace-specifier
 
 library
   import: warnings
@@ -78,8 +76,8 @@ library
     Utility.HashJoin
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     hashtables >=1.4 && <1.5,
     mtl >=2.3 && <2.4,
@@ -93,8 +91,8 @@ test-suite unit-tests
   hs-source-dirs: test
   other-modules: Data.Tree.FTASyntaxSpec
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microfta,
