@@ -196,15 +196,7 @@ cyclicStates automaton =
         )
 
     componentStates (CyclicSCC component) = component
-    componentStates (AcyclicSCC state)
-        | state `elem` directChildren state = [state]
-        | otherwise = []
-
-    directChildren state =
-        [ child
-        | transition <- transitionsFrom automaton state
-        , child <- transitionChildren transition
-        ]
+    componentStates (AcyclicSCC _) = []
 
 -- | Change constructor labels and check that the result stays ranked.
 mapSymbols ::
