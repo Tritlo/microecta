@@ -23,7 +23,6 @@ module Data.Tree.Gen.Internal.Sampler (
 ) where
 
 import qualified Data.Bifunctor as Bifunctor
-import qualified Data.IntMap.Lazy as IntMap
 import Data.List (mapAccumL)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
@@ -478,15 +477,22 @@ compileWeighted weighted
     , totalWeight <= toInteger (maxBound :: Int) =
         let bound = fromInteger totalWeight
             entries = snd $ mapAccumL compileGroup 0 grouped
-            table = IntMap.fromDistinctAscList entries
-         in Just
-                ( bound
-                , \ticket ->
-                    case IntMap.lookupLE ticket table of
-                        Just (lowerBound, (ticketWidth, values)) ->
-                            unsafeAt values $ (ticket - lowerBound) `quot` ticketWidth
-                        Nothing -> error "microfta-generator bug in compileWeighted: negative ticket"
-                )
+            lastIndex = length entries - 1
+            table = listArray (0, lastIndex) entries
+            -- \| Search the array without allocating a lookup result per ticket.
+            lookupTicket ticket = go 0 lastIndex
+              where
+                go low high
+                    | low == high =
+                        let (lowerBound, (ticketWidth, values)) = unsafeAt table low
+                         in unsafeAt values $ (ticket - lowerBound) `quot` ticketWidth
+                    | otherwise =
+                        let midpoint = low + (high - low + 1) `quot` 2
+                            (lowerBound, _) = unsafeAt table midpoint
+                         in if ticket < lowerBound
+                                then go low (midpoint - 1)
+                                else go midpoint high
+         in Just (bound, lookupTicket)
     | otherwise = Nothing
   where
     totalWeight = sum $ map fst weighted
