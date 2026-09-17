@@ -61,6 +61,17 @@ spec = do
                 (Left err, _) -> expectationFailure $ show err
                 (_, Left err) -> expectationFailure $ show err
 
+        it "lists accepted terms by depth" $
+            case Automaton.mkFTA Expression [(Expression, [Transition "zero" [] (), Transition "add" [Expression, Expression] ()])] of
+                Left err -> expectationFailure $ show err
+                Right expressions -> do
+                    let zero = Tree.Node "zero" []
+                        add left right = Tree.Node "add" [left, right]
+                        pair = add zero zero
+                    take 5 (Automaton.terms expressions)
+                        `shouldBe` [zero, pair, add pair zero, add pair pair, add zero pair]
+                    Automaton.terms (Automaton.boundDepth 2 expressions) `shouldBe` take 5 (Automaton.terms expressions)
+
     describe "common interned automaton engine" $ do
         it "recognizes and intersects unit-constrained languages" $ do
             let choices = Common.Node [Common.Edge "a" [], Common.Edge "b" []] :: Common.PlainNode String
@@ -133,6 +144,8 @@ spec = do
                 bounded = Common.unfoldBounded 2 naturals
             map (acceptPlain bounded) terms `shouldBe` [True, True, False, False]
             Common.refold (Common.unfoldOuterRec naturals) `shouldBe` naturals
+            take 3 (Common.terms naturals) `shouldBe` take 3 terms
+            Common.terms bounded `shouldBe` take 2 terms
 
         it "imports an acyclic explicit graph and exposes it again unchanged" $ do
             let rows =
