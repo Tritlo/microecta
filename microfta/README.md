@@ -21,8 +21,8 @@ without enumerating its values.
 ## Operations at a glance
 
 `microfta` constructs and transforms grammars, and checks supplied values.
-It has no API for enumeration, language cardinality, random sampling, or shrinking.
-Those operations belong to the separate `microfta-generator` package.
+`terms` lists the accepted terms by depth. Language cardinality, random
+sampling, and shrinking belong to the separate `microfta-generator` package.
 
 The table uses these module aliases:
 
@@ -39,6 +39,7 @@ import qualified Data.Tree.FTA.Interned as Common
 | Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
 | Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
+| List accepted terms | `FTA.terms`, `Common.terms` | Every term, by depth. A recursive grammar gives an infinite list. |
 | Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
 | Intersect languages | `FTA.intersect`, `FTA.intersectWith`, `Common.intersect` | A grammar for the common trees. Annotations require the interpretation described below. |
 | Inspect states, transitions, and cycles | `FTA.states`, `FTA.transitionsFrom`, `FTA.cyclicStates` | Graph structure, not accepted values. |
@@ -53,10 +54,10 @@ import qualified Data.Tree.FTA.Interned as Common
 explicit state names. `Common` uses interned nodes and edges to share structure.
 Conversion between them does not produce the accepted values.
 
-For example, `FTA.boundDepth 3 grammar` returns a finite grammar. To list its
-values, use `microfta-generator`: compile the grammar, then use `cardinality`
-and `unrank` to visit its accepting runs. Different runs can produce the same
-value if the grammar is ambiguous.
+For example, `FTA.terms (FTA.boundDepth 3 grammar)` lists the values of a
+bounded grammar. `microfta-generator` compiles a grammar into replay ranks
+for sampling; different accepting runs can produce the same value if the
+grammar is ambiguous.
 
 ## Start with a datatype
 
@@ -297,9 +298,9 @@ you import `Data.Tree` directly.
 
 ## Generate a language
 
-`microfta` does not enumerate or sample languages. The `microfta-generator`
-package compiles a grammar into a ranked generator with replay, sampling, and
-shrinking. Its README contains a complete example that generates every
+`terms` lists a language; `microfta` does not sample one. The
+`microfta-generator` package compiles a grammar into a ranked generator with
+replay, sampling, and shrinking. Its README contains a complete example that generates every
 expression of a bounded depth.
 
 ## Module guide

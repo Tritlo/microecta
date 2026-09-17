@@ -9,7 +9,7 @@ import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.TestSupport (decodesEveryRankExactly)
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import Data.Ranked.Internal.Sampler (Exact (..))
 
 spec :: Spec
 spec = do

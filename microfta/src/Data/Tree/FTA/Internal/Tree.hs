@@ -1,10 +1,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 -- | Shared finite tree views of graph nodes and their outgoing alternatives.
-module Data.Tree.FTA.Internal.Tree (ViewPath, StateView (..), toTreeBy) where
+module Data.Tree.FTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, termsBy) where
 
 import Control.Monad (zipWithM)
 import qualified Control.Monad.State.Strict as State
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Tree (Tree (Node))
 
@@ -57,3 +58,32 @@ toTreeBy outgoing children root = State.evalState (visit Set.empty [] root) Set.
                 (\child -> visit ancestors ((alternative, child) : reversedPath))
                 [0 ..]
                 (children edge)
+
+{- | Every accepted term of a graph given as rows, ordered by depth.
+
+A leaf has depth zero. All terms of one depth are listed before deeper
+terms, so every term of a cyclic graph appears after finitely many others.
+The list ends once no row has a term of the current depth, so an acyclic
+graph gives a finite list. Rows must be closed: every child key has a row.
+-}
+termsBy :: (Ord key) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
+termsBy rows root = concat [exactly depth root | depth <- takeWhile populated [0 ..]]
+  where
+    -- Terms of each depth for each row. Each level is computed once.
+    levels = Map.fromList [(key, map (level outgoing) [0 ..]) | (key, outgoing) <- rows]
+    level outgoing depth =
+        [Node symbol children | (symbol, childKeys) <- outgoing, children <- deepest (depth - 1) childKeys]
+    populated depth = not (all (null . (!! depth)) (Map.elems levels))
+    exactly depth key = levels Map.! key !! depth
+    atMost depth key = concat (take (depth + 1) (levels Map.! key))
+
+    -- Child lists whose deepest child has exactly the given depth. The first
+    -- child at that depth is fixed, so no list is produced twice.
+    deepest depth []
+        | depth < 0 = [[]]
+        | otherwise = []
+    deepest depth (key : keys)
+        | depth < 0 = []
+        | otherwise =
+            [child : rest | child <- exactly depth key, rest <- traverse (atMost depth) keys]
+                ++ [child : rest | child <- atMost (depth - 1) key, rest <- deepest depth keys]

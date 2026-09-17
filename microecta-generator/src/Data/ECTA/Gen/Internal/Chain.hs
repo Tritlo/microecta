@@ -45,9 +45,9 @@ import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (argKeyedSymbol)
 import Data.ECTA.Gen.Sig (Sig (..))
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (SizeIndex, productIndex)
+import Data.Ranked.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (SizeIndex, productIndex)
 
 {- | Group maps of every argument family, threaded through the operation type.
 

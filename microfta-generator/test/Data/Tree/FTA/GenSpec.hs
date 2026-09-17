@@ -16,12 +16,12 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import Control.Monad (void)
+import qualified Data.Ranked as Ranked
 import qualified Data.Tree as Tree
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
-import qualified Data.Tree.Gen as Ranked
 
 -- | A derived recursive fixture with named child positions.
 data DerivedTree = Leaf Bool | Fork DerivedTree DerivedTree
