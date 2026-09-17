@@ -33,9 +33,9 @@ import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import Data.ECTA.Term (Symbol)
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
+import Data.Ranked.Internal.Size (SizeIndex)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
-import Data.Tree.Gen.Internal.Size (SizeIndex)
 
 {- | Count and index the terms an automaton accepts, by size.
 

@@ -31,19 +31,19 @@ import Data.ECTA (Node)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Shrink (
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Shrink (
     planMemberSize,
     shrinkPlanRank,
     smallerPlanMembers,
     smallestPlanRank,
  )
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect),
     minimumMemberSize,
     sizeClassOf,
  )
-import qualified Data.Tree.Gen.Internal.Size as Size
+import qualified Data.Ranked.Internal.Size as Size
 
 {- | Return the ECTA support of an inspectable generator.
 

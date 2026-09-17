@@ -11,7 +11,7 @@ import Data.Ratio ((%))
 import Test.Hspec (Expectation, expectationFailure, shouldBe)
 
 import qualified Data.ECTA.Gen as Core
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import Data.Ranked.Internal.Sampler (Exact (..))
 
 -- | Aggregate exact ticket multiplicities by their sampled result.
 aggregateRights :: (Ord a) => [(Rational, Either e a)] -> [(Rational, a)]

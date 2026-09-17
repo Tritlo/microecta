@@ -87,8 +87,8 @@ import Data.ECTA.Gen.Internal.Recursion
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (choiceIndex)
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (choiceIndex)
 
 -- | Interpret a reified condition as one key projection per side.
 withKeys ::
