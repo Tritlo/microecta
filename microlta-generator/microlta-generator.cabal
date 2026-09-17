@@ -223,3 +223,23 @@ benchmark typed-expression-constraint-cost
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
+
+benchmark enumeration-speed
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: EnumerationSpeed.hs
+  hs-source-dirs: benchmarks
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    NamedFieldPuns
+    OverloadedStrings
+
+  ghc-options: -rtsopts
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microecta >=0.2.0.0 && <0.3,
+    microfta >=0.1.0.0 && <0.2,
+    microlta >=0.1 && <0.2,
+    text >=2.1 && <2.2,
