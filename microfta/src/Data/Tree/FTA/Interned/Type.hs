@@ -341,17 +341,6 @@ instance Hashable (UninternedNode symbol constraint) where
                 `hashWithSalt` depthShape
                 `hashWithSalt` s
 
-instance (Typeable symbol, Typeable constraint) => Interned (Node symbol constraint) where
-    type Uninterned (Node symbol constraint) = UninternedNode symbol constraint
-    data Description (Node symbol constraint) = DNode !(UninternedNode symbol constraint)
-        deriving (Eq)
-    describe = DNode
-    identify = identifyNode
-    cache = selectCache nodeCaches (freshCacheWith nodeIds)
-
-instance Hashable (Description (Node symbol constraint)) where
-    hashWithSalt salt (DNode node) = salt `hashWithSalt` node
-
 -- | Typed node caches share one identity sequence across all automaton types.
 nodeCaches :: CacheFamily
 nodeCaches = unsafePerformIO newCacheFamily
@@ -367,7 +356,7 @@ nodeIds = unsafePerformIO (newIORef 0)
 internNode ::
     forall symbol constraint.
     (Typeable symbol, Typeable constraint) => UninternedNode symbol constraint -> Node symbol constraint
-internNode = intern
+internNode = intern (selectCache nodeCaches (freshCacheWith nodeIds)) identifyNode
 
 {-# INLINEABLE identifyNode #-}
 identifyNode :: Id -> UninternedNode symbol constraint -> Node symbol constraint
@@ -467,17 +456,6 @@ instance (Hashable symbol, Constraint constraint) => Hashable (UninternedEdge sy
     hashWithSalt salt (UninternedEdge symbol children ecs) =
         salt `hashWithSalt` symbol `hashWithSalt` children `hashWithSalt` ecs
 
-instance (Hashable symbol, Typeable symbol, Constraint constraint) => Interned (Edge symbol constraint) where
-    type Uninterned (Edge symbol constraint) = UninternedEdge symbol constraint
-    data Description (Edge symbol constraint) = DEdge !(UninternedEdge symbol constraint)
-        deriving (Eq)
-    describe = DEdge
-    identify = InternedEdge
-    cache = selectCache edgeCaches (freshCacheWith edgeIds)
-
-instance (Hashable symbol, Constraint constraint) => Hashable (Description (Edge symbol constraint)) where
-    hashWithSalt salt (DEdge edge) = salt `hashWithSalt` edge
-
 -- | Typed edge caches share one identity sequence across all automaton types.
 edgeCaches :: CacheFamily
 edgeCaches = unsafePerformIO newCacheFamily
@@ -493,7 +471,7 @@ edgeIds = unsafePerformIO (newIORef 0)
 internEdge ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) => UninternedEdge symbol constraint -> Edge symbol constraint
-internEdge = intern
+internEdge = intern (selectCache edgeCaches (freshCacheWith edgeIds)) InternedEdge
 
 -- Smart constructors
 

@@ -24,7 +24,6 @@ module Data.Interned.Extended.HashTableBased (
     Cache,
     freshCacheWith,
     insertKeepingFirst,
-    Interned (..),
     intern,
 ) where
 
@@ -39,38 +38,16 @@ import GHC.IO (unsafeDupablePerformIO)
 type Id = Int
 
 -- | The interning table for one type, plus the counter that names new entries.
-data Cache t = Cache
+data Cache key value = Cache
     { fresh :: !(IORef Id)
     -- ^ Next id to allocate. Ids of values that lose an insert race go unused.
-    , content :: !(IORef (HashMap (Description t) t))
-    -- ^ Map from structural descriptions to canonical interned values.
+    , content :: !(IORef (HashMap key value))
+    -- ^ Map from uninterned keys to canonical interned values.
     }
 
 -- | Allocate a typed cache that uses a shared identity counter.
-freshCacheWith :: IORef Id -> IO (Cache t)
+freshCacheWith :: IORef Id -> IO (Cache key value)
 freshCacheWith ids = Cache ids <$> newIORef HashMap.empty
-
--- | Values that can be hash-consed through a global cache.
-class
-    ( Eq (Description t)
-    , Hashable (Description t)
-    ) =>
-    Interned t
-    where
-    -- | Hashable structural representation used as the cache key.
-    data Description t
-
-    -- | Non-canonical input used to build an interned value.
-    type Uninterned t
-
-    -- | Compute the cache key for an uninterned value.
-    describe :: Uninterned t -> Description t
-
-    -- | Attach a freshly allocated identity to an uninterned value.
-    identify :: Id -> Uninterned t -> t
-
-    -- | Process-global cache for this interned type.
-    cache :: Cache t
 
 {- | Insert a value unless the key is present, and return the stored value.
 
@@ -89,16 +66,17 @@ insertKeepingFirst ref key value = do
             atomicModifyIORef' ref $ \table -> (HashMap.insertWith (\_new old -> old) key value table, ())
             fromMaybe value . HashMap.lookup key <$> readIORef ref
 
--- | Return the canonical interned representative for an uninterned value.
-intern :: forall t. (Interned t) => Uninterned t -> t
+{- | Return the canonical interned representative for an uninterned value.
+
+The uninterned value is the cache key. The identify function attaches a fresh
+identity when the value is new.
+-}
+intern :: (Hashable key) => Cache key value -> (Id -> key -> value) -> key -> value
 {-# INLINEABLE intern #-}
-intern !bt = unsafeDupablePerformIO $ do
-    existing <- HashMap.lookup dt <$> readIORef (content c)
+intern cache identify !key = unsafeDupablePerformIO $ do
+    existing <- HashMap.lookup key <$> readIORef (content cache)
     case existing of
-        Just t -> return t
+        Just found -> return found
         Nothing -> do
-            i <- atomicModifyIORef' (fresh c) (\next -> (next + 1, next))
-            insertKeepingFirst (content c) dt (identify i bt)
-  where
-    c = cache :: Cache t
-    !dt = describe bt
+            i <- atomicModifyIORef' (fresh cache) (\next -> (next + 1, next))
+            insertKeepingFirst (content cache) key (identify i key)
