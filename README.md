@@ -11,6 +11,9 @@ The workspace contains these Cabal packages:
 `microfta` provides a standalone constraint-parameterized graph.
 `microecta` uses that shared graph for its equality interpretation.
 
+GHC 9.14 is the supported compiler series. The workspace selects GHC 9.14.1.
+The packages require `base >=4.22 && <4.23` and `containers >=0.8 && <0.9`.
+
 Build and test the workspace:
 
 ```sh
