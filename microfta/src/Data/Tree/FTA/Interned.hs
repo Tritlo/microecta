@@ -14,6 +14,7 @@ module Data.Tree.FTA.Interned (
     ViewPath,
     StateView (..),
     toTree,
+    terms,
     module Data.Tree.FTA.Constraint,
     module Data.Tree.FTA.Interned.Type,
     module Data.Tree.FTA.Interned.Operations,
@@ -21,6 +22,8 @@ module Data.Tree.FTA.Interned (
 
 import Data.Bifunctor (first)
 import Data.Hashable (Hashable)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
@@ -29,7 +32,7 @@ import Data.Typeable (Typeable)
 import Data.Tree.FTA (StateView (..), ViewPath)
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Constraint
-import Data.Tree.FTA.Internal.Tree (toTreeBy)
+import Data.Tree.FTA.Internal.Tree (termsBy, toTreeBy)
 import Data.Tree.FTA.Interned.Operations
 import Data.Tree.FTA.Interned.Type
 
@@ -60,19 +63,11 @@ toFTA ::
     Either (FTAViewError symbol) (FTA.FTA InternedState symbol constraint)
 toFTA root
     | not (Set.null $ freeVars root) = Left OpenNode
-    | otherwise =
-        first InvalidFTA $ FTA.mkFTA (stateOf root) (Map.toList $ collect Map.empty [root])
+    | otherwise = first InvalidFTA $ FTA.mkFTA (stateOf root) rows
   where
-    collect seen [] = seen
-    collect seen (node : pending)
-        | Map.member state seen = collect seen pending
-        | otherwise =
-            collect
-                (Map.insert state (map transition edges) seen)
-                (concatMap edgeChildren edges <> pending)
-      where
-        state = stateOf node
-        edges = nodeEdges node
+    rows = case root of
+        EmptyNode -> [(EmptyState, [])]
+        _ -> [(InternedState ident, map transition edges) | (ident, edges) <- IntMap.toList (reachable root)]
 
     transition edge =
         FTA.Transition
@@ -95,6 +90,33 @@ toTree ::
 toTree root
     | not (Set.null $ freeVars root) = Left OpenNode
     | otherwise = Right $ toTreeBy nodeEdges edgeChildren root
+
+-- | Outgoing alternatives of every node reachable from a non-empty root, by identity.
+reachable ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint -> IntMap [Edge symbol constraint]
+reachable root = collect IntMap.empty [root]
+  where
+    collect seen [] = seen
+    collect seen (node : pending)
+        | IntMap.member ident seen = collect seen pending
+        | otherwise = collect (IntMap.insert ident edges seen) (concatMap edgeChildren edges <> pending)
+      where
+        ident = nodeIdentity node
+        edges = nodeEdges node
+
+{- | Every accepted term of a closed ordinary graph, ordered by depth.
+
+See 'FTA.terms'. A recursive graph gives an infinite list.
+-}
+terms :: (Hashable symbol, Typeable symbol) => PlainNode symbol -> [Tree.Tree symbol]
+terms EmptyNode = []
+terms root =
+    termsBy
+        [ (ident, [(edgeSymbol edge, map nodeIdentity (edgeChildren edge)) | edge <- edges])
+        | (ident, edges) <- IntMap.toList (reachable root)
+        ]
+        (nodeIdentity root)
 
 -- | Failure while importing a finite explicit-state graph.
 newtype FTAImportError state = RecursiveFTAState state
