@@ -1,17 +1,14 @@
 -- | Process-global families of caches, separated by their runtime types.
 module Data.CacheFamily (CacheFamily, newCacheFamily, selectCache) where
 
+import Control.Applicative ((<|>))
+import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
-import Type.Reflection (TypeRep, Typeable, eqTypeRep, typeRep)
+import Type.Reflection (Typeable)
 
 -- | A small set of typed caches. Each family belongs to one operation.
-newtype CacheFamily = CacheFamily (IORef [SomeCache])
-
--- | One cache and the type needed to retrieve it safely.
-data SomeCache where
-    SomeCache :: TypeRep cache -> cache -> SomeCache
+newtype CacheFamily = CacheFamily (IORef [Dynamic])
 
 -- | Allocate an empty family.
 newCacheFamily :: IO CacheFamily
@@ -28,10 +25,7 @@ selectCache (CacheFamily ref) allocate = unsafePerformIO $ do
             candidate <- allocate
             atomicModifyIORef' ref $ \entries -> case findCache entries of
                 Just found -> (entries, found)
-                Nothing -> (SomeCache wanted candidate : entries, candidate)
+                Nothing -> (toDyn candidate : entries, candidate)
   where
-    wanted = typeRep @cache
     findCache [] = Nothing
-    findCache (SomeCache actual value : rest) = case eqTypeRep wanted actual of
-        Just HRefl -> Just value
-        Nothing -> findCache rest
+    findCache (entry : rest) = fromDynamic entry <|> findCache rest
