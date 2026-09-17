@@ -37,12 +37,8 @@ jobs:
           fail-on: warning
 
   build-test-bench:
-    name: GHC ${{ matrix.ghc }}
+    name: GHC 9.14.1
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ghc: ["9.12.2", "9.14.1"]
 
     steps:
       - name: Checkout
@@ -52,7 +48,7 @@ jobs:
         uses: haskell-actions/setup@v2
         id: setup
         with:
-          ghc-version: ${{ matrix.ghc }}
+          ghc-version: "9.14.1"
           cabal-version: "3.16.1.0"
           cabal-update: true
 
@@ -103,7 +99,7 @@ jobs:
       - name: Test
         run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
 
-      # The examples are run on every compiler in the matrix.
+      # Run the library examples with the supported compiler.
       - name: Doctest
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
@@ -125,5 +121,4 @@ jobs:
           scripts/release.sh microecta-generator --check-only
 
       - name: Benchmark
-        if: matrix.ghc == '9.14.1'
         run: cabal v2-bench all --enable-optimization=2
