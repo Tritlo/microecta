@@ -71,7 +71,6 @@ library
     Data.Tree.FTA.Interned
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
-    Data.Tree.FTA.Syntax
     Utility.Fixpoint
     Utility.HashJoin
 
@@ -88,7 +87,7 @@ test-suite unit-tests
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  other-modules: Data.Tree.FTASyntaxSpec
+  other-modules: Data.Tree.FTASpec
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
