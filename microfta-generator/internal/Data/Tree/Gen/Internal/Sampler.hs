@@ -23,10 +23,11 @@ module Data.Tree.Gen.Internal.Sampler (
 ) where
 
 import qualified Data.Bifunctor as Bifunctor
+import qualified Data.IntMap.Lazy as IntMap
 import Data.List (mapAccumL)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
-import GHC.Arr (Array, listArray, unsafeAt)
+import GHC.Arr (listArray, unsafeAt)
 
 import Data.Tree.Gen.Internal.Size (
     SizeIndex,
@@ -477,8 +478,15 @@ compileWeighted weighted
     , totalWeight <= toInteger (maxBound :: Int) =
         let bound = fromInteger totalWeight
             entries = snd $ mapAccumL compileGroup 0 grouped
-            table = listArray (0, lastIndex) entries
-         in Just (bound, lookupWeightGroup table lastIndex)
+            table = IntMap.fromDistinctAscList entries
+         in Just
+                ( bound
+                , \ticket ->
+                    case IntMap.lookupLE ticket table of
+                        Just (lowerBound, (ticketWidth, values)) ->
+                            unsafeAt values $ (ticket - lowerBound) `quot` ticketWidth
+                        Nothing -> error "microfta-generator bug in compileWeighted: negative ticket"
+                )
     | otherwise = Nothing
   where
     totalWeight = sum $ map fst weighted
@@ -489,37 +497,11 @@ compileWeighted weighted
             Map.fromListWith
                 (<>)
                 [(weight, [value]) | (weight, value) <- weighted]
-    lastIndex = length grouped - 1
 
     compileGroup lowerBound (weight, values) =
         let !ticketWidth = fromInteger weight
             !upperBound = lowerBound + ticketWidth * length values
-            valueTable = listArray (0, length values - 1) values
+            !valueTable = listArray (0, length values - 1) values
          in ( upperBound
-            , WeightGroup lowerBound upperBound ticketWidth valueTable
+            , (lowerBound, (ticketWidth, valueTable))
             )
-
--- | Outcomes with one ticket width, stored as one contiguous ticket interval.
-data WeightGroup a
-    = WeightGroup
-        {-# UNPACK #-} !Int
-        {-# UNPACK #-} !Int
-        {-# UNPACK #-} !Int
-        !(Array Int a)
-
--- | Find the weight group containing one ticket, then index within that group.
-lookupWeightGroup :: Array Int (WeightGroup a) -> Int -> Int -> a
-lookupWeightGroup table lastIndex ticket = go 0 lastIndex
-  where
-    go low high
-        | low == high =
-            case unsafeAt table low of
-                WeightGroup lowerBound _ ticketWidth values ->
-                    unsafeAt values $ (ticket - lowerBound) `quot` ticketWidth
-        | otherwise =
-            case unsafeAt table midpoint of
-                WeightGroup _ upperBound _ _
-                    | ticket < upperBound -> go low midpoint
-                    | otherwise -> go (midpoint + 1) high
-      where
-        midpoint = (low + high) `div` 2
