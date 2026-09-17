@@ -33,6 +33,7 @@ module Data.ECTA.Gen.Internal.Support (
     labelTerm,
 ) where
 
+import Data.List (compareLength)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
