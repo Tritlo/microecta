@@ -44,7 +44,7 @@ import Prelude hiding (round)
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
-import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy, (!?))
+import Data.List (compareLength, groupBy, isSubsequenceOf, nub, sort, sortBy, (!?))
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as Set
@@ -560,7 +560,7 @@ mkEqConstraints initialConstraints = case completedConstraints of
     Just cs -> EqConstraints $ sort $ map PathEClass cs
   where
     removeTrivial :: (Eq a) => [[a]] -> [[a]]
-    removeTrivial = filter (\x -> length x > 1) . map nub
+    removeTrivial = filter (\x -> compareLength x 1 == GT) . map nub
 
     -- Reason for the extra "complete" in this line:
     -- The first simplification done to the constraints is eclass-completion,

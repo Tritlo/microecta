@@ -60,7 +60,7 @@ module Data.ECTA.Internal.ECTA.Operations (
 
 import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
-import Data.List (inits, tails, (!?))
+import Data.List (compareLength, inits, tails, (!?))
 import Data.Maybe (mapMaybe)
 import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
@@ -147,7 +147,7 @@ requirePath (ConsPath p ps) (Node es) =
     Node
         $ map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e)))
         $ filter
-            (\e -> length (edgeChildren e) > p)
+            (\e -> compareLength (edgeChildren e) p == GT)
             es
 requirePath _ (Rec _) = error "requirePath: unexpected Rec"
 
