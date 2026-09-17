@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Constraint-independent operations on shared interned automata.
 module Data.Tree.FTA.Interned.Operations (
     nodeMapChildren,
@@ -14,7 +12,6 @@ module Data.Tree.FTA.Interned.Operations (
     edgeCount,
     maxIndegree,
     union,
-    unionMapMaybe,
     nodeRepresentsWith,
     edgeRepresentsWith,
     dropEdgeConstraints,
@@ -24,16 +21,17 @@ module Data.Tree.FTA.Interned.Operations (
     withoutRedundantEdges,
     getSubnodeById,
     intersectEdge,
+    fixUnbounded,
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
-import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -42,12 +40,10 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Interned.Extended.HashTableBased (Id)
-import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
+import Data.Tree.FTA.Interned.Cache (Id)
+import Data.Tree.FTA.Interned.Memo
 import Data.Tree.FTA.Interned.Type
-import Utility.Fixpoint
-import Utility.HashJoin
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}
@@ -59,7 +55,12 @@ nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
 nodeMapChildren f (Node es) = Node (map f es)
 nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
--- | Transform each reachable node. Memoize separately for each transformation.
+{- | Transform each reachable node. Memoize separately for each transformation.
+
+Under a 'Mu', the body is rebuilt three times with different placeholders, so
+the function also receives 'Rec' nodes that hold 'RecDepth' and 'RecUnint'.
+Return such nodes unchanged.
+-}
 {-# INLINEABLE mapNodes #-}
 mapNodes ::
     forall symbol constraint.
@@ -69,7 +70,7 @@ mapNodes f = go
   where
     -- This table belongs to this transformation.
     go :: Node symbol constraint -> Node symbol constraint
-    go = memo (NameTag "mapNodes") (mapNodesStep go f)
+    go = memo (mapNodesStep go f)
     {-# NOINLINE go #-}
 
 -- | Perform one recursive traversal step using the supplied recursive call.
@@ -86,11 +87,12 @@ mapNodesStep recurse f (Node es) =
 mapNodesStep recurse f (Mu body) = f $ Mu (recurse . body)
 mapNodesStep _ f (Rec recId) = f $ Rec recId
 
-{- | Fold over all reachable nodes with sharing awareness.
+{- | Fold over all reachable nodes, visiting each shared node once.
 
 This name originates from the @crush@ operator in the Stratego language.
 Although @m@ is only constrained to be a monoid, this function makes no
-guarantees about traversal order.
+guarantees about traversal order. Recursive nodes and ordinary nodes draw
+identities from one counter, so one visited set covers both.
 -}
 {-# INLINEABLE crush #-}
 crush :: forall symbol constraint m. (Monoid m) => (Node symbol constraint -> m) -> Node symbol constraint -> m
@@ -99,16 +101,18 @@ crush f = \n -> evalState (go n) IntSet.empty
     go :: Node symbol constraint -> State IntSet m
     go EmptyNode = return mempty
     go (Rec _) = return mempty
-    go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
-    go n@(InternedNode node) = do
+    go n = do
         seen <- get
         let nId = nodeIdentity n
         if IntSet.member nId seen
-            then
-                return mempty
+            then return mempty
             else do
                 modify' (IntSet.insert nId)
-                mappend (f n) . mconcat <$> mapM (\e -> mconcat <$> mapM go (edgeChildren e)) (internedNodeEdges node)
+                mappend (f n) . mconcat <$> mapM go (children n)
+
+    children (InternedMu mu) = [internedMuBody mu]
+    children (InternedNode node) = [child | edge <- internedNodeEdges node, child <- edgeChildren edge]
+    children _ = []
 
 -- | Run a fold function only on normal non-recursive nodes.
 {-# INLINEABLE onNormalNodes #-}
@@ -116,9 +120,7 @@ onNormalNodes :: forall symbol constraint m. (Monoid m) => (Node symbol constrai
 onNormalNodes f n@(InternedNode _) = f n
 onNormalNodes _ _ = mempty
 
------------------------
------- Folding
------------------------
+-- Folding
 
 -- | Unfold one outer 'Mu' layer.
 {-# INLINEABLE unfoldOuterRec #-}
@@ -187,9 +189,7 @@ unfoldBounded rounds
                     n -> n
                 )
 
-------------
------- Size operations
-------------
+-- Size operations
 
 -- | Count reachable non-recursive nodes, sharing-aware.
 {-# INLINEABLE nodeCount #-}
@@ -239,21 +239,20 @@ dropConstraints node = memoTypeableWith genericDropConstraintsCache go node
     dropNodeConstraints (Node es) = Node (map dropEdgeConstraints es)
     dropNodeConstraints n = n
 
-------------
------- Intersect
-------------
+-- Intersect
 
--- | Result of comparing one alternative with the remaining alternatives.
-data RuleOutRes symbol constraint = Keep | RuledOutBy (Edge symbol constraint)
+{- | Remove edges that are subsumed by another edge with the same symbol.
 
--- | Remove edges that are subsumed by another edge with the same symbol.
+The input is the alternative list of a node, which is already free of
+duplicates. The comparison order within a symbol group follows the input.
+-}
 {-# INLINEABLE dropRedundantEdges #-}
 dropRedundantEdges ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) => [Edge symbol constraint] -> [Edge symbol constraint]
 dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
-    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
+    clusters = clusterByHash edgeSymbol origEs
 
     reduceCluster :: [Edge symbol constraint] -> [Edge symbol constraint]
     reduceCluster [] = []
@@ -263,24 +262,19 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
         --
         -- No noticeable difference in overall wall clock time (7/2/21),
         -- but a few % reduction in calls to intersectEdgeSameSymbol
-        (RuledOutBy e', es') -> reduceCluster (e' : es')
-        (Keep, es') -> e : reduceCluster es'
+        (Just e', es') -> reduceCluster (e' : es')
+        (Nothing, es') -> e : reduceCluster es'
 
+    -- Drop the alternatives that @e@ accepts, or report one that accepts @e@.
     ruleOut ::
-        Edge symbol constraint -> [Edge symbol constraint] -> (RuleOutRes symbol constraint, [Edge symbol constraint])
-    ruleOut _ [] = (Keep, [])
-    ruleOut e (x : xs) =
-        let e' = intersectEdgeSameSymbol e x
-         in if e' == x
-                then
-                    ruleOut e xs
-                else
-                    if e' == e
-                        then
-                            (RuledOutBy x, xs)
-                        else
-                            let (res, notRuledOut) = ruleOut e xs
-                             in (res, x : notRuledOut)
+        Edge symbol constraint -> [Edge symbol constraint] -> (Maybe (Edge symbol constraint), [Edge symbol constraint])
+    ruleOut _ [] = (Nothing, [])
+    ruleOut e (x : xs)
+        | common == x = ruleOut e xs
+        | common == e = (Just x, xs)
+        | otherwise = let (res, notRuledOut) = ruleOut e xs in (res, x : notRuledOut)
+      where
+        common = intersectEdgeSameSymbol e x
 
 -- | Intersect two edges when they have the same symbol.
 {-# INLINEABLE intersectEdge #-}
@@ -306,18 +300,13 @@ intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameS
   where
     go e1 e2
         | e2 < e1 = intersectEdgeSameSymbol e2 e1
-    go e1 e2
         | length (edgeChildren e1) /= length (edgeChildren e2) = emptyEdge (edgeSymbol e1)
-    go e1 e2 =
-        mkEdge
-            (edgeSymbol e1)
-            (zipWith intersect (edgeChildren e1) (edgeChildren e2))
-            (edgeConstraint e1 `conjoinConstraints` edgeConstraint e2)
+        | otherwise =
+            mkEdge
+                (edgeSymbol e1)
+                (zipWith intersect (edgeChildren e1) (edgeChildren e2))
+                (edgeConstraint e1 `conjoinConstraints` edgeConstraint e2)
 {-# INLINEABLE intersectEdgeSameSymbol #-}
-
-------------
------- New intersection
-------------
 
 -- | Intersection of two automata.
 intersect ::
@@ -326,7 +315,7 @@ intersect ::
 intersect l r = intersectOpen (emptyIntersectionDom, l, r)
 {-# INLINEABLE intersect #-}
 
------- Intersection internals
+-- Intersection internals
 
 {- | Intersection domain
 
@@ -382,7 +371,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             -- Always intersect nodes in the same order. This is important for two reasons:
             --
             -- 1. It will increase the probability of a cache hit (i.e., improve memoization)
-            -- 2. It will increase the probability of being able to use 'ieRecInt'
+            -- 2. It will increase the probability of being able to use 'idRecInt'
             _ | l > r -> intersectOpen (dom, r, l)
             -- If we have seen this exact problem before, refer to enclosing Mu.
             _ | Set.member (IntersectId i j) (idRecInt dom) -> Rec (RecIntersect (IntersectId i j))
@@ -391,7 +380,7 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
             (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
             (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
             -- When encountering a free variable, look up the corresponding value in the environment.
-            -- (Recall that the case for already-seen intersection problems is are handled above.)
+            -- (Recall that already-seen intersection problems are handled above.)
             (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
             (_, Rec r') -> intersectOpen (dom, l, findFreeVar r')
             -- Finally, the real intersection work happens here
@@ -455,9 +444,7 @@ intersectOpenEdge input = memoTypeableWith genericIntersectOpenEdgeCache worker 
             (zipWith (\a b -> intersectOpen (dom, a, b)) (edgeChildren l) (edgeChildren r))
             (edgeConstraint l `conjoinConstraints` edgeConstraint r)
 
-------------
------- Union
-------------
+-- Union
 
 {- | Union a list of automata by concatenating their alternatives.
 
@@ -468,13 +455,6 @@ special handling.
 {-# INLINEABLE union #-}
 union :: (Hashable symbol, Typeable symbol, Constraint constraint) => [Node symbol constraint] -> Node symbol constraint
 union = Node . concatMap nodeEdges
-
--- | Union the nodes a partial function produces; see 'union'.
-{-# INLINEABLE unionMapMaybe #-}
-unionMapMaybe ::
-    (Hashable symbol, Typeable symbol, Constraint constraint) =>
-    (a -> Maybe (Node symbol constraint)) -> [a] -> Node symbol constraint
-unionMapMaybe f = union . mapMaybe f
 
 -- | Recognize a term with an explicit pure constraint interpreter.
 {-# INLINEABLE nodeRepresentsWith #-}
@@ -523,3 +503,32 @@ getSubnodeById :: Node symbol constraint -> Id -> Maybe (Node symbol constraint)
 getSubnodeById node ident =
     getFirst $
         crush (onNormalNodes $ \current -> if nodeIdentity current == ident then First (Just current) else First Nothing) node
+
+-- | Iterate until stable with no iteration bound.
+fixUnbounded :: (Eq a) => (a -> a) -> a -> a
+fixUnbounded f x
+    | x' == x = x
+    | otherwise = fixUnbounded f x'
+  where
+    x' = f x
+
+{- | Group values by a key.
+
+Key equality defines each group. Different keys remain separate even when
+their hashes are equal. Each group keeps its input order; the order of groups
+is not specified.
+-}
+clusterByHash :: (Hashable k) => (a -> k) -> [a] -> [[a]]
+clusterByHash key ls =
+    map reverse $ HashMap.elems $ HashMap.fromListWith (++) [(key x, [x]) | x <- ls]
+
+{- | Join two lists by equal keys and combine matching pairs.
+
+As for 'clusterByHash', the table is keyed by the key itself, so the combining
+function sees exactly the pairs whose keys are equal however the key hashes.
+-}
+hashJoin :: (Hashable k) => (a -> k) -> (a -> a -> b) -> [a] -> [a] -> [b]
+hashJoin key j l1 l2 =
+    [j x y | x <- l1, y <- HashMap.findWithDefault [] (key x) right]
+  where
+    right = HashMap.fromListWith (++) [(key x, [x]) | x <- l2]

@@ -29,7 +29,7 @@ data StateView node
       Recursive {viewPath :: ViewPath, viewNode :: node}
     | -- | The node was expanded on an earlier path.
       Shared {viewPath :: ViewPath, viewNode :: node}
-    deriving (Eq, Ord, Read, Show, Functor)
+    deriving (Eq, Ord, Show, Functor)
 
 -- | Expand each reachable node once and retain the original node and edge labels.
 toTreeBy ::
