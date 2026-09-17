@@ -4,7 +4,7 @@ This module re-exports the engine as one interface. Finite languages are
 represented as a t'Static': an ECTA support paired with an t'OutcomeIndex'
 that counts, selects, decodes, and samples outcomes by rank. Recursive
 languages keep their @Mu@ automaton and their size classes instead. The
-sampling engine lives in "Data.Tree.Gen.Internal.Sampler". The public
+sampling engine lives in "Data.Ranked.Internal.Sampler". The public
 generator types and combinators live in "Data.ECTA.Gen".
 -}
 module Data.ECTA.Gen.Internal (
@@ -84,4 +84,4 @@ import Data.ECTA.Gen.Internal.Join
 import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
-import Data.Tree.Gen.Internal (Indexed (..))
+import Data.Ranked.Internal (Indexed (..))

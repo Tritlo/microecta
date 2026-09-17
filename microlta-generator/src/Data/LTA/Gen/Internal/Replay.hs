@@ -25,7 +25,7 @@ import Data.LTA.Gen.Internal.Error (GeneratorError, fromRankedError)
 import Data.LTA.Gen.Internal.ShrinkSearch (acceptedShrinks)
 import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (termWitness)
-import qualified Data.Tree.Gen as Tree
+import qualified Data.Ranked as Tree
 
 -- | Exact number of accepted, replayable outcomes.
 cardinality :: Compiled a -> Integer

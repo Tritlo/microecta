@@ -36,9 +36,9 @@ import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (frequencySymbol, labelSupport, labelTerm)
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (
     SizeIndex (sizeClassCounts),
     choiceIndex,
     sizeClasses,

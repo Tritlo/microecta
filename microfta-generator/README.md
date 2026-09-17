@@ -5,11 +5,11 @@ It depends on `microfta`. It has no ECTA, LTA, or solver dependency.
 
 | Module | Purpose |
 | --- | --- |
-| `Data.Tree.Gen` | Finite ranks, weighted sampling, replay, and structural shrinking. |
-| `Data.Tree.Gen.QuickCheck` | QuickCheck sampling and properties over a ranked language. |
+| `Data.Ranked` | Finite ranks, weighted sampling, replay, and structural shrinking. |
+| `Data.Ranked.QuickCheck` | QuickCheck sampling and properties over a ranked language. |
 | `Data.Tree.FTA.Gen` | Ordinary FTA compilation and constructor-based source recipes. |
 | `Data.Tree.FTA.Gen.QuickCheck` | FTA sampling, properties, and qualified do-notation. |
-| `Data.Tree.Gen.Internal.*` | Shared decoder, sampler, size, and shrink implementation, in the public `internal` sublibrary used by the constrained adapters. |
+| `Data.Ranked.Internal.*` | Shared decoder, sampler, size, and shrink implementation, in the public `internal` sublibrary used by the constrained adapters. |
 
 Run the complete example from the workspace root:
 
@@ -45,7 +45,7 @@ Recursive size indexing and finite automaton rank shrinking belong to
 checks before using the shared index. LTA uses the ordinary shrinker only
 after it has removed transition constraints.
 
-`Data.Tree.Gen` is independent of automaton representation. `Indexed` describes
+`Data.Ranked` is independent of automaton representation. `Indexed` describes
 a finite rank domain. `WeightedIndexed` separates replay ranks from sampling
 tickets. Its callbacks must obey the documented rank and weight invariants.
 Counting and replay do not require enumerating the entire source.
@@ -70,7 +70,7 @@ cabal test microfta-generator:unit-tests
 cabal bench microfta-generator:untyped-expression-speed --enable-optimization=2
 ```
 
-Code that previously imported `Data.Tree.Gen` or `Data.Tree.FTA.Gen` through
+Code that previously imported `Data.Ranked` or `Data.Tree.FTA.Gen` through
 `microecta-generator` must now declare `microfta-generator` in `build-depends`.
 The module names and rank/sampling contracts are unchanged.
 

@@ -673,7 +673,7 @@ edges.
 `compiledSupport` records which lower layer backs the ranked plan.
 `EqualitySupport` contains the ECTA-shaped generic FTA returned by semantic
 pruning; `RelationalSupport` contains the native hash-consed ECTA built by the
-grouped surface compiler. `Data.Tree.Gen` and `Data.Tree.Gen.QuickCheck` provide
+grouped surface compiler. `Data.Ranked` and `Data.Ranked.QuickCheck` provide
 the shared sampling and shrinking machinery. Weights influence sampling but do
 not duplicate replay ranks. Transition refinements are part of the support
 alphabet, so replay cannot invent a new annotation for an existing constructor.

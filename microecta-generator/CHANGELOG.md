@@ -6,7 +6,7 @@ Initial release: indexed applicative generators whose transparent regions are
 represented as equality-constrained tree automata.
 
 Requires `microecta` 0.2.0.0 and `microfta-generator` 0.1.0.0 with its
-`internal` sublibrary. The shared ranked engine, `Data.Tree.Gen`, and the
+`internal` sublibrary. The shared ranked engine, `Data.Ranked`, and the
 ordinary `Data.Tree.FTA.Gen` adapter belong to `microfta-generator`;
 applications that import them declare that package directly.
 

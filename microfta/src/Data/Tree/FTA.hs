@@ -33,6 +33,7 @@ module Data.Tree.FTA (
     intersect,
     intersectWith,
     accepts,
+    terms,
     ViewPath,
     StateView (..),
     toTree,
@@ -47,7 +48,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, toTreeBy)
+import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, termsBy, toTreeBy)
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition
@@ -153,10 +154,10 @@ fromTerms ::
     [Tree.Tree symbol] -> Either (FTAError (Maybe (Tree.Tree symbol)) symbol) (PlainFTA (Maybe (Tree.Tree symbol)) symbol)
 fromTerms input =
     mkFTA Nothing $
-        (Nothing, map transition terms)
-            : [(Just term, [transition term]) | term <- Set.toList $ Set.fromList $ concatMap subterms terms]
+        (Nothing, map transition distinct)
+            : [(Just term, [transition term]) | term <- Set.toList $ Set.fromList $ concatMap subterms distinct]
   where
-    terms = Set.toList $ Set.fromList input
+    distinct = Set.toList $ Set.fromList input
     transition (Tree.Node symbol children) = Transition symbol (map Just children) ()
     subterms term@(Tree.Node _ children) = term : concatMap subterms children
 
@@ -333,3 +334,17 @@ accepts automaton = acceptsFrom (initialState automaton)
                     (transitionChildren transition)
                     children
                 )
+
+{- | Every accepted term, ordered by depth and produced lazily.
+
+A leaf has depth zero, and all terms of one depth precede deeper terms. A
+cyclic automaton gives an infinite list; an acyclic automaton gives a finite
+one. Apply 'stripGuards' first to list the shapes of an annotated automaton.
+-}
+terms :: (Ord state) => PlainFTA state symbol -> [Tree.Tree symbol]
+terms automaton =
+    termsBy
+        [ (state, [(transitionSymbol transition, transitionChildren transition) | transition <- outgoing])
+        | (state, outgoing) <- Map.toList (transitionTable automaton)
+        ]
+        (initialState automaton)

@@ -29,7 +29,7 @@ import qualified Data.LTA.Gen.Internal.SourceIndex as Source
 import Data.LTA.Gen.Internal.Surface (prepareGenerator)
 import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (cacheEntailment, checkWitness, validateWitness, witnessTerm)
-import qualified Data.Tree.Gen as Tree
+import qualified Data.Ranked as Tree
 
 {- | Compile a generator with stable source ranks, weights, and valid shrinks.
 

@@ -106,11 +106,11 @@ import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.ECTA.Paths (EqConstraints)
 import Data.ECTA.Term (Symbol (Symbol))
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (choiceIndex)
 import qualified Data.Tree.FTA as FTA
 import Data.Tree.FTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (choiceIndex)
 
 -- | Interpret a reified condition as one key projection per side.
 withKeys ::

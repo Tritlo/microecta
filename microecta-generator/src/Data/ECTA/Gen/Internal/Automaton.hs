@@ -37,11 +37,11 @@ import Data.ECTA.Term (Symbol (Symbol))
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..), Static, termStatic)
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRanked)
+import qualified Data.Ranked.Internal as Ranked
+import Data.Ranked.Internal.Size (SizeIndex)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import qualified Data.Tree.FTA.Interned as Interned
-import qualified Data.Tree.Gen.Internal as Ranked
-import Data.Tree.Gen.Internal.Size (SizeIndex)
 
 {- | Count and index the terms an automaton accepts, by size.
 

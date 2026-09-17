@@ -26,10 +26,10 @@ is on that sublibrary's pages; in short:
   'Applicative' instances.
 
 The functions below are the public contracts. Their implementations live in
-"Data.Tree.Gen.Internal", which the constrained generator packages use
+"Data.Ranked.Internal", which the constrained generator packages use
 directly.
 -}
-module Data.Tree.Gen (
+module Data.Ranked (
     Indexed (..),
     WeightedIndexed (..),
     Ranked,
@@ -50,9 +50,9 @@ module Data.Tree.Gen (
     sizeOfRank,
 ) where
 
-import Data.Tree.Gen.Internal (Indexed (..), Ranked, RankedError (..), WeightedIndexed (..))
-import qualified Data.Tree.Gen.Internal as Internal
-import Data.Tree.Gen.Internal.Sampler (GenBackend (..))
+import Data.Ranked.Internal (Indexed (..), Ranked, RankedError (..), WeightedIndexed (..))
+import qualified Data.Ranked.Internal as Internal
+import Data.Ranked.Internal.Sampler (GenBackend (..))
 
 -- | Build a ranked language from an indexed source.
 fromIndexed :: Indexed a -> Either RankedError (Ranked a)

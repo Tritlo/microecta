@@ -35,7 +35,7 @@ import Data.LTA (
 import Data.LTA.Gen
 import Data.LTA.Gen.Do
 import Data.LTA.Guard (GuardBuilder, buildGuard)
-import qualified Data.Tree.Gen.QuickCheck as Tree
+import qualified Data.Ranked.QuickCheck as Tree
 
 {- | A native generator that can use refinements demanded by its LTA context.
 

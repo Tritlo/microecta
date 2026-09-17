@@ -58,7 +58,7 @@ import qualified Data.ECTA as ECTA.Core
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Witness (Witness)
-import qualified Data.Tree.Gen as Ranked
+import qualified Data.Ranked as Ranked
 
 -- | A possibly empty wrapper around the shared non-empty ranked engine.
 data Finite a

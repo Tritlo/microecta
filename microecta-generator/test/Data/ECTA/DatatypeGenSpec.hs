@@ -18,10 +18,10 @@ import qualified Data.ECTA.Gen as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import qualified Data.ECTA.Paths as Paths
+import Data.Ranked.Internal.Sampler (Exact (..))
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Interned
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
 
 -- | Annotate the tuple constructor and leave its field datatypes unchanged.
 equalFields :: [[Int]] -> Datatype.Constructor -> EqConstraints

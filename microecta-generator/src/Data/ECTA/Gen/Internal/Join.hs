@@ -26,8 +26,8 @@ import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
-import Data.Tree.Gen.Internal.Sampler
+import Data.Ranked.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Sampler
 
 -- | One compatible key-pair bucket used to count and unrank a conditioned product.
 data JoinGroup left right = JoinGroup

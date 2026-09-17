@@ -45,7 +45,7 @@ import qualified Data.LTA.Gen.Internal.SourceIndex as Source
 import Data.LTA.Gen.Internal.Surface (prepareGenerator)
 import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (Witness (..), cacheEntailment, termWitness, witnessTerm)
-import qualified Data.Tree.Gen as Tree
+import qualified Data.Ranked as Tree
 
 -- | Sparse observations and leaf flags that identify one relational group.
 newtype ObservationKey = ObservationKey

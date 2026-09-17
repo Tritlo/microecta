@@ -50,11 +50,11 @@ library
   import: warnings, extensions
   hs-source-dirs: src
   exposed-modules:
+    Data.Ranked
+    Data.Ranked.QuickCheck
     Data.Tree.FTA.Gen
     Data.Tree.FTA.Gen.Do
     Data.Tree.FTA.Gen.QuickCheck
-    Data.Tree.Gen
-    Data.Tree.Gen.QuickCheck
 
   build-depends:
     base >=4.22 && <4.23,
@@ -71,13 +71,13 @@ library internal
   visibility: public
   hs-source-dirs: internal
   exposed-modules:
+    Data.Ranked.Internal
+    Data.Ranked.Internal.Decoder
+    Data.Ranked.Internal.Sampler
+    Data.Ranked.Internal.Shrink
+    Data.Ranked.Internal.Size
     Data.Tree.FTA.Gen.Internal.Automaton
     Data.Tree.FTA.Gen.Internal.Shrink
-    Data.Tree.Gen.Internal
-    Data.Tree.Gen.Internal.Decoder
-    Data.Tree.Gen.Internal.Sampler
-    Data.Tree.Gen.Internal.Shrink
-    Data.Tree.Gen.Internal.Size
 
   build-depends:
     array >=0.5 && <0.6,
@@ -105,9 +105,9 @@ test-suite unit-tests
     test
 
   other-modules:
+    Data.RankedSpec
     Data.Tree.FTA.GenSpec
     Data.Tree.FTA.UntypedExpressionLanguage
-    Data.Tree.GenSpec
 
   build-depends:
     base >=4.22 && <4.23,

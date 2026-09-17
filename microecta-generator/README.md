@@ -11,7 +11,7 @@ and structural shrinking.
 Run the complete introductory FTA/ECTA example from the workspace root with
 `nix-shell --run 'cabal run ecta-finite-languages'`.
 
-The shared `Data.Tree.Gen` layer and ordinary `Data.Tree.FTA.Gen` adapter
+The shared `Data.Ranked` layer and ordinary `Data.Tree.FTA.Gen` adapter
 belong to `microfta-generator`. This package adds ECTA sources, equality and
 relational joins, retained key groups, and recursive generation above that
 foundation. Applications that directly import the shared or FTA modules must
@@ -571,7 +571,7 @@ is exactly when they share a term.
 it needs only a cardinality and a stable function from an integer index to a
 value. `elements` is the corresponding list convenience function.
 
-`Data.Tree.Gen.fromIndexedOnDemand` is the automaton-adapter variant. It keeps
+`Data.Ranked.fromIndexedOnDemand` is the automaton-adapter variant. It keeps
 the same cardinality, ranks, and sampler but never tabulates a small indexed
 source while compiling its replay decoder. LTA counting uses it so the
 automaton remains a graph until one rank is selected.
@@ -624,7 +624,7 @@ structure explicit.
 - `Data.ECTA.Gen.Internal` and `Data.ECTA.Gen.Internal.Automaton` implement
   ECTA-specific sources, joins, support, and automaton imports. They are private.
 - Shared decoding, sampling, structural shrinking, and size indexing use
-  `Data.Tree.Gen.Internal.*` from `microfta-generator`.
+  `Data.Ranked.Internal.*` from `microfta-generator`.
 
 ## Concurrency
 

@@ -21,8 +21,8 @@ import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Support (familyNodeWith, keySymbol, restrictToKeyWith)
 import Data.ECTA.Gen.Internal.Types
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (
     choiceIndex,
     fixIndex,
     isUnguarded,
