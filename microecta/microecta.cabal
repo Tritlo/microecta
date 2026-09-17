@@ -77,7 +77,6 @@ library
     Application.TermSearch.Utils
     Data.ECTA
     Data.ECTA.FTA
-    Data.ECTA.FTA.Syntax
     Data.ECTA.Internal.ECTA.Enumeration
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
@@ -87,12 +86,6 @@ library
     Data.ECTA.Template
     Data.ECTA.Term
     Data.Persistent.UnionFind
-
-  reexported-modules:
-    microfta:Data.Interned.Extended.HashTableBased,
-    microfta:Data.Memoization,
-    microfta:Utility.Fixpoint,
-    microfta:Utility.HashJoin,
 
   other-modules:
     Data.Text.Extended.Pretty
@@ -123,12 +116,11 @@ test-suite unit-tests
 
   other-modules:
     Application.TermSearchSpec
-    Data.ECTA.FTASyntaxSpec
+    Data.ECTA.FTASpec
     Data.Persistent.UnionFindSpec
     ECTASpec
     PathsSpec
     Test.Generators.ECTA
-    Utility.HashJoinSpec
 
   build-depends:
     base >=4.22 && <4.23,
