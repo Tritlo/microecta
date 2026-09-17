@@ -13,7 +13,7 @@ factoring:
 * 'smallerPlanMembers' streams every member structurally smaller than a
   rank's member, in size order, where size ('planMemberSize') is the number
   of source choices in a member. Size classes are counted and indexed
-  directly ("Data.Tree.Gen.Internal.Size"), not enumerated. Searching this
+  directly ("Data.Ranked.Internal.Size"), not enumerated. Searching this
   stream first makes a greedy shrink loop terminate at the globally
   smallest failing member.
 
@@ -27,7 +27,7 @@ This module belongs to the @internal@ sublibrary. It is an integration
 interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
 -}
-module Data.Tree.Gen.Internal.Shrink (
+module Data.Ranked.Internal.Shrink (
     shrinkPlanRank,
     smallestPlanRank,
     smallestPlanMember,
@@ -35,8 +35,8 @@ module Data.Tree.Gen.Internal.Shrink (
     smallerPlanMembers,
 ) where
 
-import Data.Tree.Gen.Internal.Decoder (Plan (..))
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Decoder (Plan (..))
+import Data.Ranked.Internal.Size (
     SizeIndex (sizeClassSelect),
     countAtSize,
  )
@@ -169,7 +169,7 @@ planMemberSize (PlanChoice branches) rank =
         (offset, _, branch) : _ -> planMemberSize branch (rank - offset)
         [] ->
             error
-                "microfta-generator bug in Data.Tree.Gen.Internal.Shrink.planMemberSize: \
+                "microfta-generator bug in Data.Ranked.Internal.Shrink.planMemberSize: \
                 \rank outside the plan"
 planMemberSize (PlanAp radix planF planX) rank =
     case rank `quotRem` radix of
@@ -179,7 +179,7 @@ planMemberSize (PlanSized classes) rank = go 0 classes
   where
     go _ [] =
         error
-            "microfta-generator bug in Data.Tree.Gen.Internal.Shrink.planMemberSize: \
+            "microfta-generator bug in Data.Ranked.Internal.Shrink.planMemberSize: \
             \rank outside the plan"
     go offset ((size, count, _, _) : rest)
         | rank < offset + count = size

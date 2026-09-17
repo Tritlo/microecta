@@ -8,7 +8,7 @@ This module belongs to the @internal@ sublibrary. It is an integration
 interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
 -}
-module Data.Tree.Gen.Internal.Decoder (
+module Data.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     planCardinality,
@@ -341,7 +341,7 @@ dispatchParts parts = compileTable (Map.fromDistinctAscList parts)
     compileTable table
         | Map.null table =
             error
-                "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchParts: \
+                "microfta-generator bug in Data.Ranked.Internal.Decoder.dispatchParts: \
                 \no part to dispatch to"
         | Map.size table == 1 = dispatchParts [Map.findMin table]
         | otherwise =

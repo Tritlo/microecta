@@ -32,7 +32,7 @@ import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol)
 import Data.ECTA.TestSupport (aggregateRights)
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import Data.Ranked.Internal.Sampler (Exact (..))
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree

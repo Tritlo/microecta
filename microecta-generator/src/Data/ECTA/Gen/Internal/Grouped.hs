@@ -35,10 +35,10 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (Sig, sigResult)
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Shrink (planMemberSize)
-import Data.Tree.Gen.Internal.Size (mapIndex)
-import qualified Data.Tree.Gen.Internal.Size as Size
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Shrink (planMemberSize)
+import Data.Ranked.Internal.Size (mapIndex)
+import qualified Data.Ranked.Internal.Size as Size
 
 {- | Declare that every member of an inspectable generator has one key.
 

@@ -3,7 +3,7 @@
 A t'Static' is an ECTA support paired with an t'OutcomeIndex' that counts,
 selects, decodes, and samples outcomes by rank. Every finite combinator of
 "Data.ECTA.Gen" is one function here. The sampling engine itself lives in
-"Data.Tree.Gen.Internal.Sampler".
+"Data.Ranked.Internal.Sampler".
 -}
 module Data.ECTA.Gen.Internal.Static (
     -- * Languages
@@ -55,15 +55,15 @@ import Data.ECTA.Gen.Internal.Support (
     pureSymbol,
  )
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal (Indexed (..))
-import qualified Data.Tree.Gen.Internal as Ranked
-import Data.Tree.Gen.Internal.Decoder (
+import Data.Ranked.Internal (Indexed (..))
+import qualified Data.Ranked.Internal as Ranked
+import Data.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     compilePlan,
  )
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (SizeIndex, sizeIndex)
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (SizeIndex, sizeIndex)
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome a = Outcome

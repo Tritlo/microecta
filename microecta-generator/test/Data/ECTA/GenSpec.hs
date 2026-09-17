@@ -19,7 +19,7 @@ import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Internal.ECTA.Type (edgeEcs)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import Data.Ranked.Internal.Sampler (Exact (..))
 
 data UserId = Alice | Bob | Carol | Dave
     deriving (Bounded, Enum, Eq, Ord, Show)

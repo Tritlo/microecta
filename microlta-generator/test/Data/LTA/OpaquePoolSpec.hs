@@ -18,8 +18,8 @@ import Data.LTA.Guard (Position, allOf, isSameTermAs, isSubtypeOf, requires, unc
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (value, (./=.), (.<.), (.==.), (.>=.))
 import Data.LTA.TestSupport (compileOrFail, rightOrFail)
-import qualified Data.Tree.Gen as Tree
-import Data.Tree.Gen.Internal.Sampler (Exact (..))
+import qualified Data.Ranked as Tree
+import Data.Ranked.Internal.Sampler (Exact (..))
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A deliberately partial operation over one fixed-size memory page.

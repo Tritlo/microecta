@@ -19,8 +19,8 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA (Node (EmptyNode), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (
     choiceIndex,
     fixIndex,
     isUnguarded,

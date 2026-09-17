@@ -40,9 +40,9 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Term (Symbol)
-import Data.Tree.Gen.Internal.Decoder (RankDecoder (..))
-import Data.Tree.Gen.Internal.Sampler
-import Data.Tree.Gen.Internal.Size (mapIndex, productIndex)
+import Data.Ranked.Internal.Decoder (RankDecoder (..))
+import Data.Ranked.Internal.Sampler
+import Data.Ranked.Internal.Size (mapIndex, productIndex)
 
 {- | A generator is inspectable ECTA structure — finite or recursive — or an
 opaque backend action.

@@ -27,12 +27,12 @@ import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (cacheEntailment)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
+import qualified Data.Ranked as Ranked
 import qualified Data.Tree as Tree
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks)
 import qualified Data.Tree.FTA.Interned as Interned
-import qualified Data.Tree.Gen as Ranked
 
 {- | Prune and rank a finite acyclic LTA.
 
