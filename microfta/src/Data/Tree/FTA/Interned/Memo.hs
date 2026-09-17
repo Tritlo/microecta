@@ -22,7 +22,7 @@ That is what makes repeated work free, and it means memory grows with the
 number of distinct inputs rather than with the work done. See the memory
 section of the package README.
 -}
-module Data.Memoization (
+module Data.Tree.FTA.Interned.Memo (
     MemoCache,
     TypeableMemoCache,
     newMemoCache,
@@ -35,12 +35,11 @@ module Data.Memoization (
     memo2TypeableWith,
 ) where
 
-import Data.CacheFamily (CacheFamily, newCacheFamily, selectCache)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
 import Data.IORef (IORef, newIORef)
-import Data.Interned.Extended.HashTableBased (insertKeepingFirst)
+import Data.Tree.FTA.Interned.Cache (CacheFamily, insertKeepingFirst, newCacheFamily, selectCache)
 import GHC.IO (unsafeDupablePerformIO)
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)

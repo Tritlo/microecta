@@ -21,10 +21,11 @@ module Data.Tree.FTA.Interned.Operations (
     withoutRedundantEdges,
     getSubnodeById,
     intersectEdge,
+    fixUnbounded,
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
-import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -39,12 +40,10 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Interned.Extended.HashTableBased (Id)
-import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
+import Data.Tree.FTA.Interned.Cache (Id)
+import Data.Tree.FTA.Interned.Memo
 import Data.Tree.FTA.Interned.Type
-import Utility.Fixpoint
-import Utility.HashJoin
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}
@@ -499,3 +498,32 @@ getSubnodeById :: Node symbol constraint -> Id -> Maybe (Node symbol constraint)
 getSubnodeById node ident =
     getFirst $
         crush (onNormalNodes $ \current -> if nodeIdentity current == ident then First (Just current) else First Nothing) node
+
+-- | Iterate until stable with no iteration bound.
+fixUnbounded :: (Eq a) => (a -> a) -> a -> a
+fixUnbounded f x
+    | x' == x = x
+    | otherwise = fixUnbounded f x'
+  where
+    x' = f x
+
+{- | Group values by a key.
+
+Key equality defines each group. Different keys remain separate even when
+their hashes are equal. Each group keeps its input order; the order of groups
+is not specified.
+-}
+clusterByHash :: (Hashable k) => (a -> k) -> [a] -> [[a]]
+clusterByHash key ls =
+    map reverse $ HashMap.elems $ HashMap.fromListWith (++) [(key x, [x]) | x <- ls]
+
+{- | Join two lists by equal keys and combine matching pairs.
+
+As for 'clusterByHash', the table is keyed by the key itself, so the combining
+function sees exactly the pairs whose keys are equal however the key hashes.
+-}
+hashJoin :: (Hashable k) => (a -> k) -> (a -> a -> b) -> [a] -> [a] -> [b]
+hashJoin key j l1 l2 =
+    [j x y | x <- l1, y <- HashMap.findWithDefault [] (key x) right]
+  where
+    right = HashMap.fromListWith (++) [(key x, [x]) | x <- l2]

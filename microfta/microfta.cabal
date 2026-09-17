@@ -58,21 +58,16 @@ library
     TypeOperators
     ViewPatterns
 
-  other-modules:
-    Data.CacheFamily
-    Data.Tree.FTA.Internal.Tree
-
+  other-modules: Data.Tree.FTA.Internal.Tree
   exposed-modules:
-    Data.Interned.Extended.HashTableBased
-    Data.Memoization
     Data.Tree.FTA
     Data.Tree.FTA.Constraint
     Data.Tree.FTA.Generic
     Data.Tree.FTA.Interned
+    Data.Tree.FTA.Interned.Cache
+    Data.Tree.FTA.Interned.Memo
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
-    Utility.Fixpoint
-    Utility.HashJoin
 
   build-depends:
     base >=4.22 && <4.23,

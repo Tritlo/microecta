@@ -1,4 +1,6 @@
-{- | Tiny hash-consing abstraction backed by immutable hash maps in 'IORef's.
+{- | Interning tables and process-global cache families.
+
+Interning is backed by immutable hash maps in 'IORef's.
 
 Interning is safe from any thread. Lookups read the current map without
 blocking. Inserts use 'atomicModifyIORef'' and retain an existing entry, then
@@ -19,20 +21,26 @@ The cache never evicts and holds every distinct value ever interned, so it
 grows with the size of that set and is never released. See the memory section
 of the package README.
 -}
-module Data.Interned.Extended.HashTableBased (
+module Data.Tree.FTA.Interned.Cache (
     Id,
     Cache,
     freshCacheWith,
     insertKeepingFirst,
     intern,
+    CacheFamily,
+    newCacheFamily,
+    selectCache,
 ) where
 
+import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable
 import Data.IORef
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import GHC.IO (unsafeDupablePerformIO)
+import System.IO.Unsafe (unsafePerformIO)
+import Type.Reflection (Typeable)
 
 -- | Dense identity assigned to each interned value.
 type Id = Int
@@ -80,3 +88,25 @@ intern cache identify !key = unsafeDupablePerformIO $ do
         Nothing -> do
             i <- atomicModifyIORef' (fresh cache) (\next -> (next + 1, next))
             insertKeepingFirst (content cache) key (identify i key)
+
+-- | A small set of typed caches. Each family belongs to one operation.
+newtype CacheFamily = CacheFamily (IORef [Dynamic])
+
+-- | Allocate an empty family.
+newCacheFamily :: IO CacheFamily
+newCacheFamily = CacheFamily <$> newIORef []
+
+-- | Get the cache for one type. Concurrent allocations keep the first cache.
+selectCache :: forall cache. (Typeable cache) => CacheFamily -> IO cache -> cache
+{-# NOINLINE selectCache #-}
+selectCache (CacheFamily ref) allocate = unsafePerformIO $ do
+    existing <- findCache <$> readIORef ref
+    case existing of
+        Just found -> pure found
+        Nothing -> do
+            candidate <- allocate
+            atomicModifyIORef' ref $ \entries -> case findCache entries of
+                Just found -> (entries, found)
+                Nothing -> (toDyn candidate : entries, candidate)
+  where
+    findCache = listToMaybe . mapMaybe fromDynamic

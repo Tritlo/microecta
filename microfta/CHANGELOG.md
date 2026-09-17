@@ -14,6 +14,5 @@ Initial release.
 - `Data.Tree.FTA.Generic`: derive a regular tree grammar, term codecs, and
   constructor metadata from an algebraic datatype with `Generic`, with
   explicit finite domains for atomic fields.
-- `Data.Interned.Extended.HashTableBased`, `Data.Memoization`,
-  `Utility.Fixpoint`, and `Utility.HashJoin`: the process-global interning and
-  memoization tables the engine uses.
+- `Data.Tree.FTA.Interned.Cache` and `Data.Tree.FTA.Interned.Memo`: the
+  process-global interning and memoization tables the engine uses.

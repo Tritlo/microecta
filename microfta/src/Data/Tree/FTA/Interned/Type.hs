@@ -27,7 +27,6 @@ module Data.Tree.FTA.Interned.Type (
     matchMu,
 ) where
 
-import Data.CacheFamily (CacheFamily, newCacheFamily, selectCache)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.IORef (IORef, newIORef)
@@ -40,10 +39,10 @@ import Type.Reflection (Typeable)
 
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Interned.Extended.HashTableBased
+import Data.Tree.FTA.Interned.Cache
 
-import Data.Memoization
 import Data.Tree.FTA.Constraint (Constraint (..))
+import Data.Tree.FTA.Interned.Memo
 
 -- Mu node table
 
