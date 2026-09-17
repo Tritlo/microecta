@@ -69,7 +69,7 @@ spec = do
                         add left right = Tree.Node "add" [left, right]
                         pair = add zero zero
                     take 5 (Automaton.terms expressions)
-                        `shouldBe` [zero, pair, add pair zero, add pair pair, add zero pair]
+                        `shouldBe` [zero, pair, add pair pair, add pair zero, add zero pair]
                     Automaton.terms (Automaton.boundDepth 2 expressions) `shouldBe` take 5 (Automaton.terms expressions)
 
     describe "common interned automaton engine" $ do
