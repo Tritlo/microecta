@@ -89,3 +89,17 @@ test-suite unit-tests
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microfta,
+
+benchmark enumeration-speed
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: EnumerationSpeed.hs
+  hs-source-dirs: benchmarks
+  default-extensions:
+    BangPatterns
+    NamedFieldPuns
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microfta,
