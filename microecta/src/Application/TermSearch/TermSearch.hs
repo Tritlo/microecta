@@ -14,7 +14,7 @@ module Application.TermSearch.TermSearch (
 import Data.ECTA
 import Data.ECTA.Paths
 import Data.ECTA.Term (Symbol)
-import Utility.Fixpoint
+import Data.Tree.FTA.Interned.Operations (fixUnbounded)
 
 -- | Constrain a term-search node by equating its type child with a type node.
 filterType :: Node Symbol -> Node Symbol -> Node Symbol

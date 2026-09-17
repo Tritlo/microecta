@@ -72,9 +72,9 @@ import Data.ECTA.Internal.Paths
 import Data.ECTA.Internal.Term (Symbol)
 import qualified Data.Tree.FTA.Interned.Operations as Common
 
-import Data.Interned.Extended.HashTableBased (Id)
+import Data.Tree.FTA.Interned.Cache (Id)
 
-import Data.Memoization (
+import Data.Tree.FTA.Interned.Memo (
     MemoCache,
     TypeableMemoCache,
     memo2TypeableWith,
@@ -162,7 +162,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
     getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
-    getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
+    getPath (ConsPath p ps) (Node es) = union (mapMaybe goEdge es)
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
         goEdge (Edge _ ns) = getPath ps <$> ns !? p
@@ -210,7 +210,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symb
 
 One pass narrows every child by the constraints that reach it, but a nested
 constrained edge can narrow a child after an outer edge has already read it.
-Iterate to a fixpoint, as 'Utility.Fixpoint.fixUnbounded' does, when every
+Iterate to a fixpoint, as 'fixUnbounded' does, when every
 constrained position must agree with every other.
 -}
 reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
@@ -439,12 +439,6 @@ union :: forall symbol. (Hashable symbol, Typeable symbol) => [Node symbol] -> N
 union = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> coerce (Common.union @Symbol @EqConstraints)
     Nothing -> coerce (Common.union @symbol @EqConstraints)
-
--- | Combine the nodes returned by a partial function.
-unionMapMaybe :: forall symbol a. (Hashable symbol, Typeable symbol) => (a -> Maybe (Node symbol)) -> [a] -> Node symbol
-unionMapMaybe = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.unionMapMaybe @Symbol @EqConstraints @a)
-    Nothing -> coerce (Common.unionMapMaybe @symbol @EqConstraints @a)
 
 -- | Find a non-recursive node by canonical identity.
 getSubnodeById :: forall symbol. Node symbol -> Id -> Maybe (Node symbol)
