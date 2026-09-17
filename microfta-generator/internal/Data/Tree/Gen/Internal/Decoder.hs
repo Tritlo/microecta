@@ -343,9 +343,7 @@ dispatchParts parts = compileTable (Map.fromDistinctAscList parts)
             error
                 "microfta-generator bug in Data.Tree.Gen.Internal.Decoder.dispatchParts: \
                 \no part to dispatch to"
-        | Map.size table == 1 =
-            let (offset, decode) = Map.findMin table
-             in \index -> decode (index - offset)
+        | Map.size table == 1 = dispatchParts [Map.findMin table]
         | otherwise =
             let (low, high) = Map.splitAt (Map.size table `quot` 2) table
                 pivot = fst (Map.findMin high)
