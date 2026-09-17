@@ -63,27 +63,51 @@ toTreeBy outgoing children root = State.evalState (visit Set.empty [] root) Set.
 
 A leaf has depth zero. All terms of one depth are listed before deeper
 terms, so every term of a cyclic graph appears after finitely many others.
-The list ends once no row has a term of the current depth, so an acyclic
-graph gives a finite list. Rows must be closed: every child key has a row.
+Rows that accept nothing, or that the root cannot reach, are removed first;
+the list then ends once no remaining row has a term of the current depth, so
+an acyclic graph gives a finite list. Every child key must have a row.
 -}
 termsBy :: (Ord key) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
-termsBy rows root = concat [exactly depth root | depth <- takeWhile populated [0 ..]]
+termsBy rows root
+    | Map.member root table = concatMap (Map.! root) $ takeWhile (not . all null) $ map exactly levels
+    | otherwise = []
   where
-    -- Terms of each depth for each row. Each level is computed once.
-    levels = Map.fromList [(key, map (level outgoing) [0 ..]) | (key, outgoing) <- rows]
-    level outgoing depth =
-        [Node symbol children | (symbol, childKeys) <- outgoing, children <- deepest (depth - 1) childKeys]
-    populated depth = not (all (null . (!! depth)) (Map.elems levels))
-    exactly depth key = levels Map.! key !! depth
-    atMost depth key = concat (take (depth + 1) (levels Map.! key))
+    table = Map.restrictKeys (Map.fromList liveRows) (reachable Set.empty [root])
+    liveRows =
+        [ (key, [alternative | alternative@(_, childKeys) <- outgoing, all (`Set.member` live) childKeys])
+        | (key, outgoing) <- rows
+        , Set.member key live
+        ]
 
-    -- Child lists whose deepest child has exactly the given depth. The first
-    -- child at that depth is fixed, so no list is produced twice.
-    deepest depth []
-        | depth < 0 = [[]]
-        | otherwise = []
-    deepest depth (key : keys)
-        | depth < 0 = []
-        | otherwise =
-            [child : rest | child <- exactly depth key, rest <- traverse (atMost depth) keys]
-                ++ [child : rest | child <- atMost (depth - 1) key, rest <- deepest depth keys]
+    -- Keys with at least one term: the least fixed point of "some alternative
+    -- has only live children".
+    live = grow Set.empty
+    grow known
+        | Set.size more == Set.size known = known
+        | otherwise = grow more
+      where
+        more = Set.fromList [key | (key, outgoing) <- rows, any (all (`Set.member` known) . snd) outgoing]
+
+    reachable seen [] = seen
+    reachable seen (key : pending)
+        | Set.member key seen = reachable seen pending
+        | otherwise = reachable (Set.insert key seen) (concatMap snd (Map.findWithDefault [] key liveTable) <> pending)
+    liveTable = Map.fromList liveRows
+
+    -- Each level holds, for every row, the terms of exactly its depth, of at
+    -- most its depth, and of at most the depth before it.
+    levels = iterate next (leaves, leaves, fmap (const []) table)
+    exactly (terms, _, _) = terms
+    leaves = fmap (\outgoing -> [Node symbol [] | (symbol, []) <- outgoing]) table
+    next (current, atMost, shallower) = (deeper, Map.unionWith (++) deeper atMost, atMost)
+      where
+        deeper =
+            fmap
+                (\outgoing -> [Node symbol children | (symbol, childKeys@(_ : _)) <- outgoing, children <- deepest childKeys])
+                table
+        -- Child lists whose deepest child has exactly the current depth. The
+        -- first child at that depth is fixed, so no list is produced twice.
+        deepest [] = []
+        deepest (key : keys) =
+            [child : rest | child <- current Map.! key, rest <- traverse (atMost Map.!) keys]
+                <> [child : rest | rest <- deepest keys, child <- shallower Map.! key]
