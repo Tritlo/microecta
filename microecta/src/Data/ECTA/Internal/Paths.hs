@@ -53,10 +53,9 @@ import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
-import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
 import Data.Tree.FTA.Constraint (Constraint (..))
-import Utility.Fixpoint
+import Data.Tree.FTA.Interned.Memo (memo2)
 import Utility.List (adjustAt)
 
 -------------------------------------------------------
@@ -535,7 +534,7 @@ combineEqConstraints ec1 ec2 = combineEqConstraintsMemo ec1 ec2
 {-# NOINLINE combineEqConstraints #-}
 
 combineEqConstraintsMemo :: EqConstraints -> EqConstraints -> EqConstraints
-combineEqConstraintsMemo = memo2 (NameTag "combineEqConstraints") go
+combineEqConstraintsMemo = memo2 go
   where
     go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
 {-# NOINLINE combineEqConstraintsMemo #-}
@@ -590,3 +589,11 @@ instance Constraint EqConstraints where
     noConstraint = EmptyConstraints
     conjoinConstraints = combineEqConstraints
     contradictory = constraintsAreContradictory
+
+-- | Iterate a partial step function until stable or failed.
+fixMaybe :: (Eq a) => (a -> Maybe a) -> a -> Maybe a
+fixMaybe f x = case f x of
+    Nothing -> Nothing
+    Just x'
+        | x' == x -> Just x
+        | otherwise -> fixMaybe f x'

@@ -1,4 +1,4 @@
-module Data.ECTA.FTASyntaxSpec (spec) where
+module Data.ECTA.FTASpec (spec) where
 
 import Data.Tree (flatten)
 import qualified Data.Tree as Tree
@@ -6,7 +6,6 @@ import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.ECTA as Core
-import qualified Data.ECTA.FTA.Syntax as ECTA
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Interned as Common
@@ -41,10 +40,10 @@ spec =
 
         it "uses the same rows for an ECTA equality annotation" $ do
             let equalChildren = mkEqConstraints [[path [0], path [1]]]
-            case ECTA.automaton
+            case Automaton.mkFTA
                 Expression
-                [ ECTA.row Expression [ECTA.transition "pair" [Atom, Atom] equalChildren]
-                , ECTA.row Atom [ECTA.transition "value" [] EmptyConstraints]
+                [ (Expression, [Automaton.Transition "pair" [Atom, Atom] equalChildren])
+                , (Atom, [Automaton.Transition "value" [] EmptyConstraints])
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->

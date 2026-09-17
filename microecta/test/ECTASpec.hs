@@ -24,7 +24,7 @@ import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (intToUVar)
-import Utility.Fixpoint (fixUnbounded)
+import Data.Tree.FTA.Interned.Operations (fixUnbounded)
 
 import Test.Generators.ECTA ()
 
