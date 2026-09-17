@@ -4,6 +4,7 @@
 module Data.Tree.FTASpec (spec) where
 
 import Data.Hashable (Hashable (..))
+import Data.Monoid (Sum (..))
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
@@ -78,6 +79,8 @@ spec = do
                 shared = Common.intersect naturals evens :: Common.PlainNode String
                 terms = take 9 $ iterate (\term -> Tree.Node "succ" [term]) (Tree.Node "zero" [])
             map (acceptPlain shared) terms `shouldBe` map even [0 :: Int .. 8]
+            let recursiveNodes = Common.crush (\node -> case node of Common.InternedMu _ -> Sum (1 :: Int); _ -> Sum 0)
+            getSum (recursiveNodes $ Common.Node [Common.Edge "pair" [naturals, naturals]]) `shouldBe` 1
             case Common.toFTA shared of
                 Left err -> expectationFailure $ show err
                 Right graph -> map (Automaton.accepts graph) terms `shouldBe` map even [0 :: Int .. 8]

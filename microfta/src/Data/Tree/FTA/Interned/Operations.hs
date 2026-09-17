@@ -83,11 +83,12 @@ mapNodesStep recurse f (Node es) =
 mapNodesStep recurse f (Mu body) = f $ Mu (recurse . body)
 mapNodesStep _ f (Rec recId) = f $ Rec recId
 
-{- | Fold over all reachable nodes with sharing awareness.
+{- | Fold over all reachable nodes, visiting each shared node once.
 
 This name originates from the @crush@ operator in the Stratego language.
 Although @m@ is only constrained to be a monoid, this function makes no
-guarantees about traversal order.
+guarantees about traversal order. Recursive nodes and ordinary nodes draw
+identities from one counter, so one visited set covers both.
 -}
 {-# INLINEABLE crush #-}
 crush :: forall symbol constraint m. (Monoid m) => (Node symbol constraint -> m) -> Node symbol constraint -> m
@@ -96,16 +97,18 @@ crush f = \n -> evalState (go n) IntSet.empty
     go :: Node symbol constraint -> State IntSet m
     go EmptyNode = return mempty
     go (Rec _) = return mempty
-    go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
-    go n@(InternedNode node) = do
+    go n = do
         seen <- get
         let nId = nodeIdentity n
         if IntSet.member nId seen
-            then
-                return mempty
+            then return mempty
             else do
                 modify' (IntSet.insert nId)
-                mappend (f n) . mconcat <$> mapM (\e -> mconcat <$> mapM go (edgeChildren e)) (internedNodeEdges node)
+                mappend (f n) . mconcat <$> mapM go (children n)
+
+    children (InternedMu mu) = [internedMuBody mu]
+    children (InternedNode node) = [child | edge <- internedNodeEdges node, child <- edgeChildren edge]
+    children _ = []
 
 -- | Run a fold function only on normal non-recursive nodes.
 {-# INLINEABLE onNormalNodes #-}
