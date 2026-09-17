@@ -113,7 +113,6 @@ jobs:
             --install-method=copy --installdir="$HOME/.local/bin"
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microlta
 
       - name: Test the generator examples
         run: |

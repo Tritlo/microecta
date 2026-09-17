@@ -1,4 +1,4 @@
-{- | Handwritten construction syntax parallel to "Data.Tree.FTA.Syntax".
+{- | Handwritten construction syntax for liquid tree automata.
 
 The only LTA-specific additions are the transition refinement and a
 'GuardBuilder', so constructor arguments in a liquid constraint receive names
