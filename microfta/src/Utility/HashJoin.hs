@@ -6,6 +6,7 @@ module Utility.HashJoin (
 ) where
 
 import Control.Monad.ST (ST, runST)
+import Data.Containers.ListUtils (nubIntOn)
 import Data.Foldable (foldrM)
 import Data.Hashable (Hashable)
 
@@ -24,24 +25,7 @@ set-like behavior.
 -}
 nubByIdSinglePass :: forall a. (a -> Int) -> [a] -> [a]
 nubByIdSinglePass _ [x] = [x]
-nubByIdSinglePass h ls = runST (go ls [] =<< HT.new)
-  where
-    go :: [a] -> [a] -> HT.HashTable s Int Bool -> ST s [a]
-    go [] acc _ = return acc
-    go (x : xs) acc ht = do
-        alreadyPresent <-
-            HT.mutate
-                ht
-                (h x)
-                ( \case
-                    Nothing -> (Just True, False)
-                    Just _ -> (Just True, True)
-                )
-        if alreadyPresent
-            then
-                go xs acc ht
-            else
-                go xs (x : acc) ht
+nubByIdSinglePass h ls = reverse (nubIntOn h ls)
 
 maybeAddToHt :: v -> Maybe [v] -> (Maybe [v], ())
 maybeAddToHt v = \case
