@@ -41,6 +41,7 @@ module Data.ECTA.Gen.Internal.Support (
 ) where
 
 import Data.Hashable (Hashable)
+import Data.List (compareLength)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
@@ -249,7 +250,7 @@ isPureSupport _ _ = False
 isFrequencyEdge :: (symbol -> Symbol) -> Edge symbol -> Bool
 isFrequencyEdge original edge =
     isFrequencySymbol (original $ edgeSymbol edge)
-        && length (edgeChildren edge) == 1
+        && compareLength (edgeChildren edge) 1 == EQ
         && edgeEcs edge == EmptyConstraints
 
 -- | Close one private applicative term spine with a domain constructor.

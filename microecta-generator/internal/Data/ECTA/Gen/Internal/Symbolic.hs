@@ -3,6 +3,7 @@ module Data.ECTA.Gen.Internal.Symbolic (symbolicRanked, symbolicRankedWith, symb
 
 import qualified Control.Monad.State.Lazy as State
 import Data.Hashable (Hashable)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -45,13 +46,13 @@ type ProblemKey symbol = ([(Int, Int)], [Obligation symbol])
 
 -- | Counts shared by graph identity and normalized equality context.
 data Counts symbol = Counts
-    { graphCounts :: Map.Map Int Integer
+    { graphCounts :: IntMap.IntMap Integer
     , contextCounts :: Map.Map (ProblemKey symbol) Integer
     }
 
 -- | Empty caches scoped to one compiled language.
 emptyCounts :: Counts symbol
-emptyCounts = Counts Map.empty Map.empty
+emptyCounts = Counts IntMap.empty Map.empty
 
 -- | Requirements of the shared graph and its equality interpretation.
 type Theory symbol constraint = (Ord symbol, Hashable symbol, Typeable symbol, Constraint constraint)
@@ -176,11 +177,11 @@ countNode interpret node
     | null (nodeEdges node) = pure 0
     | otherwise = do
         counts <- State.get
-        case Map.lookup (nodeIdentity node) $ graphCounts counts of
+        case IntMap.lookup (nodeIdentity node) $ graphCounts counts of
             Just count -> pure count
             Nothing -> do
                 count <- countUnion (countEdge interpret) $ nodeEdges node
-                State.modify' $ \cache -> cache{graphCounts = Map.insert (nodeIdentity node) count $ graphCounts cache}
+                State.modify' $ \cache -> cache{graphCounts = IntMap.insert (nodeIdentity node) count $ graphCounts cache}
                 pure count
 
 -- | Count a union through distinct intersections of its alternatives.

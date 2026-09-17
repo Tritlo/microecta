@@ -292,19 +292,16 @@ withOffsets = go 0
 
 -- | Shrink toward every earlier non-empty branch, and within the selected one.
 shrinkChoice :: [(Integer, Integer, Prepared a, Integer)] -> Integer -> [ShrinkCandidate]
-shrinkChoice branches index = go [] branches
-  where
-    go _ [] = []
-    go earlier (branch@(offset, _, generator, count) : rest)
-        | index < offset + count =
-            [ ShrinkCandidate earlierOffset AlwaysShrink
-            | (earlierOffset, _, _, earlierCount) <- earlier
-            , earlierCount > 0
-            ]
-                <> [ liftShrink (offset +) candidate
-                   | candidate <- preparedShrinks generator (index - offset)
-                   ]
-        | otherwise = go (earlier <> [branch]) rest
+shrinkChoice branches index = case break (\(offset, _, _, count) -> index < offset + count) branches of
+    (_, []) -> []
+    (earlier, (offset, _, generator, _) : _) ->
+        [ ShrinkCandidate earlierOffset AlwaysShrink
+        | (earlierOffset, _, _, earlierCount) <- earlier
+        , earlierCount > 0
+        ]
+            <> [ liftShrink (offset +) candidate
+               | candidate <- preparedShrinks generator (index - offset)
+               ]
 
 -- | Combine equally weighted alternatives.
 oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)

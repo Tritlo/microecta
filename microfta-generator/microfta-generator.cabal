@@ -16,7 +16,7 @@ copyright: 2026 Matthias Pall Gissurarson
 license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
-tested-with: ghc ==9.12.2 || ==9.14.1
+tested-with: ghc ==9.14.1
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -57,8 +57,8 @@ library
     Data.Tree.Gen.QuickCheck
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator:internal,
     QuickCheck >=2.14 && <2.19,
@@ -81,8 +81,8 @@ library internal
 
   build-depends:
     array >=0.5 && <0.6,
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microfta >=0.1.0.0 && <0.2,
 
 executable fta-pairs
@@ -90,8 +90,8 @@ executable fta-pairs
   main-is: FinitePairs.hs
   hs-source-dirs: examples
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator,
     QuickCheck >=2.14 && <2.19,
@@ -110,8 +110,8 @@ test-suite unit-tests
     Data.Tree.GenSpec
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hspec >=2.11 && <2.12,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator:{internal, microfta-generator},
@@ -134,8 +134,8 @@ benchmark untyped-expression-speed
     GeneratorSpeedHarness
 
   build-depends:
-    base >=4.21 && <5,
-    containers >=0.7 && <0.9,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     microfta >=0.1.0.0 && <0.2,
     microfta-generator,
     process >=1.6 && <1.7,

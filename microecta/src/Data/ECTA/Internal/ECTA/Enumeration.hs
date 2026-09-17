@@ -64,6 +64,7 @@ import Control.Monad.Trans.Class (lift)
 import qualified Data.Foldable as Foldable
 import Data.Hashable (Hashable (..))
 import qualified Data.IntSet as IntSet
+import Data.List (compareLength)
 import Data.Maybe (fromMaybe)
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
@@ -382,7 +383,7 @@ enumerateEdge scs e = do
     -- With no constraints this is 'minBound', which passes the guard below,
     -- as it should: nothing constrains how many children the edge needs.
     let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
-    guard $ highestConstraintIndex < length (edgeChildren e)
+    guard $ compareLength (edgeChildren e) highestConstraintIndex == GT
 
     newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
     let scs' = scs <> newScs
