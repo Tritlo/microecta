@@ -19,8 +19,8 @@ or reduces them needs no migration.
   record format. Add `containers` for direct `Data.Tree` imports.
   The ordinary FTA graph remains in `microfta`; direct `Data.Tree.FTA` imports
   require a `microfta` dependency.
-* Add `Data.ECTA.FTA` and `Data.ECTA.FTA.Syntax` to expose equality-constrained
-  transitions through the ordinary graph without discarding their constraints.
+* Add `Data.ECTA.FTA` to expose equality-constrained transitions through the
+  ordinary graph without discarding their constraints.
 * Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
   it ships instead of rebuilding 0.7 beside its own boot library.
 * Key the edge joins on the symbol itself rather than on its hash.
