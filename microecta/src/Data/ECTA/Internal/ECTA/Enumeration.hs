@@ -352,12 +352,10 @@ hasEmptyContents _ = False
 -------- Core enumeration algorithm
 ---------------------
 
--- | Tables for the plain fast path.
-plainBelowCache, plainTermsCache :: TypeableMemoCache
+-- | Table for 'plainBelow'.
+plainBelowCache :: TypeableMemoCache
 plainBelowCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE plainBelowCache #-}
-plainTermsCache = unsafePerformIO newTypeableMemoCache
-{-# NOINLINE plainTermsCache #-}
 
 {- | Whether a node is an ordinary finite automaton: no recursive binder and
 no equality constraint anywhere below it.
@@ -368,21 +366,7 @@ plainBelow = memoTypeableWith plainBelowCache $ \n -> numNestedMu n == 0 && getA
     unconstrained (Node es) = All (all ((== EmptyConstraints) . edgeEcs) es)
     unconstrained _ = All True
 
-{- | The terms of an ordinary node through the shared enumerator, as fragments.
-
-The table keeps every list for the lifetime of the process, like the other
-memo tables, so a shared plain sub-language is enumerated once.
--}
-plainTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [TermFragment symbol]
-plainTerms = memoTypeableWith plainTermsCache $ map fromTree . Common.terms . toInterned
-  where
-    fromTree (Tree.Node symbol children) = TermFragmentNode symbol (map fromTree children)
-
-{- | Enumerate one node under the suspended constraints currently in scope.
-
-A node with no suspended constraint that is plain below is listed through
-the shared enumerator, by depth, instead of edge by edge.
--}
+-- | Enumerate one node under the suspended constraints currently in scope.
 enumerateNode ::
     forall symbol.
     (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
@@ -392,9 +376,7 @@ enumerateNode scs n =
      in case hereConstraints of
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
-                Node es
-                    | Sequence.null scs && plainBelow n -> lift (plainTerms n)
-                    | otherwise -> enumerateEdge scs =<< lift es
+                Node es -> enumerateEdge scs =<< lift es
                 Rec recId ->
                     error $
                         "enumerateNode: unexpected unresolved recursive reference "
@@ -793,10 +775,17 @@ not evidence that the language below it is non-empty.
 getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Tree.Tree symbol]
 getAllTerms = getAllTermsWith "Mu"
 
--- | 'getAllTerms' with an explicit symbol for truncated recursion.
+{- | 'getAllTerms' with an explicit symbol for truncated recursion.
+
+A node with no recursive binder and no equality constraint is an ordinary
+automaton, and is listed by the shared enumerator, by depth, without the
+enumeration state.
+-}
 getAllTermsWith :: (Hashable symbol, Typeable symbol) => symbol -> Node symbol -> [Tree.Tree symbol]
-getAllTermsWith recursionSymbol n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ do
-        enumerateFully
-        expandUVarWith recursionSymbol (intToUVar 0)
+getAllTermsWith recursionSymbol n
+    | plainBelow n = Common.terms (toInterned n)
+    | otherwise =
+        map fst $ flip runEnumerateM (initEnumerationState n) $ do
+            enumerateFully
+            expandUVarWith recursionSymbol (intToUVar 0)
 {-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol -> [Tree.Tree Symbol] #-}
