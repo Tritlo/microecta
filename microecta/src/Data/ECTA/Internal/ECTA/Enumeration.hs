@@ -772,16 +772,16 @@ need each term once. And a constraint whose paths descend into a truncated
 'Mu' is dropped rather than checked, so a result term containing the marker is
 not evidence that the language below it is non-empty.
 -}
-getAllTerms :: (Hashable symbol, Typeable symbol, IsString symbol) => Node symbol -> [Tree.Tree symbol]
+getAllTerms :: (Hashable symbol, Ord symbol, Typeable symbol, IsString symbol) => Node symbol -> [Tree.Tree symbol]
 getAllTerms = getAllTermsWith "Mu"
 
 {- | 'getAllTerms' with an explicit symbol for truncated recursion.
 
 A node with no recursive binder and no equality constraint is an ordinary
 automaton, and is listed by the shared enumerator, by depth, without the
-enumeration state.
+enumeration state; that list has each term once.
 -}
-getAllTermsWith :: (Hashable symbol, Typeable symbol) => symbol -> Node symbol -> [Tree.Tree symbol]
+getAllTermsWith :: (Hashable symbol, Ord symbol, Typeable symbol) => symbol -> Node symbol -> [Tree.Tree symbol]
 getAllTermsWith recursionSymbol n
     | plainBelow n = Common.terms (toInterned n)
     | otherwise =
