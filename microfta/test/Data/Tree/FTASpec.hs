@@ -16,6 +16,7 @@ import qualified Data.Tree.FTA as Automaton
 import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
+import Data.Tree.FTA.Path (getPath, path, pathsMatching, requirePath)
 import Data.Tree.FTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
@@ -190,6 +191,15 @@ spec = do
                             case Common.toFTA node of
                                 Left err -> expectationFailure $ show err
                                 Right view -> length (Automaton.states view) `shouldBe` 2
+
+        it "reads, requires, and finds child-index paths" $ do
+            let a = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
+                b = Common.Node [Common.Edge "b" []]
+                graph = Common.Node [Common.Edge "leaf" [], Common.Edge "pair" [a, b]]
+            getPath (path [1]) graph `shouldBe` b
+            getPath (path [0]) (Common.union [graph, Common.Node [Common.Edge "pair" [b, a]]]) `shouldBe` Common.union [a, b]
+            requirePath (path [0]) graph `shouldBe` Common.Node [Common.Edge "pair" [a, b]]
+            pathsMatching (== b) graph `shouldBe` [path [1]]
 
         it "removes an alternative that another alternative already accepts" $ do
             let leaf = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
