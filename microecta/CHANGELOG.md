@@ -25,8 +25,8 @@ or reduces them needs no migration.
   re-exports the pattern type and restricts through the shared graph before
   reducing equalities; `Data.ECTA.Paths` re-exports `Path`, `Pathable`, and
   the prefix operations.
-* Enumeration lists a sub-graph with no recursion and no equality constraint
-  through the shared enumerator, by depth, instead of edge by edge.
+* `getAllTerms` lists a node with no recursion and no equality constraint
+  through the shared enumerator, by depth, without the enumeration state.
 * Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
   it ships instead of rebuilding 0.7 beside its own boot library.
 * Key the edge joins on the symbol itself rather than on its hash.
