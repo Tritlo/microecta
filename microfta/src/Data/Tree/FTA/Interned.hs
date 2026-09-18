@@ -125,18 +125,18 @@ newtype FTAImportError state = RecursiveFTAState state
 {- | Intern an acyclic explicit-state graph without interpreting constraints.
 
 Each state is compiled once. Use 'FTA.boundDepth' before importing a recursive
-graph. The cycle check covers the whole transition table, so a cycle among
-unreachable states is also rejected. Constraint layers can annotate the source before this conversion.
+graph. The graph is trimmed first, so only a reachable cycle is rejected. Constraint layers can annotate the source before this conversion.
 -}
 fromFTA ::
     (Ord state, Hashable symbol, Typeable symbol, Constraint constraint) =>
     FTA.FTA state symbol constraint -> Either (FTAImportError state) (Node symbol constraint)
-fromFTA graph = case FTA.cycleState graph of
+fromFTA graph = case FTA.cycleState trimmed of
     Just state -> Left $ RecursiveFTAState state
-    Nothing -> Right $ nodes Map.! FTA.initialState graph
+    Nothing -> Right $ nodes Map.! FTA.initialState trimmed
   where
+    trimmed = FTA.trim graph
     -- The map is lazy in its values, so each state is built once, on demand.
-    nodes = fmap (mkNode . map edge) (FTA.transitionTable graph)
+    nodes = fmap (mkNode . map edge) (FTA.transitionTable trimmed)
     edge transition =
         mkEdge
             (FTA.transitionSymbol transition)

@@ -71,6 +71,23 @@ spec = do
                     take 5 (Automaton.terms expressions)
                         `shouldBe` [zero, pair, add pair pair, add pair zero, add zero pair]
                     Automaton.terms (Automaton.boundDepth 2 expressions) `shouldBe` take 5 (Automaton.terms expressions)
+                    Automaton.states (Automaton.mapStates show expressions) `shouldBe` ["Expression"]
+
+        it "trims dead and unreachable states" $
+            case Automaton.mkFTA
+                (0 :: Int)
+                [ (0, [Transition "f" [1, 2] (), Transition "leaf" [] ()])
+                , (1, [Transition "s" [1] ()])
+                , (2, [Transition "z" [] ()])
+                , (3, [Transition "loop" [3] ()])
+                ] of
+                Left err -> expectationFailure $ show err
+                Right automaton -> do
+                    let trimmed = Automaton.trim automaton
+                    Automaton.states trimmed `shouldBe` [0]
+                    Automaton.transitionsFrom trimmed 0 `shouldBe` [Transition "leaf" [] ()]
+                    Automaton.terms automaton `shouldBe` [Tree.Node "leaf" []]
+                    fmap (`acceptPlain` Tree.Node "leaf" []) (Common.fromFTA automaton) `shouldBe` Right True
 
     describe "common interned automaton engine" $ do
         it "recognizes and intersects unit-constrained languages" $ do
