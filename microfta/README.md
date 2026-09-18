@@ -30,6 +30,7 @@ The table uses these module aliases:
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Generic as Generic
 import qualified Data.Tree.FTA.Interned as Common
+import qualified Data.Tree.FTA.Template as Template
 ```
 
 | Operation | API | Result |
@@ -40,6 +41,7 @@ import qualified Data.Tree.FTA.Interned as Common
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
 | Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
 | List accepted terms | `FTA.terms`, `Common.terms` | Every term, by depth. A recursive grammar gives an infinite list. |
+| Restrict to a pattern | `Template.restrictFTA`, `Template.restrict` | A grammar for the terms that match a `Template`. |
 | Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
 | Intersect languages | `FTA.intersect`, `FTA.intersectWith`, `Common.intersect` | A grammar for the common trees. Annotations require the interpretation described below. |
 | Inspect states, transitions, and cycles | `FTA.states`, `FTA.transitionsFrom`, `FTA.cyclicStates` | Graph structure, not accepted values. |
@@ -310,6 +312,7 @@ expression of a bounded depth.
 | `Data.Tree.FTA.Generic` | Datatype derivation, finite domains, metadata, and typed codecs. |
 | `Data.Tree.FTA` | Checked transition graphs, recognition, depth bounds, and product intersection. |
 | `Data.Tree.FTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
+| `Data.Tree.FTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 | `Data.Tree.FTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 

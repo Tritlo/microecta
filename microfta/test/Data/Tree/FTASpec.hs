@@ -8,13 +8,14 @@ import Data.Hashable (Hashable (..))
 import Data.Monoid (Sum (..))
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
 import Data.Tree.FTA (Transition (Transition))
 import qualified Data.Tree.FTA as Automaton
 import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
+import Data.Tree.FTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
     deriving (Eq, Ord, Show)
@@ -195,6 +196,18 @@ spec = do
                 redundant = Common.Node [Common.Edge "f" [leaf], Common.Edge "f" [both]]
             Common.edgeCount (Common.withoutRedundantEdges redundant) `shouldBe` 3
             acceptPlain (Common.withoutRedundantEdges redundant) (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` True
+
+    describe "templates" $
+        it "restricts an automaton and an interned graph to the matching terms" $
+            case Automaton.mkFTA Expression [(Expression, [Transition "zero" [] (), Transition "add" [Expression, Expression] ()])] of
+                Left err -> expectationFailure $ show err
+                Right expressions -> do
+                    let template = TemplateNode "add" [TemplateNode "zero" [], Hole]
+                        bounded = Automaton.boundDepth 2 expressions
+                        expected = filter (matchesTemplate template) (Automaton.terms bounded)
+                    length expected `shouldBe` 2
+                    Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
+                    fmap (Common.terms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
 
     describe "derived datatype grammars" $ do
         it "accepts exactly the encodings of the datatype's values" $ do

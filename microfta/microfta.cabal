@@ -68,6 +68,7 @@ library
     Data.Tree.FTA.Interned.Memo
     Data.Tree.FTA.Interned.Operations
     Data.Tree.FTA.Interned.Type
+    Data.Tree.FTA.Template
 
   build-depends:
     base >=4.22 && <4.23,
