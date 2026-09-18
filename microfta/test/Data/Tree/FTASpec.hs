@@ -4,17 +4,20 @@
 
 module Data.Tree.FTASpec (spec) where
 
+import Data.Functor.Identity (runIdentity)
 import Data.Hashable (Hashable (..))
 import Data.Monoid (Sum (..))
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
 import Data.Tree.FTA (Transition (Transition))
 import qualified Data.Tree.FTA as Automaton
 import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
+import Data.Tree.FTA.Path (getPath, path, pathsMatching, requirePath)
+import Data.Tree.FTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
     deriving (Eq, Ord, Show)
@@ -71,6 +74,23 @@ spec = do
                     take 5 (Automaton.terms expressions)
                         `shouldBe` [zero, pair, add pair pair, add pair zero, add zero pair]
                     Automaton.terms (Automaton.boundDepth 2 expressions) `shouldBe` take 5 (Automaton.terms expressions)
+                    Automaton.states (Automaton.mapStates show expressions) `shouldBe` ["Expression"]
+
+        it "trims dead and unreachable states" $
+            case Automaton.mkFTA
+                (0 :: Int)
+                [ (0, [Transition "f" [1, 2] (), Transition "leaf" [] ()])
+                , (1, [Transition "s" [1] ()])
+                , (2, [Transition "z" [] ()])
+                , (3, [Transition "loop" [3] ()])
+                ] of
+                Left err -> expectationFailure $ show err
+                Right automaton -> do
+                    let trimmed = Automaton.trim automaton
+                    Automaton.states trimmed `shouldBe` [0]
+                    Automaton.transitionsFrom trimmed 0 `shouldBe` [Transition "leaf" [] ()]
+                    Automaton.terms automaton `shouldBe` [Tree.Node "leaf" []]
+                    fmap (`acceptPlain` Tree.Node "leaf" []) (Common.fromFTA automaton) `shouldBe` Right True
 
     describe "common interned automaton engine" $ do
         it "recognizes and intersects unit-constrained languages" $ do
@@ -172,12 +192,40 @@ spec = do
                                 Left err -> expectationFailure $ show err
                                 Right view -> length (Automaton.states view) `shouldBe` 2
 
+        it "reads, requires, and finds child-index paths" $ do
+            let a = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
+                b = Common.Node [Common.Edge "b" []]
+                graph = Common.Node [Common.Edge "leaf" [], Common.Edge "pair" [a, b]]
+            getPath (path [1]) graph `shouldBe` b
+            getPath (path [0]) (Common.union [graph, Common.Node [Common.Edge "pair" [b, a]]]) `shouldBe` Common.union [a, b]
+            requirePath (path [0]) graph `shouldBe` Common.Node [Common.Edge "pair" [a, b]]
+            pathsMatching (== b) graph `shouldBe` [path [1]]
+
         it "removes an alternative that another alternative already accepts" $ do
             let leaf = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
                 both = Common.Node [Common.Edge "a" [], Common.Edge "b" []]
                 redundant = Common.Node [Common.Edge "f" [leaf], Common.Edge "f" [both]]
             Common.edgeCount (Common.withoutRedundantEdges redundant) `shouldBe` 3
             acceptPlain (Common.withoutRedundantEdges redundant) (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` True
+
+    describe "templates" $
+        it "restricts an automaton and an interned graph to the matching terms" $
+            case Automaton.mkFTA Expression [(Expression, [Transition "zero" [] (), Transition "add" [Expression, Expression] ()])] of
+                Left err -> expectationFailure $ show err
+                Right expressions -> do
+                    let template = TemplateNode "add" [TemplateNode "zero" [], Hole]
+                        bounded = Automaton.boundDepth 2 expressions
+                        expected = filter (matchesTemplate template) (Automaton.terms bounded)
+                    length expected `shouldBe` 2
+                    Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
+                    fmap (Common.terms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
+                    -- The check constrains every "add" node, and the root "zero" passes it.
+                    let accept _ transition term = pure (Automaton.transitionSymbol transition /= "add" || matchesTemplate template term)
+                        zero = Tree.Node "zero" []
+                        add left right = Tree.Node "add" [left, right]
+                    runIdentity (Automaton.termsUpToM accept 2 expressions)
+                        `shouldMatchList` [zero, add zero zero, add zero (add zero zero)]
+                    runIdentity (Automaton.termsUpToM (\_ _ _ -> pure True) 2 expressions) `shouldBe` Automaton.terms bounded
 
     describe "derived datatype grammars" $ do
         it "accepts exactly the encodings of the datatype's values" $ do
