@@ -75,7 +75,7 @@ An algebraic datatype works as the alphabet too; no string conversion is
 involved. 'getAllTermsWith' takes the symbol to use if enumeration truncates at
 recursion:
 
->>> data NatSymbol = Zero | Succ | Recursion deriving (Eq, Generic, Show)
+>>> data NatSymbol = Zero | Succ | Recursion deriving (Eq, Ord, Generic, Show)
 >>> instance Hashable NatSymbol
 >>> let zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
 >>> getAllTermsWith Recursion zeroOrOne
