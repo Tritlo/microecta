@@ -66,11 +66,13 @@ import Data.Hashable (Hashable (..))
 import qualified Data.IntSet as IntSet
 import Data.List (compareLength)
 import Data.Maybe (fromMaybe)
+import Data.Monoid (All (..))
 import Data.Semigroup (Max (..))
 import Data.Sequence (Seq ((:<|), (:|>)))
 import qualified Data.Sequence as Sequence
 import Data.String (IsString (..))
 import qualified Data.Tree as Tree
+import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, typeRep)
 
 import Data.ECTA.Internal.ECTA.Operations
@@ -79,6 +81,8 @@ import Data.ECTA.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.Persistent.UnionFind as UnionFind
+import qualified Data.Tree.FTA.Interned as Common
+import Data.Tree.FTA.Interned.Memo (TypeableMemoCache, memoTypeableWith, newTypeableMemoCache)
 
 -------------------------------------------------------------------------------
 
@@ -348,7 +352,37 @@ hasEmptyContents _ = False
 -------- Core enumeration algorithm
 ---------------------
 
--- | Enumerate one node under the suspended constraints currently in scope.
+-- | Tables for the plain fast path.
+plainBelowCache, plainTermsCache :: TypeableMemoCache
+plainBelowCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE plainBelowCache #-}
+plainTermsCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE plainTermsCache #-}
+
+{- | Whether a node is an ordinary finite automaton: no recursive binder and
+no equality constraint anywhere below it.
+-}
+plainBelow :: (Typeable symbol) => Node symbol -> Bool
+plainBelow = memoTypeableWith plainBelowCache $ \n -> numNestedMu n == 0 && getAll (crush unconstrained n)
+  where
+    unconstrained (Node es) = All (all ((== EmptyConstraints) . edgeEcs) es)
+    unconstrained _ = All True
+
+{- | The terms of an ordinary node through the shared enumerator, as fragments.
+
+The table keeps every list for the lifetime of the process, like the other
+memo tables, so a shared plain sub-language is enumerated once.
+-}
+plainTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [TermFragment symbol]
+plainTerms = memoTypeableWith plainTermsCache $ map fromTree . Common.terms . toInterned
+  where
+    fromTree (Tree.Node symbol children) = TermFragmentNode symbol (map fromTree children)
+
+{- | Enumerate one node under the suspended constraints currently in scope.
+
+A node with no suspended constraint that is plain below is listed through
+the shared enumerator, by depth, instead of edge by edge.
+-}
 enumerateNode ::
     forall symbol.
     (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
@@ -358,7 +392,9 @@ enumerateNode scs n =
      in case hereConstraints of
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
-                Node es -> enumerateEdge scs =<< lift es
+                Node es
+                    | Sequence.null scs && plainBelow n -> lift (plainTerms n)
+                    | otherwise -> enumerateEdge scs =<< lift es
                 Rec recId ->
                     error $
                         "enumerateNode: unexpected unresolved recursive reference "
