@@ -87,6 +87,7 @@ benchmarks =
     , fta "fta-terms/finite-choice" 200 finiteChoiceNode FTA.terms
     , ecta "ecta-getAllTerms/finite-choice" 200 finiteChoiceNode getAllTerms
     , Bench "lta-denotationAtMost/expressions-depth-2" 20 (\_ -> pure ()) (const $ ltaTerms 2)
+    , Bench "lta-denotationAtMost/expressions-depth-3" 2 (\_ -> pure ()) (const $ ltaTerms 3)
     ]
   where
     -- The FTA rows enumerate the plain view of the same ECTA node, converted before timing.
