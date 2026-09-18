@@ -369,9 +369,11 @@ accepts automaton = acceptsFrom (initialState automaton)
 
 A leaf has depth zero, and all terms of one depth precede deeper terms. A
 cyclic automaton gives an infinite list; an acyclic automaton gives a finite
-one. Apply 'stripGuards' first to list the shapes of an annotated automaton.
+one. Guards are not interpreted: the list describes the underlying ordinary
+automaton, and an ambiguous automaton lists a term once per accepting run.
+Use 'termsUpToM' to decide guards while enumerating.
 -}
-terms :: (Ord state) => PlainFTA state symbol -> [Tree.Tree symbol]
+terms :: (Ord state) => FTA state symbol guard -> [Tree.Tree symbol]
 terms automaton =
     termsBy
         [ (state, [(transitionSymbol transition, transitionChildren transition) | transition <- outgoing])
