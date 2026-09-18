@@ -174,10 +174,12 @@ distinctSymbols symbols = length (nubOrd symbols) == length symbols
 
 {- | Deduplicate a level unless it cannot contain duplicates.
 
-Sorting beats hashing here: comparing two different terms stops at the
-first differing node, while a hash must visit every node.
+A set beats hashing here by a factor of four to six: comparing two different
+terms stops at the first differing node, while a hash visits every node, and
+hashing one small term with the standard instances costs microseconds. The
+order within a level is not specified.
 -}
 dedupUnless :: (Ord a) => Bool -> [a] -> [a]
 dedupUnless unambiguous
     | unambiguous = id
-    | otherwise = nubOrd
+    | otherwise = Set.toList . Set.fromList

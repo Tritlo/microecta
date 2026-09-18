@@ -80,7 +80,7 @@ spec = do
                         (0 :: Int)
                         [(0, [Transition "zero" [] (), Transition "add" [0, 0] (), Transition "add" [1, 1] ()]), (1, [Transition "zero" [] ()])] of
                         Left err -> expectationFailure $ show err
-                        Right ambiguous -> Automaton.terms (Automaton.boundDepth 2 ambiguous) `shouldBe` take 5 (Automaton.terms expressions)
+                        Right ambiguous -> Automaton.terms (Automaton.boundDepth 2 ambiguous) `shouldMatchList` take 5 (Automaton.terms expressions)
 
         it "trims dead and unreachable states" $
             case Automaton.mkFTA
