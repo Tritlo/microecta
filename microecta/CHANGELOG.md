@@ -21,6 +21,12 @@ or reduces them needs no migration.
   require a `microfta` dependency.
 * Add `Data.ECTA.FTA` to expose equality-constrained transitions through the
   ordinary graph without discarding their constraints.
+* Templates and child-index paths come from `microfta`. `Data.ECTA.Template`
+  re-exports the pattern type and restricts through the shared graph before
+  reducing equalities; `Data.ECTA.Paths` re-exports `Path`, `Pathable`, and
+  the prefix operations.
+* Enumeration lists a sub-graph with no recursion and no equality constraint
+  through the shared enumerator, by depth, instead of edge by edge.
 * Widen the `containers` bound to `<0.9`, so GHC 9.14 builds against the 0.8
   it ships instead of rebuilding 0.7 beside its own boot library.
 * Key the edge joins on the symbol itself rather than on its hash.
