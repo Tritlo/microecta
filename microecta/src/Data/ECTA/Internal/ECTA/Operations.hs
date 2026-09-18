@@ -68,9 +68,9 @@ import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
-import Data.ECTA.Internal.Term (Symbol)
 import qualified Data.Tree.FTA.Interned.Operations as Common
 import qualified Data.Tree.FTA.Path as Path
+import Data.Tree.FTA.Symbol (Symbol)
 
 import Data.Tree.FTA.Interned.Cache (Id)
 
