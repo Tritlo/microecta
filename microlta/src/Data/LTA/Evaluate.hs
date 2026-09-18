@@ -17,7 +17,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.ECTA.Paths (EqConstraints, Path)
+import Data.ECTA.Paths (EqConstraints, Path, getPath)
 import Data.ECTA.Term (Symbol (Symbol))
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -28,7 +28,7 @@ import Data.LTA.Constraint (
     equalityPathPairs,
     guardPaths,
  )
-import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement, termAt)
+import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement)
 import Data.LTA.Verdict (
     Entailment,
     Verdict (..),
@@ -44,15 +44,15 @@ evaluateGuard entailment guard term =
     evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard
   where
     lookupObservation target = do
-        Tree.Node (LiquidSymbol symbol refinement) _ <- termAt target term
+        Tree.Node (LiquidSymbol symbol refinement) _ <- getPath target term
         pure (symbol, refinement)
 
     sameAt substitutions left right = do
-        leftTerm <- termAt left term
-        rightTerm <- termAt right term
+        leftTerm <- getPath left term
+        rightTerm <- getPath right term
         pure $ substituteTerm substitutions leftTerm == substituteTerm substitutions rightTerm
 
-    leafAt target = null . Tree.subForest <$> termAt target term
+    leafAt target = null . Tree.subForest <$> getPath target term
 
 {- | Evaluate a guard from sparse observations of its referenced paths.
 
@@ -169,9 +169,9 @@ satisfiesEqualities :: EqConstraints -> Tree.Tree LiquidSymbol -> Bool
 satisfiesEqualities equalities term =
     maybe False (all agrees) $ equalityPathPairs equalities
   where
-    agrees (anchor, other) = case termAt anchor term of
+    agrees (anchor, other) = case getPath anchor term of
         Nothing -> False
-        Just expected -> termAt other term == Just expected
+        Just expected -> getPath other term == Just expected
 
 {- | One position substitution with its actual-value assumption.
 

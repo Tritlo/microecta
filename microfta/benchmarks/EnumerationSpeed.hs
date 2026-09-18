@@ -11,7 +11,11 @@ module Main (main) where
 import Control.Exception (evaluate)
 import Control.Monad (void)
 import Data.Functor.Identity (runIdentity)
+import Data.List (elemIndex)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
@@ -66,6 +70,17 @@ benchmarks =
     , explicit "termsUpToM-identity/expressions-depth-3" expressions $ runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
     , explicit "termsUpToM-ambiguous-identity/expressions-depth-3" ambiguousExpressions $
         runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
+    , Bench
+        "termsUpToM-ambiguous-identity-text/expressions-depth-3"
+        10
+        (void . evaluate . length . FTA.states . textExpressions)
+        $ sizes . runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3 . textExpressions
+    , Bench
+        "termsUpToM-ambiguous-identity-int/expressions-depth-3"
+        10
+        (void . evaluate . length . FTA.states . intExpressions)
+        $ sizes . runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3 . intExpressions
+    , explicit "terms-ambiguous/expressions-depth-3" (FTA.boundDepth 3 . ambiguousExpressions) FTA.terms
     , Bench "termsUpToM-io/expressions-depth-3" 10 (void . evaluate . length . FTA.states . expressions) $ \i ->
         FTA.termsUpToM (\_ _ _ -> pure True) 3 (expressions i) >>= sizes
     ]
@@ -96,16 +111,29 @@ expressions salt = automaton 0 [(0, [t (named "zero") [], t (named "one") [], t 
   where
     named symbol = symbol ++ show salt
 
-{- | The expression grammar with its "add" alternative listed twice, so every
-state is ambiguous and the checked enumeration must deduplicate.
+{- | The expression grammar with a second "add" alternative over a state whose
+language is contained in the first, so every level has duplicate candidates
+and the checked enumeration must deduplicate.
 -}
 ambiguousExpressions :: Int -> FTA.PlainFTA Int String
 ambiguousExpressions salt =
     automaton
         0
-        [(0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "add") [0, 0], t (named "mul") [0, 0]])]
+        [ (0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "add") [1, 1], t (named "mul") [0, 0]])
+        , (1, [t (named "zero") [], t (named "one") []])
+        ]
   where
     named symbol = symbol ++ show salt
+
+-- | The ambiguous grammar over 'Text' symbols, as the constraint packages use.
+textExpressions :: Int -> FTA.PlainFTA Int Text
+textExpressions = either (error . show) id . FTA.mapSymbols Text.pack . ambiguousExpressions
+
+-- | The ambiguous grammar over 'Int' symbols, which compare like interned symbols.
+intExpressions :: Int -> FTA.PlainFTA Int Int
+intExpressions salt = either (error . show) id $ FTA.mapSymbols code (ambiguousExpressions 0)
+  where
+    code symbol = salt * 4 + fromMaybe 0 (elemIndex (takeWhile (/= '0') symbol) ["zero", "one", "add", "mul"])
 
 boundedExpressions :: Int -> FTA.PlainFTA Int String
 boundedExpressions = FTA.boundDepth 3 . expressions
