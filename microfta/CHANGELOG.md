@@ -7,7 +7,12 @@ Initial release.
 - Concrete terms use `Data.Tree.Tree` from `containers`.
 - `Data.Tree.FTA`: checked explicit-state finite tree automata with
   ranked-alphabet validation, cycle inspection, depth bounding, reachable
-  product intersection, and term enumeration by depth.
+  product intersection, trimming, state renaming, term enumeration by depth,
+  and bounded enumeration under a monadic check.
+- `Data.Tree.FTA.Template`: patterns with holes and prefixes, and the
+  restriction of an explicit-state or interned grammar to a pattern.
+- `Data.Tree.FTA.Path`: child-index paths, and reading, editing, and
+  requiring positions in terms and interned graphs.
 - `Data.Tree.FTA.Interned`: the constraint-parameterized interned engine that
   the ECTA and LTA packages build on. Interning, recursion, traversal, union,
   and structural intersection are shared; `Constraint` supplies the theory.
