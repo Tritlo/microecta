@@ -26,6 +26,7 @@ import Data.LTA.Automaton (
     transitionRefinement,
     transitionSymbol,
  )
+import Data.LTA.Constraint (unconstrainedConstraint)
 import Data.LTA.Evaluate (evaluateConstraint)
 import Data.LTA.Types (LiquidSymbol (LiquidSymbol), State)
 import Data.LTA.Verdict (Entailment, Verdict (..), andM, andVerdict, orM)
@@ -80,9 +81,11 @@ denotationAtMost ::
 denotationAtMost entailment maximumHeight automaton = runExceptT $ FTA.termsUpToM check maximumHeight automaton
   where
     check :: State -> Transition -> Tree.Tree LiquidSymbol -> ExceptT EnumerationError IO Bool
-    check state transition term = do
-        verdict <- liftIO $ evaluateConstraint entailment (transitionConstraint transition) term
-        case verdict of
-            Yes -> pure True
-            No -> pure False
-            Unknown -> throwError $ EnumerationUnknown state
+    check state transition term
+        | transitionConstraint transition == unconstrainedConstraint = pure True
+        | otherwise = do
+            verdict <- liftIO $ evaluateConstraint entailment (transitionConstraint transition) term
+            case verdict of
+                Yes -> pure True
+                No -> pure False
+                Unknown -> throwError $ EnumerationUnknown state
