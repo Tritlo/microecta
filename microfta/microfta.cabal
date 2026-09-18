@@ -105,3 +105,4 @@ benchmark enumeration-speed
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microfta,
+    text >=2.1 && <2.2,

@@ -75,6 +75,12 @@ spec = do
                         `shouldBe` [zero, pair, add pair pair, add pair zero, add zero pair]
                     Automaton.terms (Automaton.boundDepth 2 expressions) `shouldBe` take 5 (Automaton.terms expressions)
                     Automaton.states (Automaton.mapStates show expressions) `shouldBe` ["Expression"]
+                    -- A second "add" over a sub-language accepts the same terms by more runs.
+                    case Automaton.mkFTA
+                        (0 :: Int)
+                        [(0, [Transition "zero" [] (), Transition "add" [0, 0] (), Transition "add" [1, 1] ()]), (1, [Transition "zero" [] ()])] of
+                        Left err -> expectationFailure $ show err
+                        Right ambiguous -> Automaton.terms (Automaton.boundDepth 2 ambiguous) `shouldBe` take 5 (Automaton.terms expressions)
 
         it "trims dead and unreachable states" $
             case Automaton.mkFTA
