@@ -1,6 +1,6 @@
--- | Public re-export of ECTA symbols.
+-- | Public re-export of the interned symbol alphabet from @microfta@.
 module Data.ECTA.Term (
     Symbol (Symbol),
 ) where
 
-import Data.ECTA.Internal.Term
+import Data.Tree.FTA.Symbol

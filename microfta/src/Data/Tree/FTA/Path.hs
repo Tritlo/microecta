@@ -19,6 +19,7 @@ module Data.Tree.FTA.Path (
     pathsMatching,
     requirePath,
     requirePathList,
+    statesAt,
 ) where
 
 import Data.Hashable (Hashable (..))
@@ -27,6 +28,7 @@ import Data.Maybe (mapMaybe, maybeToList)
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
+import Data.Tree.FTA (Transition (..))
 import Data.Tree.FTA.Constraint (Constraint)
 import Data.Tree.FTA.Interned.Operations (unfoldOuterRec, union)
 import Data.Tree.FTA.Interned.Type
@@ -181,3 +183,26 @@ adjustAt i f xs
     | otherwise = case splitAt i xs of
         (prefix, x : suffix) -> prefix ++ f x : suffix
         _ -> xs
+
+{- | The states at a child-index path below a transition of an explicit-state automaton.
+
+The function gives the alternatives of a state: pass @'FTA.transitionsFrom'
+automaton@ for an automaton, or a lookup in a bare transition table. The
+first index selects a child state of the transition; each further index
+selects that child of every alternative of the states reached so far. A
+state is listed once per alternative that reaches it. An empty path gives
+no states.
+-}
+statesAt :: (state -> [Transition state symbol guard]) -> Transition state symbol guard -> Path -> [state]
+statesAt _ _ EmptyPath = []
+statesAt alternatives transition (ConsPath index rest) = descend rest (maybeToList $ transitionChildren transition !? index)
+  where
+    descend EmptyPath current = current
+    descend (ConsPath next further) current =
+        descend
+            further
+            [ child
+            | state <- current
+            , outgoing <- alternatives state
+            , Just child <- [transitionChildren outgoing !? next]
+            ]

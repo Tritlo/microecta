@@ -16,7 +16,7 @@ import qualified Data.Tree.FTA as Automaton
 import Data.Tree.FTA.Constraint (Constraint (..))
 import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.FTA.Path (getPath, path, pathsMatching, requirePath)
+import Data.Tree.FTA.Path (getPath, path, pathsMatching, requirePath, statesAt)
 import Data.Tree.FTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
@@ -206,6 +206,19 @@ spec = do
             getPath (path [0]) (Common.union [graph, Common.Node [Common.Edge "pair" [b, a]]]) `shouldBe` Common.union [a, b]
             requirePath (path [0]) graph `shouldBe` Common.Node [Common.Edge "pair" [a, b]]
             pathsMatching (== b) graph `shouldBe` [path [1]]
+            case Automaton.mkFTA
+                (0 :: Int)
+                [ (0, [Transition "pair" [1, 2] ()])
+                , (1, [Transition "leaf" [] (), Transition "pair" [2, 1] ()])
+                , (2, [Transition "leaf" [] ()])
+                ] of
+                Left err -> expectationFailure $ show err
+                Right explicit -> do
+                    let root = Transition "pair" [1, 2] ()
+                    let below = statesAt (Automaton.transitionsFrom explicit)
+                    below root (path [0]) `shouldBe` [1]
+                    below root (path [0, 1]) `shouldBe` [1]
+                    below root (path [1, 0]) `shouldBe` []
 
         it "removes an alternative that another alternative already accepts" $ do
             let leaf = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
@@ -232,6 +245,10 @@ spec = do
                     runIdentity (Automaton.termsUpToM accept 2 expressions)
                         `shouldMatchList` [zero, add zero zero, add zero (add zero zero)]
                     runIdentity (Automaton.termsUpToM (\_ _ _ -> pure True) 2 expressions) `shouldBe` Automaton.terms bounded
+                    -- The same check decides membership one term at a time.
+                    map (runIdentity . Automaton.acceptsM accept expressions) [zero, add zero zero, add (add zero zero) zero]
+                        `shouldBe` [True, True, False]
+                    runIdentity (Automaton.acceptsM accept expressions (Tree.Node "mul" [zero, zero])) `shouldBe` False
 
     describe "derived datatype grammars" $ do
         it "accepts exactly the encodings of the datatype's values" $ do
