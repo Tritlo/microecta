@@ -27,6 +27,8 @@ module Data.Tree.FTA (
     cycleState,
     mapGuards,
     mapSymbols,
+    mapStates,
+    trim,
     annotate,
     stripGuards,
     boundDepth,
@@ -34,6 +36,7 @@ module Data.Tree.FTA (
     intersectWith,
     accepts,
     terms,
+    termsUpToM,
     ViewPath,
     StateView (..),
     toTree,
@@ -48,7 +51,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, termsBy, toTreeBy)
+import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, termsBy, termsUpToBy, toTreeBy, trimRows)
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition
@@ -205,6 +208,33 @@ mapSymbols transform FTA{initialState, transitionTable} =
     transition Transition{transitionSymbol, transitionChildren, transitionGuard} =
         Transition (transform transitionSymbol) transitionChildren transitionGuard
 
+{- | Rename states.
+
+States that map to one name are merged, and the merged state has the
+alternatives of all of them.
+-}
+mapStates :: (Ord other) => (state -> other) -> FTA state symbol guard -> FTA other symbol guard
+mapStates rename automaton =
+    FTA (rename $ initialState automaton) $
+        Map.fromListWith
+            (flip (<>))
+            [ (rename state, [transition{transitionChildren = map rename $ transitionChildren transition} | transition <- outgoing])
+            | (state, outgoing) <- Map.toList $ transitionTable automaton
+            ]
+
+{- | Remove states that accept nothing and states the initial state cannot reach.
+
+Alternatives with a removed child state are removed with them. The initial
+state keeps a row, which is empty when the language is empty.
+-}
+trim :: (Ord state) => FTA state symbol guard -> FTA state symbol guard
+trim automaton =
+    FTA initial
+        $ Map.insertWith (\_ kept -> kept) initial []
+        $ trimRows transitionChildren (Map.toList $ transitionTable automaton) initial
+  where
+    initial = initialState automaton
+
 -- | Change transition annotations without changing the accepted tree shapes.
 mapGuards :: (guard -> other) -> FTA state symbol guard -> FTA state symbol other
 mapGuards = fmap
@@ -347,4 +377,27 @@ terms automaton =
         [ (state, [(transitionSymbol transition, transitionChildren transition) | transition <- outgoing])
         | (state, outgoing) <- Map.toList (transitionTable automaton)
         ]
+        (initialState automaton)
+
+{- | The terms of depth at most the bound that a check accepts.
+
+The check sees each candidate term once, with the state and transition that
+built it, so a constraint theory can decide a guard as soon as the children
+are complete. A rejected candidate is never used as a child. A leaf has
+depth zero. Each state lists a term once per depth, so an ambiguous
+automaton does not repeat terms.
+-}
+termsUpToM ::
+    (Monad m, Ord state, Ord symbol) =>
+    (state -> Transition state symbol guard -> Tree.Tree symbol -> m Bool) ->
+    Int ->
+    FTA state symbol guard ->
+    m [Tree.Tree symbol]
+termsUpToM accept bound automaton =
+    termsUpToBy
+        transitionSymbol
+        transitionChildren
+        accept
+        (Map.toList $ transitionTable automaton)
+        bound
         (initialState automaton)
