@@ -12,24 +12,15 @@ module Data.LTA.Denotation (
 
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
-import qualified Data.Map.Strict as Map
+import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Tree as Tree
 import qualified Data.Tree.FTA as FTA
 
-import Data.LTA.Automaton (
-    Automaton,
-    Transition,
-    automatonInitial,
-    automatonTransitions,
-    transitionChildren,
-    transitionConstraint,
-    transitionRefinement,
-    transitionSymbol,
- )
+import Data.LTA.Automaton (Automaton, Transition, transitionConstraint)
 import Data.LTA.Constraint (unconstrainedConstraint)
 import Data.LTA.Evaluate (evaluateConstraint)
-import Data.LTA.Types (LiquidSymbol (LiquidSymbol), State)
-import Data.LTA.Verdict (Entailment, Verdict (..), andM, andVerdict, orM)
+import Data.LTA.Types (LiquidSymbol, State)
+import Data.LTA.Verdict (Entailment, Verdict (..))
 
 -- | Failure while computing the bounded denotation from Figure 6.
 newtype EnumerationError
@@ -37,30 +28,25 @@ newtype EnumerationError
       EnumerationUnknown State
     deriving (Eq, Show)
 
--- | Decide whether an annotated term is accepted from the initial state.
-accepts :: Entailment -> Automaton -> Tree.Tree LiquidSymbol -> IO Verdict
-accepts entailment automaton =
-    acceptsFrom (automatonInitial automaton)
-  where
-    acceptsFrom state term =
-        orM $ map (acceptsTransition term) (Map.findWithDefault [] state $ automatonTransitions automaton)
+{- | Decide whether an annotated term is accepted from the initial state.
 
-    acceptsTransition term@(Tree.Node (LiquidSymbol symbol refinement) children) transition
-        | transitionSymbol transition /= symbol = pure No
-        | transitionRefinement transition /= refinement = pure No
-        | length (transitionChildren transition) /= length children = pure No
-        | otherwise = do
-            childrenVerdict <-
-                andM $
-                    zipWith
-                        acceptsFrom
-                        (transitionChildren transition)
-                        children
-            case childrenVerdict of
-                No -> pure No
-                _ -> do
-                    constraintVerdict <- evaluateConstraint entailment (transitionConstraint transition) term
-                    pure (andVerdict childrenVerdict constraintVerdict)
+The result is 'Yes' when some run accepts the term with every guard decided
+'Yes'. It is 'No' when no run accepts the term and the solver decided every
+guard the search evaluated. It is 'Unknown' otherwise.
+-}
+accepts :: Entailment -> Automaton -> Tree.Tree LiquidSymbol -> IO Verdict
+accepts entailment automaton term = do
+    undecided <- newIORef False
+    accepted <- FTA.acceptsM (check undecided) automaton term
+    unknown <- readIORef undecided
+    pure $ if accepted then Yes else if unknown then Unknown else No
+  where
+    check undecided _ transition candidate = do
+        verdict <- evaluateConstraint entailment (transitionConstraint transition) candidate
+        case verdict of
+            Yes -> pure True
+            No -> pure False
+            Unknown -> writeIORef undecided True >> pure False
 
 {- | Materialize the Figure 6 denotation up to a tree-height bound.
 

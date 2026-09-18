@@ -97,7 +97,7 @@ module Data.LTA (
 ) where
 
 import Data.ECTA.Paths (Path, path, unPath)
-import Data.ECTA.Term (Symbol (Symbol))
+import Data.Tree.FTA.Symbol (Symbol (Symbol))
 
 import Data.LTA.Automaton
 import Data.LTA.Constraint

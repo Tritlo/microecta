@@ -315,6 +315,7 @@ expression of a bounded depth.
 | `Data.Tree.FTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
 | `Data.Tree.FTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
 | `Data.Tree.FTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
+| `Data.Tree.FTA.Symbol` | Interned text symbols that compare and hash by identity. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 | `Data.Tree.FTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 

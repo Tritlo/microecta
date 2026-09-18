@@ -29,12 +29,14 @@ module Data.Tree.FTA (
     mapSymbols,
     mapStates,
     trim,
+    trimTable,
     annotate,
     stripGuards,
     boundDepth,
     intersect,
     intersectWith,
     accepts,
+    acceptsM,
     terms,
     termsUpToM,
     ViewPath,
@@ -228,12 +230,14 @@ Alternatives with a removed child state are removed with them. The initial
 state keeps a row, which is empty when the language is empty.
 -}
 trim :: (Ord state) => FTA state symbol guard -> FTA state symbol guard
-trim automaton =
-    FTA initial
-        $ Map.insertWith (\_ kept -> kept) initial []
-        $ trimRows transitionChildren (Map.toList $ transitionTable automaton) initial
+trim automaton = FTA initial $ trimTable initial $ transitionTable automaton
   where
     initial = initialState automaton
+
+-- | 'trim' on a transition table with the given initial state.
+trimTable ::
+    (Ord state) => state -> Map state [Transition state symbol guard] -> Map state [Transition state symbol guard]
+trimTable initial table = Map.insertWith (\_ kept -> kept) initial [] $ trimRows transitionChildren (Map.toList table) initial
 
 -- | Change transition annotations without changing the accepted tree shapes.
 mapGuards :: (guard -> other) -> FTA state symbol guard -> FTA state symbol other
@@ -403,3 +407,34 @@ termsUpToM accept bound automaton =
         (Map.toList $ transitionTable automaton)
         bound
         (initialState automaton)
+
+{- | Decide whether an automaton accepts a term, with a check on each matching transition.
+
+The check sees the state, the transition, and the complete term at that
+position, so a constraint theory can decide a guard there. It runs only
+after the children have been accepted, and only for transitions whose
+symbol and arity match the term. The term is accepted when some transition
+matches and passes the check.
+-}
+acceptsM ::
+    (Monad m, Ord state, Eq symbol) =>
+    (state -> Transition state symbol guard -> Tree.Tree symbol -> m Bool) ->
+    FTA state symbol guard ->
+    Tree.Tree symbol ->
+    m Bool
+acceptsM check automaton = acceptsFrom (initialState automaton)
+  where
+    acceptsFrom state term@(Tree.Node symbol children) =
+        anyM
+            [ allM (zipWith acceptsFrom (transitionChildren transition) children) >>= \accepted ->
+                if accepted then check state transition term else pure False
+            | transition <- transitionsFrom automaton state
+            , transitionSymbol transition == symbol
+            , length (transitionChildren transition) == length children
+            ]
+
+    anyM [] = pure False
+    anyM (action : actions) = action >>= \ok -> if ok then pure True else anyM actions
+
+    allM [] = pure True
+    allM (action : actions) = action >>= \ok -> if ok then allM actions else pure False
