@@ -81,7 +81,6 @@ library
     Data.ECTA.Internal.ECTA.Operations
     Data.ECTA.Internal.ECTA.Type
     Data.ECTA.Internal.Paths
-    Data.ECTA.Internal.Term
     Data.ECTA.Paths
     Data.ECTA.Template
     Data.ECTA.Term
@@ -95,7 +94,6 @@ library
     containers >=0.8 && <0.9,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
-    intern >=0.9 && <0.10,
     microfta >=0.1.0.0 && <0.2,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
