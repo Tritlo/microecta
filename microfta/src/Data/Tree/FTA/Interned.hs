@@ -105,11 +105,12 @@ reachable root = collect IntMap.empty [root]
         ident = nodeIdentity node
         edges = nodeEdges node
 
-{- | Every accepted term of a closed ordinary graph, ordered by depth.
+{- | Every term of the underlying ordinary graph of a closed root, ordered by depth.
 
-See 'FTA.terms'. A recursive graph gives an infinite list.
+See 'FTA.terms'. Constraints are not interpreted, and a recursive graph
+gives an infinite list.
 -}
-terms :: (Hashable symbol, Typeable symbol) => PlainNode symbol -> [Tree.Tree symbol]
+terms :: (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [Tree.Tree symbol]
 terms EmptyNode = []
 terms root =
     termsBy
