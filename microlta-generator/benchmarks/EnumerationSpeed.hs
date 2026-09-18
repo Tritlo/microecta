@@ -2,9 +2,11 @@
 
 Every row enumerates one language and reports CPU seconds and a checksum of
 the term sizes. The FTA rows enumerate the plain explicit-state view of the
-same ECTA node, converted before timing, so the rows differ only in the
-enumerator. The LTA row decides its guards without a solver. Each repeat
-uses a separately built language, so no result is shared between repeats.
+same ECTA node, so the rows differ only in the enumerator. The LTA rows
+decide their guards without a solver. Each repeat uses a separately built
+language, so no result is shared between repeats, and every language is
+built before timing. Enumeration through equality constraints is measured by
+@microecta:bench:micro-bench@.
 -}
 module Main (main) where
 
@@ -16,13 +18,8 @@ import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
 import Text.Printf (printf)
 
-import Application.TermSearch.Dataset (typeToFta)
-import Application.TermSearch.TermSearch (filterType, reduceFully)
-import Application.TermSearch.Type (TypeSkeleton (..))
-import Application.TermSearch.Utils (arrowType, constFunc, mkDatatype, theArrowNode, typeConst)
 import Data.ECTA
 import qualified Data.ECTA.FTA as ECTAFTA
-import Data.ECTA.Paths
 import Data.ECTA.Term (Symbol (Symbol))
 import Data.LTA (
     Automaton,
@@ -37,7 +34,13 @@ import Data.LTA (
 import Data.LTA.Refinement (true)
 import qualified Data.Tree.FTA as FTA
 
-data Bench = Bench {benchName :: String, benchRepeats :: Int, benchPrepare :: Int -> IO (), benchAction :: Int -> IO Int}
+-- | One row: every repeat prepares its own language before timing starts.
+data Bench = forall language. Bench
+    { benchName :: String
+    , benchRepeats :: Int
+    , benchPrepare :: Int -> IO language
+    , benchAction :: language -> IO Int
+    }
 
 main :: IO ()
 main = do
@@ -51,9 +54,9 @@ parseMultiplier _ = 1
 
 runBench :: Int -> Bench -> IO ()
 runBench multiplier Bench{benchName, benchRepeats, benchPrepare, benchAction} = do
-    mapM_ benchPrepare [1 .. benchRepeats * multiplier]
+    languages <- mapM benchPrepare [1 .. benchRepeats * multiplier]
     start <- getCPUTime
-    checksum <- loop (benchRepeats * multiplier) 0
+    checksum <- loop languages 0
     end <- getCPUTime
     printf
         "%s,%.6f,%d,%d\n"
@@ -62,10 +65,10 @@ runBench multiplier Bench{benchName, benchRepeats, benchPrepare, benchAction} = 
         (benchRepeats * multiplier)
         checksum
   where
-    loop 0 !acc = return acc
-    loop n !acc = do
-        x <- benchAction n
-        loop (n - 1 :: Int) (acc + x)
+    loop [] !acc = return acc
+    loop (language : rest) !acc = do
+        x <- benchAction language
+        loop rest (acc + x)
 
 sizes :: [Tree.Tree a] -> IO Int
 sizes = evaluate . sum . map (length . Tree.flatten)
@@ -76,47 +79,33 @@ plainView node = either (error . show) void (ECTAFTA.toFTA node)
 
 benchmarks :: [Bench]
 benchmarks =
-    [ fta "fta-terms/expressions-depth-3" 5 boundedExpressions FTA.terms
-    , ecta "ecta-getAllTerms/expressions-depth-3" 5 boundedExpressions getAllTerms
-    , fta "fta-terms/expressions-depth-2" 20 (unfoldBounded 3 . expressionsMu) FTA.terms
-    , ecta "ecta-getAllTerms/expressions-depth-2" 20 (unfoldBounded 3 . expressionsMu) getAllTerms
-    , fta "fta-terms/filter-maybe-int-size-2-take-64" 20 reducedFilter (take 64 . FTA.terms)
-    , ecta "ecta-getAllTerms/filter-maybe-int-size-2-take-64" 20 reducedFilter (take 64 . getAllTerms)
-    , fta "fta-terms/filter-list-int-size-3-all" 5 reducedListFilter FTA.terms
-    , ecta "ecta-getAllTerms/filter-list-int-size-3-all" 5 reducedListFilter getAllTerms
-    , fta "fta-terms/finite-choice" 200 finiteChoiceNode FTA.terms
-    , ecta "ecta-getAllTerms/finite-choice" 200 finiteChoiceNode getAllTerms
-    , Bench "lta-denotationAtMost/expressions-depth-2" 20 (\_ -> pure ()) (const $ ltaTerms 2)
-    , Bench "lta-denotationAtMost/expressions-depth-3" 2 (\_ -> pure ()) (const $ ltaTerms 3)
+    [ fta "fta-terms/expressions-depth-3" 10 boundedExpressions FTA.terms
+    , ecta "ecta-getAllTerms/expressions-depth-3" 10 boundedExpressions getAllTerms
+    , Bench "lta-denotationAtMost/expressions-depth-3" 5 (\_ -> pure ()) (\() -> ltaTerms 3)
+    , fta "fta-terms/expressions-depth-2" 10000 (unfoldBounded 3 . expressionsMu) FTA.terms
+    , ecta "ecta-getAllTerms/expressions-depth-2" 10000 (unfoldBounded 3 . expressionsMu) getAllTerms
+    , Bench "lta-denotationAtMost/expressions-depth-2" 10000 (\_ -> pure ()) (\() -> ltaTerms 2)
+    , fta "fta-terms/finite-choice" 30000 finiteChoiceNode FTA.terms
+    , ecta "ecta-getAllTerms/finite-choice" 30000 finiteChoiceNode getAllTerms
     ]
   where
-    -- The FTA rows enumerate the plain view of the same ECTA node, converted before timing.
-    fta name repeats language enumerate =
-        Bench
-            name
-            repeats
-            (\i -> void (evaluate (length (FTA.states (plainView (language i))))))
-            (\i -> sizes (enumerate (plainView (language i))))
-    ecta name repeats language enumerate =
-        Bench name repeats (\i -> void (evaluate (nodeCount (language i)))) (\i -> sizes (enumerate (language i)))
+    fta name repeats language = prepared name repeats (plainView . language) (length . FTA.states)
+    ecta name repeats language = prepared name repeats language nodeCount
+    prepared name repeats build force enumerate =
+        Bench name repeats (\i -> let built = build i in built <$ evaluate (force built)) (sizes . enumerate)
 
 expressionsMu :: Int -> Node Symbol
 expressionsMu salt = createMu $ \r ->
     Node
         [ Edge (named "zero" salt) []
         , Edge (named "one" salt) []
+        , Edge (named "neg" salt) [r]
         , Edge (named "add" salt) [r, r]
         , Edge (named "mul" salt) [r, r]
         ]
 
 boundedExpressions :: Int -> Node Symbol
 boundedExpressions = unfoldBounded 4 . expressionsMu
-
-reducedFilter :: Int -> Node Symbol
-reducedFilter = reduceFully . filterMaybeIntSize2
-
-reducedListFilter :: Int -> Node Symbol
-reducedListFilter = reduceFully . filterListIntSize3
 
 -- | The expression language as an unconstrained LTA; guards are decided without a solver.
 ltaExpressions :: Automaton
@@ -126,7 +115,13 @@ ltaExpressions =
             (State 0)
             [
                 ( State 0
-                , [transition "zero" [], transition "one" [], transition "add" [State 0, State 0], transition "mul" [State 0, State 0]]
+                ,
+                    [ transition "zero" []
+                    , transition "one" []
+                    , transition "neg" [State 0]
+                    , transition "add" [State 0, State 0]
+                    , transition "mul" [State 0, State 0]
+                    ]
                 )
             ]
   where
@@ -137,78 +132,22 @@ ltaTerms depth = do
     result <- denotationAtMost (entailmentWithBindings (\_ _ _ -> pure Yes)) depth ltaExpressions
     either (error . show) sizes result
 
-filterMaybeIntSize2 :: Int -> Node Symbol
-filterMaybeIntSize2 i =
-    filterType
-        (monoTermsOfSize i 2)
-        (typeToFta $ TCons "Maybe" [TCons "Int" []])
-
-filterListIntSize3 :: Int -> Node Symbol
-filterListIntSize3 i =
-    filterType
-        (monoTermsOfSize i 3)
-        (typeToFta $ TCons "List" [TCons "Int" []])
-
-monoTermsOfSize :: Int -> Int -> Node Symbol
-monoTermsOfSize salt size = union (go size)
-  where
-    go 0 = []
-    go 1 = [monoArgumentScope salt, monoFunctionScope salt]
-    go n =
-        [ appNode (union (go i)) (union (go (n - i)))
-        | i <- [1 .. n - 1]
-        ]
-
-appNode :: Node Symbol -> Node Symbol -> Node Symbol
-appNode f x =
-    Node
-        [ mkEdge
-            "app"
-            [getPath (path [0, 2]) f, theArrowNode, f, x]
-            ( mkEqConstraints
-                [ [path [1], path [2, 0, 0]]
-                , [path [3, 0], path [2, 0, 1]]
-                , [path [0], path [2, 0, 2]]
-                ]
-            )
-        ]
-
-monoArgumentScope :: Int -> Node Symbol
-monoArgumentScope salt =
-    Node
-        [ constFunc (named "x" salt) (typeConst "Int")
-        , constFunc (named "y" salt) (typeConst "Int")
-        , constFunc (named "xs" salt) (mkDatatype "List" [typeConst "Int"])
-        ]
-
-monoFunctionScope :: Int -> Node Symbol
-monoFunctionScope salt =
-    Node
-        [ constFunc (named "idInt" salt) (arrowType intType intType)
-        , constFunc (named "JustInt" salt) (arrowType intType maybeIntType)
-        , constFunc (named "headInt" salt) (arrowType listIntType intType)
-        , constFunc (named "nilInt" salt) listIntType
-        , constFunc (named "consInt" salt) (arrowType intType (arrowType listIntType listIntType))
-        ]
-
 named :: String -> Int -> Symbol
 named prefix salt = Symbol $ Text.pack (prefix ++ show salt)
 
-intType :: Node Symbol
-intType = typeConst "Int"
-
-maybeIntType :: Node Symbol
-maybeIntType = mkDatatype "Maybe" [intType]
-
-listIntType :: Node Symbol
-listIntType = mkDatatype "List" [intType]
-
+-- | Two levels of binary choice over two leaves: 128 terms on five nodes.
 finiteChoiceNode :: Int -> Node Symbol
 finiteChoiceNode salt =
     Node
-        [ Edge (named "f" salt) [choiceAB salt, choiceAB salt]
-        , Edge (named "g" salt) [choiceAB salt, choiceAB salt]
+        [ Edge (named "f" salt) [pairs, pairs]
+        , Edge (named "g" salt) [pairs, pairs]
         ]
+  where
+    pairs =
+        Node
+            [ Edge (named "c" salt) [choiceAB salt, choiceAB salt]
+            , Edge (named "d" salt) [choiceAB salt, choiceAB salt]
+            ]
 
 choiceAB :: Int -> Node Symbol
 choiceAB salt = Node [Edge (named "a" salt) [], Edge (named "b" salt) []]

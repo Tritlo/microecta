@@ -232,6 +232,7 @@ benchmark enumeration-speed
   default-language: Haskell2010
   default-extensions:
     BangPatterns
+    ExistentialQuantification
     NamedFieldPuns
     OverloadedStrings
 
