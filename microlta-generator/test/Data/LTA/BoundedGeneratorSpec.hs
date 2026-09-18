@@ -18,6 +18,7 @@ import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Automaton,
     Entailment (Entailment),
+    EnumerationError,
     Guard (Bottom, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint,
     LiquidSymbol (LiquidSymbol),
@@ -186,8 +187,7 @@ spec = do
                 baseline <- compileBounded unusedEntailment depth automaton
                 LTA.cardinality compiled `shouldBe` LTA.cardinality baseline
                 termsOf compiled `shouldBe` termsOf baseline
-                denotationAtMost unusedEntailment depth automaton
-                    >>= (`shouldBe` Right (termsOf compiled))
+                denotationAtMost unusedEntailment depth automaton `shouldDenote` (termsOf compiled)
                 forM_ [0 .. LTA.cardinality compiled - 1] $ \rank -> do
                     generated <- either (fail . show) pure $ LTA.unrank compiled rank
                     LTA.generatedValue generated `shouldBe` LTA.generatedTerm generated
@@ -288,7 +288,7 @@ spec = do
                     compiled <- LTA.compile solver generator >>= either (fail . show) pure
                     oracle <- automatonFrom $ (State 0, [Transition "host" true [State 1] $ semanticConstraint guard]) : rows
                     LTA.cardinality compiled `shouldBe` count
-                    denotationAtMost solver 2 oracle >>= (`shouldBe` Right (termsOf compiled))
+                    denotationAtMost solver 2 oracle `shouldDenote` (termsOf compiled)
 
         it "reports unsupported scoped equality while retaining the core denotation" $ do
             let a = Tree.Node (LiquidSymbol "a" true) []
@@ -302,7 +302,7 @@ spec = do
                     expected = [Tree.Node (LiquidSymbol "pair" true) [left, right] | (left, right) <- pairs]
                 automaton <- pairsWith $ semanticConstraint scoped
                 let source = LTA.fromLTA 2 automaton
-                denotationAtMost unusedEntailment 2 automaton >>= (`shouldBe` Right expected)
+                denotationAtMost unusedEntailment 2 automaton `shouldDenote` expected
                 result <- LTA.compile unusedEntailment source
                 case result of
                     Left (LTA.InvalidPruning (ResidualLTAConstraint _ residual)) ->
@@ -388,15 +388,14 @@ spec = do
                         ]
                 compiled <- compileBounded unusedEntailment 2 automaton
                 LTA.cardinality compiled `shouldBe` 1
-                denotationAtMost unusedEntailment 2 automaton >>= (`shouldBe` Right (termsOf compiled))
+                denotationAtMost unusedEntailment 2 automaton `shouldDenote` (termsOf compiled)
 
         it "matches the bounded denotation of recursive two-atom lists" $ do
             automaton <- recursiveLists
             forM_ [(0, 1), (1, 3), (2, 7)] $ \(depth, count) -> do
                 compiled <- compileBounded unusedEntailment depth automaton
                 LTA.cardinality compiled `shouldBe` count
-                denotationAtMost unusedEntailment depth automaton
-                    >>= (`shouldBe` Right (termsOf compiled))
+                denotationAtMost unusedEntailment depth automaton `shouldDenote` (termsOf compiled)
                 repeated <- compileBounded unusedEntailment depth automaton
                 termsOf repeated `shouldBe` termsOf compiled
                 checkShrinks unusedEntailment automaton compiled
@@ -422,8 +421,7 @@ spec = do
             automaton <- ambiguousTerms
             compiled <- compileBounded unusedEntailment 1 automaton
             LTA.cardinality compiled `shouldBe` 3
-            denotationAtMost unusedEntailment 1 automaton
-                >>= (`shouldBe` Right (termsOf compiled))
+            denotationAtMost unusedEntailment 1 automaton `shouldDenote` (termsOf compiled)
             checkShrinks unusedEntailment automaton compiled
             LTA.shrinkRank compiled 2 `shouldBe` [0]
             mapped <- LTA.compileAutomatonUpToDepthWith unusedEntailment (\_ _ _ -> ()) 1 automaton
@@ -441,8 +439,7 @@ spec = do
             forM_ [Not same, Or [same, Not same]] $ \guard -> do
                 automaton <- pairsWith $ semanticConstraint guard
                 compiled <- compileBounded unusedEntailment 2 automaton
-                denotationAtMost unusedEntailment 2 automaton
-                    >>= (`shouldBe` Right (termsOf compiled))
+                denotationAtMost unusedEntailment 2 automaton `shouldDenote` (termsOf compiled)
                 checkShrinks unusedEntailment automaton compiled
                 concatMap (LTA.shrinkRank compiled) [0 .. LTA.cardinality compiled - 1]
                     `shouldSatisfy` (not . null)
@@ -465,7 +462,7 @@ spec = do
                 let solver = Entailment $ \_ _ -> pure Yes
                 compiled <- compileBounded solver 2 automaton
                 LTA.cardinality compiled `shouldBe` count
-                denotationAtMost solver 2 automaton >>= (`shouldBe` Right (termsOf compiled))
+                denotationAtMost solver 2 automaton `shouldDenote` (termsOf compiled)
 
         it "reports unavailable compound actual identities without changing the core language" $
             withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "x", "y", "app", "known"] :: [String]] $ \solver -> do
@@ -522,3 +519,9 @@ spec = do
     missing = Satisfies (path [0, 0]) true
     variable :: String -> Fixpoint.Expr
     variable name = Fixpoint.EVar $ Fixpoint.symbol (name :: String)
+
+{- | Compare a bounded denotation with the terms it should contain. The
+denotation is a set, so order is not compared.
+-}
+shouldDenote :: IO (Either EnumerationError [Tree.Tree LiquidSymbol]) -> [Tree.Tree LiquidSymbol] -> IO ()
+shouldDenote denotation expected = denotation >>= \result -> fmap sort result `shouldBe` Right (sort expected)
