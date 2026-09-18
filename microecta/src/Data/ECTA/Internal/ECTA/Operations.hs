@@ -60,8 +60,7 @@ module Data.ECTA.Internal.ECTA.Operations (
 
 import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
-import Data.List (compareLength, inits, tails, (!?))
-import Data.Maybe (mapMaybe)
+import Data.List (inits, tails)
 import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
@@ -71,6 +70,7 @@ import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Internal.Term (Symbol)
 import qualified Data.Tree.FTA.Interned.Operations as Common
+import qualified Data.Tree.FTA.Path as Path
 
 import Data.Tree.FTA.Interned.Cache (Id)
 
@@ -82,33 +82,16 @@ import Data.Tree.FTA.Interned.Memo (
     newMemoCache,
     newTypeableMemoCache,
  )
-import Utility.List (adjustAt)
 
 ------------------------------------------------------------------------------------
-
-mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
-mapWithIndex f = zipWith f [0 ..]
 
 -----------------------
 ------ Traversal
 -----------------------
 
-{- | Paths to every reachable node that satisfies a predicate.
-
-Linear in the number of paths and exponential in the size of the graph, so
-use it on very small graphs only. A recursive node contributes no paths: the
-search does not unfold recursion, so a match below a 'Mu' is not reported.
--}
+-- | Paths to every reachable node that satisfies a predicate; see 'Path.pathsMatching'.
 pathsMatching :: (Node symbol -> Bool) -> Node symbol -> [Path]
-pathsMatching _ EmptyNode = []
-pathsMatching _ (InternedMu _) = []
-pathsMatching f n@(InternedNode node) =
-    (concatMap pathsMatchingEdge es)
-        ++ ([EmptyPath | f n])
-  where
-    es = internedNodeEdges node
-    pathsMatchingEdge e = concat $ mapWithIndex (\i x -> map (ConsPath i) $ pathsMatching f x) (edgeChildren e)
-pathsMatching _ (Rec _) = error "pathsMatching: unexpected Rec"
+pathsMatching f = Path.pathsMatching (f . fromInterned) . toInterned
 
 ------------
 ------ Membership
@@ -139,68 +122,24 @@ equalitiesSatisfied equalities t = all eclassSatisfied (unsafeGetEclasses equali
 ----------------------
 
 -- | Restrict an ECTA to terms that contain the given path.
-requirePath :: (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node symbol
-requirePath EmptyPath n = n
-requirePath _ EmptyNode = EmptyNode
-requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
-requirePath (ConsPath p ps) (Node es) =
-    Node
-        $ map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e)))
-        $ filter
-            (\e -> compareLength (edgeChildren e) p == GT)
-            es
-requirePath _ (Rec _) = error "requirePath: unexpected Rec"
+requirePath :: forall symbol. (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node symbol
+requirePath = coerce (Path.requirePath @symbol @EqConstraints)
 
 -- | Variant of 'requirePath' for a child list.
-requirePathList :: (Hashable symbol, Typeable symbol) => Path -> [Node symbol] -> [Node symbol]
-requirePathList EmptyPath ns = ns
-requirePathList (ConsPath p ps) ns = adjustAt p (requirePath ps) ns
+requirePathList :: forall symbol. (Hashable symbol, Typeable symbol) => Path -> [Node symbol] -> [Node symbol]
+requirePathList = coerce (Path.requirePathList @symbol @EqConstraints)
 
 instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symbol) where
     type Emptyable (Node symbol) = Node symbol
-
-    getPath _ EmptyNode = EmptyNode
-    getPath EmptyPath n = n
-    getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
-    getPath (ConsPath p ps) (Node es) = union (mapMaybe goEdge es)
-      where
-        goEdge :: Edge symbol -> Maybe (Node symbol)
-        goEdge (Edge _ ns) = getPath ps <$> ns !? p
-    getPath p _ = error $ "getPath: unexpected path " <> show p <> " for unresolved node"
-
-    getAllAtPath _ EmptyNode = []
-    getAllAtPath EmptyPath n = [n]
-    getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
-    getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
-      where
-        goEdge :: Edge symbol -> Maybe (Node symbol)
-        goEdge (Edge _ ns) = ns !? p
-    getAllAtPath p _ = error $ "getAllAtPath: unexpected path " <> show p <> " for unresolved node"
-
-    modifyAtPath f EmptyPath n = f n
-    modifyAtPath _ _ EmptyNode = EmptyNode
-    modifyAtPath f p n@(Mu _) = modifyAtPath f p (unfoldOuterRec n)
-    modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
-      where
-        goEdge :: Edge symbol -> Edge symbol
-        goEdge e = setChildren e (adjustAt p (modifyAtPath f ps) (edgeChildren e))
-    modifyAtPath _ p _ = error $ "modifyAtPath: unexpected path " <> show p <> " for unresolved node"
+    getPath p = fromInterned . getPath p . toInterned
+    getAllAtPath p = map fromInterned . getAllAtPath p . toInterned
+    modifyAtPath f p = fromInterned . modifyAtPath (toInterned . f . fromInterned) p . toInterned
 
 instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symbol) where
     type Emptyable (Node symbol) = Node symbol
-
-    getPath EmptyPath ns = union ns
-    getPath (ConsPath p ps) ns = case ns !? p of
-        Nothing -> EmptyNode
-        Just n -> getPath ps n
-
-    getAllAtPath EmptyPath _ = []
-    getAllAtPath (ConsPath p ps) ns = case ns !? p of
-        Nothing -> []
-        Just n -> getAllAtPath ps n
-
-    modifyAtPath _ EmptyPath ns = ns
-    modifyAtPath f (ConsPath p ps) ns = adjustAt p (modifyAtPath f ps) ns
+    getPath p = fromInterned . getPath p . map toInterned
+    getAllAtPath p = map fromInterned . getAllAtPath p . map toInterned
+    modifyAtPath f p = map fromInterned . modifyAtPath (toInterned . f . fromInterned) p . map toInterned
 
 ------------------------------------
 ------ Reduction

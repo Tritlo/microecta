@@ -89,7 +89,6 @@ library
 
   other-modules:
     Data.Text.Extended.Pretty
-    Utility.List
 
   build-depends:
     base >=4.22 && <4.23,
