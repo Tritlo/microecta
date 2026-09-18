@@ -126,7 +126,8 @@ termsBy rows root
 Terms are built level by level, as in 'termsBy'. The check sees each
 candidate once, with the key and alternative that built it, and a rejected
 candidate is never a child. Each key lists a term once per depth, so
-ambiguous rows do not repeat terms.
+ambiguous rows do not repeat terms; rows whose alternatives all carry
+distinct symbols cannot repeat a term and skip the deduplication.
 -}
 termsUpToBy ::
     (Monad m, Ord key, Ord symbol) =>
@@ -144,8 +145,12 @@ termsUpToBy symbolOf childrenOf accept rows bound root
         collect 1 (leaves, leaves, fmap (const []) table) [leaves Map.! root]
   where
     table = trimRows childrenOf rows root
+    dedup
+        | all (distinct . map symbolOf) table = id
+        | otherwise = nubOrd
+    distinct symbols = length (nubOrd symbols) == length symbols
 
-    level combos = Map.traverseWithKey (\key outgoing -> nubOrd . concat <$> traverse (candidates key) outgoing) table
+    level combos = Map.traverseWithKey (\key outgoing -> dedup . concat <$> traverse (candidates key) outgoing) table
       where
         candidates key alternative =
             filterM (accept key alternative) [Node (symbolOf alternative) children | children <- combos (childrenOf alternative)]
