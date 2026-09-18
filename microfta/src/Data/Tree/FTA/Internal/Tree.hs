@@ -94,25 +94,28 @@ A leaf has depth zero. All terms of one depth are listed before deeper
 terms, so every term of a cyclic graph appears after finitely many others.
 The rows are trimmed first with 'trimRows'; the list then ends once no
 remaining row has a term of the current depth, so an acyclic graph gives a
-finite list. Every child key must have a row.
+finite list. Each key lists a term once per depth: rows whose alternatives
+all carry distinct symbols cannot repeat a term, and the others are
+deduplicated per level. Every child key must have a row.
 -}
-termsBy :: (Ord key) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
+termsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
 termsBy rows root
     | Map.member root table = concatMap (Map.! root) $ takeWhile (not . all null) $ map exactly levels
     | otherwise = []
   where
     table = trimRows snd rows root
+    dedup = dedupUnless (all (distinctSymbols . map fst) table)
 
     -- Each level holds, for every row, the terms of exactly its depth, of at
     -- most its depth, and of at most the depth before it.
     levels = iterate next (leaves, leaves, fmap (const []) table)
     exactly (terms, _, _) = terms
-    leaves = fmap (\outgoing -> [Node symbol [] | (symbol, []) <- outgoing]) table
+    leaves = fmap (\outgoing -> dedup [Node symbol [] | (symbol, []) <- outgoing]) table
     next (current, atMost, shallower) = (deeper, Map.unionWith (++) deeper atMost, atMost)
       where
         deeper =
             fmap
-                (\outgoing -> [Node symbol children | (symbol, childKeys@(_ : _)) <- outgoing, children <- deepest childKeys])
+                (\outgoing -> dedup [Node symbol children | (symbol, childKeys@(_ : _)) <- outgoing, children <- deepest childKeys])
                 table
         -- Child lists whose deepest child has exactly the current depth. The
         -- first child at that depth is fixed, so no list is produced twice.
@@ -125,9 +128,8 @@ termsBy rows root
 
 Terms are built level by level, as in 'termsBy'. The check sees each
 candidate once, with the key and alternative that built it, and a rejected
-candidate is never a child. Each key lists a term once per depth, so
-ambiguous rows do not repeat terms; rows whose alternatives all carry
-distinct symbols cannot repeat a term and skip the deduplication.
+candidate is never a child. Each key lists a term once per depth, as in
+'termsBy'.
 -}
 termsUpToBy ::
     (Monad m, Ord key, Ord symbol) =>
@@ -145,10 +147,7 @@ termsUpToBy symbolOf childrenOf accept rows bound root
         collect 1 (leaves, leaves, fmap (const []) table) [leaves Map.! root]
   where
     table = trimRows childrenOf rows root
-    dedup
-        | all (distinct . map symbolOf) table = id
-        | otherwise = nubOrd
-    distinct symbols = length (nubOrd symbols) == length symbols
+    dedup = dedupUnless (all (distinctSymbols . map symbolOf) table)
 
     level combos = Map.traverseWithKey (\key outgoing -> dedup . concat <$> traverse (candidates key) outgoing) table
       where
@@ -165,3 +164,22 @@ termsUpToBy symbolOf childrenOf accept rows bound root
         deepest (key : keys) =
             [child : rest | child <- current Map.! key, rest <- traverse (atMost Map.!) keys]
                 <> [child : rest | rest <- deepest keys, child <- shallower Map.! key]
+
+{- | Whether alternatives carry pairwise distinct symbols. Then no two of
+them build the same term, so a level built from deduplicated levels has no
+duplicates.
+-}
+distinctSymbols :: (Ord symbol) => [symbol] -> Bool
+distinctSymbols symbols = length (nubOrd symbols) == length symbols
+
+{- | Deduplicate a level unless it cannot contain duplicates.
+
+A set beats hashing here by a factor of four to six: comparing two different
+terms stops at the first differing node, while a hash visits every node, and
+hashing one small term with the standard instances costs microseconds. The
+order within a level is not specified.
+-}
+dedupUnless :: (Ord a) => Bool -> [a] -> [a]
+dedupUnless unambiguous
+    | unambiguous = id
+    | otherwise = Set.toList . Set.fromList
