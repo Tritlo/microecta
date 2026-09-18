@@ -32,7 +32,6 @@ module Data.LTA.Automaton (
     automatonAlphabet,
     automatonTransitions,
     transitionsAt,
-    statesBelow,
     unusedStates,
     reserveState,
     atIndex,
@@ -44,10 +43,11 @@ import qualified Data.Set as Set
 import Data.Tree (Tree)
 
 import Data.ECTA.Paths (EqConstraints, Path, unPath)
-import Data.ECTA.Term (Symbol)
 import Data.Tree.FTA (StateView (..), ViewPath)
 import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Interned as Interned
+import Data.Tree.FTA.Path (statesAt)
+import Data.Tree.FTA.Symbol (Symbol)
 
 import Data.LTA.Constraint (
     LiquidConstraint (constraintEqualities),
@@ -244,30 +244,6 @@ automatonTransitions ::
     FTA.FTA State LiquidSymbol constraint -> Map.Map State [FTA.Transition State LiquidSymbol constraint]
 automatonTransitions = FTA.transitionTable
 
-{- | States reached at a non-empty position below one transition.
-
-The first component selects a child state of the transition itself. Each later
-component selects the same child position of every transition available at the
-states reached so far. An invalid component denotes no state. The result holds
-one entry for each derivation, so a caller that needs a set must deduplicate it.
--}
-statesBelow :: Map.Map State [Transition] -> Transition -> [Int] -> [State]
-statesBelow table transition components =
-    case components of
-        [] -> []
-        index : rest ->
-            descend rest $ maybe [] pure $ atIndex index $ transitionChildren transition
-  where
-    descend [] current = current
-    descend (index : rest) current =
-        descend
-            rest
-            [ child
-            | state <- current
-            , outgoing <- Map.findWithDefault [] state table
-            , Just child <- [atIndex index $ transitionChildren outgoing]
-            ]
-
 {- | Transitions reachable at a position below one transition (Definition 5).
 
 The empty position denotes the supplied transition. A non-empty position first
@@ -275,12 +251,9 @@ selects one child state and then unions the alternatives encountered at each
 subsequent component. An invalid component denotes the empty set.
 -}
 transitionsAt :: Automaton -> Transition -> Path -> [Transition]
-transitionsAt automaton transition target =
-    case unPath target of
-        [] -> [transition]
-        components ->
-            concatMap (FTA.transitionsFrom automaton) $
-                statesBelow (automatonTransitions automaton) transition components
+transitionsAt automaton transition target
+    | null (unPath target) = [transition]
+    | otherwise = concatMap (FTA.transitionsFrom automaton) $ statesAt (FTA.transitionsFrom automaton) transition target
 
 -- | Every ranked symbol must keep one arity across the automaton.
 ensureConsistentSymbolArity :: Automaton -> Either AutomatonError ()
@@ -317,11 +290,9 @@ ensureGuardedPositionsAcyclic automaton =
 
 -- | States that one guarded position of a transition can reach.
 statesAtPath :: Automaton -> State -> Transition -> Path -> Set.Set State
-statesAtPath automaton parent transition target =
-    case unPath target of
-        [] -> Set.singleton parent
-        components ->
-            Set.fromList $ statesBelow (automatonTransitions automaton) transition components
+statesAtPath automaton parent transition target
+    | null (unPath target) = Set.singleton parent
+    | otherwise = Set.fromList $ statesAt (FTA.transitionsFrom automaton) transition target
 
 -- | Unused identities, excluding child references before graph validation.
 unusedStates :: Map.Map State [Transition] -> [State]
