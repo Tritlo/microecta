@@ -11,6 +11,7 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
 import Data.Tree.FTA.Path (Path (Path))
+import Data.Tree.FTA.Symbol (Symbol (Symbol))
 
 ----------------------------------------------------------------------
 
@@ -21,6 +22,9 @@ class Pretty a where
 
 instance {-# OVERLAPPABLE #-} (Show a) => Pretty a where
     pretty = Text.pack . show
+
+instance Pretty Symbol where
+    pretty (Symbol t) = t
 
 instance Pretty Path where
     pretty (Path ps) = Text.intercalate "." (map (Text.pack . show) ps)

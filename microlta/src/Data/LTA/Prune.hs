@@ -32,6 +32,7 @@ import Data.ECTA.Paths (
     unPath,
  )
 import qualified Data.Tree.FTA as FTA
+import Data.Tree.FTA.Path (statesAt)
 
 import Data.LTA.Automaton (
     Automaton,
@@ -45,7 +46,6 @@ import Data.LTA.Automaton (
     mkAutomaton,
     replaceTransitionChildren,
     reserveState,
-    statesBelow,
     transitionChildren,
     transitionConstraint,
     transitionEqualities,
@@ -182,7 +182,7 @@ pruneConstrained entailment automaton = do
             Left err -> pure $ Left err
             Right rows -> do
                 let withSplits = Map.union (Map.fromList rows) (splitRows split)
-                    next = reachableTable initial withSplits
+                    next = FTA.trimTable initial withSplits
                 if next == table
                     then
                         pure
@@ -274,7 +274,7 @@ pruneEquality ::
     StateT SplitBuild IO (Either PruneError [Transition])
 pruneEquality original left right transition = do
     current <- effectiveTable original
-    rightStates <- statesAtTransitionPath current transition $ unPath right
+    rightStates <- statesAtTransitionPath current transition right
     if Set.null rightStates
         then pure $ Right []
         else case unPath left of
@@ -291,7 +291,7 @@ pruneEquality original left right transition = do
                 pure $ Right $ Map.findWithDefault [] state table
 
     intersectBelow current leftPath rightStates =
-        case Set.fromList $ statesBelow current transition leftPath of
+        case Set.fromList $ statesAt (\state -> Map.findWithDefault [] state current) transition left of
             leftStates
                 | Set.null leftStates -> pure $ Right []
                 | otherwise -> do
@@ -402,11 +402,11 @@ effectiveTable original = do
 statesAtTransitionPath ::
     Map.Map State [Transition] ->
     Transition ->
-    [Int] ->
+    Path ->
     StateT SplitBuild IO (Set.Set State)
-statesAtTransitionPath _ transition [] = Set.singleton <$> allocateRow [transition]
-statesAtTransitionPath table transition target =
-    pure $ Set.fromList $ statesBelow table transition target
+statesAtTransitionPath table transition target
+    | null (unPath target) = Set.singleton <$> allocateRow [transition]
+    | otherwise = pure $ Set.fromList $ statesAt (\state -> Map.findWithDefault [] state table) transition target
 
 -- | Clone the context above a path and replace each endpoint state.
 rewriteTransitionPath ::
@@ -709,21 +709,6 @@ insertPlan (index : rest) need plan =
                 index
                 (planChildren plan)
         }
-
--- | Keep only states reachable from the initial state.
-reachableTable :: State -> Map.Map State [Transition] -> Map.Map State [Transition]
-reachableTable initial table =
-    Map.restrictKeys table $ visit Set.empty [initial]
-  where
-    visit reached [] = reached
-    visit reached (state : rest)
-        | Set.member state reached = visit reached rest
-        | otherwise =
-            visit
-                (Set.insert state reached)
-                ( concatMap transitionChildren (Map.findWithDefault [] state table)
-                    <> rest
-                )
 
 -- | Failure in the paper's prune-similarity-minimize reduction phase.
 data ReductionError

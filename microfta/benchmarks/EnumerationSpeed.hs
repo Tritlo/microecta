@@ -4,7 +4,8 @@ Each row enumerates one language and reports CPU seconds and a checksum of
 the term sizes. Every repeat enumerates a separately built automaton, so no
 result is shared between repeats; the automata are built before timing. The
 naive rows enumerate an acyclic automaton with a plain per-state product, as
-a baseline for 'FTA.terms' on finite languages.
+a baseline for 'FTA.terms' on finite languages. Repeat counts keep every row
+in the hundreds of milliseconds, above the noise of a shared machine.
 -}
 module Main (main) where
 
@@ -60,36 +61,37 @@ runBench multiplier Bench{benchName, benchRepeats, benchPrepare, benchAction} = 
 
 benchmarks :: [Bench]
 benchmarks =
-    [ explicit "terms/expressions-depth-3" boundedExpressions FTA.terms
-    , explicit "naive/expressions-depth-3" boundedExpressions naiveTerms
-    , interned "interned/expressions-depth-3" internedBoundedExpressions Common.terms
-    , explicit "terms/expressions-lazy-100k" expressions $ take 100000 . FTA.terms
-    , interned "interned/expressions-lazy-100k" internedExpressions $ take 100000 . Common.terms
-    , interned "interned/shared-pairs-lazy-100k" sharedPairs $ take 100000 . Common.terms
-    , explicit "terms/naturals-1000" naturals $ take 1000 . FTA.terms
-    , explicit "termsUpToM-identity/expressions-depth-3" expressions $ runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
-    , explicit "termsUpToM-ambiguous-identity/expressions-depth-3" ambiguousExpressions $
+    [ explicit "terms/expressions-depth-3" 10 boundedExpressions FTA.terms
+    , explicit "naive/expressions-depth-3" 10 boundedExpressions naiveTerms
+    , interned "interned/expressions-depth-3" 10 internedBoundedExpressions Common.terms
+    , explicit "terms/expressions-lazy-500k" 5 expressions $ take 500000 . FTA.terms
+    , interned "interned/expressions-lazy-500k" 5 internedExpressions $ take 500000 . Common.terms
+    , interned "interned/shared-pairs-lazy-500k" 5 sharedPairs $ take 500000 . Common.terms
+    , -- Chains of depth n have n nodes, so this row counts terms instead of nodes.
+      Bench "terms/naturals-500k" 5 (void . evaluate . length . FTA.states . naturals) $
+        evaluate . length . take 500000 . FTA.terms . naturals
+    , explicit "termsUpToM-identity/expressions-depth-3" 10 expressions $ runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
+    , Bench "termsUpToM-io/expressions-depth-3" 10 (void . evaluate . length . FTA.states . expressions) $ \i ->
+        FTA.termsUpToM (\_ _ _ -> pure True) 3 (expressions i) >>= sizes
+    , explicit "termsUpToM-ambiguous-identity/expressions-depth-3" 2 ambiguousExpressions $
         runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
     , Bench
         "termsUpToM-ambiguous-identity-text/expressions-depth-3"
-        10
+        2
         (void . evaluate . length . FTA.states . textExpressions)
         $ sizes . runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3 . textExpressions
-    , Bench
-        "termsUpToM-ambiguous-identity-int/expressions-depth-3"
-        10
-        (void . evaluate . length . FTA.states . intExpressions)
-        $ sizes . runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3 . intExpressions
-    , explicit "terms-ambiguous/expressions-depth-3" (FTA.boundDepth 3 . ambiguousExpressions) FTA.terms
-    , Bench "termsUpToM-io/expressions-depth-3" 10 (void . evaluate . length . FTA.states . expressions) $ \i ->
-        FTA.termsUpToM (\_ _ _ -> pure True) 3 (expressions i) >>= sizes
+    , Bench "termsUpToM-ambiguous-identity-int/expressions-depth-3" 2 (void . evaluate . length . FTA.states . intExpressions) $
+        sizes . runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3 . intExpressions
+    , explicit "terms-ambiguous/expressions-depth-3" 2 (FTA.boundDepth 3 . ambiguousExpressions) FTA.terms
     ]
   where
-    explicit name language enumerate =
-        Bench name 10 (void . evaluate . length . FTA.states . language) (sizes . enumerate . language)
-    interned name language enumerate =
-        Bench name 10 (void . evaluate . Common.nodeCount . language) (sizes . enumerate . language)
-    sizes = evaluate . sum . map (length . Tree.flatten)
+    explicit name repeats language enumerate =
+        Bench name repeats (void . evaluate . length . FTA.states . language) (sizes . enumerate . language)
+    interned name repeats language enumerate =
+        Bench name repeats (void . evaluate . Common.nodeCount . language) (sizes . enumerate . language)
+
+sizes :: [Tree.Tree a] -> IO Int
+sizes = evaluate . sum . map (length . Tree.flatten)
 
 -- | Enumerate an acyclic automaton with a plain product per state.
 naiveTerms :: (Ord state) => FTA.PlainFTA state symbol -> [Tree.Tree symbol]
@@ -105,25 +107,56 @@ naiveTerms acyclic = table Map.! FTA.initialState acyclic
 -- Each language takes a salt that is added to its symbols, so repeats use
 -- distinct automata.
 
--- | Two literals and two binary constructors: 32,768 terms at depth 3.
+-- | Two literals, one unary and two binary constructors: 182,710 terms at depth 3.
 expressions :: Int -> FTA.PlainFTA Int String
-expressions salt = automaton 0 [(0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "mul") [0, 0]])]
+expressions salt = automaton 0 [(0, expressionAlternatives salt 0)]
+
+expressionAlternatives :: Int -> Int -> [FTA.Transition Int String ()]
+expressionAlternatives salt state =
+    [ t (named salt "zero") []
+    , t (named salt "one") []
+    , t (named salt "neg") [state]
+    , t (named salt "add") [state, state]
+    , t (named salt "mul") [state, state]
+    ]
+
+boundedExpressions :: Int -> FTA.PlainFTA Int String
+boundedExpressions = FTA.boundDepth 3 . expressions
+
+naturals :: Int -> FTA.PlainFTA Int String
+naturals salt = automaton 0 [(0, [t (named salt "zero") [], t (named salt "succ") [0]])]
+
+internedExpressions :: Int -> Common.PlainNode String
+internedExpressions salt =
+    Common.createMu $ \r ->
+        Common.Node
+            [ Common.Edge (named salt "zero") []
+            , Common.Edge (named salt "one") []
+            , Common.Edge (named salt "neg") [r]
+            , Common.Edge (named salt "add") [r, r]
+            , Common.Edge (named salt "mul") [r, r]
+            ]
+
+internedBoundedExpressions :: Int -> Common.PlainNode String
+internedBoundedExpressions = either (error . show) id . Common.fromFTA . boundedExpressions
+
+-- | Five levels of shared pairs over two leaves: 4,294,967,296 terms on seven nodes.
+sharedPairs :: Int -> Common.PlainNode String
+sharedPairs salt = iterate (\child -> Common.Node [Common.Edge (named salt "pair") [child, child]]) leaves !! 5
   where
-    named symbol = symbol ++ show salt
+    leaves = Common.Node [Common.Edge (named salt "zero") [], Common.Edge (named salt "one") []]
 
 {- | The expression grammar with a second "add" alternative over a state whose
 language is contained in the first, so every level has duplicate candidates
-and the checked enumeration must deduplicate.
+and the enumeration must deduplicate.
 -}
 ambiguousExpressions :: Int -> FTA.PlainFTA Int String
 ambiguousExpressions salt =
     automaton
         0
-        [ (0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "add") [1, 1], t (named "mul") [0, 0]])
-        , (1, [t (named "zero") [], t (named "one") []])
+        [ (0, expressionAlternatives salt 0 ++ [t (named salt "add") [1, 1]])
+        , (1, [t (named salt "zero") [], t (named salt "one") []])
         ]
-  where
-    named symbol = symbol ++ show salt
 
 -- | The ambiguous grammar over 'Text' symbols, as the constraint packages use.
 textExpressions :: Int -> FTA.PlainFTA Int Text
@@ -133,34 +166,10 @@ textExpressions = either (error . show) id . FTA.mapSymbols Text.pack . ambiguou
 intExpressions :: Int -> FTA.PlainFTA Int Int
 intExpressions salt = either (error . show) id $ FTA.mapSymbols code (ambiguousExpressions 0)
   where
-    code symbol = salt * 4 + fromMaybe 0 (elemIndex (takeWhile (/= '0') symbol) ["zero", "one", "add", "mul"])
+    code symbol = salt * 8 + fromMaybe 0 (elemIndex (takeWhile (/= '0') symbol) ["zero", "one", "neg", "add", "mul"])
 
-boundedExpressions :: Int -> FTA.PlainFTA Int String
-boundedExpressions = FTA.boundDepth 3 . expressions
-
-naturals :: Int -> FTA.PlainFTA Int String
-naturals salt = automaton 0 [(0, [t ("zero" ++ show salt) [], t ("succ" ++ show salt) [0]])]
-
-internedExpressions :: Int -> Common.PlainNode String
-internedExpressions salt =
-    Common.createMu $ \r ->
-        Common.Node
-            [ Common.Edge (named "zero") []
-            , Common.Edge (named "one") []
-            , Common.Edge (named "add") [r, r]
-            , Common.Edge (named "mul") [r, r]
-            ]
-  where
-    named symbol = symbol ++ show salt
-
-internedBoundedExpressions :: Int -> Common.PlainNode String
-internedBoundedExpressions = either (error . show) id . Common.fromFTA . boundedExpressions
-
--- | Four levels of shared pairs over two leaves: 4,294,967,296 terms on six nodes.
-sharedPairs :: Int -> Common.PlainNode String
-sharedPairs salt = iterate (\child -> Common.Node [Common.Edge ("pair" ++ show salt) [child, child]]) leaves !! 4
-  where
-    leaves = Common.Node [Common.Edge ("zero" ++ show salt) [], Common.Edge ("one" ++ show salt) []]
+named :: Int -> String -> String
+named salt symbol = symbol ++ show salt
 
 automaton :: Int -> [(Int, [FTA.Transition Int String ()])] -> FTA.PlainFTA Int String
 automaton initial rows = either (error . show) id $ FTA.mkFTA initial rows

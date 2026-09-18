@@ -18,7 +18,7 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.ECTA.Paths (EqConstraints, Path, getPath)
-import Data.ECTA.Term (Symbol (Symbol))
+import Data.Tree.FTA.Symbol (Symbol (Symbol))
 import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.LTA.Constraint (
