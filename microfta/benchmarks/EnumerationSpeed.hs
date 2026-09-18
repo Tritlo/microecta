@@ -10,6 +10,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Control.Monad (void)
+import Data.Functor.Identity (runIdentity)
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 import System.CPUTime (getCPUTime)
@@ -62,6 +63,11 @@ benchmarks =
     , interned "interned/expressions-lazy-100k" internedExpressions $ take 100000 . Common.terms
     , interned "interned/shared-pairs-lazy-100k" sharedPairs $ take 100000 . Common.terms
     , explicit "terms/naturals-1000" naturals $ take 1000 . FTA.terms
+    , explicit "termsUpToM-identity/expressions-depth-3" expressions $ runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
+    , explicit "termsUpToM-ambiguous-identity/expressions-depth-3" ambiguousExpressions $
+        runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
+    , Bench "termsUpToM-io/expressions-depth-3" 10 (void . evaluate . length . FTA.states . expressions) $ \i ->
+        FTA.termsUpToM (\_ _ _ -> pure True) 3 (expressions i) >>= sizes
     ]
   where
     explicit name language enumerate =
@@ -87,6 +93,17 @@ naiveTerms acyclic = table Map.! FTA.initialState acyclic
 -- | Two literals and two binary constructors: 32,768 terms at depth 3.
 expressions :: Int -> FTA.PlainFTA Int String
 expressions salt = automaton 0 [(0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "mul") [0, 0]])]
+  where
+    named symbol = symbol ++ show salt
+
+{- | The expression grammar with its "add" alternative listed twice, so every
+state is ambiguous and the checked enumeration must deduplicate.
+-}
+ambiguousExpressions :: Int -> FTA.PlainFTA Int String
+ambiguousExpressions salt =
+    automaton
+        0
+        [(0, [t (named "zero") [], t (named "one") [], t (named "add") [0, 0], t (named "add") [0, 0], t (named "mul") [0, 0]])]
   where
     named symbol = symbol ++ show salt
 
