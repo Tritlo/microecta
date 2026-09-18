@@ -215,9 +215,10 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right explicit -> do
                     let root = Transition "pair" [1, 2] ()
-                    statesAt explicit root (path [0]) `shouldBe` [1]
-                    statesAt explicit root (path [0, 1]) `shouldBe` [1]
-                    statesAt explicit root (path [1, 0]) `shouldBe` []
+                    let below = statesAt (Automaton.transitionsFrom explicit)
+                    below root (path [0]) `shouldBe` [1]
+                    below root (path [0, 1]) `shouldBe` [1]
+                    below root (path [1, 0]) `shouldBe` []
 
         it "removes an alternative that another alternative already accepts" $ do
             let leaf = Common.Node [Common.Edge "a" []] :: Common.PlainNode String

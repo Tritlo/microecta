@@ -66,10 +66,10 @@ benchmarks =
     , interned "interned/expressions-depth-3" 10 internedBoundedExpressions Common.terms
     , explicit "terms/expressions-lazy-500k" 5 expressions $ take 500000 . FTA.terms
     , interned "interned/expressions-lazy-500k" 5 internedExpressions $ take 500000 . Common.terms
-    , interned "interned/shared-pairs-lazy-2m" 5 sharedPairs $ take 2000000 . Common.terms
+    , interned "interned/shared-pairs-lazy-500k" 5 sharedPairs $ take 500000 . Common.terms
     , -- Chains of depth n have n nodes, so this row counts terms instead of nodes.
-      Bench "terms/naturals-100k" 5 (void . evaluate . length . FTA.states . naturals) $
-        evaluate . length . take 100000 . FTA.terms . naturals
+      Bench "terms/naturals-500k" 5 (void . evaluate . length . FTA.states . naturals) $
+        evaluate . length . take 500000 . FTA.terms . naturals
     , explicit "termsUpToM-identity/expressions-depth-3" 10 expressions $ runIdentity . FTA.termsUpToM (\_ _ _ -> pure True) 3
     , Bench "termsUpToM-io/expressions-depth-3" 10 (void . evaluate . length . FTA.states . expressions) $ \i ->
         FTA.termsUpToM (\_ _ _ -> pure True) 3 (expressions i) >>= sizes
@@ -140,9 +140,9 @@ internedExpressions salt =
 internedBoundedExpressions :: Int -> Common.PlainNode String
 internedBoundedExpressions = either (error . show) id . Common.fromFTA . boundedExpressions
 
--- | Four levels of shared pairs over two leaves: 4,294,967,296 terms on six nodes.
+-- | Five levels of shared pairs over two leaves: 4,294,967,296 terms on seven nodes.
 sharedPairs :: Int -> Common.PlainNode String
-sharedPairs salt = iterate (\child -> Common.Node [Common.Edge (named salt "pair") [child, child]]) leaves !! 4
+sharedPairs salt = iterate (\child -> Common.Node [Common.Edge (named salt "pair") [child, child]]) leaves !! 5
   where
     leaves = Common.Node [Common.Edge (named salt "zero") [], Common.Edge (named salt "one") []]
 
