@@ -4,6 +4,7 @@
 
 module Data.Tree.FTASpec (spec) where
 
+import Data.Functor.Identity (runIdentity)
 import Data.Hashable (Hashable (..))
 import Data.Monoid (Sum (..))
 import qualified Data.Tree as Tree
@@ -208,6 +209,13 @@ spec = do
                     length expected `shouldBe` 2
                     Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
                     fmap (Common.terms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
+                    -- The check constrains every "add" node, and the root "zero" passes it.
+                    let accept _ transition term = pure (Automaton.transitionSymbol transition /= "add" || matchesTemplate template term)
+                        zero = Tree.Node "zero" []
+                        add left right = Tree.Node "add" [left, right]
+                    runIdentity (Automaton.termsUpToM accept 2 expressions)
+                        `shouldMatchList` [zero, add zero zero, add zero (add zero zero)]
+                    runIdentity (Automaton.termsUpToM (\_ _ _ -> pure True) 2 expressions) `shouldBe` Automaton.terms bounded
 
     describe "derived datatype grammars" $ do
         it "accepts exactly the encodings of the datatype's values" $ do

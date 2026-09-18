@@ -1,10 +1,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 -- | Shared finite tree views of graph nodes and their outgoing alternatives.
-module Data.Tree.FTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, trimRows, termsBy) where
+module Data.Tree.FTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, trimRows, termsBy, termsUpToBy) where
 
-import Control.Monad (zipWithM)
+import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
+import Data.Containers.ListUtils (nubOrd)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -115,6 +116,46 @@ termsBy rows root
                 table
         -- Child lists whose deepest child has exactly the current depth. The
         -- first child at that depth is fixed, so no list is produced twice.
+        deepest [] = []
+        deepest (key : keys) =
+            [child : rest | child <- current Map.! key, rest <- traverse (atMost Map.!) keys]
+                <> [child : rest | rest <- deepest keys, child <- shallower Map.! key]
+
+{- | The terms of depth at most the bound that a check accepts, from rows.
+
+Terms are built level by level, as in 'termsBy'. The check sees each
+candidate once, with the key and alternative that built it, and a rejected
+candidate is never a child. Each key lists a term once per depth, so
+ambiguous rows do not repeat terms.
+-}
+termsUpToBy ::
+    (Monad m, Ord key, Ord symbol) =>
+    (alternative -> symbol) ->
+    (alternative -> [key]) ->
+    (key -> alternative -> Tree symbol -> m Bool) ->
+    [(key, [alternative])] ->
+    Int ->
+    key ->
+    m [Tree symbol]
+termsUpToBy symbolOf childrenOf accept rows bound root
+    | bound < 0 || Map.notMember root table = pure []
+    | otherwise = do
+        leaves <- level (\keys -> [[] | null keys])
+        collect 1 (leaves, leaves, fmap (const []) table) [leaves Map.! root]
+  where
+    table = trimRows childrenOf rows root
+
+    level combos = Map.traverseWithKey (\key outgoing -> nubOrd . concat <$> traverse (candidates key) outgoing) table
+      where
+        candidates key alternative =
+            filterM (accept key alternative) [Node (symbolOf alternative) children | children <- combos (childrenOf alternative)]
+
+    collect depth (current, atMost, shallower) collected
+        | depth > bound || all null current = pure (concat (reverse collected))
+        | otherwise = do
+            deeper <- level (\keys -> if null keys then [] else deepest keys)
+            collect (depth + 1) (deeper, Map.unionWith (++) deeper atMost, atMost) (deeper Map.! root : collected)
+      where
         deepest [] = []
         deepest (key : keys) =
             [child : rest | child <- current Map.! key, rest <- traverse (atMost Map.!) keys]
