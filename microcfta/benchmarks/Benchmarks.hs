@@ -4,7 +4,6 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Data.Function (on)
-import qualified Data.IntMap.Lazy as IntMap
 import Data.List (sort, sortBy)
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
@@ -79,27 +78,18 @@ benchmarks =
         forceNode $ reduceFully (filterListIntSize3 i)
     , Bench "enumerate/reduced-filter-maybe-int-size-2" 80 $ \i ->
         forceInt $ length (take 64 (terms (reduceFully (filterMaybeIntSize2 i))))
-    , Bench "sort/path-eclasses/legacy-trie/small" 120 $ \i ->
-        forcePathEClasses $
-            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
     , Bench "sort/path-eclasses/trie/small" 120 $ \i ->
         forcePathEClasses $
             sortBy (compare `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/small" 120 $ \i ->
         forcePathEClasses $
             sort (selectPathOrderInput smallPathOrderInputs i)
-    , Bench "sort/path-eclasses/legacy-trie/shared-prefix" 40 $ \i ->
-        forcePathEClasses $
-            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
     , Bench "sort/path-eclasses/trie/shared-prefix" 40 $ \i ->
         forcePathEClasses $
             sortBy (compare `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/shared-prefix" 40 $ \i ->
         forcePathEClasses $
             sort (selectPathOrderInput sharedPrefixPathOrderInputs i)
-    , Bench "sort/path-eclasses/legacy-trie/divergent-branch" 120 $ \i ->
-        forcePathEClasses $
-            sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
     , Bench "sort/path-eclasses/trie/divergent-branch" 120 $ \i ->
         forcePathEClasses $
             sortBy (compare `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
@@ -175,7 +165,7 @@ sharedPrefixPathOrderInputs = pathOrderInputs sharedPrefixPathSets
         | n <- [0 .. 127]
         ]
 
--- | Equality classes containing the branching shape misordered by the legacy comparator.
+-- | Equality classes whose branching shape distinguishes the trie comparator from the cached one.
 divergentBranchPathOrderInputs :: [[PathEClass]]
 divergentBranchPathOrderInputs = pathOrderInputs divergentBranchPathSets
   where
@@ -199,29 +189,6 @@ pathOrderInputs pathSets =
     ]
   where
     corpus = concatMap (unsafeGetEclasses . mkEqConstraints . (: [])) pathSets
-
--- | The direct trie comparator used before 12c32b2. It is intentionally wrong.
-legacyComparePathTrie :: PathTrie -> PathTrie -> Ordering
-legacyComparePathTrie EmptyPathTrie EmptyPathTrie = EQ
-legacyComparePathTrie EmptyPathTrie _ = LT
-legacyComparePathTrie _ EmptyPathTrie = GT
-legacyComparePathTrie TerminalPathTrie TerminalPathTrie = EQ
-legacyComparePathTrie TerminalPathTrie _ = LT
-legacyComparePathTrie _ TerminalPathTrie = GT
-legacyComparePathTrie (PathTrie children1) (PathTrie children2) =
-    legacyComparePathTrieChildren (IntMap.toAscList children1) (IntMap.toAscList children2)
-
-legacyComparePathTrieChildren :: [(Int, PathTrie)] -> [(Int, PathTrie)] -> Ordering
-legacyComparePathTrieChildren [] [] = EQ
-legacyComparePathTrieChildren [] _ = LT
-legacyComparePathTrieChildren _ [] = GT
-legacyComparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
-    case compare i1 i2 of
-        LT -> LT
-        GT -> GT
-        EQ -> case legacyComparePathTrie pt1 pt2 of
-            EQ -> legacyComparePathTrieChildren rest1 rest2
-            result -> result
 
 typeSearchNode :: Node Symbol EqConstraints
 typeSearchNode =

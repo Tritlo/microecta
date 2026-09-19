@@ -1144,8 +1144,9 @@ with a large language without materializing it.
 
 **Equality constraints whose paths nest.** Congruence saturation in
 `mkEqConstraints` is quadratic per round and iterates to a fixpoint, so classes
-that pair paths which are prefixes of one another cost about 4.7x per level
-added: 0.14s at depth 8, 0.77s at 9, 3.4s at 10, 16.4s at 11.
+that pair paths which are prefixes of one another cost several times more per
+level added. Class completion itself is a small union-find; the congruence
+step is the quadratic part.
 
 The cost is in the nesting, not the count. A thousand independent classes over
 depth-two paths -- the shape term search and `apply` actually produce -- take
@@ -1190,9 +1191,8 @@ cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3
 
 ## Dependencies
 
-The library depends on `base`, `containers`, `equivalence`, `hashable`,
-`intern`, `liquid-fixpoint`, `mtl`, `text`, `transformers`, and
-`unordered-containers`. Only the refinement layer needs a solver: put `z3` on
+The library depends on `array`, `base`, `containers`, `hashable`, `intern`,
+`liquid-fixpoint`, `mtl`, `text`, `transformers`, and `unordered-containers`. Only the refinement layer needs a solver: put `z3` on
 `PATH` before using `Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint`
 is a heavy build dependency; it is included so that the three layers live in
 one package.

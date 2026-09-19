@@ -107,9 +107,9 @@ library
     Data.CFTA.Internal.Tree
 
   build-depends:
+    array >=0.5 && <0.6,
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     intern >=0.9 && <0.10,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,

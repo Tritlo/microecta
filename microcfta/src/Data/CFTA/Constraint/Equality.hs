@@ -33,16 +33,18 @@ module Data.CFTA.Constraint.Equality (
 
 import Prelude hiding (round)
 
+import Control.Monad (forM, forM_, when)
+import Control.Monad.ST (ST, runST)
+import Data.Array.ST (STUArray, newListArray, readArray, writeArray)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Lazy as IntMap
 import Data.List (compareLength, groupBy, isSubsequenceOf, nub, sort, sortBy)
-import qualified Data.List as List
+import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-
-import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
 import Data.CFTA.Internal.Pretty
 import Data.CFTA.Interned.Memo (memo2)
@@ -83,7 +85,10 @@ instance Hashable PathTrie where
     hashWithSalt salt EmptyPathTrie = salt `hashWithSalt` (0 :: Int)
     hashWithSalt salt TerminalPathTrie = salt `hashWithSalt` (1 :: Int)
     hashWithSalt salt (PathTrie children) =
-        List.foldl' hashWithSalt (salt `hashWithSalt` (3 :: Int)) (IntMap.toAscList children)
+        IntMap.foldlWithKey'
+            (\acc index child -> acc `hashWithSalt` index `hashWithSalt` child)
+            (salt `hashWithSalt` (3 :: Int))
+            children
 
 -- | Check for the trie containing no paths.
 isEmptyPathTrie :: PathTrie -> Bool
@@ -248,14 +253,20 @@ pathTrieDescend (PathTrie children) i =
 {- | Equality class of paths.
 
 The trie drives subsumption and descent; the path list keeps the older public
-API and reduction code cheap to read. Values built by @PathEClass@ and
-@mkPathEClassFromPathTrie@ keep the two views consistent.
+API and reduction code cheap to read; the hash is computed at most once,
+because every edge that carries the class hashes it when it is interned.
+Values built by @PathEClass@ and @mkPathEClassFromPathTrie@ keep the views
+consistent.
 -}
 data PathEClass = PathEClass'
     { getPathTrie :: !PathTrie
     , getOrigPaths :: [Path]
+    , getPathHash :: Int
+    -- ^ Lazy: a class that is only descended or compared never pays for it.
     }
-    deriving (Show)
+
+instance Show PathEClass where
+    showsPrec precedence pec = showParen (precedence > 10) $ showString "PathEClass " . showsPrec 11 (getOrigPaths pec)
 
 instance Eq PathEClass where
     (==) = (==) `on` getPathTrie
@@ -266,25 +277,26 @@ instance Ord PathEClass where
 
 -- | Build or match an equality class from its sorted path list view.
 pattern PathEClass :: [Path] -> PathEClass
-pattern PathEClass ps <- PathEClass' _ ps
+pattern PathEClass ps <- PathEClass' _ ps _
   where
     PathEClass ps =
         let paths = Set.toAscList $ Set.fromList ps
-         in PathEClass' (toPathTrie paths) paths
+            trie = toPathTrie paths
+         in PathEClass' trie paths (hash trie)
 
 -- | Extract the paths in an equality class.
 unPathEClass :: PathEClass -> [Path]
-unPathEClass (PathEClass' _ paths) = paths
+unPathEClass (PathEClass' _ paths _) = paths
 
 instance Pretty PathEClass where
     pretty pec = "{" <> Text.intercalate "=" (map pretty $ unPathEClass pec) <> "}"
 
 instance Hashable PathEClass where
-    hashWithSalt salt = hashWithSalt salt . getPathTrie
+    hashWithSalt salt = hashWithSalt salt . getPathHash
 
 -- | Build an equality class from a trie, deriving the path list lazily.
 mkPathEClassFromPathTrie :: PathTrie -> PathEClass
-mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt)
+mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt) (hash pt)
 
 -- | Whether one path in the first class strictly subsumes one path in the second.
 hasSubsumingMember :: PathEClass -> PathEClass -> Bool
@@ -385,8 +397,8 @@ isContradicting cs = any (\pec -> hasSubsumingMemberListBased pec pec) cs
 This performs equality-class completion, adds path congruences, and detects
 contradictions caused by a path being forced equal to one of its strict
 subpaths. The implementation is intentionally direct rather than clever because
-constraint construction is not the main @microecta@ API boundary, and the
-@equivalence@ package keeps this path fast enough for current workloads.
+constraint construction is not the main API boundary; class completion is a
+small union-find and the congruence step is the quadratic part.
 -}
 mkEqConstraints :: [[Path]] -> EqConstraints
 mkEqConstraints initialConstraints = case completedConstraints of
@@ -416,13 +428,29 @@ mkEqConstraints initialConstraints = case completedConstraints of
     addCongruences :: [[Path]] -> [[Path]]
     addCongruences cs = cs ++ [map (\z -> substSubpath z x y) left | left <- cs, right <- cs, x <- left, y <- right, isStrictSubpath x y]
 
-    assertEquivs [] = return []
-    assertEquivs (x : xs) = mapM (equate x) xs
-
+    -- Merge overlapping classes with a union-find over the distinct paths.
+    -- Members and classes come out sorted, so a stable input gives a stable output.
     complete :: (Ord a) => [[a]] -> [[a]]
-    complete initialClasses = runEquivM (: []) (++) $ do
-        mapM_ assertEquivs initialClasses
-        mapM desc =<< classes
+    complete initialClasses = runST $ do
+        let members = Map.fromList (zip (nubOrd (concat initialClasses)) [0 :: Int ..])
+        parent <- newListArray (0, Map.size members - 1) [0 .. Map.size members - 1] :: ST s (STUArray s Int Int)
+        let find index = do
+                above <- readArray parent index
+                if above == index
+                    then pure index
+                    else do
+                        root <- find above
+                        writeArray parent index root
+                        pure root
+            union left right = do
+                leftRoot <- find left
+                rightRoot <- find right
+                when (leftRoot /= rightRoot) $ writeArray parent leftRoot rightRoot
+        forM_ initialClasses $ \cls -> case map (members Map.!) cls of
+            [] -> pure ()
+            (first : rest) -> mapM_ (union first) rest
+        grouped <- forM (Map.toList members) $ \(member, index) -> (,[member]) <$> find index
+        pure $ sort $ map sort $ Map.elems $ Map.fromListWith (++) grouped
 
 ---------- Operations
 
@@ -453,7 +481,7 @@ eqConstraintsDescend (EqConstraints sourceEclasses) i = case mapMaybe (`pathECla
     [eclass] -> EqConstraints [eclass]
     eclasses -> EqConstraints $ sort eclasses
   where
-    pathEClassDescendNontrivial (PathEClass' pt _) childIndex =
+    pathEClassDescendNontrivial (PathEClass' pt _ _) childIndex =
         let pt' = pathTrieDescend pt childIndex
          in if pathTrieHasAtLeastTwoPaths pt'
                 then Just (mkPathEClassFromPathTrie pt')
