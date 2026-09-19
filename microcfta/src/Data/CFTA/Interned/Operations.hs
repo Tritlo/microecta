@@ -132,12 +132,18 @@ onNormalNodes _ _ = mempty
 
 -- Folding
 
--- | Unfold one outer 'Mu' layer.
-{-# INLINEABLE unfoldOuterRec #-}
+-- | Tables for the unfolding of recursive nodes.
+unfoldOuterRecCache :: TypeableMemoCache
+unfoldOuterRecCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE unfoldOuterRecCache #-}
+
+-- | Unfold one outer 'Mu' layer. The unfolding of each recursive node is shared.
 unfoldOuterRec ::
     (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
-unfoldOuterRec n@(Mu x) = x n
-unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
+unfoldOuterRec = memoTypeableWith unfoldOuterRecCache go
+  where
+    go n@(Mu x) = x n
+    go _ = error "unfoldOuterRec: Must be called on a Mu node"
 
 -- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
 {-# INLINEABLE nodeEdges #-}

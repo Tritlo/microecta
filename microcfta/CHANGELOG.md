@@ -36,7 +36,8 @@ remains a separate ECTA-only package.
   conversion, so interning an edge no longer rehashes its constraint's trie.
   Class completion in `mkEqConstraints` is an in-package union-find, which
   removes the `equivalence` dependency. Over the core benchmark suite this
-  cut allocation by 46% and instructions by 41%.
+  cut allocation by 46% and instructions by 41%. The unfolding of each
+  recursive node is shared, so repeated listings of a `Mu` do not rebuild it.
 - The refinement layer's `denotationAtMost` runs on the shared enumerator: a
   positive `Same` guard is a path equality solved by unification, so an
   equality-guarded pair costs milliseconds instead of a quadratic candidate
