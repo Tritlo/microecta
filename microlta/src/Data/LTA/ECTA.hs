@@ -24,8 +24,8 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Equality as ECTA
 import qualified Data.CFTA.Interned as Common
-import qualified Data.ECTA as ECTA
 import Data.LTA (
     EqualityAutomaton,
     LiquidSymbol,

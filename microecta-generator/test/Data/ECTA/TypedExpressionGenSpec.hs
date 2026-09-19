@@ -12,13 +12,13 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.ECTA (Edge, Node, edgeChildren, edgeSymbol, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
-import qualified Data.ECTA as ECTA
+import Data.CFTA.Equality (Edge, Node, edgeChildren, edgeSymbol, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (unsafeGetEclasses)
+import Data.CFTA.Equality.Node (edgeEcs)
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Example.TypedExpressionLanguage
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Internal.ECTA.Type (edgeEcs)
-import Data.ECTA.Paths (unsafeGetEclasses)
-import Data.ECTA.Term (Symbol)
 
 -- | Infer a ground type independently of either generator.
 inferType :: Expression -> Maybe Type

@@ -24,8 +24,7 @@ import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Path (statesAt)
-import Data.ECTA.Paths (
+import Data.CFTA.Equality.Constraints (
     EqConstraints (EmptyConstraints),
     Path,
     combineEqConstraints,
@@ -33,6 +32,7 @@ import Data.ECTA.Paths (
     mkEqConstraints,
     unPath,
  )
+import Data.CFTA.Path (statesAt)
 
 import Data.LTA.Automaton (
     Automaton,

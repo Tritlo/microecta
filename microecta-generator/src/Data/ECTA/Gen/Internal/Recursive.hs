@@ -29,13 +29,13 @@ module Data.ECTA.Gen.Internal.Recursive (
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
-import Data.ECTA (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support (frequencySymbol, labelSupport, labelTerm)
-import Data.ECTA.Term (Symbol)
 import Data.Ranked.Internal.Decoder (Plan (..))
 import Data.Ranked.Internal.Sampler
 import Data.Ranked.Internal.Size (

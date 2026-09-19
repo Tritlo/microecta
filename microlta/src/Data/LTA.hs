@@ -96,8 +96,8 @@ module Data.LTA (
     denotationAtMost,
 ) where
 
+import Data.CFTA.Equality.Constraints (Path, path, unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
-import Data.ECTA.Paths (Path, path, unPath)
 
 import Data.LTA.Automaton
 import Data.LTA.Constraint

@@ -26,7 +26,6 @@ source-repository head
   subdir: microcfta
 
 common warnings
-  default-language: Haskell2010
   ghc-options:
     -Wall
     -Wcompat
@@ -37,32 +36,57 @@ common warnings
     -Wredundant-constraints
     -Wno-pattern-namespace-specifier
 
-library
-  import: warnings
-  hs-source-dirs: src
+common extensions
+  default-language: Haskell2010
   default-extensions:
     BangPatterns
     ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
     FlexibleContexts
     FlexibleInstances
+    FunctionalDependencies
     GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
     LambdaCase
+    MultiParamTypeClasses
     MultiWayIf
     NamedFieldPuns
+    PatternGuards
     PatternSynonyms
     RankNTypes
     ScopedTypeVariables
     StandaloneDeriving
+    TupleSections
     TypeApplications
     TypeFamilies
     TypeOperators
     ViewPatterns
 
-  other-modules: Data.CFTA.Internal.Tree
+library
+  import: warnings, extensions
+  hs-source-dirs: src
   exposed-modules:
     Data.CFTA
     Data.CFTA.Constraint
+    Data.CFTA.Equality
+    Data.CFTA.Equality.Constraints
+    Data.CFTA.Equality.Enumeration
+    Data.CFTA.Equality.FTA
+    Data.CFTA.Equality.Node
+    Data.CFTA.Equality.Operations
+    Data.CFTA.Equality.Template
+    Data.CFTA.Example.TermSearch.Dataset
+    Data.CFTA.Example.TermSearch.TermSearch
+    Data.CFTA.Example.TermSearch.Type
+    Data.CFTA.Example.TermSearch.Utils
     Data.CFTA.Generic
+    Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned
     Data.CFTA.Interned.Cache
     Data.CFTA.Interned.Memo
@@ -72,36 +96,72 @@ library
     Data.CFTA.Symbol
     Data.CFTA.Template
 
+  other-modules:
+    Data.CFTA.Internal.Pretty
+    Data.CFTA.Internal.Tree
+
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     intern >=0.9 && <0.10,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
+    transformers >=0.6 && <0.7,
     unordered-containers >=0.2 && <0.3,
 
 test-suite unit-tests
-  import: warnings
+  import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  other-modules: Data.CFTASpec
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -Wno-orphans
+
+  other-modules:
+    Data.CFTA.Equality.ConstraintsSpec
+    Data.CFTA.Equality.FTASpec
+    Data.CFTA.EqualitySpec
+    Data.CFTA.Example.TermSearchSpec
+    Data.CFTA.Internal.UnionFindSpec
+    Data.CFTASpec
+    Test.Generators.Equality
+
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta,
+    mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
 
 benchmark enumeration-speed
-  import: warnings
+  import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: EnumerationSpeed.hs
   hs-source-dirs: benchmarks
-  default-extensions:
-    BangPatterns
-    NamedFieldPuns
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
+
+benchmark micro-bench
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Benchmarks.hs
+  hs-source-dirs: benchmarks
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-M512M
 
   build-depends:
     base >=4.22 && <4.23,

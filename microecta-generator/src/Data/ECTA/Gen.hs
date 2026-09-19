@@ -94,10 +94,12 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.CFTA.Interned as Common
-import Data.ECTA (Edge (Edge), Node (Node))
-import qualified Data.ECTA as Core
+import Data.CFTA.Symbol (Symbol (Symbol))
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.ECTA.Gen.Internal.Grouped
@@ -107,8 +109,6 @@ import Data.ECTA.Gen.Internal.Recursion
 import Data.ECTA.Gen.Internal.Static (indexedStaticWithLabels)
 import Data.ECTA.Gen.Internal.Types
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.ECTA.Paths (EqConstraints)
-import Data.ECTA.Term (Symbol (Symbol))
 import Data.Ranked.Internal.Sampler
 import Data.Ranked.Internal.Size (choiceIndex)
 

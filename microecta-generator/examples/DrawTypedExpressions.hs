@@ -9,7 +9,9 @@ import qualified Data.Text as Text
 import Data.Tree (Tree, drawTree, flatten)
 
 import qualified Data.CFTA as FTA
-import qualified Data.ECTA as ECTA
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
+import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.ECTA.Gen as Gen
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (
     Type (TInt),
@@ -17,8 +19,6 @@ import Data.ECTA.Gen.Example.TypedExpressionLanguage (
     expressionGenAtDepth,
     recursiveExpressions,
  )
-import Data.ECTA.Paths (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
-import Data.ECTA.Term (Symbol (Symbol))
 
 -- | Print finite and recursive diagnostic graphs.
 main :: IO ()

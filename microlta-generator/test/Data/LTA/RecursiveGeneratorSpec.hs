@@ -8,8 +8,8 @@ import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldReturn)
 
+import Data.CFTA.Equality.Constraints (mkEqConstraints)
 import qualified Data.CFTA.Generic as Datatype
-import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Automaton,
     AutomatonError,

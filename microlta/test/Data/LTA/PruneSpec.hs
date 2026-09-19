@@ -7,7 +7,7 @@ import Data.List (permutations)
 import qualified Data.Map.Strict as Map
 
 import qualified Data.CFTA as FTA
-import Data.ECTA.Paths (mkEqConstraints)
+import Data.CFTA.Equality.Constraints (mkEqConstraints)
 import Data.LTA (
     Automaton,
     AutomatonError,

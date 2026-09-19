@@ -18,9 +18,9 @@ module Data.LTA.Gen.Internal.AutomatonCompile (
 
 import Data.Bifunctor (first)
 import qualified Data.CFTA as FTA
+import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.CFTA.Interned as Interned
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRankedWith)
-import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.IntMap.Strict as IntMap
 import Data.LTA
 import Data.LTA.Gen.Internal.Bounded (boundAutomaton)

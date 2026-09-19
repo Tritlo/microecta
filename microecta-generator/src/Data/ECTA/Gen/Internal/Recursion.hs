@@ -16,7 +16,7 @@ import Control.Monad (void, when)
 import Data.Either (fromRight)
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (Node (EmptyNode), createMu, numNestedMu)
+import Data.CFTA.Equality (Node (EmptyNode), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Support (familyNodeWith, keySymbol, restrictToKeyWith)

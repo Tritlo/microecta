@@ -19,9 +19,9 @@ import System.Environment (getArgs)
 import Text.Printf (printf)
 
 import qualified Data.CFTA as FTA
-import Data.ECTA
-import qualified Data.ECTA.FTA as ECTAFTA
-import Data.ECTA.Term (Symbol (Symbol))
+import Data.CFTA.Equality
+import qualified Data.CFTA.Equality.FTA as ECTAFTA
+import Data.CFTA.Symbol (Symbol (Symbol))
 import Data.LTA (
     Automaton,
     LiquidSymbol (LiquidSymbol),

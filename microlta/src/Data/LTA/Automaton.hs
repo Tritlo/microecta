@@ -44,10 +44,10 @@ import Data.Tree (Tree)
 
 import Data.CFTA (StateView (..), ViewPath)
 import qualified Data.CFTA as FTA
+import Data.CFTA.Equality.Constraints (EqConstraints, Path, unPath)
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Path (statesAt)
 import Data.CFTA.Symbol (Symbol)
-import Data.ECTA.Paths (EqConstraints, Path, unPath)
 
 import Data.LTA.Constraint (
     LiquidConstraint (constraintEqualities),

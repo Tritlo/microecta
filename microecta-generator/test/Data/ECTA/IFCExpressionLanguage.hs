@@ -61,11 +61,11 @@ import Data.String (fromString)
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
-import Data.ECTA (Edge (Edge), Node (EmptyNode, Node))
+import Data.CFTA.Equality (Edge (Edge), Node (EmptyNode, Node))
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (frequencyInteger)
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Term (Symbol)
 
 {- | Security labels. The derived 'Ord' is the flow order, MAC's @Less@ at
 the value level: @Public <= Private@ and nothing flows down. Because the
@@ -514,7 +514,7 @@ practicalLabel (Print value) = practicalLabel value
 practicalLabel _ = Public
 
 {- | The same language as an automaton over surface symbols, so shape queries
-can be asked with "Data.ECTA" templates: the literals and variables, @==@,
+can be asked with "Data.CFTA.Equality" templates: the literals and variables, @==@,
 @+@, @*@, @||@, @&&@, @not@, @if@, and @print@ are the term symbols. The label
 discipline is baked into which child nodes each edge takes, exactly as in the
 grouped generator.

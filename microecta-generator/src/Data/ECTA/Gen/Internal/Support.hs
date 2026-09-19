@@ -46,7 +46,7 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.ECTA (
+import Data.CFTA.Equality (
     Edge (Edge),
     Node (Node),
     edgeChildren,
@@ -54,10 +54,10 @@ import Data.ECTA (
     edgeSymbol,
     mkEdge,
  )
-import Data.ECTA.Internal.ECTA.Operations (unfoldOuterRec)
-import Data.ECTA.Internal.ECTA.Type (Node (Mu))
-import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
-import Data.ECTA.Term (Symbol (Symbol))
+import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints), mkEqConstraints, path)
+import Data.CFTA.Equality.Node (Node (Mu))
+import Data.CFTA.Equality.Operations (unfoldOuterRec)
+import Data.CFTA.Symbol (Symbol (Symbol))
 
 {- | Symbols labelling the ECTA structure this module builds. They are
 namespaced so generated supports cannot collide with user symbols.

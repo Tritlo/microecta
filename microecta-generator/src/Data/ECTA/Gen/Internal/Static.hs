@@ -46,7 +46,8 @@ import qualified Data.Sequence as Sequence
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 
-import Data.ECTA (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Support (
@@ -58,7 +59,6 @@ import Data.ECTA.Gen.Internal.Support (
     labelTermWith,
     pureSymbol,
  )
-import Data.ECTA.Term (Symbol)
 import Data.Ranked.Internal (Indexed (..))
 import qualified Data.Ranked.Internal as Ranked
 import Data.Ranked.Internal.Decoder (

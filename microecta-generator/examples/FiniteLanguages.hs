@@ -6,9 +6,9 @@ module Main (main) where
 import Control.Monad (unless)
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import Data.CFTA.Generic (Constructor, TypedFTA, annotateDatatype, constructorFields, deriveFTAWith, domain)
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 
 -- | One structural definition shared by ordinary and equality generation.

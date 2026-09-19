@@ -6,9 +6,9 @@ module Data.LTA.Gen.Internal.IndexedGroup (indexedGroup) where
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
-import qualified Data.ECTA as Core
+import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Symbol (Symbol)
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.ECTA.Term (Symbol)
 
 {- | Represent each index below the bound with one binary-code term.
 

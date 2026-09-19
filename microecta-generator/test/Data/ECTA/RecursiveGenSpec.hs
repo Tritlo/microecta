@@ -16,7 +16,7 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.ECTA (
+import Data.CFTA.Equality (
     Edge (Edge),
     Node (Node),
     createMu,
@@ -26,11 +26,11 @@ import Data.ECTA (
     nodeRepresents,
     numNestedMu,
  )
+import Data.CFTA.Equality.Constraints (mkEqConstraints, path)
+import Data.CFTA.Symbol (Symbol)
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol)
 import Data.ECTA.TestSupport (aggregateRights)
 import Data.Ranked.Internal.Sampler (Exact (..))
 

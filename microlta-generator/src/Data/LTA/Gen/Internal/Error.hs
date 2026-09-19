@@ -10,8 +10,8 @@ module Data.LTA.Gen.Internal.Error (
     fromRankedError,
 ) where
 
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.ECTA.Paths (EqConstraints)
 import Data.LTA
 import qualified Data.LTA.ECTA as LTAECTA
 import qualified Data.Ranked as Tree

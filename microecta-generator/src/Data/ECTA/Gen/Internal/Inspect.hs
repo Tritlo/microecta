@@ -28,10 +28,10 @@ module Data.ECTA.Gen.Internal.Inspect (
 
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (Node)
+import Data.CFTA.Equality (Node)
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
-import Data.ECTA.Term (Symbol)
 import Data.Ranked.Internal.Sampler
 import Data.Ranked.Internal.Shrink (
     planMemberSize,

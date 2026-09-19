@@ -13,9 +13,9 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Text.Read (readMaybe)
 
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (mkEqConstraints)
 import qualified Data.CFTA.Generic as Datatype
-import qualified Data.ECTA as ECTA
-import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Automaton,
     Entailment (Entailment),

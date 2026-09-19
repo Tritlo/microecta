@@ -9,16 +9,16 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.ECTA (
+import Data.CFTA.Equality (
     Node (EmptyNode),
     Template (Hole, TemplateNode, TemplatePrefix),
     getAllTerms,
     matchesTemplate,
     termsMatching,
  )
+import Data.CFTA.Symbol (Symbol)
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.IFCExpressionLanguage
-import Data.ECTA.Term (Symbol)
 
 {- | Reference label semantics, independent of the generator: a value's label
 is the join of every atom that can influence it, with a branch condition

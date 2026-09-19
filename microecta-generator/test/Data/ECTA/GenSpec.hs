@@ -17,13 +17,13 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.ECTA (Node (Node), edgeChildren, edgeSymbol, getAllTerms, nodeRepresents)
-import qualified Data.ECTA as ECTA
+import Data.CFTA.Equality (Node (Node), edgeChildren, edgeSymbol, getAllTerms, nodeRepresents)
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
+import Data.CFTA.Equality.Node (edgeEcs)
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
-import Data.ECTA.Internal.ECTA.Type (edgeEcs)
-import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import Data.Ranked.Internal.Sampler (Exact (..))
 
 data UserId = Alice | Bob | Carol | Dave

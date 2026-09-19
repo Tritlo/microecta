@@ -54,7 +54,7 @@ module Data.LTA.Gen.Internal.Types (
 import Data.Bifunctor (first)
 import qualified Data.Tree as Tree
 
-import qualified Data.ECTA as ECTA.Core
+import qualified Data.CFTA.Equality as ECTA.Core
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Witness (Witness)

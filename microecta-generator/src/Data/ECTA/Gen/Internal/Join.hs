@@ -17,7 +17,8 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 
-import Data.ECTA (Edge (Edge), Node (Node), mkEdge, reducePartially)
+import Data.CFTA.Equality (Edge (Edge), Node (Node), mkEdge, reducePartially)
+import Data.CFTA.Equality.Constraints (mkEqConstraints, path)
 import Data.ECTA.Gen.Internal.Bucket
 import Data.ECTA.Gen.Internal.Chain
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
@@ -25,7 +26,6 @@ import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Recursive
 import Data.ECTA.Gen.Internal.Static
 import Data.ECTA.Gen.Internal.Support
-import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.Ranked.Internal.Decoder (Plan (..))
 import Data.Ranked.Internal.Sampler
 

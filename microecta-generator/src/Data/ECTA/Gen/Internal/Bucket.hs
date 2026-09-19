@@ -17,7 +17,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 
-import Data.ECTA (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Inspection
 import Data.ECTA.Gen.Internal.Static

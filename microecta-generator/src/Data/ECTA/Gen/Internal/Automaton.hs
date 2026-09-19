@@ -29,11 +29,16 @@ import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
-import qualified Data.ECTA as ECTA
-import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
-import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPath, unPathEClass)
-import Data.ECTA.Term (Symbol (Symbol))
+import Data.CFTA.Equality (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (
+    EqConstraints (EmptyConstraints),
+    subsumptionOrderedEclasses,
+    unPath,
+    unPathEClass,
+ )
+import Data.CFTA.Equality.Node (freeVars, nodeIdentity)
+import Data.CFTA.Symbol (Symbol (Symbol))
 
 import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Interned as Interned

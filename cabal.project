@@ -3,7 +3,6 @@ with-compiler: ghc-9.14.1
 packages:
   microcfta
   microfta-generator
-  microecta
   microecta-generator
   microlta
   microlta-generator

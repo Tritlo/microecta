@@ -29,7 +29,7 @@ import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Constraint (Constraint (..))
-import Data.ECTA.Paths (
+import Data.CFTA.Equality.Constraints (
     EqConstraints (EmptyConstraints),
     Path,
     combineEqConstraints,

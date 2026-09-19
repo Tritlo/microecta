@@ -37,10 +37,10 @@ module Data.ECTA.Gen.Internal.Types (
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
-import Data.ECTA (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Inspection
-import Data.ECTA.Term (Symbol)
 import Data.Ranked.Internal.Decoder (RankDecoder (..))
 import Data.Ranked.Internal.Sampler
 import Data.Ranked.Internal.Size (mapIndex, productIndex)

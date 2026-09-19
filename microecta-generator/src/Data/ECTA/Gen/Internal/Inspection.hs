@@ -15,10 +15,10 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
-import Data.ECTA (Edge (Edge), Node (Node), edgeChildren, edgeEcs, edgeSymbol, mkEdge)
+import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeChildren, edgeEcs, edgeSymbol, mkEdge)
+import qualified Data.CFTA.Equality.Node as Core
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Support
-import qualified Data.ECTA.Internal.ECTA.Type as Core
-import Data.ECTA.Term (Symbol)
 
 {- | An original support symbol with an optional source or group name.
 
