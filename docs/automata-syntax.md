@@ -9,28 +9,25 @@ kind of information:
 | ECTA | These paths contain the same term. | `ECTA.node "label" $ ECTA.do ...` |
 | LTA | These refinements logically imply one another. | `LTA.node "label" guard $ LTA.do ...` |
 
-`microfta` owns ordinary terms, the common interned engine, and the FTA graph.
+`microcfta` owns ordinary terms, the common interned engine, and the FTA graph.
 `Node symbol constraint` and `Edge symbol constraint` carry `()` for an FTA,
 `EqConstraints` for an ECTA, or `LiquidConstraint` for liquid construction.
-The constrained packages define and interpret their constraint fields.
-`microfta-generator` owns
-the ranked layer and `Data.CFTA.Gen`. The ECTA modules belong to
-`microecta` and `microecta-generator`; the LTA modules belong to `microlta`
-and `microlta-generator`. Each application must declare the package whose
-modules it imports. The FTA packages have no dependency on either constrained
-layer.
+`Data.CFTA.Equality` and `Data.CFTA.Refinement` define and interpret their
+constraint fields. `microcfta-generator` owns the ranked layer and the three
+generators: `Data.CFTA.Gen`, `Data.CFTA.Gen.Equality`, and
+`Data.CFTA.Gen.Refinement`.
 
 ## The worked progression
 
 The repository uses one running progression rather than three unrelated toy
 examples:
 
-1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../microfta-generator/common/Data/Tree/FTA/UntypedExpressionLanguage.hs)
+1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../microcfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs)
    generates integer syntax. Constructor shape is the only constraint.
-2. [`Data.CFTA.Gen.Example.TypedExpressionLanguage`](../microecta-generator/src/Data/ECTA/Gen/Example/TypedExpressionLanguage.hs)
+2. [`Data.CFTA.Gen.Example.TypedExpressionLanguage`](../microcfta-generator/src/Data/CFTA/Gen/Example/TypedExpressionLanguage.hs)
    adds Boolean expressions. Equality constraints connect an operation's
    signature with the result types of its children.
-3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../microlta-generator/common/Data/LTA/StateMachineTraceLanguage.hs)
+3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)
    turns those values and operations into a typed stack machine. The result
    refinement of a trace prefix is the next command's input state, so command
    admissibility and the next stack type are dependent on the whole prefix.
@@ -62,8 +59,9 @@ ECTA.transition "pair" [atom, atom]
   (mkEqConstraints [[path [0], path [1]]])
 ```
 
-The underlying graph remains `Data.CFTA.FTA`, but `EqConstraints` and its
-construction syntax belong to ECTA rather than to the ordinary FTA API.
+The underlying graph remains `Data.CFTA`, but `EqConstraints` and its
+construction syntax belong to the equality layer rather than to the ordinary
+FTA API.
 
 An LTA adds its refinement label and lets the guard name child positions:
 
@@ -75,8 +73,8 @@ LTA.transition "sqrt" nonNegative [integer]
 A named guard must take one argument per direct child, including unused
 arguments. `transition` retains an argument-count error for `automaton` to
 report. `automatonWithFinals` accepts any final-state set, including the empty
-set. Programmatic code can still construct raw `Data.LTA.Transition` values
-and paths.
+set. Programmatic code can still construct raw `Data.CFTA.Refinement.Transition`
+values and paths.
 
 ## QuickCheck generators
 
@@ -160,7 +158,7 @@ same source syntax. It preserves graph sharing until compilation. Each distinct
 accepted annotated term contributes one rank. Repeated ordinary pool draws keep
 their separate ranks and weights. A leaf has height zero; an empty bound is an
 empty source. The standalone
-[`AutomatonInterop.hs`](../microlta-generator/examples/AutomatonInterop.hs)
+[`AutomatonInterop.hs`](../microcfta-generator/examples/AutomatonInterop.hs)
 checks this workflow with a recursive natural-number grammar.
 
 `refinedNodeByRoots` takes one function from child root observations to the

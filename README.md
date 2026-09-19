@@ -1,98 +1,67 @@
-# microecta
+# microcfta
 
-This repository contains three automaton packages and their three generators:
+Constrained finite tree automata for Haskell, in two packages:
 
 | Package | Purpose |
 | --- | --- |
-| [`microfta`](microfta/README.md) | Shared interned automaton engine, constraint interface, ordinary trees, and named-state FTA graphs. |
-| [`microfta-generator`](microfta-generator/README.md) | Shared ranked generation, the ordinary FTA adapter, and QuickCheck integration. |
-| [`microecta`](microecta/README.md) | Equality-constrained tree automata and the ECTA view of an FTA. |
-| [`microecta-generator`](microecta-generator/README.md) | ECTA sources, equality joins, grouped relations, recursion, and QuickCheck integration. |
-| [`microlta`](microlta/) | Liquid tree automata using Liquid Fixpoint predicates and Z3 entailment. |
-| [`microlta-generator`](microlta-generator/) | Rank, sample, replay, and shrink languages produced by liquid tree automata. |
-
-The dependency layers are:
+| [`microcfta`](microcfta/README.md) | One interned automaton engine with three constraint theories: ordinary tree automata, equality-constrained tree automata (ECTA), and liquid tree automata (LTA) with Liquid Fixpoint refinements and Z3 entailment. |
+| [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
 
 ```mermaid
 flowchart BT
-  fg["microfta-generator"] --> f["microfta"]
-  eg["microecta-generator"] --> e["microecta"]
-  lg["microlta-generator"] --> l["microlta"]
-  e --> f
-  l --> e
-  eg --> fg
-  lg --> eg
+  g["microcfta-generator"] --> c["microcfta"]
 ```
 
-Concrete terms use `Data.Tree.Tree` from `containers`.
-`microfta` owns the shared `Data.CFTA.Interned` engine,
-and the named-state `Data.CFTA` graph. The interned engine has the types
-`Node symbol constraint` and `Edge symbol constraint`. Ordinary automata use
-`()`, ECTAs use `EqConstraints`, and LTAs can use `LiquidConstraint`.
-Interning, recursive substitution, traversal, union, and structural intersection
-use the same implementation. Constraint interpretation stays in its own layer.
-`Data.LTA.fromInterned` validates an interned liquid graph for LTA operations.
+Concrete terms use `Data.Tree.Tree` from `containers`. The interned engine in
+`Data.CFTA.Interned` has the types `Node symbol constraint` and
+`Edge symbol constraint`, and `Data.CFTA` is the named-state view of the same
+graph. Ordinary automata use `()`, equality-constrained automata use
+`EqConstraints`, and liquid automata use `LiquidConstraint`. Interning,
+recursive substitution, traversal, union, and structural intersection use the
+same implementation. Each constraint theory interprets its own constraint:
 
-Ordinary and equality-constrained automata are built with `Data.CFTA.mkFTA`.
-`Data.CFTA.Refinement.Syntax` owns refinement-labelled transitions whose guards use the
-paper's complete Boolean LTA constraint language. Constraint theories remain
-in their own namespaces.
-
-`microfta-generator` owns `Data.CFTA.Ranked`, which provides exact
-finite ranks, backend-independent sampling, and shrinking, while
-`Data.CFTA.Gen` either compiles an acyclic ordinary FTA or builds one with
-the `FTA.node`/`FTA.do` syntax before lowering it into that representation.
-The two FTA packages do not depend on ECTA or LTA. `microecta` adds equality
-constraints over the shared trees. `microecta-generator` adds ECTA-specific
-construction above `microecta` and `microfta-generator`. Core packages do not
-depend on their generator packages or on QuickCheck.
-`microlta` prunes semantic guards by intersecting and splitting transition
-states along only the positions inspected by each guard. The authoritative
-result remains an LTA. A separately named optimization can lower residual
-positive equality conjunctions to ECTA; constraints outside that fragment
-remain LTAs. `microlta-generator` can additionally retain
-the surface DSL's applicative structure, ask the solver once per live tuple of
-refinement groups, and lower the accepted tuples through MicroECTA's indexed
-joins. Sampling is pure and does not enumerate the Cartesian product. The DSL
-also supports finite Haskell pools and semantic shrinking.
+- `Data.CFTA.Equality` propagates path equalities by reduction and solves them
+  by unification during enumeration.
+- `Data.CFTA.Refinement` prunes semantic guards by intersecting and splitting
+  transition states along only the positions each guard inspects. The
+  authoritative result remains an LTA. A separately named lowering can turn
+  residual positive equality conjunctions into `EqConstraints`; constraints
+  outside that fragment stay in the LTA.
+- `Data.CFTA.Refinement.Syntax` owns refinement-labelled transitions whose
+  guards use the paper's complete Boolean constraint language.
 
 The semantic hierarchy is therefore concrete: an FTA has no constraints, an
 ECTA has positive path equalities, and an LTA has the full Boolean equality and
-entailment language from the paper. Relational generation is an optional
-backend for a restricted fragment, not the definition of an LTA.
+entailment language. An automaton with no constraints is enumerated by the
+plain level-by-level enumerator whatever layer built it.
 
-Run the ordinary FTA and combined FTA/ECTA examples from the workspace root:
+`microcfta-generator` owns `Data.CFTA.Ranked`, which provides exact finite
+ranks, backend-independent sampling, and shrinking. `Data.CFTA.Gen` compiles an
+acyclic ordinary automaton or builds one with the `FTA.node`/`FTA.do` syntax.
+`Data.CFTA.Gen.Equality` adds equality-constrained sources, equality and
+relational joins, retained key groups, and recursive generation.
+`Data.CFTA.Gen.Refinement` can retain the surface DSL's applicative structure,
+ask the solver once per live tuple of refinement groups, and lower the accepted
+tuples through indexed equality joins. Sampling is pure and does not enumerate
+the Cartesian product. The DSL also supports finite Haskell pools and semantic
+shrinking. The core package does not depend on the generator package or on
+QuickCheck.
+
+Run the ordinary and equality examples from the workspace root:
 
 ```sh
-cabal run fta-pairs
-cabal run ecta-finite-languages
+cabal run cfta-pairs
+cabal run cfta-finite-languages
 ```
 
-The FTA and ECTA packages do not need a solver. Enter `nix-shell` to put Z3 on
-`PATH`, then run the semantic entailment example:
+The ordinary and equality layers do not need a solver. Enter `nix-shell` to put
+Z3 on `PATH`, then run the semantic entailment examples:
 
 ```sh
-cabal run liquid-pairs
+cabal run cfta-liquid-pairs
+cabal run cfta-safe-division
+cabal run cfta-automaton-interop
 ```
-
-`microlta` implements refinement-labelled recognition, Boolean guards,
-actual-for-formal position substitutions, transition-level semantic pruning,
-directional semantic intersection, automaton-level `Similarity` and `Minimize`,
-and recursive LTAs with the paper's acyclic-guard restriction. The pruning pass
-partitions heterogeneous states on their observed refinements and substitution
-symbols. Similarity is inferred from a source-language subtyping relation;
-minimization removes supertype transitions and redirects incoming state edges
-to their retained subtype representatives. Syntactic `isSameTermAs` remains a
-`Same` atom in the LTA. Pruning uses the ordinary FTA product to discard
-disjoint sub-languages. Only the separate ECTA lowering pass turns eligible
-positive equality conjunctions into `EqConstraints`; Boolean equality remains
-in the LTA.
-`denotationAtMost` provides a deliberately materializing Figure 6 reference
-semantics.
-`microlta-generator` adds counting and unranking over finite acyclic LTAs,
-named guard syntax, finite or frozen QuickCheck pools, semantic shrinking,
-an opt-in pool adapter over the core similarity pass, and explicitly bounded
-generation from recursive LTAs.
 
 See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
 FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda
@@ -106,9 +75,9 @@ expressive power concrete:
 
 | Automaton | Example | What becomes possible |
 | --- | --- | --- |
-| FTA | [`UntypedExpressionLanguage`](microfta-generator/common/Data/Tree/FTA/UntypedExpressionLanguage.hs) | Generate integer expression shapes. Every term has the one implicit sort. |
-| ECTA | [`TypedExpressionLanguage`](microecta-generator/src/Data/ECTA/Gen/Example/TypedExpressionLanguage.hs) | Add integers and Booleans, then equate operation signatures with child result types. |
-| LTA | [`StateMachineTraceLanguage`](microlta-generator/common/Data/LTA/StateMachineTraceLanguage.hs) | Carry a typed operand stack from one command to the next and prove dependent input/output state contracts with Z3. |
+| FTA | [`UntypedExpressionLanguage`](microcfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs) | Generate integer expression shapes. Every term has the one implicit sort. |
+| ECTA | [`TypedExpressionLanguage`](microcfta-generator/src/Data/CFTA/Gen/Example/TypedExpressionLanguage.hs) | Add integers and Booleans, then equate operation signatures with child result types. |
+| LTA | [`StateMachineTraceLanguage`](microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs) | Carry a typed operand stack from one command to the next and prove dependent input/output state contracts with Z3. |
 
 The LTA example generates a complete QuickCheck trace before executing it, as
 state-machine testing requires. `Push`, `Add`, `And`, `Equal`, `Not`, and `Pop`
@@ -117,16 +86,28 @@ next command's input space. The resulting trace is then replayed through both
 an abstract model and a separate concrete interpreter.
 
 Three smaller examples remain useful alongside that progression. The ECTA
-[filesystem ownership join](microecta-generator/test/Data/ECTA/GenSpec.hs)
+[filesystem ownership join](microcfta-generator/test/Data/CFTA/Gen/Equality/GenSpec.hs)
 shows flat equality conditioning, while
-[`SafeBufferLanguage`](microlta-generator/common/Data/LTA/SafeBufferLanguage.hs)
+[`SafeBufferLanguage`](microcfta-generator/common/Data/CFTA/Gen/Refinement/SafeBufferLanguage.hs)
 shows Z3 proving symbolic bounds and dependent append lengths before a partial
 buffer interpreter reaches QuickCheck. The more LTA-biased
-[`SizedVectorLanguage`](microlta-generator/common/Data/LTA/SizedVectorLanguage.hs)
+[`SizedVectorLanguage`](microcfta-generator/common/Data/CFTA/Gen/Refinement/SizedVectorLanguage.hs)
 composes `append`, `take`, `zipWith`, and safe indexing through arithmetic
 result-size refinements using the ordinary qualified-do syntax.
 
-## Generator benchmarks
+## Benchmarks
+
+The core package has three benchmarks. `micro-bench` covers path lookup,
+constraint construction, intersection, reduction, and constrained enumeration.
+`enumeration-speed` times the shared enumerator on explicit-state and interned
+automata. `cross-layer-speed` enumerates the same languages through the
+ordinary, equality, and refinement layers so the three can be compared:
+
+```sh
+cabal bench microcfta:micro-bench --enable-optimization=2
+cabal bench microcfta:enumeration-speed --enable-optimization=2
+cabal bench microcfta:cross-layer-speed --enable-optimization=2
+```
 
 The three flagship languages are benchmarked against naive recognition and
 ordinary handwritten generation. The trace table additionally includes a
@@ -139,9 +120,7 @@ fourth control benchmark generates the typed-expression language with either
 ECTA path equality or LTA integer-equality refinements, isolating the practical
 cost of the liquid constraint theory. The measured tables and methodology live
 in the
-[`microecta-generator`](microecta-generator/README.md#sampling-performance) and
-[`microlta-generator`](microlta-generator/README.md#sampling-performance)
-READMEs.
+[`microcfta-generator` README](microcfta-generator/README.md#sampling-performance).
 
 Generate the three flagship tables and the ECTA-versus-LTA control table from
 the repository root with:
@@ -150,8 +129,11 @@ the repository root with:
 ./scripts/benchmark-generators.sh
 ```
 
+## Development
+
 GHC 9.14 is the supported compiler series. The workspace selects GHC 9.14.1.
 The packages require `base >=4.22 && <4.23` and `containers >=0.8 && <0.9`.
+The test suites need `z3` on `PATH`; `nix-shell` provides it.
 
 Build and test the whole workspace from the repository root:
 
@@ -165,30 +147,23 @@ pinned `fourmolu.yaml` and `.hlint.yaml`:
 
 ```sh
 fourmolu --mode check $(git ls-files '*.hs')
-hlint --ignore-suggestions microfta microfta-generator microecta microecta-generator microlta microlta-generator
+hlint --ignore-suggestions microcfta microcfta-generator
 cabal-gild --mode check */*.cabal
 ```
 
-The examples in the ECTA entry-point modules are executable. Run them with
+The examples in the entry-point modules are executable. Run them with
 [`doctest`](https://hackage.haskell.org/package/doctest):
 
 ```sh
 cabal install doctest
-cabal repl --with-repl=doctest lib:microecta
-cabal repl --with-repl=doctest lib:microecta-generator
+cabal repl --with-repl=doctest lib:microcfta
+cabal repl --with-repl=doctest lib:microcfta-generator
 ```
 
 `scripts/release.sh PACKAGE --check-only` validates one package and the local
-source archives of its workspace dependencies. Publish `microfta` first,
-then `microfta-generator` and `microecta`, then `microecta-generator` and
-`microlta`, and finally `microlta-generator`.
+source archive of its workspace dependency. Publish `microcfta` first, then
+`microcfta-generator`.
 
-Code that imports `Data.CFTA` or `Data.CFTA.Interned`
-must declare `microfta`.
+Code that imports `Data.CFTA.*` must declare `microcfta`, and code that imports
+`Data.CFTA.Gen.*` or `Data.CFTA.Ranked.*` must declare `microcfta-generator`.
 Code that imports `Data.Tree` directly must declare `containers`.
-Code that imports `Data.CFTA.Ranked` or `Data.CFTA.Gen` must declare
-`microfta-generator`. The `Data.CFTA.Ranked.Internal.*` modules live in that
-package's public `internal` sublibrary; depend on
-`microfta-generator:{microfta-generator, internal}` to reach them. They are
-an integration interface for the constrained generators and are not covered
-by the PVP contract.

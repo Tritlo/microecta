@@ -30,13 +30,8 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microfta", "microfta-generator", "microecta", "microecta-generator", "microlta", "microlta-generator"]'
+          path: '["microcfta", "microcfta-generator"]'
           fail-on: warning
-
-      - name: Check that the benchmark harness copies are identical
-        run: |
-          cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microecta-generator/benchmarks/GeneratorSpeedHarness.hs
-          cmp microfta-generator/benchmarks/GeneratorSpeedHarness.hs microlta-generator/benchmarks/GeneratorSpeedHarness.hs
 
   build-test-bench:
     name: GHC 9.14.1
@@ -85,12 +80,8 @@ jobs:
 
       - name: Check package metadata
         run: |
-          (cd microfta && cabal check)
-          (cd microfta-generator && cabal check)
-          (cd microecta && cabal check)
-          (cd microecta-generator && cabal check)
-          (cd microlta && cabal check)
-          (cd microlta-generator && cabal check)
+          (cd microcfta && cabal check)
+          (cd microcfta-generator && cabal check)
 
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
@@ -101,7 +92,7 @@ jobs:
       # cap is not baked into the library's ghc-options.
       - name: Guard compile-time memory of the optimized core
         run: |
-          cabal v2-build lib:microecta \
+          cabal v2-build lib:microcfta \
             --enable-optimization=2 \
             --ghc-options='-Werror +RTS -K512M -M512M -RTS'
 
@@ -113,25 +104,21 @@ jobs:
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta-generator
 
       - name: Test the generator examples
         run: |
-          cabal v2-run fta-pairs
-          cabal v2-run liquid-pairs
-          cabal v2-run ecta-finite-languages
-          cabal v2-run lta-safe-division
-          cabal v2-run lta-automaton-interop
+          cabal v2-run cfta-pairs
+          cabal v2-run cfta-liquid-pairs
+          cabal v2-run cfta-finite-languages
+          cabal v2-run cfta-safe-division
+          cabal v2-run cfta-automaton-interop
 
       - name: Validate release artifacts
         run: |
-          scripts/release.sh microfta --check-only
-          scripts/release.sh microfta-generator --check-only
-          scripts/release.sh microecta --check-only
-          scripts/release.sh microecta-generator --check-only
-          scripts/release.sh microlta --check-only
-          scripts/release.sh microlta-generator --check-only
+          scripts/release.sh microcfta --check-only
+          scripts/release.sh microcfta-generator --check-only
 
       - name: Benchmark
         run: cabal v2-bench all --enable-optimization=2

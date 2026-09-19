@@ -5,8 +5,7 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microfta, microfta-generator, microecta,
-microecta-generator, microlta, or microlta-generator.
+PACKAGE must be microcfta or microcfta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -23,11 +22,8 @@ package="$1"
 shift
 
 case "$package" in
-  microfta) dependencies=() ;;
-  microfta-generator|microecta) dependencies=(microfta) ;;
-  microecta-generator) dependencies=(microfta microfta-generator microecta) ;;
-  microlta) dependencies=(microfta microecta) ;;
-  microlta-generator) dependencies=(microfta microfta-generator microecta microecta-generator microlta) ;;
+  microcfta) dependencies=() ;;
+  microcfta-generator) dependencies=(microcfta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
 
@@ -76,7 +72,7 @@ echo "=== Checking $package-$version ==="
   cd "$package"
   cabal check
 )
-cabal test --builddir="$release_build_dir" "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
+cabal test --builddir="$release_build_dir" "$package" -O2 --ghc-options=-Werror --test-show-details=direct
 if [[ ${#dependencies[@]} -gt 0 ]]; then
   documentation_dependencies=()
   for dependency in "${dependencies[@]}"; do
@@ -95,7 +91,7 @@ if [[ ${#sdists[@]} -ne 1 || ${#docs[@]} -ne 1 ]]; then
   exit 1
 fi
 
-release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microecta-release.XXXXXX")"
+release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microcfta-release.XXXXXX")"
 trap 'rm -rf "$release_tmp"' EXIT
 tar -xzf "${sdists[0]}" -C "$release_tmp"
 
@@ -130,7 +126,7 @@ if [[ ${#dependencies[@]} -gt 0 ]]; then
 
   (
     cd "$release_tmp"
-    cabal test "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test "$package" -O2 --ghc-options=-Werror --test-show-details=direct
   )
 else
   (
