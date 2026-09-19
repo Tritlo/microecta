@@ -103,7 +103,6 @@ library
     Data.CFTA.Template
 
   other-modules:
-    Data.CFTA.Internal.Pretty
     Data.CFTA.Internal.Tree
 
   build-depends:

@@ -78,21 +78,12 @@ benchmarks =
         forceNode $ reduceFully (filterListIntSize3 i)
     , Bench "enumerate/reduced-filter-maybe-int-size-2" 80 $ \i ->
         forceInt $ length (take 64 (terms (reduceFully (filterMaybeIntSize2 i))))
-    , Bench "sort/path-eclasses/trie/small" 120 $ \i ->
-        forcePathEClasses $
-            sortBy (compare `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/small" 120 $ \i ->
         forcePathEClasses $
             sort (selectPathOrderInput smallPathOrderInputs i)
-    , Bench "sort/path-eclasses/trie/shared-prefix" 40 $ \i ->
-        forcePathEClasses $
-            sortBy (compare `on` getPathTrie) (selectPathOrderInput sharedPrefixPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/shared-prefix" 40 $ \i ->
         forcePathEClasses $
             sort (selectPathOrderInput sharedPrefixPathOrderInputs i)
-    , Bench "sort/path-eclasses/trie/divergent-branch" 120 $ \i ->
-        forcePathEClasses $
-            sortBy (compare `on` getPathTrie) (selectPathOrderInput divergentBranchPathOrderInputs i)
     , Bench "sort/path-eclasses/cached/divergent-branch" 120 $ \i ->
         forcePathEClasses $
             sort (selectPathOrderInput divergentBranchPathOrderInputs i)

@@ -81,17 +81,6 @@ spec = do
         it "fromPathTrie and toPathTrie are inverses" $ do
             property $ \pt -> toPathTrie (fromPathTrie pt) == pt
 
-        it "comparing path trie is same as comparing list of paths" $ do
-            property $ \ps1 ps2 ->
-                not (isContradicting [ps1] || isContradicting [ps2]) ==>
-                    compare (toPathTrie $ nub ps1) (toPathTrie $ nub ps2)
-                        == compare (sort $ nub ps1) (sort $ nub ps2)
-
-        it "compares a later sibling before a deeper child" $ do
-            let left = toPathTrie [path [0, 1], path [0, 2]]
-                right = toPathTrie [path [0, 1], path [1]]
-            compare left right `shouldBe` LT
-
         it "PathTrie-based hasSubsumingMember same as list-based implementation" $ do
             property $ \pt1 pt2 ->
                 let pec1 = PathEClass (fromPathTrie pt1)
@@ -99,12 +88,6 @@ spec = do
                  in hasSubsumingMember pec1 pec2 == hasSubsumingMemberListBased (unPathEClass pec1) (unPathEClass pec2)
 
     describe "PathEClass" $ do
-        it "cached path ordering agrees with trie ordering" $ do
-            property $ \pt1 pt2 ->
-                let pec1 = PathEClass (fromPathTrie pt1)
-                    pec2 = PathEClass (fromPathTrie pt2)
-                 in compare pec1 pec2 == compare pt1 pt2
-
         it "both ways of getting list of paths from a PathEClass are identical" $ do
             property $ \pt ->
                 let paths = fromPathTrie pt

@@ -53,3 +53,5 @@ remains a separate ECTA-only package.
 - `terms` truncates at recursion and lists an unconstrained node through
   the shared enumerator, so each such term appears once.
 - The term-search application layer is not part of the library.
+- The `Pretty` class and the path-trie `Ord` instance are gone; `show` the
+  constraint, or compare equality classes by their path lists.

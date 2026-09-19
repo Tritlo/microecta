@@ -162,7 +162,7 @@ lens getter setter f s = setter s <$> f (getter s)
 
 -- | Equality obligation that has not yet reached the node it constrains.
 data SuspendedConstraint = SuspendedConstraint !PathTrie !UVar
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Show)
 
 -- | Remaining paths for a suspended equality obligation.
 scGetPathTrie :: SuspendedConstraint -> PathTrie
@@ -196,7 +196,7 @@ data UVarValue symbol constraint
       UVarEnumerated !(TermFragment symbol)
     | -- | UVar was merged into another representative and should no longer be used.
       UVarEliminated
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Show)
 
 intersectUVarValue ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
@@ -230,7 +230,7 @@ data EnumerationState symbol constraint = EnumerationState
     , _obligations :: [(constraint, TermFragment symbol)]
     -- ^ Constraints with a 'residual', each with the fragment it guards.
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Show)
 
 -- | Lens-compatible accessor for the fresh UVar supply.
 uvarCounter ::
