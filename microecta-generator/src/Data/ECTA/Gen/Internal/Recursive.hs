@@ -30,6 +30,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
@@ -52,7 +53,7 @@ cardinality, and ranks are size-major, so bounding the language with
 'boundedStatic' keeps every rank it already had.
 -}
 data Recursive a = Recursive
-    { recursiveSupport :: Node Symbol
+    { recursiveSupport :: Node Symbol EqConstraints
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     interpret the same recursive declaration without forcing this field.
     A support observer builds it once when needed.

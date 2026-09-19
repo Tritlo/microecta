@@ -55,6 +55,7 @@ import Data.Bifunctor (first)
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA.Equality as ECTA.Core
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Witness (Witness)
@@ -332,7 +333,7 @@ data CompiledSupport
     | -- | A pruned LTA retains Boolean equalities interpreted by the symbolic ranker.
       SymbolicSupport !Automaton
     | -- | A grouped relational plan produced native hash-consed ECTA support.
-      RelationalSupport !(ECTA.Core.Node Symbol)
+      RelationalSupport !(ECTA.Core.Node Symbol EqConstraints)
 
 -- | Solver-checked support paired with its pure ranked language and shrinks.
 data Compiled a = Compiled

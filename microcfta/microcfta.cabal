@@ -77,10 +77,7 @@ library
     Data.CFTA.Equality
     Data.CFTA.Equality.Constraints
     Data.CFTA.Equality.Enumeration
-    Data.CFTA.Equality.FTA
-    Data.CFTA.Equality.Node
     Data.CFTA.Equality.Operations
-    Data.CFTA.Equality.Template
     Data.CFTA.Example.TermSearch.Dataset
     Data.CFTA.Example.TermSearch.TermSearch
     Data.CFTA.Example.TermSearch.Type

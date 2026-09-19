@@ -10,8 +10,6 @@ import Data.List (subsequences, (\\))
 import Test.QuickCheck
 
 import Data.CFTA.Equality
-import Data.CFTA.Equality.Constraints
-import Data.CFTA.Equality.Node
 import Data.CFTA.Symbol
 
 -----------------------------------------------------------------------------------------------
@@ -39,7 +37,7 @@ recursive automata. That gap is why a root 'Mu' enumerating to the empty
 language went unnoticed; those cases are covered by explicit examples in
 "Data.CFTA.EqualitySpec" instead.
 -}
-instance Arbitrary (Node Symbol) where
+instance Arbitrary (Node Symbol EqConstraints) where
     arbitrary = capSize maxNodeDepth $ sized $ \_n -> do
         -- Edge arity, not the size parameter: the size drives depth, and the
         -- branching factor is kept small so denotation counts stay tractable.
@@ -65,13 +63,13 @@ testEdgeTypes =
 testConstants :: [Symbol]
 testConstants = map fst $ filter ((== 0) . snd) testEdgeTypes
 
-randPathPair :: [Node Symbol] -> Gen [Path]
+randPathPair :: [Node Symbol EqConstraints] -> Gen [Path]
 randPathPair ns = do
     p1 <- randPath ns
     p2 <- randPath ns
     return [p1, p2]
 
-randPath :: [Node Symbol] -> Gen Path
+randPath :: [Node Symbol EqConstraints] -> Gen Path
 randPath [] = return EmptyPath
 randPath ns = do
     i <- chooseInt (0, length ns - 1)
@@ -82,7 +80,7 @@ randPath ns = do
             if b then return (path [i]) else ConsPath i <$> randPath ns'
         _ -> error "randPath: generated child is not an ordinary node"
 
-instance Arbitrary (Edge Symbol) where
+instance Arbitrary (Edge Symbol EqConstraints) where
     arbitrary =
         sized $ \n -> case n of
             0 -> Edge <$> elements testConstants <*> pure []
@@ -93,7 +91,7 @@ instance Arbitrary (Edge Symbol) where
                 ps <- replicateM numConstraintPairs (randPathPair ns)
                 return $ mkEdge sym ns (mkEqConstraints ps)
 
-    shrink e = mkEdge (edgeSymbol e) <$> (mapM shrink (edgeChildren e)) <*> pure (edgeEcs e)
+    shrink e = mkEdge (edgeSymbol e) <$> (mapM shrink (edgeChildren e)) <*> pure (edgeConstraint e)
 
 instance Arbitrary (Template Symbol) where
     arbitrary = capSize maxNodeDepth $ sized $ \n ->

@@ -12,8 +12,6 @@ import System.Environment (getArgs)
 import Text.Printf (printf)
 
 import Data.CFTA.Equality
-import Data.CFTA.Equality.Constraints
-import Data.CFTA.Equality.Operations (reduceEqConstraints)
 import Data.CFTA.Example.TermSearch.Dataset (typeToFta)
 import Data.CFTA.Example.TermSearch.TermSearch (filterType, reduceFully)
 import Data.CFTA.Example.TermSearch.Type (TypeSkeleton (..))
@@ -110,10 +108,10 @@ benchmarks =
             sort (selectPathOrderInput divergentBranchPathOrderInputs i)
     ]
 
-forceNode :: Node Symbol -> IO Int
+forceNode :: Node Symbol EqConstraints -> IO Int
 forceNode n = forceInt (nodeCount n + edgeCount n)
 
-forceNodes :: [Node Symbol] -> IO Int
+forceNodes :: [Node Symbol EqConstraints] -> IO Int
 forceNodes = forceInt . sum . map (\n -> nodeCount n + edgeCount n)
 
 forceEqConstraints :: EqConstraints -> IO Int
@@ -225,25 +223,25 @@ legacyComparePathTrieChildren ((i1, pt1) : rest1) ((i2, pt2) : rest2) =
             EQ -> legacyComparePathTrieChildren rest1 rest2
             result -> result
 
-typeSearchNode :: Node Symbol
+typeSearchNode :: Node Symbol EqConstraints
 typeSearchNode =
     appNode
         (appNode (monoFunctionScope 0) (monoArgumentScope 0))
         (monoTermsOfSize 0 2)
 
-filterMaybeIntSize2 :: Int -> Node Symbol
+filterMaybeIntSize2 :: Int -> Node Symbol EqConstraints
 filterMaybeIntSize2 i =
     filterType
         (monoTermsOfSize i 2)
         (typeToFta $ TCons "Maybe" [TCons "Int" []])
 
-filterListIntSize3 :: Int -> Node Symbol
+filterListIntSize3 :: Int -> Node Symbol EqConstraints
 filterListIntSize3 i =
     filterType
         (monoTermsOfSize i 3)
         (typeToFta $ TCons "List" [TCons "Int" []])
 
-monoTermsOfSize :: Int -> Int -> Node Symbol
+monoTermsOfSize :: Int -> Int -> Node Symbol EqConstraints
 monoTermsOfSize salt size = union (go size)
   where
     go 0 = []
@@ -253,7 +251,7 @@ monoTermsOfSize salt size = union (go size)
         | i <- [1 .. n - 1]
         ]
 
-appNode :: Node Symbol -> Node Symbol -> Node Symbol
+appNode :: Node Symbol EqConstraints -> Node Symbol EqConstraints -> Node Symbol EqConstraints
 appNode f x =
     Node
         [ mkEdge
@@ -267,7 +265,7 @@ appNode f x =
             )
         ]
 
-monoArgumentScope :: Int -> Node Symbol
+monoArgumentScope :: Int -> Node Symbol EqConstraints
 monoArgumentScope salt =
     Node
         [ constFunc (named "x" salt) (typeConst "Int")
@@ -275,7 +273,7 @@ monoArgumentScope salt =
         , constFunc (named "xs" salt) (mkDatatype "List" [typeConst "Int"])
         ]
 
-monoFunctionScope :: Int -> Node Symbol
+monoFunctionScope :: Int -> Node Symbol EqConstraints
 monoFunctionScope salt =
     Node
         [ constFunc (named "idInt" salt) (arrowType intType intType)
@@ -288,13 +286,13 @@ monoFunctionScope salt =
 named :: String -> Int -> Symbol
 named prefix salt = Symbol $ Text.pack (prefix ++ show salt)
 
-intType :: Node Symbol
+intType :: Node Symbol EqConstraints
 intType = typeConst "Int"
 
-maybeIntType :: Node Symbol
+maybeIntType :: Node Symbol EqConstraints
 maybeIntType = mkDatatype "Maybe" [intType]
 
-listIntType :: Node Symbol
+listIntType :: Node Symbol EqConstraints
 listIntType = mkDatatype "List" [intType]
 
 congruencePathSets :: Int -> [[Path]]
@@ -315,33 +313,33 @@ wideSparseConstraints =
         | i <- [0 .. 15]
         ]
 
-finiteChoiceNode :: Int -> Node Symbol
+finiteChoiceNode :: Int -> Node Symbol EqConstraints
 finiteChoiceNode salt =
     Node
         [ Edge (named "f" salt) [choiceAB salt, choiceAB salt]
         , Edge (named "g" salt) [choiceAB salt, choiceAB salt]
         ]
 
-constrainedChoiceNode :: Int -> Node Symbol
+constrainedChoiceNode :: Int -> Node Symbol EqConstraints
 constrainedChoiceNode salt =
     Node
         [ mkEdge (named "f" salt) [choiceAB salt, choiceAB salt] (mkEqConstraints [[path [0], path [1]]])
         , Edge (named "g" salt) [choiceAB salt, choiceAB salt]
         ]
 
-choiceAB :: Int -> Node Symbol
+choiceAB :: Int -> Node Symbol EqConstraints
 choiceAB salt = Node [Edge (named "a" salt) [], Edge (named "b" salt) []]
 
 recursivePathConstraints :: EqConstraints
 recursivePathConstraints = mkEqConstraints [[path [0, 0, 0, 0], path [1, 0, 0]]]
 
-recursivePathNodes :: Int -> [Node Symbol]
+recursivePathNodes :: Int -> [Node Symbol EqConstraints]
 recursivePathNodes salt = [infiniteFNode salt, infiniteFNode salt]
 
-infiniteFNode :: Int -> Node Symbol
+infiniteFNode :: Int -> Node Symbol EqConstraints
 infiniteFNode salt = createMu $ \r -> Node [Edge (named "f" salt) [r]]
 
-recursiveTypeA :: Int -> Node Symbol
+recursiveTypeA :: Int -> Node Symbol EqConstraints
 recursiveTypeA salt =
     createMu $ \r ->
         Node
@@ -351,7 +349,7 @@ recursiveTypeA salt =
             , Edge "List" [r]
             ]
 
-recursiveTypeB :: Int -> Node Symbol
+recursiveTypeB :: Int -> Node Symbol EqConstraints
 recursiveTypeB salt =
     createMu $ \r ->
         Node

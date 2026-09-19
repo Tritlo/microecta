@@ -20,7 +20,7 @@ import Text.Printf (printf)
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality
-import qualified Data.CFTA.Equality.FTA as ECTAFTA
+import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Symbol (Symbol (Symbol))
 import Data.LTA (
     Automaton,
@@ -74,8 +74,8 @@ sizes :: [Tree.Tree a] -> IO Int
 sizes = evaluate . sum . map (length . Tree.flatten)
 
 -- | The plain FTA view of an ECTA with its constraints dropped.
-plainView :: Node Symbol -> FTA.PlainFTA ECTAFTA.ECTAState Symbol
-plainView node = either (error . show) void (ECTAFTA.toFTA node)
+plainView :: Node Symbol EqConstraints -> FTA.PlainFTA Interned.InternedState Symbol
+plainView node = either (error . show) void (Interned.toFTA node)
 
 benchmarks :: [Bench]
 benchmarks =
@@ -94,7 +94,7 @@ benchmarks =
     prepared name repeats build force enumerate =
         Bench name repeats (\i -> let built = build i in built <$ evaluate (force built)) (sizes . enumerate)
 
-expressionsMu :: Int -> Node Symbol
+expressionsMu :: Int -> Node Symbol EqConstraints
 expressionsMu salt = createMu $ \r ->
     Node
         [ Edge (named "zero" salt) []
@@ -104,7 +104,7 @@ expressionsMu salt = createMu $ \r ->
         , Edge (named "mul" salt) [r, r]
         ]
 
-boundedExpressions :: Int -> Node Symbol
+boundedExpressions :: Int -> Node Symbol EqConstraints
 boundedExpressions = unfoldBounded 4 . expressionsMu
 
 -- | The expression language as an unconstrained LTA; guards are decided without a solver.
@@ -136,7 +136,7 @@ named :: String -> Int -> Symbol
 named prefix salt = Symbol $ Text.pack (prefix ++ show salt)
 
 -- | Two levels of binary choice over two leaves: 128 terms on five nodes.
-finiteChoiceNode :: Int -> Node Symbol
+finiteChoiceNode :: Int -> Node Symbol EqConstraints
 finiteChoiceNode salt =
     Node
         [ Edge (named "f" salt) [pairs, pairs]
@@ -149,5 +149,5 @@ finiteChoiceNode salt =
             , Edge (named "d" salt) [choiceAB salt, choiceAB salt]
             ]
 
-choiceAB :: Int -> Node Symbol
+choiceAB :: Int -> Node Symbol EqConstraints
 choiceAB salt = Node [Edge (named "a" salt) [], Edge (named "b" salt) []]

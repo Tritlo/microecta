@@ -1,15 +1,47 @@
 {-# LANGUAGE OverloadedStrings #-}
--- For the 'Pathable' instance for 'Node'
-{-# OPTIONS_GHC -Wno-orphans #-}
 
-{- | Core ECTA operations.
+{- | Equality-constrained automata and their operations.
 
-This module contains traversal, intersection, union, reduction, and
-constraint-propagation logic. Most users should import "Data.CFTA.Equality" instead; the
-module is exposed so downstream code can reach lower-level helpers when needed.
-Its exports are not covered by the PVP contract of the package.
+The node and edge types are the interned representation from
+"Data.CFTA.Interned.Type" with the constraint fixed to 'EqConstraints'. This
+module re-exports that representation, specializes the shared engine for the
+interned 'Symbol' alphabet, and adds the operations that interpret path
+equalities: reduction, concrete membership, and template restriction. Most
+users import "Data.CFTA.Equality" instead.
+
+Each specialized operation checks at run time whether the symbol is the
+interned 'Symbol' and, if so, calls the engine at that concrete type. Both
+branches compute the same value; the split exists so GHC specializes the
+INLINEABLE engine code for the common alphabet, which the benchmarks rely on.
 -}
 module Data.CFTA.Equality.Operations (
+    -- * Representation
+    RecNodeId (..),
+    Edge (InternedEdge, Edge),
+    UninternedEdge (..),
+    edgeChildren,
+    edgeConstraint,
+    edgeSymbol,
+    Node (EmptyNode, InternedNode, InternedMu, Rec, Node, Mu),
+    InternedNode (..),
+    InternedMu (..),
+    UninternedNode (..),
+    IntersectId,
+    pattern IntersectId,
+    nodeIdentity,
+    numNestedMu,
+    freeVars,
+    shape,
+    mkNode,
+    mkEdge,
+    emptyEdge,
+    setChildren,
+    modifyNode,
+    createMu,
+    createMuDontCleanup,
+    matchMu,
+    substFree,
+
     -- * Traversal
     nodeMapChildren,
     pathsMatching,
@@ -53,12 +85,12 @@ module Data.CFTA.Equality.Operations (
     reducePartially,
     reduceEdgeIntersection,
     reduceEqConstraints,
+    termsMatching,
 
     -- * Debugging
     getSubnodeById,
 ) where
 
-import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
 import Data.List (inits, tails)
 import qualified Data.Tree as Tree
@@ -67,13 +99,6 @@ import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
 import Data.CFTA.Equality.Constraints
-import Data.CFTA.Equality.Node
-import qualified Data.CFTA.Interned.Operations as Common
-import qualified Data.CFTA.Path as Path
-import Data.CFTA.Symbol (Symbol)
-
-import Data.CFTA.Interned.Cache (Id)
-
 import Data.CFTA.Interned.Memo (
     MemoCache,
     TypeableMemoCache,
@@ -82,16 +107,157 @@ import Data.CFTA.Interned.Memo (
     newMemoCache,
     newTypeableMemoCache,
  )
+import Data.CFTA.Interned.Operations (
+    crush,
+    edgeCount,
+    getSubnodeById,
+    intersectEdge,
+    mapNodes,
+    maxIndegree,
+    nodeCount,
+    onNormalNodes,
+ )
+import qualified Data.CFTA.Interned.Operations as Common
+import Data.CFTA.Interned.Type (
+    Edge (InternedEdge),
+    InternedMu (..),
+    InternedNode (..),
+    IntersectId,
+    Node (EmptyNode, InternedMu, InternedNode, Rec),
+    RecNodeId (..),
+    UninternedEdge (..),
+    UninternedNode (..),
+    edgeChildren,
+    edgeConstraint,
+    edgeSymbol,
+    freeVars,
+    nodeIdentity,
+    numNestedMu,
+    shape,
+    pattern IntersectId,
+ )
+import qualified Data.CFTA.Interned.Type as Type (
+    createMu,
+    createMuDontCleanup,
+    emptyEdge,
+    matchMu,
+    mkEdge,
+    mkNode,
+    modifyNode,
+    setChildren,
+    substFree,
+ )
+import Data.CFTA.Path (pathsMatching, requirePath, requirePathList)
+import Data.CFTA.Symbol (Symbol)
+import Data.CFTA.Template (Template (..), restrict)
 
 ------------------------------------------------------------------------------------
 
 -----------------------
------- Traversal
+------ Specialized construction
 -----------------------
 
--- | Paths to every reachable node that satisfies a predicate; see 'Path.pathsMatching'.
-pathsMatching :: (Node symbol -> Bool) -> Node symbol -> [Path]
-pathsMatching f = Path.pathsMatching (f . fromInterned) . toInterned
+-- | Construct or inspect one unconstrained edge.
+pattern Edge :: (Hashable symbol, Typeable symbol) => symbol -> [Node symbol EqConstraints] -> Edge symbol EqConstraints
+pattern Edge symbol children <- InternedEdge _ (UninternedEdge symbol children _)
+  where
+    Edge symbol children = mkEdge symbol children EmptyConstraints
+
+-- | Construct or inspect a set of alternatives.
+pattern Node :: (Typeable symbol) => [Edge symbol EqConstraints] -> Node symbol EqConstraints
+pattern Node edges <- InternedNode (MkInternedNode _ edges _ _)
+  where
+    Node edges = mkNode edges
+
+-- | Construct or inspect a recursive binder.
+pattern Mu ::
+    (Hashable symbol, Typeable symbol) =>
+    (Node symbol EqConstraints -> Node symbol EqConstraints) -> Node symbol EqConstraints
+pattern Mu body <- (matchMu -> Just body)
+  where
+    Mu = createMu
+
+{-# COMPLETE Node, EmptyNode, Mu, Rec #-}
+{-# COMPLETE Edge #-}
+
+-- | Build a canonical node of equality-constrained edges.
+mkNode :: forall symbol. (Typeable symbol) => [Edge symbol EqConstraints] -> Node symbol EqConstraints
+mkNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.mkNode @Symbol @EqConstraints
+    Nothing -> Type.mkNode
+
+-- | Build an edge with path equalities.
+mkEdge ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    symbol -> [Node symbol EqConstraints] -> EqConstraints -> Edge symbol EqConstraints
+mkEdge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.mkEdge @Symbol @EqConstraints
+    Nothing -> Type.mkEdge
+
+-- | Build an edge whose child language is empty.
+emptyEdge :: forall symbol. (Hashable symbol, Typeable symbol) => symbol -> Edge symbol EqConstraints
+emptyEdge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.emptyEdge @Symbol @EqConstraints
+    Nothing -> Type.emptyEdge
+
+-- | Replace children and retain the edge constraint.
+setChildren ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    Edge symbol EqConstraints -> [Node symbol EqConstraints] -> Edge symbol EqConstraints
+setChildren = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.setChildren @Symbol @EqConstraints
+    Nothing -> Type.setChildren
+
+-- | Edit alternatives and retain an unchanged node.
+modifyNode ::
+    forall symbol.
+    (Typeable symbol) =>
+    Node symbol EqConstraints ->
+    ([Edge symbol EqConstraints] -> [Edge symbol EqConstraints]) ->
+    Node symbol EqConstraints
+modifyNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.modifyNode @Symbol @EqConstraints
+    Nothing -> Type.modifyNode
+
+-- | Intern a recursive binder and remove a redundant binder.
+createMu ::
+    forall symbol.
+    (Typeable symbol) => (Node symbol EqConstraints -> Node symbol EqConstraints) -> Node symbol EqConstraints
+createMu = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.createMu @Symbol @EqConstraints
+    Nothing -> Type.createMu
+
+-- | Intern a recursive binder without removing it.
+createMuDontCleanup ::
+    forall symbol.
+    (Typeable symbol) => (Node symbol EqConstraints -> Node symbol EqConstraints) -> Node symbol EqConstraints
+createMuDontCleanup = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.createMuDontCleanup @Symbol @EqConstraints
+    Nothing -> Type.createMuDontCleanup
+
+-- | Inspect a recursive binder through its substitution function.
+matchMu ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol EqConstraints ->
+    Maybe (Node symbol EqConstraints -> Node symbol EqConstraints)
+matchMu = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.matchMu @Symbol @EqConstraints
+    Nothing -> Type.matchMu
+
+-- | Substitute one free recursive variable.
+substFree ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    RecNodeId ->
+    Node symbol EqConstraints ->
+    Node symbol EqConstraints ->
+    Node symbol EqConstraints
+substFree = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> Type.substFree @Symbol @EqConstraints
+    Nothing -> Type.substFree
 
 ------------
 ------ Membership
@@ -117,29 +283,13 @@ equalitiesSatisfied equalities t = all eclassSatisfied (unsafeGetEclasses equali
         go !y (!z : zs) = (y == z) && go y zs
     {-# INLINE allTheSame #-}
 
-----------------------
------- Path operations
-----------------------
+-- | Recognize through the common traversal and the equality interpreter.
+nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Tree.Tree symbol -> Bool
+nodeRepresents = Common.nodeRepresentsWith equalitiesSatisfied
 
--- | Restrict an ECTA to terms that contain the given path.
-requirePath :: forall symbol. (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node symbol
-requirePath = coerce (Path.requirePath @symbol @EqConstraints)
-
--- | Variant of 'requirePath' for a child list.
-requirePathList :: forall symbol. (Hashable symbol, Typeable symbol) => Path -> [Node symbol] -> [Node symbol]
-requirePathList = coerce (Path.requirePathList @symbol @EqConstraints)
-
-instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symbol) where
-    type Emptyable (Node symbol) = Node symbol
-    getPath p = fromInterned . getPath p . toInterned
-    getAllAtPath p = map fromInterned . getAllAtPath p . toInterned
-    modifyAtPath f p = fromInterned . modifyAtPath (toInterned . f . fromInterned) p . toInterned
-
-instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symbol) where
-    type Emptyable (Node symbol) = Node symbol
-    getPath p = fromInterned . getPath p . map toInterned
-    getAllAtPath p = map fromInterned . getAllAtPath p . map toInterned
-    modifyAtPath f p = map fromInterned . modifyAtPath (toInterned . f . fromInterned) p . map toInterned
+-- | Recognize one edge through the common traversal.
+edgeRepresents :: (Hashable symbol, Typeable symbol) => Edge symbol EqConstraints -> Tree.Tree symbol -> Bool
+edgeRepresents = Common.edgeRepresentsWith equalitiesSatisfied
 
 ------------------------------------
 ------ Reduction
@@ -152,10 +302,10 @@ constrained edge can narrow a child after an outer edge has already read it.
 Iterate to a fixpoint, as 'fixUnbounded' does, when every
 constrained position must agree with every other.
 -}
-reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
 reducePartially = reducePartially' EmptyConstraints
 
-symbolReducePartiallyCache :: MemoCache (EqConstraints, Node Symbol) (Node Symbol)
+symbolReducePartiallyCache :: MemoCache (EqConstraints, Node Symbol EqConstraints) (Node Symbol EqConstraints)
 symbolReducePartiallyCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolReducePartiallyCache #-}
 
@@ -163,12 +313,14 @@ genericReducePartiallyCache :: TypeableMemoCache
 genericReducePartiallyCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReducePartiallyCache #-}
 
-reducePartially' :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Node symbol -> Node symbol
+reducePartially' ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) => EqConstraints -> Node symbol EqConstraints -> Node symbol EqConstraints
 reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReducePartiallyCache go constraints node
     Nothing -> memo2TypeableWith genericReducePartiallyCache go constraints node
   where
-    go :: EqConstraints -> Node symbol -> Node symbol
+    go :: EqConstraints -> Node symbol EqConstraints -> Node symbol EqConstraints
     go _ EmptyNode = EmptyNode
     go _ (Mu n) = Mu n
     go inheritedEcs n@(Node _) = modifyNode n $ \es ->
@@ -177,8 +329,9 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
             es
     go _ (Rec _) = error "reducePartially: unexpected Rec"
 
-    reduceChildren :: EqConstraints -> Edge symbol -> Edge symbol
-    reduceChildren inheritedEcs e = setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeEcs e) (edgeChildren e)
+    reduceChildren :: EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
+    reduceChildren inheritedEcs e =
+        setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeConstraint e) (edgeChildren e)
 
     -- \| Reduce children with inherited constraints
     --
@@ -202,13 +355,13 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- Now, we can see that these two constraints contain a contradiction that requires `0=0.0=0.1`, so we can drop the edge.
     --
     -- TODO: this approach does not solve every recursive cycle.
-    reduceWithInheritedEcs :: EqConstraints -> [Node symbol] -> [Node symbol]
+    reduceWithInheritedEcs :: EqConstraints -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
 
 -- | Reduce an edge's children using inherited constraints from ancestors.
-symbolReduceEdgeIntersectionCache :: MemoCache (EqConstraints, Edge Symbol) (Edge Symbol)
+symbolReduceEdgeIntersectionCache :: MemoCache (EqConstraints, Edge Symbol EqConstraints) (Edge Symbol EqConstraints)
 symbolReduceEdgeIntersectionCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolReduceEdgeIntersectionCache #-}
 
@@ -218,30 +371,36 @@ genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 
 -- | Narrow an edge's children by its own and the inherited equality constraints.
 reduceEdgeIntersection ::
-    forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
+    forall symbol.
+    (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
 reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
     Nothing -> memo2TypeableWith genericReduceEdgeIntersectionCache go constraints edge
   where
-    go :: EqConstraints -> Edge symbol -> Edge symbol
+    go :: EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
     go ecs e =
         mkEdge
             (edgeSymbol e)
-            (reduceEqConstraints (edgeEcs e) ecs (edgeChildren e))
-            (edgeEcs e)
+            (reduceEqConstraints (edgeConstraint e) ecs (edgeChildren e))
+            (edgeConstraint e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
 {- | Apply local and inherited equality constraints to a child list.
 Nested constraints can require further passes. This pass is not idempotent.
 -}
 reduceEqConstraints ::
-    forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    EqConstraints ->
+    EqConstraints ->
+    [Node symbol EqConstraints] ->
+    [Node symbol EqConstraints]
 reduceEqConstraints = go
   where
-    propagateEmptyNodes :: [Node symbol] -> [Node symbol]
+    propagateEmptyNodes :: [Node symbol EqConstraints] -> [Node symbol EqConstraints]
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns
 
-    go :: EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
+    go :: EqConstraints -> EqConstraints -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
     go EmptyConstraints EmptyConstraints origNs = origNs
     go ecs inheritedEcs origNs
         | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
@@ -252,11 +411,11 @@ reduceEqConstraints = go
         -- \| TODO: Replace with a "requirePathTrie"
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
 
-        intersectList :: [Node symbol] -> Node symbol
+        intersectList :: [Node symbol EqConstraints] -> Node symbol EqConstraints
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
-        reduceEClass :: PathEClass -> [Node symbol] -> [Node symbol]
+        reduceEClass :: PathEClass -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
         reduceEClass pec ns =
             foldr
                 (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
@@ -265,7 +424,7 @@ reduceEqConstraints = go
           where
             ps = unPathEClass pec
 
-        toIntersect :: [Node symbol] -> [Path] -> [Node symbol]
+        toIntersect :: [Node symbol EqConstraints] -> [Path] -> [Node symbol EqConstraints]
         toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
@@ -273,120 +432,98 @@ reduceEqConstraints = go
         dropOnes :: [a] -> [[a]]
         dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
 
+{- | Keep exactly the terms in a node that match a template.
+
+The graph is restricted and then reduced, so a 'Hole' at a constrained
+position can be narrowed by a concrete pattern at an equal one.
+-}
+termsMatching ::
+    (Hashable symbol, Typeable symbol) => Template symbol -> Node symbol EqConstraints -> Node symbol EqConstraints
+termsMatching Hole = id
+termsMatching (AnyPrefix []) = id
+termsMatching template = reducePartially . restrict template
+
 ---------------
 --- Common engine specializations
 ---------------
 
-{- The wrappers below specialize the shared engine to 'EqConstraints'. Each
-one checks at run time whether the symbol is the interned 'Symbol' and, if
-so, calls the engine at that concrete type. Both branches compute the same
-value; the split exists so GHC specializes the INLINEABLE engine code for the
-common alphabet, which the common-engine benchmarks rely on. -}
-
 -- | Change the immediate alternatives.
 nodeMapChildren ::
-    forall symbol. (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    (Edge symbol EqConstraints -> Edge symbol EqConstraints) ->
+    Node symbol EqConstraints ->
+    Node symbol EqConstraints
 nodeMapChildren = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.nodeMapChildren @Symbol @EqConstraints)
-    Nothing -> coerce (Common.nodeMapChildren @symbol @EqConstraints)
-
--- | Transform a shared graph.
-mapNodes ::
-    forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
-mapNodes = coerce (Common.mapNodes @symbol @EqConstraints)
-
--- | Fold a graph with shared-node tracking.
-crush :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
-crush = coerce (Common.crush @symbol @EqConstraints @m)
-
--- | Apply a fold only to non-recursive nodes.
-onNormalNodes :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
-onNormalNodes = coerce (Common.onNormalNodes @symbol @EqConstraints @m)
+    Just HRefl -> Common.nodeMapChildren @Symbol @EqConstraints
+    Nothing -> Common.nodeMapChildren
 
 -- | Unfold one outer recursive binder.
-unfoldOuterRec :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+unfoldOuterRec ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
 unfoldOuterRec = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.unfoldOuterRec @Symbol @EqConstraints)
-    Nothing -> coerce (Common.unfoldOuterRec @symbol @EqConstraints)
+    Just HRefl -> Common.unfoldOuterRec @Symbol @EqConstraints
+    Nothing -> Common.unfoldOuterRec
 
 -- | Recover recursive binders from repeated unfoldings.
-refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
 refold = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.refold @Symbol @EqConstraints)
-    Nothing -> coerce (Common.refold @symbol @EqConstraints)
+    Just HRefl -> Common.refold @Symbol @EqConstraints
+    Nothing -> Common.refold
 
 -- | Read alternatives, unfolding one recursive binder if needed.
-nodeEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
+nodeEdges ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> [Edge symbol EqConstraints]
 nodeEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.nodeEdges @Symbol @EqConstraints)
-    Nothing -> coerce (Common.nodeEdges @symbol @EqConstraints)
+    Just HRefl -> Common.nodeEdges @Symbol @EqConstraints
+    Nothing -> Common.nodeEdges
 
 -- | Unfold at most the specified number of rounds.
-unfoldBounded :: forall symbol. (Hashable symbol, Typeable symbol) => Int -> Node symbol -> Node symbol
+unfoldBounded ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Int -> Node symbol EqConstraints -> Node symbol EqConstraints
 unfoldBounded = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.unfoldBounded @Symbol @EqConstraints)
-    Nothing -> coerce (Common.unfoldBounded @symbol @EqConstraints)
-
--- | Count reachable non-recursive nodes.
-nodeCount :: forall symbol. Node symbol -> Int
-nodeCount = coerce (Common.nodeCount @symbol @EqConstraints)
-
--- | Count alternatives of reachable non-recursive nodes.
-edgeCount :: forall symbol. Node symbol -> Int
-edgeCount = coerce (Common.edgeCount @symbol @EqConstraints)
-
--- | Find the largest alternative count.
-maxIndegree :: forall symbol. Node symbol -> Int
-maxIndegree = coerce (Common.maxIndegree @symbol @EqConstraints)
+    Just HRefl -> Common.unfoldBounded @Symbol @EqConstraints
+    Nothing -> Common.unfoldBounded
 
 -- | Forget the equality constraint on one edge.
-dropEdgeConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol
+dropEdgeConstraints ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol EqConstraints -> Edge symbol EqConstraints
 dropEdgeConstraints = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.dropEdgeConstraints @Symbol @EqConstraints)
-    Nothing -> coerce (Common.dropEdgeConstraints @symbol @EqConstraints)
+    Just HRefl -> Common.dropEdgeConstraints @Symbol @EqConstraints
+    Nothing -> Common.dropEdgeConstraints
 
 -- | Forget equality constraints throughout the graph.
-dropConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+dropConstraints ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
 dropConstraints = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.dropConstraints @Symbol @EqConstraints)
-    Nothing -> coerce (Common.dropConstraints @symbol @EqConstraints)
+    Just HRefl -> Common.dropConstraints @Symbol @EqConstraints
+    Nothing -> Common.dropConstraints
 
 -- | Intersect structure and conjoin path equalities.
-intersect :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol -> Node symbol
+intersect ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol EqConstraints -> Node symbol EqConstraints -> Node symbol EqConstraints
 intersect = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.intersect @Symbol @EqConstraints)
-    Nothing -> coerce (Common.intersect @symbol @EqConstraints)
-
--- | Intersect compatible constructor alternatives.
-intersectEdge :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Maybe (Edge symbol)
-intersectEdge = coerce (Common.intersectEdge @symbol @EqConstraints)
+    Just HRefl -> Common.intersect @Symbol @EqConstraints
+    Nothing -> Common.intersect
 
 -- | Remove implied alternatives.
-dropRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol] -> [Edge symbol]
+dropRedundantEdges ::
+    forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol EqConstraints] -> [Edge symbol EqConstraints]
 dropRedundantEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.dropRedundantEdges @Symbol @EqConstraints)
-    Nothing -> coerce (Common.dropRedundantEdges @symbol @EqConstraints)
+    Just HRefl -> Common.dropRedundantEdges @Symbol @EqConstraints
+    Nothing -> Common.dropRedundantEdges
 
 -- | Remove implied alternatives throughout the graph.
-withoutRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+withoutRedundantEdges ::
+    forall symbol. (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
 withoutRedundantEdges = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.withoutRedundantEdges @Symbol @EqConstraints)
-    Nothing -> coerce (Common.withoutRedundantEdges @symbol @EqConstraints)
+    Just HRefl -> Common.withoutRedundantEdges @Symbol @EqConstraints
+    Nothing -> Common.withoutRedundantEdges
 
 -- | Combine alternatives from several nodes.
-union :: forall symbol. (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
+union :: forall symbol. (Hashable symbol, Typeable symbol) => [Node symbol EqConstraints] -> Node symbol EqConstraints
 union = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> coerce (Common.union @Symbol @EqConstraints)
-    Nothing -> coerce (Common.union @symbol @EqConstraints)
-
--- | Find a non-recursive node by canonical identity.
-getSubnodeById :: forall symbol. Node symbol -> Id -> Maybe (Node symbol)
-getSubnodeById = coerce (Common.getSubnodeById @symbol @EqConstraints)
-
--- | Recognize through the common traversal and the equality interpreter.
-nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Tree.Tree symbol -> Bool
-nodeRepresents node = Common.nodeRepresentsWith equalitiesSatisfied (toInterned node)
-
--- | Recognize one edge through the common traversal.
-edgeRepresents :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> Tree.Tree symbol -> Bool
-edgeRepresents = coerce (Common.edgeRepresentsWith @symbol @EqConstraints equalitiesSatisfied)
+    Just HRefl -> Common.union @Symbol @EqConstraints
+    Nothing -> Common.union

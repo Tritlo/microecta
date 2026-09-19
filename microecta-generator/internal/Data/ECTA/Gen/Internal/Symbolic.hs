@@ -12,7 +12,7 @@ import Data.Typeable (Typeable)
 
 import Data.CFTA.Constraint (Constraint)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
+import Data.CFTA.Equality.Constraints (EqConstraints, Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
@@ -74,8 +74,8 @@ Only the selected term is constructed. No accepted-term table is retained.
 -}
 symbolicRanked ::
     (Ord symbol, Hashable symbol, Typeable symbol) =>
-    ECTA.Node symbol -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
-symbolicRanked = symbolicRankedWith interpret . ECTA.toInterned
+    ECTA.Node symbol EqConstraints -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
+symbolicRanked = symbolicRankedWith interpret
   where
     interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
 

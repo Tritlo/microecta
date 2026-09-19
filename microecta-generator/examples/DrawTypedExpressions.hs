@@ -40,7 +40,11 @@ drawSupport title generator = do
 
 -- | Assign local state names from typed labels and preserve all transitions.
 renderTree ::
-    Tree (Either (FTA.StateView (ECTA.Node Gen.InspectionSymbol)) (ECTA.Edge Gen.InspectionSymbol)) ->
+    Tree
+        ( Either
+            (FTA.StateView (ECTA.Node Gen.InspectionSymbol ECTA.EqConstraints))
+            (ECTA.Edge Gen.InspectionSymbol ECTA.EqConstraints)
+        ) ->
     Tree String
 renderTree tree = fmap (either renderState renderTransition) tree
   where
@@ -59,10 +63,10 @@ renderViewPath [] = "root"
 renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep the symbol and print equalities with child paths instead of trie internals.
-renderTransition :: ECTA.Edge Gen.InspectionSymbol -> String
+renderTransition :: ECTA.Edge Gen.InspectionSymbol ECTA.EqConstraints -> String
 renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equalities
   where
-    equalities = case subsumptionOrderedEclasses $ ECTA.edgeEcs transition of
+    equalities = case subsumptionOrderedEclasses $ ECTA.edgeConstraint transition of
         Nothing -> " [false]"
         Just [] -> ""
         Just classes ->

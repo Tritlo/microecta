@@ -29,6 +29,7 @@ module Data.ECTA.Gen.Internal.Inspect (
 import qualified Data.Map.Strict as Map
 
 import Data.CFTA.Equality (Node)
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Types
@@ -51,7 +52,7 @@ import qualified Data.Ranked.Internal.Size as Size
 A recursive generator's support is its @Mu@ node, which accepts members of
 every size: a size bound restricts the rank space, not the automaton.
 -}
-support :: ECTAGen gen a -> Either ECTAGenError (Node Symbol)
+support :: ECTAGen gen a -> Either ECTAGenError (Node Symbol EqConstraints)
 support (Transparent result) = staticSupport <$> result
 support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator

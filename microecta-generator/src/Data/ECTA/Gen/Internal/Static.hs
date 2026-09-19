@@ -47,6 +47,7 @@ import Data.Text (Text)
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Inspection
@@ -117,7 +118,7 @@ seqPlan outcomes =
 
 -- | One transparent ECTA with a matching indexed outcome language.
 data Static a = Static
-    { staticSupport :: Node Symbol
+    { staticSupport :: Node Symbol EqConstraints
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     use the outcome index without forcing this field. A support observer builds
     it when needed; finite combinators retain their support work as a thunk.
@@ -189,7 +190,7 @@ indexedStaticWithLabels label indexed =
 Sampling is uniform over accepted terms. The common plan supplies replay and
 structural shrinking. No term is decoded while this adapter is constructed.
 -}
-termStatic :: Node Symbol -> Ranked.Ranked (Tree.Tree Symbol) -> Static (Tree.Tree Symbol)
+termStatic :: Node Symbol EqConstraints -> Ranked.Ranked (Tree.Tree Symbol) -> Static (Tree.Tree Symbol)
 termStatic supportNode ranked =
     Static
         supportNode

@@ -15,8 +15,9 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
-import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeChildren, edgeEcs, edgeSymbol, mkEdge)
-import qualified Data.CFTA.Equality.Node as Core
+import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeChildren, edgeConstraint, edgeSymbol, mkEdge)
+import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Support
 
@@ -43,7 +44,7 @@ All fields are lazy. Reading counts or decoding ranks does not build it.
 -}
 data Inspection = Inspection
     { inspectionName :: Maybe Text
-    , inspectionGraph :: Node InspectionSymbol
+    , inspectionGraph :: Node InspectionSymbol EqConstraints
     }
     deriving (Show)
 
@@ -52,7 +53,7 @@ plainSymbol :: Symbol -> InspectionSymbol
 plainSymbol symbol = InspectionSymbol symbol Nothing
 
 -- | Copy an imported graph with its labels, constraints, and bound references.
-plainInspection :: Node Symbol -> Inspection
+plainInspection :: Node Symbol EqConstraints -> Inspection
 plainInspection root = Inspection Nothing $ State.evalState (visit Map.empty root) Map.empty
   where
     visit environment node = do
@@ -76,7 +77,7 @@ plainInspection root = Inspection Nothing $ State.evalState (visit Map.empty roo
                 pure copied
     copyEdge environment edge = do
         children <- traverse (visit environment) $ edgeChildren edge
-        pure $ mkEdge (plainSymbol $ edgeSymbol edge) children $ edgeEcs edge
+        pure $ mkEdge (plainSymbol $ edgeSymbol edge) children $ edgeConstraint edge
 
 -- | Preserve choice order and a name common to every alternative.
 choiceInspection :: [Inspection] -> Inspection

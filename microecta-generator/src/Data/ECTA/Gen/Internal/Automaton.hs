@@ -29,15 +29,23 @@ import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Equality (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
-import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality (
+    Edge,
+    Node,
+    edgeChildren,
+    edgeConstraint,
+    edgeSymbol,
+    freeVars,
+    intersect,
+    nodeEdges,
+    nodeIdentity,
+ )
 import Data.CFTA.Equality.Constraints (
     EqConstraints (EmptyConstraints),
     subsumptionOrderedEclasses,
     unPath,
     unPathEClass,
  )
-import Data.CFTA.Equality.Node (freeVars, nodeIdentity)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 import qualified Data.CFTA as FTA
@@ -54,7 +62,7 @@ Fails on an automaton with free recursive variables, which is not a closed
 language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
-automatonIndex :: Node Symbol -> Either ECTAGenError (SizeIndex (Tree.Tree Symbol))
+automatonIndex :: Node Symbol EqConstraints -> Either ECTAGenError (SizeIndex (Tree.Tree Symbol))
 automatonIndex root
     | not $ Set.null $ freeVars root = Left OpenAutomaton
     | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges
@@ -64,19 +72,19 @@ automatonIndex root
     reachable = reachableNodes root
 
 -- | Name an ordinary node or the empty language without forcing its identity.
-stateOf :: Node Symbol -> Maybe Int
+stateOf :: Node Symbol EqConstraints -> Maybe Int
 stateOf node
     | null (nodeEdges node) = Nothing
     | otherwise = Just $ nodeIdentity node
 
 -- | Expose the validated unconstrained rows to the common index compiler.
-ordinaryRows :: [Node Symbol] -> Map.Map (Maybe Int) [FTA.Transition (Maybe Int) Symbol ()]
+ordinaryRows :: [Node Symbol EqConstraints] -> Map.Map (Maybe Int) [FTA.Transition (Maybe Int) Symbol ()]
 ordinaryRows nodes = Map.fromList [(stateOf node, map transition $ nodeEdges node) | node <- nodes]
   where
     transition edge = FTA.Transition (edgeSymbol edge) (map stateOf $ edgeChildren edge) ()
 
 -- | Every node reachable from a root, one per interned identity.
-reachableNodes :: Node Symbol -> [Node Symbol]
+reachableNodes :: Node Symbol EqConstraints -> [Node Symbol EqConstraints]
 reachableNodes root = collect Map.empty [root]
   where
     collect seen [] = Map.elems seen
@@ -91,7 +99,7 @@ reachableNodes root = collect Map.empty [root]
         edges = nodeEdges node
 
 -- | Whether a node accepts any term at all.
-productive :: Node Symbol -> Bool
+productive :: Node Symbol EqConstraints -> Bool
 productive node
     | null (nodeEdges node) = False
     | otherwise = Map.member (stateOf node) $ Ordinary.minimumSizes $ ordinaryRows $ reachableNodes node
@@ -103,7 +111,7 @@ symbol and arity share a term exactly when every child position does, and a
 child position shares one exactly when the intersection of the two children
 is productive.
 -}
-ambiguous :: Node Symbol -> Bool
+ambiguous :: Node Symbol EqConstraints -> Bool
 ambiguous node =
     or
         [ overlapping left right
@@ -122,8 +130,8 @@ ambiguous node =
                 )
 
 -- | Whether an edge carries equality constraints.
-constrained :: Edge Symbol -> Bool
-constrained edge = case edgeEcs edge of
+constrained :: Edge Symbol EqConstraints -> Bool
+constrained edge = case edgeConstraint edge of
     EmptyConstraints -> False
     _ -> True
 
@@ -134,7 +142,7 @@ plans. Equal child positions select one term from the intersection of their
 languages. Nested equality paths and overlapping alternatives use symbolic
 equality contexts and intersection counts. Only a selected term is constructed.
 -}
-finiteAutomaton :: Node Symbol -> Either ECTAGenError (Static (Tree.Tree Symbol))
+finiteAutomaton :: Node Symbol EqConstraints -> Either ECTAGenError (Static (Tree.Tree Symbol))
 finiteAutomaton root =
     case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
@@ -153,14 +161,14 @@ finiteAutomaton root =
 
     buildAlternatives node
         | Set.size (Set.fromList $ map edgeSymbol edges) /= length edges = pure $ symbolic node
-        | any (needsPathExpansion . edgeEcs) edges = pure $ symbolic node
+        | any (needsPathExpansion . edgeConstraint) edges = pure $ symbolic node
         | otherwise = do
             alternatives <- traverse buildEdge edges
             pure $ either (const Nothing) (Just . Ranked.share) $ Ranked.oneof (catMaybes alternatives)
       where
         edges = nodeEdges node
 
-    buildEdge edge = case childGroups (length children) (edgeEcs edge) of
+    buildEdge edge = case childGroups (length children) (edgeConstraint edge) of
         Nothing -> pure Nothing
         Just groups -> do
             selected <- traverse (buildGroup children) groups
@@ -178,10 +186,10 @@ finiteAutomaton root =
         (\values term -> foldr (`Map.insert` term) values positions) <$> prefix <*> ranked
 
     symbolic node = do
-        graph <- either (const Nothing) Just $ Interned.toFTA $ ECTA.toInterned node
+        graph <- either (const Nothing) Just $ Interned.toFTA node
         named <- either (const Nothing) Just $ FTA.mapSymbols (\(Symbol name) -> name) graph
         namedRoot <- either (const Nothing) Just $ Interned.fromFTA named
-        ranked <- either (const Nothing) Just $ symbolicRanked $ ECTA.fromInterned namedRoot
+        ranked <- either (const Nothing) Just $ symbolicRanked namedRoot
         pure $ fmap (fmap Symbol) ranked
 
 -- | Whether a non-contradictory equality inspects below direct child roots.

@@ -286,7 +286,7 @@ freeze seed sampleCount native =
     unGen (pool sampleCount native) (mkQCGen seed) 30
 
 -- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
-fromECTA :: Node Symbol -> ECTAGen (Tree.Tree Symbol)
+fromECTA :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
 fromECTA = ECTA.fromECTA
 
 -- | Compile a bounded annotated FTA with uniform accepted-term sampling.
@@ -405,7 +405,7 @@ relate ::
 relate = ECTA.relate
 
 -- | Return the ECTA support of an inspectable generator.
-support :: ECTAGen a -> Either ECTAGenError (Node Symbol)
+support :: ECTAGen a -> Either ECTAGenError (Node Symbol EqConstraints)
 support = ECTA.support
 
 -- | Read source names and group names from the retained diagnostic graph.

@@ -21,16 +21,16 @@ import Data.CFTA.Symbol
 
 -----------------------------------------------------------------
 
-intType :: Node Symbol
+intType :: Node Symbol EqConstraints
 intType = typeConst "Int"
 
-boolType :: Node Symbol
+boolType :: Node Symbol EqConstraints
 boolType = typeConst "Bool"
 
 {- | Two constants of different types, in the term-search encoding: a term
 symbol carries its type as its one child.
 -}
-constants :: Node Symbol
+constants :: Node Symbol EqConstraints
 constants = Node [constFunc "one" intType, constFunc "true" boolType]
 
 spec :: Spec

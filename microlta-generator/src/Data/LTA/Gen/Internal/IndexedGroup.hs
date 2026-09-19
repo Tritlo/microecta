@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
 
@@ -25,8 +26,8 @@ indexedGroup bound valueAt
 -- | Reuse one support node for each distinct positive bound.
 build ::
     Integer ->
-    Map.Map Integer (Core.Node Symbol) ->
-    (Core.Node Symbol, Map.Map Integer (Core.Node Symbol))
+    Map.Map Integer (Core.Node Symbol EqConstraints) ->
+    (Core.Node Symbol EqConstraints, Map.Map Integer (Core.Node Symbol EqConstraints))
 build bound cache
     | Just existing <- Map.lookup bound cache = (existing, cache)
     | bound == 1 = retain (Core.Node [Core.Edge "$microlta-index-zero" []]) cache

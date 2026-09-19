@@ -17,7 +17,7 @@ import Data.CFTA.Example.TermSearch.Type
 import Data.CFTA.Example.TermSearch.Utils
 
 -- | Translate a 'TypeSkeleton' into the ECTA encoding used by term search.
-typeToFta :: TypeSkeleton -> Node Symbol
+typeToFta :: TypeSkeleton -> Node Symbol EqConstraints
 typeToFta (TVar v) = genVar v
 typeToFta (TFun t1 t2) = arrowType (typeToFta t1) (typeToFta t2)
 typeToFta (TCons "Fun" [t1, t2]) = arrowType (typeToFta t1) (typeToFta t2)

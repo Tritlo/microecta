@@ -62,6 +62,7 @@ import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (EmptyNode, Node))
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (frequencyInteger)
 import Data.ECTA.Gen.QuickCheck (Grouped, Sig ((:*), (:->)))
@@ -523,7 +524,7 @@ The generator's own 'ECTAGen.support' cannot serve here. It is built over
 namespaced @$ecta-gen/...@ symbols and carries the joins' equality
 constraints, so a template cannot name its symbols and @fromECTA@ rejects it.
 -}
-surfaceExpressionNode :: Int -> Labeled -> Node Symbol
+surfaceExpressionNode :: Int -> Labeled -> Node Symbol EqConstraints
 surfaceExpressionNode depth key =
     Map.findWithDefault EmptyNode key $ surfaceLevels !! max 0 depth
 
@@ -532,7 +533,7 @@ surfaceExpressionNode depth key =
 Each level is built once from the level below it, rather than once per edge
 slot that mentions it, which is about 27 times per level.
 -}
-surfaceLevels :: [Map.Map Labeled (Node Symbol)]
+surfaceLevels :: [Map.Map Labeled (Node Symbol EqConstraints)]
 surfaceLevels = iterate deeper base
   where
     base = Map.fromList [(key, Node (atomEdges key)) | key <- expressionKeys]
@@ -573,7 +574,7 @@ surfaceLevels = iterate deeper base
         ]
 
 -- | All programs with the given result label, as a surface automaton.
-surfaceProgramNode :: Int -> Label -> Node Symbol
+surfaceProgramNode :: Int -> Label -> Node Symbol EqConstraints
 surfaceProgramNode depth label =
     Node
         [ Edge "print" [surfaceExpressionNode depth (type_, label)]

@@ -2,12 +2,12 @@
 
 This is the main public API for the ECTA core.
 
-A @Node symbol@ represents a set of accepted terms. Each outgoing @Edge@ is one
+A @Node symbol EqConstraints@ represents a set of accepted terms. Each outgoing @Edge@ is one
 alternative: it has a symbol, child nodes, and optional equality constraints
 over paths into those children. The representation and shared graph operations
-come from @microfta@. This package supplies equality interpretation, path
-reduction, and constrained enumeration. 'toInterned' and 'fromInterned' expose
-the common representation without copying nodes.
+are the shared interned automaton with the constraint fixed to
+'EqConstraints'. This module adds equality interpretation, path reduction,
+and constrained enumeration.
 
 The alphabet is a type parameter. Constructing an edge requires
 @Hashable symbol@ and @Typeable symbol@ so its symbol can be hash-consed in a
@@ -46,20 +46,20 @@ structurally distinct.
 
 A node is a set of alternatives, and enumeration reads them back:
 
->>> let choices = Node [Edge "a" [], Edge "b" []] :: Node Symbol
+>>> let choices = Node [Edge "a" [], Edge "b" []] :: Node Symbol EqConstraints
 >>> getAllTerms choices
 [Node {rootLabel = "a", subForest = []},Node {rootLabel = "b", subForest = []}]
 
 'intersect' keeps what both accept:
 
->>> let other = Node [Edge "b" [], Edge "c" []] :: Node Symbol
+>>> let other = Node [Edge "b" [], Edge "c" []] :: Node Symbol EqConstraints
 >>> getAllTerms (intersect choices other)
 [Node {rootLabel = "b", subForest = []}]
 
 An equality constraint ties two positions together, which is what an ECTA has
 that an ordinary tree automaton does not:
 
->>> let alts = Node [Edge "a" [], Edge "b" []] :: Node Symbol
+>>> let alts = Node [Edge "a" [], Edge "b" []] :: Node Symbol EqConstraints
 >>> getAllTerms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
 [Node {rootLabel = "p", subForest = [Node {rootLabel = "a", subForest = []},Node {rootLabel = "a", subForest = []}]},Node {rootLabel = "p", subForest = [Node {rootLabel = "b", subForest = []},Node {rootLabel = "b", subForest = []}]}]
 
@@ -96,57 +96,29 @@ released, so a long-lived process that keeps constructing unrelated automata
 will grow without bound. The package README quantifies this.
 -}
 module Data.CFTA.Equality (
-    Edge (Edge),
-    mkEdge,
-    edgeChildren,
-    edgeEcs,
-    edgeSymbol,
-    Node (Node, EmptyNode),
-    nodeEdges,
-    numNestedMu,
-    createMu,
-    toInterned,
-    fromInterned,
+    -- * Representation and operations
+    module Data.CFTA.Equality.Operations,
 
-    -- * Operations
-    nodeMapChildren,
-    pathsMatching,
-    mapNodes,
-    refold,
-    unfoldBounded,
-    crush,
-    onNormalNodes,
-    nodeCount,
-    edgeCount,
-    maxIndegree,
-    union,
-    intersect,
-    withoutRedundantEdges,
-    reducePartially,
-    dropEdgeConstraints,
-    dropConstraints,
+    -- * Path equalities
+    module Data.CFTA.Equality.Constraints,
 
-    -- * Visualization
-    ECTAFTAError (..),
+    -- * Views
+    FTAViewError (..),
     ViewPath,
     StateView (..),
+    toFTA,
     toTree,
-
-    -- * Concrete membership
-    nodeRepresents,
-    edgeRepresents,
 
     -- * Templates
     Template (..),
     matchesTemplate,
-    termsMatching,
 
     -- * Enumeration
 
     {- |
     Enumeration stops at recursion. Unfold first to see past it:
 
-    >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]]) :: Node Symbol
+    >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]]) :: Node Symbol EqConstraints
     >>> getAllTerms nat
     [Node {rootLabel = "Mu", subForest = []}]
     >>> getAllTerms (unfoldBounded 2 nat)
@@ -172,12 +144,12 @@ module Data.CFTA.Equality (
     noExpansionPreference,
 ) where
 
+import Data.CFTA.Equality.Constraints
 import Data.CFTA.Equality.Enumeration
-import Data.CFTA.Equality.FTA (ECTAFTAError (..), StateView (..), ViewPath, toTree)
-import Data.CFTA.Equality.Node
 import Data.CFTA.Equality.Operations
-import Data.CFTA.Equality.Template
 import Data.CFTA.Internal.UnionFind (UVar, uvarToInt)
+import Data.CFTA.Interned (FTAViewError (..), StateView (..), ViewPath, toFTA, toTree)
+import Data.CFTA.Template (Template (..), matchesTemplate)
 
 {- $setup
 >>> :set -XDeriveGeneric -XOverloadedStrings

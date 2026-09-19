@@ -17,10 +17,9 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Equality (Node (Node), edgeChildren, edgeSymbol, getAllTerms, nodeRepresents)
+import Data.CFTA.Equality (Node (Node), edgeChildren, edgeConstraint, edgeSymbol, getAllTerms, nodeRepresents)
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
-import Data.CFTA.Equality.Node (edgeEcs)
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
@@ -248,7 +247,7 @@ spec = do
 
         it "represents the join with an ECTA equality constraint" $
             case ECTAGen.support matchedFixture of
-                Right (Node [edge]) -> edgeEcs edge `shouldNotBe` EmptyConstraints
+                Right (Node [edge]) -> edgeConstraint edge `shouldNotBe` EmptyConstraints
                 result -> expectationFailure $ "unexpected join support: " <> show result
 
         it "reports an empty join" $
@@ -273,7 +272,7 @@ spec = do
 
         it "represents a relation with an ECTA equality witness" $
             case ECTAGen.support relatedAccess of
-                Right (Node [edge]) -> edgeEcs edge `shouldNotBe` EmptyConstraints
+                Right (Node [edge]) -> edgeConstraint edge `shouldNotBe` EmptyConstraints
                 result -> expectationFailure $ "unexpected relation support: " <> show result
 
         it "preserves frequency weights around already-conditioned generators" $

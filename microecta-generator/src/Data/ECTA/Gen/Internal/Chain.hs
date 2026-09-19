@@ -40,6 +40,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.ECTA.Gen.Internal.Error (ECTAGenError (..))
@@ -107,7 +108,7 @@ chainLength ChainNil = 0
 chainLength (ChainCons _ rest) = 1 + chainLength rest
 
 -- | ECTA support of every argument group, in order.
-chainSupports :: ArgStatics operation result -> [Node Symbol]
+chainSupports :: ArgStatics operation result -> [Node Symbol EqConstraints]
 chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
 
@@ -209,7 +210,7 @@ selectChain _ (ChainCons _ _) [] _ =
         \fewer key terms than arguments"
 
 -- | The support of every matched recursive argument group, in order.
-recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
+recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol EqConstraints]
 recursiveSupports ChainNil = []
 recursiveSupports (ChainCons recursive rest) =
     recursiveSupport (keyedRecursiveLanguage recursive) : recursiveSupports rest

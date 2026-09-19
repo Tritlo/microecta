@@ -76,7 +76,6 @@ import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, typeRep)
 
 import Data.CFTA.Equality.Constraints
-import Data.CFTA.Equality.Node
 import Data.CFTA.Equality.Operations
 import Data.CFTA.Internal.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.CFTA.Internal.UnionFind as UnionFind
@@ -169,7 +168,7 @@ data UVarValue symbol
     = -- | UVar still has an ECTA node to expand.
       UVarUnenumerated
         -- | ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
-        !(Maybe (Node symbol))
+        !(Maybe (Node symbol EqConstraints))
         -- | Constraints that should be carried while enumerating this value.
         !(Seq SuspendedConstraint)
     | -- | UVar has been expanded to a fragment.
@@ -224,7 +223,7 @@ uvarValues ::
 uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 -- | Initial state whose root UVar contains the node being enumerated.
-initEnumerationState :: Node symbol -> EnumerationState symbol
+initEnumerationState :: Node symbol EqConstraints -> EnumerationState symbol
 initEnumerationState n =
     let (uvg, uv) = UnionFind.nextUVar UnionFind.initUVarGen
      in EnumerationState
@@ -258,7 +257,7 @@ nextUVar = do
     modify' $ \s -> s{_uvarCounter = c'}
     return uv
 
-addUVarValue :: Maybe (Node symbol) -> EnumerateM symbol UVar
+addUVarValue :: Maybe (Node symbol EqConstraints) -> EnumerateM symbol UVar
 addUVarValue x = do
     uv <- nextUVar
     modify' $ \s -> s{_uvarValues = _uvarValues s :|> UVarUnenumerated x Sequence.Empty}
@@ -335,7 +334,8 @@ assimilateUvarVal uvTarg uvSrc
 
 -- | Intersect a node and inherited constraints into the value for a UVar.
 mergeNodeIntoUVarVal ::
-    (Hashable symbol, Typeable symbol) => UVar -> Node symbol -> Seq SuspendedConstraint -> EnumerateM symbol ()
+    (Hashable symbol, Typeable symbol) =>
+    UVar -> Node symbol EqConstraints -> Seq SuspendedConstraint -> EnumerateM symbol ()
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
@@ -360,16 +360,17 @@ plainBelowCache = unsafePerformIO newTypeableMemoCache
 {- | Whether a node is an ordinary finite automaton: no recursive binder and
 no equality constraint anywhere below it.
 -}
-plainBelow :: (Typeable symbol) => Node symbol -> Bool
+plainBelow :: (Typeable symbol) => Node symbol EqConstraints -> Bool
 plainBelow = memoTypeableWith plainBelowCache $ \n -> numNestedMu n == 0 && getAll (crush unconstrained n)
   where
-    unconstrained (Node es) = All (all ((== EmptyConstraints) . edgeEcs) es)
+    unconstrained (Node es) = All (all ((== EmptyConstraints) . edgeConstraint) es)
     unconstrained _ = All True
 
 -- | Enumerate one node under the suspended constraints currently in scope.
 enumerateNode ::
     forall symbol.
-    (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Node symbol -> EnumerateM symbol (TermFragment symbol)
+    (Hashable symbol, Typeable symbol) =>
+    Seq SuspendedConstraint -> Node symbol EqConstraints -> EnumerateM symbol (TermFragment symbol)
 enumerateNode _ EmptyNode = mzero
 enumerateNode scs n =
     let (hereConstraints, descendantConstraints) = Sequence.partition (\(SuspendedConstraint pt _) -> isTerminalPathTrie pt) scs
@@ -396,14 +397,15 @@ enumerateNode scs n =
 
 -- | Enumerate one edge, introducing UVars for its equality classes.
 enumerateEdge ::
-    (Hashable symbol, Typeable symbol) => Seq SuspendedConstraint -> Edge symbol -> EnumerateM symbol (TermFragment symbol)
+    (Hashable symbol, Typeable symbol) =>
+    Seq SuspendedConstraint -> Edge symbol EqConstraints -> EnumerateM symbol (TermFragment symbol)
 enumerateEdge scs e = do
     -- With no constraints this is 'minBound', which passes the guard below,
     -- as it should: nothing constrains how many children the edge needs.
     let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
     guard $ compareLength (edgeChildren e) highestConstraintIndex == GT
 
-    newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
+    newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeConstraint e)
     let scs' = scs <> newScs
     TermFragmentNode (edgeSymbol e) <$> zipWithM (\i n -> enumerateNode (descendScs i scs') n) [0 ..] (edgeChildren e)
 
@@ -560,7 +562,7 @@ enumerateFully' ::
     (Hashable symbol, Typeable symbol) =>
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol EqConstraints) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol Bool
 enumerateFully' ost order oracle = do
     muv <- nextExpandableUVar (order ost)
@@ -652,7 +654,8 @@ Where 'getAllTerms' embeds a recursion marker into the caller's alphabet, this
 uses 'TruncatedRecursion'. Any genuinely unresolved non-recursive variable remains
 a 'UVarHole', as it does in 'expandPartialTermFrag'.
 -}
-getAllTruncatedTerms :: (Hashable symbol, Typeable symbol) => Node symbol -> [Tree.Tree (PartialSymbol symbol)]
+getAllTruncatedTerms ::
+    (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> [Tree.Tree (PartialSymbol symbol)]
 getAllTruncatedTerms n = map fst $
     flip runEnumerateM (initEnumerationState n) $ do
         enumerateFully
@@ -692,8 +695,8 @@ getAllTermsPrune ::
     forall symbol a.
     (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    Node symbol ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol EqConstraints) -> EnumerateM symbol (Bool, a)) ->
+    Node symbol EqConstraints ->
     [Tree.Tree symbol]
 getAllTermsPrune ost oracle = getAllTermsPruneWith "Mu" ost noExpansionPreference oracle
 
@@ -721,8 +724,8 @@ getAllTermsPruneWith ::
     symbol ->
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    Node symbol ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol EqConstraints) -> EnumerateM symbol (Bool, a)) ->
+    Node symbol EqConstraints ->
     [Tree.Tree symbol]
 getAllTermsPruneWith recursionSymbol ost order oracle n =
     map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith recursionSymbol ost order oracle
@@ -736,7 +739,7 @@ enumPrune ::
     forall symbol a.
     (Hashable symbol, Typeable symbol, IsString symbol) =>
     a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol EqConstraints) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol (Tree.Tree symbol)
 enumPrune a oracle = enumPruneWith "Mu" a noExpansionPreference oracle
 
@@ -747,7 +750,7 @@ enumPruneWith ::
     symbol ->
     a ->
     ExpansionOrder a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
+    (a -> UVar -> Either (TermFragment symbol) (Node symbol EqConstraints) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol (Tree.Tree symbol)
 enumPruneWith recursionSymbol a order oracle = do
     finished <- enumerateFully' a order oracle
@@ -772,7 +775,8 @@ need each term once. And a constraint whose paths descend into a truncated
 'Mu' is dropped rather than checked, so a result term containing the marker is
 not evidence that the language below it is non-empty.
 -}
-getAllTerms :: (Hashable symbol, Ord symbol, Typeable symbol, IsString symbol) => Node symbol -> [Tree.Tree symbol]
+getAllTerms ::
+    (Hashable symbol, Ord symbol, Typeable symbol, IsString symbol) => Node symbol EqConstraints -> [Tree.Tree symbol]
 getAllTerms = getAllTermsWith "Mu"
 
 {- | 'getAllTerms' with an explicit symbol for truncated recursion.
@@ -781,11 +785,12 @@ A node with no recursive binder and no equality constraint is an ordinary
 automaton, and is listed by the shared enumerator, by depth, without the
 enumeration state; that list has each term once.
 -}
-getAllTermsWith :: (Hashable symbol, Ord symbol, Typeable symbol) => symbol -> Node symbol -> [Tree.Tree symbol]
+getAllTermsWith ::
+    (Hashable symbol, Ord symbol, Typeable symbol) => symbol -> Node symbol EqConstraints -> [Tree.Tree symbol]
 getAllTermsWith recursionSymbol n
-    | plainBelow n = Common.terms (toInterned n)
+    | plainBelow n = Common.terms n
     | otherwise =
         map fst $ flip runEnumerateM (initEnumerationState n) $ do
             enumerateFully
             expandUVarWith recursionSymbol (intToUVar 0)
-{-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol -> [Tree.Tree Symbol] #-}
+{-# SPECIALIZE getAllTermsWith :: Symbol -> Node Symbol EqConstraints -> [Tree.Tree Symbol] #-}

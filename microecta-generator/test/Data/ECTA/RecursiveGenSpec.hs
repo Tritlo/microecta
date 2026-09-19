@@ -26,7 +26,7 @@ import Data.CFTA.Equality (
     nodeRepresents,
     numNestedMu,
  )
-import Data.CFTA.Equality.Constraints (mkEqConstraints, path)
+import Data.CFTA.Equality.Constraints (EqConstraints, mkEqConstraints, path)
 import Data.CFTA.Symbol (Symbol)
 import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
@@ -66,7 +66,7 @@ boundedTreeCount :: Integer
 boundedTreeCount = 471
 
 -- | A finite automaton whose language is easy to state independently.
-finiteAutomaton :: Node Symbol
+finiteAutomaton :: Node Symbol EqConstraints
 finiteAutomaton =
     Node
         [ Edge "a" []
@@ -75,7 +75,7 @@ finiteAutomaton =
         ]
 
 -- | A recursive automaton: ground types under one type constructor and one arrow.
-typeAutomaton :: Node Symbol
+typeAutomaton :: Node Symbol EqConstraints
 typeAutomaton =
     createMu $ \recursive ->
         Node
@@ -85,7 +85,7 @@ typeAutomaton =
             ]
 
 -- | An automaton whose edge carries an equality constraint.
-constrainedAutomaton :: Node Symbol
+constrainedAutomaton :: Node Symbol EqConstraints
 constrainedAutomaton =
     Node
         [ mkEdge

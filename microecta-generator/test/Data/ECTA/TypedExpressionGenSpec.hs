@@ -12,10 +12,19 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Equality (Edge, Node, edgeChildren, edgeSymbol, getAllTerms, nodeEdges, numNestedMu, unfoldBounded)
+import Data.CFTA.Equality (
+    Edge,
+    Node,
+    edgeChildren,
+    edgeConstraint,
+    edgeSymbol,
+    getAllTerms,
+    nodeEdges,
+    numNestedMu,
+    unfoldBounded,
+ )
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (unsafeGetEclasses)
-import Data.CFTA.Equality.Node (edgeEcs)
+import Data.CFTA.Equality.Constraints (EqConstraints, unsafeGetEclasses)
 import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Gen.Example.TypedExpressionLanguage
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
@@ -65,19 +74,19 @@ isWellTyped typed =
     inferType (expression typed) == Just (expressionType typed)
 
 -- | Find a joined edge that retains the requested argument constraints.
-hasArgumentConstraints :: Int -> Node Symbol -> Bool
+hasArgumentConstraints :: Int -> Node Symbol EqConstraints -> Bool
 hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
   where
     edgeMatches edge =
-        length (unsafeGetEclasses $ edgeEcs edge) == count
+        length (unsafeGetEclasses $ edgeConstraint edge) == count
             || any (hasArgumentConstraints count) (edgeChildren edge)
 
 -- | Collect the constructor symbols from one finite support graph.
-supportSymbols :: Node Symbol -> [Symbol]
+supportSymbols :: Node Symbol EqConstraints -> [Symbol]
 supportSymbols = map edgeSymbol . supportEdges
 
 -- | Collect the edges from one finite support graph.
-supportEdges :: Node Symbol -> [Edge Symbol]
+supportEdges :: Node Symbol EqConstraints -> [Edge Symbol EqConstraints]
 supportEdges node =
     edges <> concatMap supportEdges (concatMap edgeChildren edges)
   where
@@ -181,11 +190,11 @@ spec =
                     let constrained =
                             [ edge
                             | edge <- supportEdges node
-                            , not $ null $ unsafeGetEclasses $ edgeEcs edge
+                            , not $ null $ unsafeGetEclasses $ edgeConstraint edge
                             ]
                     Set.fromList (map edgeSymbol constrained)
                         `shouldBe` Set.singleton (fromString "binary-application")
-                    map (length . unsafeGetEclasses . edgeEcs) constrained
+                    map (length . unsafeGetEclasses . edgeConstraint) constrained
                         `shouldSatisfy` \counts -> not (null counts) && all (== 2) counts
                 Left err -> expectationFailure $ show err
 

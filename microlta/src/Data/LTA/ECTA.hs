@@ -25,6 +25,7 @@ import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraints (EqConstraints)
 import qualified Data.CFTA.Interned as Common
 import Data.LTA (
     EqualityAutomaton,
@@ -35,7 +36,7 @@ import Data.LTA (
 
 -- | A MicroECTA root plus the finite alphabet needed to decode its terms.
 data EqualityView = EqualityView
-    { equalityRoot :: !(ECTA.Node Int)
+    { equalityRoot :: !(ECTA.Node Int EqConstraints)
     -- ^ The converted automaton over the integer alphabet.
     , equalityAlphabet :: !(IntMap.IntMap LiquidSymbol)
     -- ^ The liquid symbol behind each integer label.
@@ -63,7 +64,7 @@ toECTA automaton = do
         Right renamed -> Right renamed
     root <- case Common.fromFTA graph of
         Left (Common.RecursiveFTAState state) -> Left $ RecursiveEqualityState state
-        Right node -> Right $ ECTA.fromInterned node
+        Right node -> Right node
     pure $ EqualityView root (IntMap.fromList [(identifier, symbol) | (symbol, identifier) <- Map.toList alphabet])
   where
     alphabet =

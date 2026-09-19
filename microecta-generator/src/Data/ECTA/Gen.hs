@@ -95,7 +95,6 @@ import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import qualified Data.CFTA.Equality as Core
 import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.CFTA.Interned as Common
@@ -153,7 +152,7 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol -> ECTAGen gen (Tree.Tree Symbol)
+fromECTA :: Node Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
 fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
@@ -171,7 +170,7 @@ fromFTAUpToDepth ::
     (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
 fromFTAUpToDepth depth graph = Transparent $ do
     root <-
-        either (Left . InvalidImportedAutomaton . show) (Right . Core.fromInterned)
+        either (Left . InvalidImportedAutomaton . show) Right
             $ Common.fromFTA
             $ FTA.boundDepth depth graph
     finiteAutomaton root

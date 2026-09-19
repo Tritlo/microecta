@@ -12,15 +12,14 @@ module Data.CFTA.Example.TermSearch.TermSearch (
 ) where
 
 import Data.CFTA.Equality
-import Data.CFTA.Equality.Constraints
 import Data.CFTA.Interned.Operations (fixUnbounded)
 import Data.CFTA.Symbol (Symbol)
 
 -- | Constrain a term-search node by equating its type child with a type node.
-filterType :: Node Symbol -> Node Symbol -> Node Symbol
+filterType :: Node Symbol EqConstraints -> Node Symbol EqConstraints -> Node Symbol EqConstraints
 filterType n t =
     Node [mkEdge "filter" [t, n] (mkEqConstraints [[path [0], path [1, 0]]])]
 
 -- | Repeatedly propagate constraints and remove redundant edges to a fixpoint.
-reduceFully :: Node Symbol -> Node Symbol
+reduceFully :: Node Symbol EqConstraints -> Node Symbol EqConstraints
 reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
