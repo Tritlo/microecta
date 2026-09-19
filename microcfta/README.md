@@ -67,7 +67,7 @@ import qualified Data.CFTA.Template as Template
 | Build a shared or recursive grammar | `Common.Node`, `Common.Edge`, `Common.Mu` | An interned graph that reuses equal subgraphs. |
 | Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
 | Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
-| Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. `fromFTA` requires an acyclic input. |
+| Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. A recursive state imports as a `Mu`. |
 | Visualize a grammar | `FTA.toTree`, `Common.toTree` | A finite tree of typed state and transition labels. Map the labels to strings for `drawTree`. |
 
 `FTA` and `Common` are the two representations in this package. `FTA` retains

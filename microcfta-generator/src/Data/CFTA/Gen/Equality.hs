@@ -169,11 +169,7 @@ in the accepted language.
 fromFTAUpToDepth ::
     (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
 fromFTAUpToDepth depth graph = Transparent $ do
-    root <-
-        either (Left . InvalidImportedAutomaton . show) Right
-            $ Common.fromFTA
-            $ FTA.boundDepth depth graph
-    finiteAutomaton root
+    finiteAutomaton $ Common.fromFTA $ FTA.boundDepth depth graph
 
 -- | Generate typed values from a datatype grammar with equality annotations.
 fromDatatypeUpToDepth :: (Functor gen) => Int -> TypedFTA EqConstraints a -> ECTAGen gen a

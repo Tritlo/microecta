@@ -83,9 +83,7 @@ denotationAtMost entailment bound automaton
     plain transition =
         equalities (FTA.transitionConstraint transition) == EmptyConstraints
             && not (residual (FTA.transitionConstraint transition))
-    root = case fromFTA bounded of
-        Left err -> error $ "microcfta bug in Data.CFTA.Refinement.denotationAtMost: a depth-bounded automaton is cyclic: " <> show err
-        Right node -> node
+    root = fromFTA bounded
     recursion = LiquidSymbol "Mu" Fixpoint.PTrue
     decide (constraint, term) = do
         verdict <- liftIO $ evaluateConstraint entailment constraint term

@@ -4,6 +4,7 @@
 
 module Data.CFTASpec (spec) where
 
+import Control.Monad (forM_)
 import Data.Functor.Identity (runIdentity)
 import Data.Hashable (Hashable (..))
 import Data.Monoid (Sum (..))
@@ -99,7 +100,7 @@ spec = do
                     Automaton.states trimmed `shouldBe` [0]
                     Automaton.transitionsFrom trimmed 0 `shouldBe` [Transition "leaf" [] ()]
                     Automaton.terms automaton `shouldBe` [Tree.Node "leaf" []]
-                    fmap (`acceptPlain` Tree.Node "leaf" []) (Common.fromFTA automaton) `shouldBe` Right True
+                    acceptPlain (Common.fromFTA automaton) (Tree.Node "leaf" []) `shouldBe` True
 
     describe "common interned automaton engine" $ do
         it "recognizes and intersects unit-constrained languages" $ do
@@ -109,6 +110,31 @@ spec = do
             map (acceptPlain shared) [Tree.Node "a" [], Tree.Node "b" [], Tree.Node "c" []]
                 `shouldBe` [False, True, False]
             Common.intersect choices choices `shouldBe` choices
+
+        it "imports a recursive explicit automaton as a Mu node" $ do
+            case Automaton.mkFTA "nat" [("nat", [Transition "z" [] (), Transition "s" ["nat"] ()])] of
+                Left err -> expectationFailure $ show err
+                Right nat -> do
+                    let imported = Common.fromFTA nat :: Common.PlainNode String
+                    imported `shouldBe` Common.createMu (\self -> Common.Node [Common.Edge "z" [], Common.Edge "s" [self]])
+                    Common.numNestedMu (Common.fromFTA (Automaton.boundDepth 2 nat) :: Common.PlainNode String) `shouldBe` 0
+                    forM_ [0 .. 3] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth nat)
+
+        it "imports mutually recursive states with nested binders" $ do
+            let rows =
+                    [ ("a", [Transition "leaf" [] (), Transition "f" ["b"] ()])
+                    , ("b", [Transition "g" ["a", "b"] (), Transition "h" ["a"] ()])
+                    ]
+            case Automaton.mkFTA "a" rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.PlainNode String
+                    Common.freeVars imported `shouldBe` mempty
+                    forM_ [0 .. 4] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
 
         it "preserves recursive intersections and the explicit graph view" $ do
             let naturals = Common.createMu $ \rec ->
@@ -192,14 +218,12 @@ spec = do
                                    , Left $ Automaton.Shared [(0, 1)] 1
                                    , Right $ Automaton.Transition "leaf" [] ()
                                    ]
-                    case Common.fromFTA graph of
+                    let node = Common.fromFTA graph
+                    acceptPlain node (Tree.Node "pair" [Tree.Node "leaf" [], Tree.Node "leaf" []]) `shouldBe` True
+                    acceptPlain node (Tree.Node "pair" [Tree.Node "pair" [], Tree.Node "leaf" []]) `shouldBe` False
+                    case Common.toFTA node of
                         Left err -> expectationFailure $ show err
-                        Right node -> do
-                            acceptPlain node (Tree.Node "pair" [Tree.Node "leaf" [], Tree.Node "leaf" []]) `shouldBe` True
-                            acceptPlain node (Tree.Node "pair" [Tree.Node "pair" [], Tree.Node "leaf" []]) `shouldBe` False
-                            case Common.toFTA node of
-                                Left err -> expectationFailure $ show err
-                                Right view -> length (Automaton.states view) `shouldBe` 2
+                        Right view -> length (Automaton.states view) `shouldBe` 2
 
         it "reads, requires, and finds child-index paths" $ do
             let a = Common.Node [Common.Edge "a" []] :: Common.PlainNode String
@@ -240,7 +264,7 @@ spec = do
                         expected = filter (matchesTemplate template) (Automaton.terms bounded)
                     length expected `shouldBe` 2
                     Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
-                    fmap (Enumeration.plainTerms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
+                    Enumeration.plainTerms (restrict template (Common.fromFTA bounded)) `shouldBe` expected
                     -- The check constrains every "add" node, and the root "zero" passes it.
                     let accept _ transition term = pure (Automaton.transitionSymbol transition /= "add" || matchesTemplate template term)
                         zero = Tree.Node "zero" []

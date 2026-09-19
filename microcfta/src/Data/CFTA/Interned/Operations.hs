@@ -10,6 +10,7 @@ module Data.CFTA.Interned.Operations (
     refold,
     nodeEdges,
     unfoldBounded,
+    boundDepth,
     nodeCount,
     edgeCount,
     maxIndegree,
@@ -37,6 +38,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Data.List (compareLength, (!?))
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
@@ -200,6 +202,37 @@ unfoldBounded rounds
 -- Size operations
 
 -- | Count reachable non-recursive nodes, sharing-aware.
+
+{- | Retain terms whose leaves are at most the given depth from the root.
+
+A leaf has depth zero. A recursive node unfolds until the depth is spent, so
+the result is finite for a cyclic input, and a negative depth is the empty
+language. Symbols, constraints, and the order of alternatives remain unchanged.
+-}
+boundDepth ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Int -> Node symbol constraint -> Node symbol constraint
+boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
+  where
+    go :: Int -> Node symbol constraint -> State (Map.Map (Int, Id) (Node symbol constraint)) (Node symbol constraint)
+    go _ EmptyNode = pure EmptyNode
+    go _ (Rec _) = error "boundDepth: unexpected Rec"
+    go remaining node
+        | remaining < 0 = pure EmptyNode
+        | otherwise = do
+            known <- get
+            case Map.lookup (remaining, nodeIdentity node) known of
+                Just bounded -> pure bounded
+                Nothing -> do
+                    bounded <- case node of
+                        Mu _ -> go remaining (unfoldOuterRec node)
+                        _ -> Node <$> traverse edge (filter (\e -> remaining > 0 || null (edgeChildren e)) (nodeEdges node))
+                    modify' (Map.insert (remaining, nodeIdentity node) bounded)
+                    pure bounded
+      where
+        edge e = setChildren e <$> traverse (go (remaining - 1)) (edgeChildren e)
+
 {-# INLINEABLE nodeCount #-}
 nodeCount :: Node symbol constraint -> Int
 nodeCount = getSum . crush (onNormalNodes $ const $ Sum 1)

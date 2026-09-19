@@ -136,7 +136,7 @@ spec = do
                             , (2, [plain "a" [], plain "b" []])
                             ]
                 let generator = ECTAGen.fromFTAUpToDepth 2 graph
-                support <- either (fail . show) pure (Interned.fromFTA graph)
+                let support = Interned.fromFTA graph
                 let expected = Set.toAscList $ Set.fromList $ Automaton.terms support
                 case expected of
                     [] -> ECTAGen.cardinality generator `shouldBe` Left ECTAGen.EmptyGenerator

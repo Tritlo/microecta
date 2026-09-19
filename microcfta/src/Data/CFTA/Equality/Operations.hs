@@ -3,8 +3,9 @@
 {- | Operations that interpret path equalities: reduction, concrete
 membership, and template restriction. Most users import "Data.CFTA.Equality".
 
-'reducePartially' and 'reduceEdgeIntersection' are memoized per alphabet;
-the interned 'Symbol' alphabet has its own table.
+'reducePartially' and 'reduceEdgeIntersection' narrow children by the
+'equalities' of any constraint theory. They are memoized per alphabet and
+theory; the interned 'Symbol' alphabet with 'EqConstraints' has its own table.
 -}
 module Data.CFTA.Equality.Operations (
     nodeRepresents,
@@ -18,9 +19,8 @@ module Data.CFTA.Equality.Operations (
 import Data.Hashable (Hashable (..))
 import Data.List (inits, tails)
 import qualified Data.Tree as Tree
-import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
-import Type.Reflection (Typeable, eqTypeRep, typeRep)
+import Type.Reflection (Typeable)
 
 import Data.CFTA.Constraint.Equality
 import Data.CFTA.Interned
@@ -79,7 +79,8 @@ constrained edge can narrow a child after an outer edge has already read it.
 Iterate to a fixpoint, as 'fixUnbounded' does, when every
 constrained position must agree with every other.
 -}
-reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Node symbol EqConstraints
+reducePartially ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> Node symbol constraint
 reducePartially = reducePartially' EmptyConstraints
 
 symbolReducePartiallyCache :: MemoCache (EqConstraints, Node Symbol EqConstraints) (Node Symbol EqConstraints)
@@ -91,13 +92,15 @@ genericReducePartiallyCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReducePartiallyCache #-}
 
 reducePartially' ::
-    forall symbol.
-    (Hashable symbol, Typeable symbol) => EqConstraints -> Node symbol EqConstraints -> Node symbol EqConstraints
-reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memo2With symbolReducePartiallyCache go constraints node
-    Nothing -> memo2TypeableWith genericReducePartiallyCache go constraints node
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    EqConstraints -> Node symbol constraint -> Node symbol constraint
+reducePartially' constraints node =
+    onCommon @symbol @constraint
+        (memo2With symbolReducePartiallyCache go constraints node)
+        (memo2TypeableWith genericReducePartiallyCache go constraints node)
   where
-    go :: EqConstraints -> Node symbol EqConstraints -> Node symbol EqConstraints
+    go :: EqConstraints -> Node symbol constraint -> Node symbol constraint
     go _ EmptyNode = EmptyNode
     go _ (Mu n) = Mu n
     go inheritedEcs n@(Node _) = modifyNode n $ \es ->
@@ -106,9 +109,10 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
             es
     go _ (Rec _) = error "reducePartially: unexpected Rec"
 
-    reduceChildren :: EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
+    reduceChildren :: EqConstraints -> Edge symbol constraint -> Edge symbol constraint
     reduceChildren inheritedEcs e =
-        setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeConstraint e) (edgeChildren e)
+        setChildren e $
+            reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` equalities (edgeConstraint e)) (edgeChildren e)
 
     -- \| Reduce children with inherited constraints
     --
@@ -132,7 +136,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- Now, we can see that these two constraints contain a contradiction that requires `0=0.0=0.1`, so we can drop the edge.
     --
     -- TODO: this approach does not solve every recursive cycle.
-    reduceWithInheritedEcs :: EqConstraints -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
+    reduceWithInheritedEcs :: EqConstraints -> [Node symbol constraint] -> [Node symbol constraint]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
@@ -148,17 +152,19 @@ genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 
 -- | Narrow an edge's children by its own and the inherited equality constraints.
 reduceEdgeIntersection ::
-    forall symbol.
-    (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
-reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
-    Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
-    Nothing -> memo2TypeableWith genericReduceEdgeIntersectionCache go constraints edge
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    EqConstraints -> Edge symbol constraint -> Edge symbol constraint
+reduceEdgeIntersection constraints edge =
+    onCommon @symbol @constraint
+        (memo2With symbolReduceEdgeIntersectionCache go constraints edge)
+        (memo2TypeableWith genericReduceEdgeIntersectionCache go constraints edge)
   where
-    go :: EqConstraints -> Edge symbol EqConstraints -> Edge symbol EqConstraints
+    go :: EqConstraints -> Edge symbol constraint -> Edge symbol constraint
     go ecs e =
         mkEdge
             (edgeSymbol e)
-            (reduceEqConstraints (edgeConstraint e) ecs (edgeChildren e))
+            (reduceEqConstraints (equalities (edgeConstraint e)) ecs (edgeChildren e))
             (edgeConstraint e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
@@ -166,18 +172,18 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
 Nested constraints can require further passes. This pass is not idempotent.
 -}
 reduceEqConstraints ::
-    forall symbol.
-    (Hashable symbol, Typeable symbol) =>
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
     EqConstraints ->
     EqConstraints ->
-    [Node symbol EqConstraints] ->
-    [Node symbol EqConstraints]
+    [Node symbol constraint] ->
+    [Node symbol constraint]
 reduceEqConstraints = go
   where
-    propagateEmptyNodes :: [Node symbol EqConstraints] -> [Node symbol EqConstraints]
+    propagateEmptyNodes :: [Node symbol constraint] -> [Node symbol constraint]
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns
 
-    go :: EqConstraints -> EqConstraints -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
+    go :: EqConstraints -> EqConstraints -> [Node symbol constraint] -> [Node symbol constraint]
     go EmptyConstraints EmptyConstraints origNs = origNs
     go ecs inheritedEcs origNs
         | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
@@ -188,11 +194,11 @@ reduceEqConstraints = go
         -- \| TODO: Replace with a "requirePathTrie"
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
 
-        intersectList :: [Node symbol EqConstraints] -> Node symbol EqConstraints
+        intersectList :: [Node symbol constraint] -> Node symbol constraint
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
-        reduceEClass :: PathEClass -> [Node symbol EqConstraints] -> [Node symbol EqConstraints]
+        reduceEClass :: PathEClass -> [Node symbol constraint] -> [Node symbol constraint]
         reduceEClass pec ns =
             foldr
                 (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
@@ -201,7 +207,7 @@ reduceEqConstraints = go
           where
             ps = unPathEClass pec
 
-        toIntersect :: [Node symbol EqConstraints] -> [Path] -> [Node symbol EqConstraints]
+        toIntersect :: [Node symbol constraint] -> [Path] -> [Node symbol constraint]
         toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
@@ -215,7 +221,8 @@ The graph is restricted and then reduced, so a 'Hole' at a constrained
 position can be narrowed by a concrete pattern at an equal one.
 -}
 termsMatching ::
-    (Hashable symbol, Typeable symbol) => Template symbol -> Node symbol EqConstraints -> Node symbol EqConstraints
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Template symbol -> Node symbol constraint -> Node symbol constraint
 termsMatching Hole = id
 termsMatching (AnyPrefix []) = id
 termsMatching template = reducePartially . restrict template

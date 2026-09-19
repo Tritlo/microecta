@@ -148,7 +148,7 @@ spec = do
             matchesTemplate (TemplateNode "<v>" []) (Tree.Node "other" [] :: Tree.Tree Symbol) `shouldBe` False
 
         it "uses a typed alphabet without an IsString instance" $ do
-            let zero = Node [Edge Zero []]
+            let zero = Node [Edge Zero []] :: Node ArithmeticSymbol EqConstraints
                 naturals = Node [Edge Zero [], Edge Succ [zero]]
                 successors = termsMatching (TemplateNode Succ [Hole]) naturals
                 materialize = \case

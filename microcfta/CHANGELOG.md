@@ -39,6 +39,11 @@ remains a separate ECTA-only package.
   equality-guarded pair costs milliseconds instead of a quadratic candidate
   filter, and an unconstrained bounded automaton is listed without interning.
 
+- `Data.CFTA.Interned.fromFTA` imports a recursive graph as `Mu` nodes, and
+  `boundDepth` bounds an interned graph by tree depth. The reduction in
+  `Data.CFTA.Equality.Operations` narrows children by the `equalities` of any
+  constraint theory.
+
 ### Differences from microecta 0.1.0.0
 
 - The type of an ECTA is `Node symbol EqConstraints`; there is no separate

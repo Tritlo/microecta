@@ -179,9 +179,11 @@ compileSymbolicAutomaton buildValue support automaton = do
 -- | Give symbolic ranks a textual alphabet order independent of interning order.
 symbolicGraph :: Automaton -> Either GeneratorError (Interned.Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
 symbolicGraph automaton = do
+    case FTA.cycleState automaton of
+        Just _ -> Left RecursiveAutomaton
+        Nothing -> Right ()
     renamed <- first (const RecursiveAutomaton) $ FTA.mapSymbols (identifiers Map.!) automaton
-    root <- first (const RecursiveAutomaton) $ Interned.fromFTA renamed
-    pure (root, IntMap.fromList $ zip [0 ..] alphabet)
+    pure (Interned.fromFTA renamed, IntMap.fromList $ zip [0 ..] alphabet)
   where
     alphabet =
         sortOn name

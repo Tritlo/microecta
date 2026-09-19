@@ -139,7 +139,7 @@ internedExpressions salt =
             ]
 
 internedBoundedExpressions :: Int -> Common.PlainNode String
-internedBoundedExpressions = either (error . show) id . Common.fromFTA . boundedExpressions
+internedBoundedExpressions = Common.fromFTA . boundedExpressions
 
 -- | Five levels of shared pairs over two leaves: 4,294,967,296 terms on seven nodes.
 sharedPairs :: Int -> Common.PlainNode String

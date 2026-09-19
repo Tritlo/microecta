@@ -184,7 +184,7 @@ finiteAutomaton root =
     symbolic node = do
         graph <- either (const Nothing) Just $ Interned.toFTA node
         named <- either (const Nothing) Just $ FTA.mapSymbols (\(Symbol name) -> name) graph
-        namedRoot <- either (const Nothing) Just $ Interned.fromFTA named
+        let namedRoot = Interned.fromFTA named
         ranked <- either (const Nothing) Just $ symbolicRanked namedRoot
         pure $ fmap (fmap Symbol) ranked
 

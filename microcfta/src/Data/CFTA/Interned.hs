@@ -46,6 +46,7 @@ module Data.CFTA.Interned (
     refold,
     nodeEdges,
     unfoldBounded,
+    boundDepth,
     nodeCount,
     edgeCount,
     maxIndegree,
@@ -67,15 +68,16 @@ module Data.CFTA.Interned (
     -- * Views and conversion
     InternedState,
     FTAViewError (..),
-    FTAImportError (..),
     toFTA,
     fromFTA,
     ViewPath,
     StateView (..),
     toTree,
     reachable,
+    onCommon,
 ) where
 
+import qualified Control.Monad.State.Strict as State
 import Data.Bifunctor (first)
 import Data.Hashable (Hashable)
 import Data.IntMap.Strict (IntMap)
@@ -394,30 +396,52 @@ reachable root = collect IntMap.empty [root]
         ident = nodeIdentity node
         edges = nodeEdges node
 
--- | Failure while importing a finite explicit-state graph.
-newtype FTAImportError state = RecursiveFTAState state
-    deriving (Eq, Show)
+{- | Intern an explicit-state graph without interpreting constraints.
 
-{- | Intern an acyclic explicit-state graph without interpreting constraints.
-
-Each state is compiled once. Use 'FTA.boundDepth' before importing a recursive
-graph. The graph is trimmed first, so only a reachable cycle is rejected. Constraint layers can annotate the source before this conversion.
+The graph is trimmed first. Each reachable state becomes one node, and a state
+on a cycle becomes a 'Mu' whose body refers back to it through 'Rec', so a
+recursive graph imports without a bound. Constraint layers can annotate the
+source before this conversion.
 -}
 fromFTA ::
+    forall state symbol constraint.
     (Ord state, Hashable symbol, Typeable symbol, Constraint constraint) =>
-    FTA.FTA state symbol constraint -> Either (FTAImportError state) (Node symbol constraint)
-fromFTA graph = case FTA.cycleState trimmed of
-    Just state -> Left $ RecursiveFTAState state
-    Nothing -> Right $ nodes Map.! FTA.initialState trimmed
+    FTA.FTA state symbol constraint -> Node symbol constraint
+fromFTA graph = State.evalState (build Set.empty (FTA.initialState trimmed)) Map.empty
   where
     trimmed = FTA.trim graph
-    -- The map is lazy in its values, so each state is built once, on demand.
-    nodes = fmap (mkNode . map edge) (FTA.transitionTable trimmed)
-    edge transition =
-        mkEdge
-            (FTA.transitionSymbol transition)
-            (map (nodes Map.!) (FTA.transitionChildren transition))
-            (FTA.transitionConstraint transition)
+    cyclic = FTA.cyclicStates trimmed
+
+    -- A state bound by an enclosing 'Mu' is replaced by that binder's
+    -- placeholder. The memo is keyed by the set of bound states, because a
+    -- node built under a binder may mention its placeholder.
+    build ::
+        Set.Set state ->
+        state ->
+        State.State (Map.Map (state, Set.Set state) (Node symbol constraint)) (Node symbol constraint)
+    build bound state = do
+        memo <- State.get
+        case Map.lookup (state, bound) memo of
+            Just node -> pure node
+            Nothing -> do
+                node <-
+                    if Set.member state cyclic
+                        then do
+                            snapshot <- State.get
+                            let inner = Set.insert state bound
+                            pure $ createMu $ \self ->
+                                State.evalState (body (Map.insert (state, inner) self) inner state) snapshot
+                        else body id bound state
+                State.modify' (Map.insert (state, bound) node)
+                pure node
+
+    body prime bound state = do
+        State.modify' prime
+        mkNode <$> traverse edge (FTA.transitionsFrom trimmed state)
+      where
+        edge transition = do
+            children <- traverse (build bound) (FTA.transitionChildren transition)
+            pure $ mkEdge (FTA.transitionSymbol transition) children (FTA.transitionConstraint transition)
 
 -- | Name the empty state or read the shared canonical identity.
 stateOf :: Node symbol constraint -> InternedState
