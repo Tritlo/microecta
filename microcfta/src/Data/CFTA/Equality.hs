@@ -26,16 +26,16 @@ The usual workflow is:
 4. Remove implied alternatives with 'withoutRedundantEdges'.
 5. Check concrete membership with 'nodeRepresents', or restrict a language
    with 'termsMatching'.
-6. Enumerate accepted terms with 'getAllTerms' or 'getAllTermsPrune'.
+6. Enumerate accepted terms with 'terms' or 'termsPrune'.
 
-A pruning oracle passed to 'getAllTermsPrune' sees each UVar that is actually
+A pruning oracle passed to 'termsPrune' sees each UVar that is actually
 expanded twice: as @Right node@ before expansion, and as @Left fragment@
 after. A bare unconstrained 'Mu' terminates enumeration without being expanded
 and therefore produces neither callback. The oracle carries its own state down
 each branch, so a check that cannot be settled while a hole is still
 unexpanded can be parked in that state under the hole's
 'getUVarRepresentative' and settled when the oracle is called for that UVar.
-'getAllTermsPruneWith' takes the truncated-recursion symbol explicitly instead
+'termsPruneWith' takes the truncated-recursion symbol explicitly instead
 of requiring 'Data.String.IsString', and additionally lets the oracle say which
 hole it would like expanded next, so a parked check resolves before the branch
 it will kill is enumerated. Deciding which terms are worth rejecting is entirely the
@@ -47,20 +47,20 @@ structurally distinct.
 A node is a set of alternatives, and enumeration reads them back:
 
 >>> let choices = Node [Edge "a" [], Edge "b" []] :: Node Symbol EqConstraints
->>> getAllTerms choices
+>>> terms choices
 [Node {rootLabel = "a", subForest = []},Node {rootLabel = "b", subForest = []}]
 
 'intersect' keeps what both accept:
 
 >>> let other = Node [Edge "b" [], Edge "c" []] :: Node Symbol EqConstraints
->>> getAllTerms (intersect choices other)
+>>> terms (intersect choices other)
 [Node {rootLabel = "b", subForest = []}]
 
 An equality constraint ties two positions together, which is what an ECTA has
 that an ordinary tree automaton does not:
 
 >>> let alts = Node [Edge "a" [], Edge "b" []] :: Node Symbol EqConstraints
->>> getAllTerms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
+>>> terms (Node [mkEdge "p" [alts, alts] (mkEqConstraints [[path [0], path [1]]])])
 [Node {rootLabel = "p", subForest = [Node {rootLabel = "a", subForest = []},Node {rootLabel = "a", subForest = []}]},Node {rootLabel = "p", subForest = [Node {rootLabel = "b", subForest = []},Node {rootLabel = "b", subForest = []}]}]
 
 Templates restrict that language without discarding its constraints. Here the
@@ -68,17 +68,17 @@ right child fixes the hole on the left because the edge requires equality:
 
 >>> let pairs = Node [mkEdge "pair" [alts, alts] (mkEqConstraints [[path [0], path [1]]])]
 >>> let rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
->>> getAllTerms (termsMatching rightIsA pairs)
+>>> terms (termsMatching rightIsA pairs)
 [Node {rootLabel = "pair", subForest = [Node {rootLabel = "a", subForest = []},Node {rootLabel = "a", subForest = []}]}]
 
 An algebraic datatype works as the alphabet too; no string conversion is
-involved. 'getAllTermsWith' takes the symbol to use if enumeration truncates at
+involved. 'termsWith' takes the symbol to use if enumeration truncates at
 recursion:
 
 >>> data NatSymbol = Zero | Succ | Recursion deriving (Eq, Ord, Generic, Show)
 >>> instance Hashable NatSymbol
->>> let zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
->>> getAllTermsWith Recursion zeroOrOne
+>>> let zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]] :: Node NatSymbol EqConstraints
+>>> termsWith Recursion zeroOrOne
 [Node {rootLabel = Zero, subForest = []},Node {rootLabel = Succ, subForest = [Node {rootLabel = Zero, subForest = []}]}]
 
 Recursive automata are represented with 'createMu'. Internally nodes and edges
@@ -115,33 +115,18 @@ module Data.CFTA.Equality (
     Enumeration stops at recursion. Unfold first to see past it:
 
     >>> let nat = createMu (\r -> Node [Edge "z" [], Edge "s" [r]]) :: Node Symbol EqConstraints
-    >>> getAllTerms nat
+    >>> terms nat
     [Node {rootLabel = "Mu", subForest = []}]
-    >>> getAllTerms (unfoldBounded 2 nat)
+    >>> terms (unfoldBounded 2 nat)
     [Node {rootLabel = "z", subForest = []},Node {rootLabel = "s", subForest = [Node {rootLabel = "z", subForest = []}]}]
     -}
-    EnumerateM,
-    runEnumerateM,
-    TermFragment (..),
-    PartialSymbol (..),
-    enumerateFully,
-    getAllTerms,
-    getAllTermsWith,
-    getAllTermsPrune,
-    getAllTruncatedTerms,
-
-    -- * Pruning oracles
+    module Data.CFTA.Enumeration,
     UVar,
     uvarToInt,
-    getUVarRepresentative,
-    expandPartialTermFrag,
-    getAllTermsPruneWith,
-    ExpansionOrder,
-    noExpansionPreference,
 ) where
 
 import Data.CFTA.Constraint.Equality
-import Data.CFTA.Equality.Enumeration
+import Data.CFTA.Enumeration
 import Data.CFTA.Equality.Operations
 import Data.CFTA.Internal.UnionFind (UVar, uvarToInt)
 import Data.CFTA.Interned

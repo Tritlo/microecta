@@ -23,7 +23,16 @@ remains a separate ECTA-only package.
   minimization, recursive states under the acyclic-guard restriction, a
   bounded reference denotation on the shared enumerator, and the Z3
   entailment in `Data.CFTA.Refinement.LiquidFixpoint`.
+- `Data.CFTA.Enumeration`: one enumerator for every theory. `terms` solves
+  path equalities by unification and stops at recursion, `plainTerms` lists an
+  automaton without constraints lazily by depth, and `runs` returns each
+  accepting run with the residual constraints it must satisfy. The pruning
+  oracles are `termsPrune` and `termsPruneWith`.
 - `Data.CFTA.Symbol`: interned text symbols shared by every layer.
+- The refinement layer's `denotationAtMost` runs on the shared enumerator: a
+  positive `Same` guard is a path equality solved by unification, so an
+  equality-guarded pair costs milliseconds instead of a quadratic candidate
+  filter, and an unconstrained bounded automaton is listed without interning.
 
 ### Differences from microecta 0.1.0.0
 
@@ -36,6 +45,6 @@ remains a separate ECTA-only package.
 - The hash-consing and memo tables are immutable maps updated atomically, so
   building automata from several threads is safe. Edge joins are keyed on the
   symbol itself rather than on its hash.
-- `getAllTerms` truncates at recursion and lists an unconstrained node through
+- `terms` truncates at recursion and lists an unconstrained node through
   the shared enumerator, so each such term appears once.
 - The term-search application layer is not part of the library.

@@ -6,7 +6,7 @@ import Data.Either (rights)
 import Data.Tree (flatten)
 import qualified Data.Tree as Tree
 
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldSatisfy)
 
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Refinement (
@@ -90,7 +90,7 @@ spec =
                     mapM (accepts tableEntailment automaton) terms
                         >>= (`shouldBe` [Yes, Yes, No, Yes])
                     LTA.denotationAtMost tableEntailment 1 automaton
-                        >>= (`shouldBe` Right (map (terms !!) [0, 1, 3]))
+                        >>= either (expectationFailure . show) (`shouldMatchList` map (terms !!) [0, 1, 3])
 
         it "validates recursive guard paths after interned construction" $ do
             let root = Common.Mu $ \self ->

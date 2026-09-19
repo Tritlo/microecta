@@ -78,7 +78,7 @@ benchmarks =
     , Bench "reduce/filter-list-int-size-3" 20 $ \i ->
         forceNode $ reduceFully (filterListIntSize3 i)
     , Bench "enumerate/reduced-filter-maybe-int-size-2" 80 $ \i ->
-        forceInt $ length (take 64 (getAllTerms (reduceFully (filterMaybeIntSize2 i))))
+        forceInt $ length (take 64 (terms (reduceFully (filterMaybeIntSize2 i))))
     , Bench "sort/path-eclasses/legacy-trie/small" 120 $ \i ->
         forcePathEClasses $
             sortBy (legacyComparePathTrie `on` getPathTrie) (selectPathOrderInput smallPathOrderInputs i)

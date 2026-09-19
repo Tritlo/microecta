@@ -12,8 +12,8 @@ import qualified Test.QuickCheck.Random as QCRandom
 import Data.CFTA.Equality (
     Node (EmptyNode),
     Template (Hole, TemplateNode, TemplatePrefix),
-    getAllTerms,
     matchesTemplate,
+    terms,
     termsMatching,
  )
 import Data.CFTA.Gen.Equality.IFCExpressionLanguage
@@ -177,20 +177,20 @@ spec =
                         $ referenceType (expression program) == Just (expressionType program)
 
         it "builds the surface automaton with the exact counts" $ do
-            length (getAllTerms (surfaceProgramNode 1 Public)) `shouldBe` 72
-            length (getAllTerms (surfaceProgramNode 1 Private)) `shouldBe` 36
-            map termToExpression (getAllTerms (surfaceProgramNode 1 Private))
+            length (terms (surfaceProgramNode 1 Public)) `shouldBe` 72
+            length (terms (surfaceProgramNode 1 Private)) `shouldBe` 36
+            map termToExpression (terms (surfaceProgramNode 1 Private))
                 `shouldSatisfy` all (maybe False ((== Private) . referenceLabel))
 
         it "answers the secret-branching shape as a template restriction" $ do
             termsMatching branchesOnSecret (surfaceProgramNode 2 Public)
                 `shouldBe` EmptyNode
             let restricted =
-                    getAllTerms $
+                    terms $
                         termsMatching branchesOnSecret (surfaceProgramNode 2 Private)
                 byFilter =
                     filter (matchesTemplate branchesOnSecret) $
-                        getAllTerms (surfaceProgramNode 2 Private)
+                        terms (surfaceProgramNode 2 Private)
             length restricted `shouldBe` 24896
             sort byFilter `shouldBe` sort restricted
             map termToExpression restricted

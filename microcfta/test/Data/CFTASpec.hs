@@ -15,6 +15,7 @@ import Data.CFTA (Transition (Transition), statesAt)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (Constraint (..))
 import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
+import qualified Data.CFTA.Enumeration as Enumeration
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
@@ -172,8 +173,8 @@ spec = do
                 bounded = Common.unfoldBounded 2 naturals
             map (acceptPlain bounded) terms `shouldBe` [True, True, False, False]
             Common.refold (Common.unfoldOuterRec naturals) `shouldBe` naturals
-            take 3 (Common.terms naturals) `shouldBe` take 3 terms
-            Common.terms bounded `shouldBe` take 2 terms
+            take 3 (Enumeration.plainTerms naturals) `shouldBe` take 3 terms
+            Enumeration.plainTerms bounded `shouldBe` take 2 terms
 
         it "imports an acyclic explicit graph and exposes it again unchanged" $ do
             let rows =
@@ -239,7 +240,7 @@ spec = do
                         expected = filter (matchesTemplate template) (Automaton.terms bounded)
                     length expected `shouldBe` 2
                     Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
-                    fmap (Common.terms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
+                    fmap (Enumeration.plainTerms . restrict template) (Common.fromFTA bounded) `shouldBe` Right expected
                     -- The check constrains every "add" node, and the root "zero" passes it.
                     let accept _ transition term = pure (Automaton.transitionSymbol transition /= "add" || matchesTemplate template term)
                         zero = Tree.Node "zero" []

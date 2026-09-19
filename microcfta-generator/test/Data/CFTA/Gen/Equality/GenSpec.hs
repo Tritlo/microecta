@@ -18,7 +18,7 @@ import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
-import Data.CFTA.Equality (Node (Node), edgeChildren, edgeConstraint, edgeSymbol, getAllTerms, nodeRepresents)
+import Data.CFTA.Equality (Node (Node), edgeChildren, edgeConstraint, edgeSymbol, nodeRepresents, terms)
 import qualified Data.CFTA.Equality as ECTA
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
@@ -164,7 +164,7 @@ spec = do
                                  , ECTAGen.support $ ECTAGen.ungroup $ ECTAGen.groupBy (const ()) labelled
                                  ) of
                                 (Right support, Right regrouped) -> do
-                                    let witnesses = getAllTerms regrouped
+                                    let witnesses = terms regrouped
                                     ECTAGen.cardinality labelled `shouldBe` Right 2
                                     length witnesses `shouldBe` 2
                                     witnesses `shouldSatisfy` all (nodeRepresents support)

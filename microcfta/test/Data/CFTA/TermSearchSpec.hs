@@ -75,18 +75,18 @@ spec = do
 
     describe "filterType" $ do
         it "keeps only the terms of the requested type" $
-            getAllTerms (reduceFully (filterType constants intType))
+            terms (reduceFully (filterType constants intType))
                 `shouldBe` [Tree.Node "filter" [Tree.Node "Int" [], Tree.Node "one" [Tree.Node "Int" []]]]
 
         it "keeps the other type when that is what is asked for" $
-            getAllTerms (reduceFully (filterType constants boolType))
+            terms (reduceFully (filterType constants boolType))
                 `shouldBe` [Tree.Node "filter" [Tree.Node "Bool" [], Tree.Node "true" [Tree.Node "Bool" []]]]
 
         it "an unrepresented type leaves nothing" $
             reduceFully (filterType constants (typeConst "Char")) `shouldBe` EmptyNode
 
         it "filtering by a type both terms could have keeps both" $
-            length (getAllTerms (reduceFully (filterType (Node [constFunc "one" intType, constFunc "two" intType]) intType)))
+            length (terms (reduceFully (filterType (Node [constFunc "one" intType, constFunc "two" intType]) intType)))
                 `shouldBe` 2
 
     describe "reduceFully" $ do
@@ -95,4 +95,4 @@ spec = do
             reduceFully reduced `shouldBe` reduced
 
         it "does not change what an unconstrained node accepts" $
-            getAllTerms (reduceFully constants) `shouldMatchList` getAllTerms constants
+            terms (reduceFully constants) `shouldMatchList` terms constants

@@ -23,6 +23,7 @@ import System.Environment (getArgs)
 import Text.Printf (printf)
 
 import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Enumeration as Enumeration
 import qualified Data.CFTA.Interned as Common
 
 data Bench = Bench
@@ -63,10 +64,10 @@ benchmarks :: [Bench]
 benchmarks =
     [ explicit "terms/expressions-depth-3" 10 boundedExpressions FTA.terms
     , explicit "naive/expressions-depth-3" 10 boundedExpressions naiveTerms
-    , interned "interned/expressions-depth-3" 10 internedBoundedExpressions Common.terms
+    , interned "interned/expressions-depth-3" 10 internedBoundedExpressions Enumeration.plainTerms
     , explicit "terms/expressions-lazy-500k" 5 expressions $ take 500000 . FTA.terms
-    , interned "interned/expressions-lazy-500k" 5 internedExpressions $ take 500000 . Common.terms
-    , interned "interned/shared-pairs-lazy-500k" 5 sharedPairs $ take 500000 . Common.terms
+    , interned "interned/expressions-lazy-500k" 5 internedExpressions $ take 500000 . Enumeration.plainTerms
+    , interned "interned/shared-pairs-lazy-500k" 5 sharedPairs $ take 500000 . Enumeration.plainTerms
     , -- Chains of depth n have n nodes, so this row counts terms instead of nodes.
       Bench "terms/naturals-500k" 5 (void . evaluate . length . FTA.states . naturals) $
         evaluate . length . take 500000 . FTA.terms . naturals

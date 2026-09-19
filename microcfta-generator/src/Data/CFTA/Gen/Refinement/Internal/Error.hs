@@ -14,7 +14,6 @@ import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Refinement
-import qualified Data.CFTA.Refinement.Equality as LTAECTA
 
 -- | Failure while building, checking, or selecting from a generator.
 data GeneratorError
@@ -40,8 +39,6 @@ data GeneratorError
       InvalidECTAGenerator !ECTA.ECTAGenError
     | -- | The compiled rank plan is invalid.
       InvalidRankedGenerator !Tree.RankedError
-    | -- | The reduced equality fragment could not be represented by MicroECTA.
-      InvalidEqualityView !LTAECTA.EqualityViewError
     | -- | The source has no symbolic observation index.
       RelationalPlanUnavailable
     | -- | A constructor computes its refinement from a Haskell value.
@@ -86,7 +83,6 @@ explain (InvalidSimilarity err) = "Could not compute LTA similarity: " <> show e
 explain (InvalidMinimization err) = "Could not apply LTA minimization: " <> show err
 explain (InvalidECTAGenerator err) = "Could not construct the compiled ECTA support: " <> show err
 explain (InvalidRankedGenerator err) = "Invalid compiled rank plan: " <> show err
-explain (InvalidEqualityView err) = "Could not represent the remaining equality constraints: " <> show err
 explain RelationalPlanUnavailable =
     "This compiled source has no symbolic observation index. Keep its source recipe available, or inspect small inputs explicitly with validOutcomes."
 explain (RelationalComputedRefinement (Symbol symbol)) =

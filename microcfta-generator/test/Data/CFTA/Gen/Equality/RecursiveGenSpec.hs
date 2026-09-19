@@ -21,11 +21,11 @@ import Data.CFTA.Equality (
     Edge (Edge),
     Node (Node),
     createMu,
-    getAllTerms,
     mkEdge,
     nodeCount,
     nodeRepresents,
     numNestedMu,
+    terms,
  )
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
@@ -298,7 +298,7 @@ spec = do
              in case ECTAGen.cardinality (ECTAGen.upToSize 2 generator) of
                     Right total ->
                         sort [term | rank <- [0 .. total - 1], Right term <- [ECTAGen.unrank generator rank]]
-                            `shouldBe` sort (getAllTerms finiteAutomaton)
+                            `shouldBe` sort (terms finiteAutomaton)
                     Left err -> expectationFailure $ show err
 
         it "treats every term of a finite automaton as one atomic choice" $ do
@@ -309,7 +309,7 @@ spec = do
             traverse (ECTAGen.unrank atomic) ranks
                 `shouldBe` traverse (ECTAGen.unrank structured) ranks
             fmap sort (traverse (ECTAGen.unrank atomic) ranks)
-                `shouldBe` Right (sort $ getAllTerms finiteAutomaton)
+                `shouldBe` Right (sort $ terms finiteAutomaton)
             map (ECTAGen.sizeOfRank atomic) ranks
                 `shouldBe` replicate 4 (Just 1)
             fmap (== finiteAutomaton) (ECTAGen.support atomic)

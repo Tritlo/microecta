@@ -33,6 +33,7 @@ import Data.CFTA.Refinement (
     mkAutomaton,
     unconstrainedConstraint,
  )
+import Data.CFTA.Refinement.Constraint (Guard (Same), semanticConstraint)
 import Data.CFTA.Refinement.Expression (true)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
@@ -82,13 +83,14 @@ plainView node = either (error . show) void (Interned.toFTA node)
 benchmarks :: [Bench]
 benchmarks =
     [ fta "fta-terms/expressions-depth-3" 10 boundedExpressions FTA.terms
-    , ecta "ecta-getAllTerms/expressions-depth-3" 10 boundedExpressions getAllTerms
+    , ecta "ecta-terms/expressions-depth-3" 10 boundedExpressions terms
     , Bench "lta-denotationAtMost/expressions-depth-3" 5 (\_ -> pure ()) (\() -> ltaTerms 3)
     , fta "fta-terms/expressions-depth-2" 10000 (unfoldBounded 3 . expressionsMu) FTA.terms
-    , ecta "ecta-getAllTerms/expressions-depth-2" 10000 (unfoldBounded 3 . expressionsMu) getAllTerms
+    , ecta "ecta-terms/expressions-depth-2" 10000 (unfoldBounded 3 . expressionsMu) terms
     , Bench "lta-denotationAtMost/expressions-depth-2" 10000 (\_ -> pure ()) (\() -> ltaTerms 2)
+    , Bench "lta-denotationAtMost/equal-pair-depth-2" 300 (\_ -> pure ()) (\() -> ltaEqualPairTerms)
     , fta "fta-terms/finite-choice" 30000 finiteChoiceNode FTA.terms
-    , ecta "ecta-getAllTerms/finite-choice" 30000 finiteChoiceNode getAllTerms
+    , ecta "ecta-terms/finite-choice" 30000 finiteChoiceNode terms
     ]
   where
     fta name repeats language = prepared name repeats (plainView . language) (length . FTA.states)
@@ -132,6 +134,35 @@ ltaExpressions =
 ltaTerms :: Int -> IO Int
 ltaTerms depth = do
     result <- denotationAtMost (entailmentWithBindings (\_ _ _ -> pure Yes)) depth ltaExpressions
+    either (error . show) sizes result
+
+-- | pair(q, q) with the guard [0] = [1] over expressions of height at most two: 302 terms, 91,204 candidate pairs.
+ltaEqualPair :: Automaton
+ltaEqualPair =
+    either (error . show) id $
+        mkAutomaton
+            (State 0)
+            [
+                ( State 0
+                , [FTA.Transition (LiquidSymbol "pair" true) [State 1, State 1] (semanticConstraint (Same (path [0]) (path [1])))]
+                )
+            , (State 1, level (State 2))
+            , (State 2, level (State 3))
+            , (State 3, [transition "zero" [], transition "one" []])
+            ]
+  where
+    level below =
+        [ transition "zero" []
+        , transition "one" []
+        , transition "neg" [below]
+        , transition "add" [below, below]
+        , transition "mul" [below, below]
+        ]
+    transition symbol children = FTA.Transition (LiquidSymbol symbol true) children unconstrainedConstraint
+
+ltaEqualPairTerms :: IO Int
+ltaEqualPairTerms = do
+    result <- denotationAtMost (entailmentWithBindings (\_ _ _ -> pure Yes)) 4 ltaEqualPair
     either (error . show) sizes result
 
 named :: String -> Int -> Symbol

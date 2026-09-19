@@ -44,6 +44,7 @@ The table uses these module aliases:
 
 ```haskell
 import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Enumeration as Enumeration
 import qualified Data.CFTA.Generic as Generic
 import qualified Data.CFTA.Interned as Common
 import qualified Data.CFTA.Template as Template
@@ -56,7 +57,7 @@ import qualified Data.CFTA.Template as Template
 | Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
 | Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
-| List accepted terms | `FTA.terms`, `Common.terms` | Every term, by depth. A recursive grammar gives an infinite list. |
+| List accepted terms | `FTA.terms`, `Enumeration.terms`, `Enumeration.plainTerms` | Every term, by depth. `terms` solves constraints and stops at recursion; the other two ignore constraints and give an infinite list for a recursive grammar. |
 | Restrict to a pattern | `Template.restrictFTA`, `Template.restrict` | A grammar for the terms that match a `Template`. |
 | List terms a check accepts | `FTA.termsUpToM` | The terms up to a depth, each checked once by a monadic predicate that sees its transition. |
 | Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
@@ -352,7 +353,7 @@ The alphabet can instead be an ordinary datatype. Edge construction needs
 `Hashable` and `Typeable` for type-safe hash-consing; building a node from
 existing edges needs only `Typeable`, and inspecting an existing node needs
 neither. Operations that rebuild edges, such as intersection and reduction,
-therefore carry both constraints. `getAllTermsWith` takes the value to use when
+therefore carry both constraints. `termsWith` takes the value to use when
 recursion is truncated, so the datatype does not need an `IsString` instance:
 
 ```haskell
@@ -368,7 +369,7 @@ zeroOrOne :: Node NatSymbol EqConstraints
 zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
 
 terms :: [Tree.Tree NatSymbol]
-terms = getAllTermsWith Recursion zeroOrOne
+terms = termsWith Recursion zeroOrOne
 ```
 
 Useful operations:
@@ -383,7 +384,7 @@ Useful operations:
 - `matchesTemplate` checks a concrete term against an explicit `Template`.
 - `termsMatching` restricts a node to the accepted terms matching a template,
   while preserving its equality constraints.
-- `getAllTerms` and `getAllTermsPrune` enumerate accepted terms. Both stop at
+- `terms` and `termsPrune` enumerate accepted terms. Both stop at
   an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
   `unfoldBounded` first to see past the recursion.
 
@@ -533,7 +534,7 @@ walks through `@1:0/0:1`, shared references, and equality paths.
 
 ### Pruning API
 
-`getAllTermsPrune` lets a caller drop branches of the enumeration before they
+`termsPrune` lets a caller drop branches of the enumeration before they
 are explored. It calls an oracle twice around every UVar it expands, passing
 the caller's own state, the UVar, and either:
 
@@ -558,7 +559,7 @@ partial term with `fmap resolvePartial`.
 -- Drop any branch whose partial term already contains a forbidden symbol.
 prunedTerms :: [Symbol] -> Node Symbol EqConstraints -> [Tree.Tree Symbol]
 prunedTerms forbidden =
-  getAllTermsPrune () $ \() _ event ->
+  termsPrune () $ \() _ event ->
     case event of
       Right _ -> pure (False, ())
       Left fragment -> do
@@ -582,8 +583,8 @@ under the hole's `getUVarRepresentative` and settle it when the oracle is
 called with `Left fragment` for that UVar — which is guaranteed to happen
 before the branch completes.
 
-`getAllTermsPruneWith` takes the truncated-recursion symbol explicitly, as
-`getAllTermsWith` does, so an alphabet without an `IsString` instance can prune
+`termsPruneWith` takes the truncated-recursion symbol explicitly, as
+`termsWith` does, so an alphabet without an `IsString` instance can prune
 too. It also adds a say in which hole is expanded next, so a parked check can
 be settled before the branch it will kill is enumerated:
 
@@ -595,7 +596,7 @@ resolveParkedFirst parked candidates =
 
 -- The recursion symbol comes first, so a datatype alphabet can prune too.
 prunedNats oracle =
-  getAllTermsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
+  termsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
 ```
 
 This steers order only. It cannot make a hole expandable early, and a UVar
@@ -986,7 +987,8 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 | `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
 | `Data.CFTA.Constraint.Equality` | Equality constraints over paths and their tries. |
-| `Data.CFTA.Equality.Operations`, `Data.CFTA.Equality.Enumeration` | The equality algorithms behind the facade; exposed for lower-level callers. |
+| `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
+| `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
 | `Data.CFTA.Refinement.Guard`, `Data.CFTA.Refinement.Syntax` | Guard syntax over named child positions and handwritten transition rows. |
 | `Data.CFTA.Refinement.Expression` | Small helpers over Liquid Fixpoint refinement expressions. |
@@ -1134,7 +1136,7 @@ on the maintainer machine with a 20-second budget per point.
 Two things have a ceiling worth knowing about.
 
 **Enumerating an unfolded recursive automaton.** For a three-edge recursive
-type, `getAllTerms (unfoldBounded k t)` gives 677 terms at `k = 5` in a
+type, `terms (unfoldBounded k t)` gives 677 terms at `k = 5` in a
 millisecond, 458,330 at `k = 6` in a second, and does not finish `k = 7` in
 twenty. The language grows faster than exponentially in the unfolding depth, so
 this is the shape of the problem rather than a defect: reach for

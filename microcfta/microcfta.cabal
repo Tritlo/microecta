@@ -75,8 +75,8 @@ library
     Data.CFTA
     Data.CFTA.Constraint
     Data.CFTA.Constraint.Equality
+    Data.CFTA.Enumeration
     Data.CFTA.Equality
-    Data.CFTA.Equality.Enumeration
     Data.CFTA.Equality.Operations
     Data.CFTA.Generic
     Data.CFTA.Internal.UnionFind
@@ -90,7 +90,6 @@ library
     Data.CFTA.Refinement.Automaton
     Data.CFTA.Refinement.Constraint
     Data.CFTA.Refinement.Denotation
-    Data.CFTA.Refinement.Equality
     Data.CFTA.Refinement.Evaluate
     Data.CFTA.Refinement.Expression
     Data.CFTA.Refinement.Guard

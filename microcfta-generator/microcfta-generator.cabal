@@ -227,6 +227,7 @@ test-suite plain-tests
     common
     test
 
+  ghc-options: -rtsopts
   other-modules:
     Data.CFTA.Gen.UntypedExpressionLanguage
     Data.CFTA.GenSpec
@@ -281,6 +282,7 @@ test-suite refinement-tests
     common
     test
 
+  ghc-options: -rtsopts
   default-language: Haskell2010
   default-extensions:
     ApplicativeDo

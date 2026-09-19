@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | The reference semantics of an LTA.
 
 'accepts' decides one annotated term. 'denotationAtMost' materializes the
@@ -10,22 +12,29 @@ module Data.CFTA.Refinement.Denotation (
     denotationAtMost,
 ) where
 
-import Control.Monad.Except (ExceptT, runExceptT, throwError)
+import Control.Monad (filterM)
+import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
-import qualified Data.CFTA as FTA
+import Data.Containers.ListUtils (nubOrd)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Tree as Tree
+import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.CFTA.Refinement.Automaton (Automaton, Transition, transitionConstraint)
-import Data.CFTA.Refinement.Constraint (unconstrainedConstraint)
+import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
+import Data.CFTA.Enumeration (runs)
+import Data.CFTA.Interned (fromFTA)
+import Data.CFTA.Refinement.Automaton (Automaton, transitionConstraint)
+import Data.CFTA.Refinement.Constraint (LiquidConstraint)
 import Data.CFTA.Refinement.Evaluate (evaluateConstraint)
-import Data.CFTA.Refinement.Types (LiquidSymbol, State)
+import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol))
 import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..))
 
 -- | Failure while computing the bounded denotation from Figure 6.
-newtype EnumerationError
-    = -- | The solver could not decide a guard on one candidate transition.
-      EnumerationUnknown State
+data EnumerationError
+    = -- | The solver could not decide a transition's guard on the subterm the transition built.
+      EnumerationUnknown LiquidConstraint (Tree.Tree LiquidSymbol)
     deriving (Eq, Show)
 
 {- | Decide whether an annotated term is accepted from the initial state.
@@ -51,27 +60,36 @@ accepts entailment automaton term = do
 {- | Materialize the Figure 6 denotation up to a tree-height bound.
 
 A leaf has height zero. The bound makes this reference interpreter total for
-cyclic LTAs as well as acyclic ones. Terms are built level by level by the
-shared 'FTA.termsUpToM', and the solver decides each transition's constraint
-as soon as its children are complete. Results are deduplicated because the
-paper defines a set of terms even when several runs accept the same tree.
-This is the authoritative, deliberately simple semantics oracle; generator
-backends are optimizations and should be checked against it on bounded
-inputs.
+cyclic LTAs as well as acyclic ones. The bounded automaton is interned and
+listed by the shared enumerator: path equalities are solved by unification,
+and the solver decides each remaining guard on the complete subterm its
+transition built. A term is accepted when the guards of some run all hold.
+An automaton whose transitions carry no constraint is listed level by level
+without interning. The result has each term once, in enumeration order,
+because the paper defines a set of terms even when several runs accept the
+same tree. This is the
+authoritative, deliberately simple semantics oracle; generator backends are
+optimizations and should be checked against it on bounded inputs.
 -}
-denotationAtMost ::
-    Entailment ->
-    Int ->
-    Automaton ->
-    IO (Either EnumerationError [Tree.Tree LiquidSymbol])
-denotationAtMost entailment maximumHeight automaton = runExceptT $ FTA.termsUpToM check maximumHeight automaton
+denotationAtMost :: Entailment -> Int -> Automaton -> IO (Either EnumerationError [Tree.Tree LiquidSymbol])
+denotationAtMost entailment bound automaton
+    | bound < 0 = pure (Right [])
+    | all (all plain) (FTA.transitionTable bounded) = pure (Right (FTA.terms bounded))
+    | otherwise = runExceptT $ do
+        accepted <- filterM (allM . map decide . snd) (runs recursion root)
+        pure $ nubOrd $ map fst accepted
   where
-    check :: State -> Transition -> Tree.Tree LiquidSymbol -> ExceptT EnumerationError IO Bool
-    check state transition term
-        | transitionConstraint transition == unconstrainedConstraint = pure True
-        | otherwise = do
-            verdict <- liftIO $ evaluateConstraint entailment (transitionConstraint transition) term
-            case verdict of
-                Yes -> pure True
-                No -> pure False
-                Unknown -> throwError $ EnumerationUnknown state
+    bounded = FTA.boundDepth bound automaton
+    plain transition = equalities (FTA.transitionGuard transition) == EmptyConstraints && not (residual (FTA.transitionGuard transition))
+    root = case fromFTA bounded of
+        Left err -> error $ "microcfta bug in Data.CFTA.Refinement.denotationAtMost: a depth-bounded automaton is cyclic: " <> show err
+        Right node -> node
+    recursion = LiquidSymbol "Mu" Fixpoint.PTrue
+    decide (constraint, term) = do
+        verdict <- liftIO $ evaluateConstraint entailment constraint term
+        case verdict of
+            Yes -> pure True
+            No -> pure False
+            Unknown -> throwError (EnumerationUnknown constraint term)
+    allM [] = pure True
+    allM (m : ms) = m >>= \ok -> if ok then allM ms else pure False

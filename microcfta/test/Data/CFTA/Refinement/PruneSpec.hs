@@ -3,7 +3,7 @@
 module Data.CFTA.Refinement.PruneSpec (spec) where
 
 import qualified Data.Tree as Tree
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList)
 
 import Data.List (permutations)
 import qualified Data.Map.Strict as Map
@@ -179,7 +179,7 @@ spec =
                 check (guard, acceptedPairs) = case automaton guard of
                     Left err -> expectationFailure $ show err
                     Right original -> do
-                        denotationAtMost solver 1 original >>= (`shouldBe` Right (map term acceptedPairs))
+                        denotationAtMost solver 1 original >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
                         checkPrunedLanguage
                             solver
                             (Right original :: Either AutomatonError Automaton)
@@ -189,7 +189,7 @@ spec =
                         case result of
                             Left err -> expectationFailure $ show err
                             Right reduced -> do
-                                denotationAtMost solver 1 reduced >>= (`shouldBe` Right (map term acceptedPairs))
+                                denotationAtMost solver 1 reduced >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
                                 lowerToEqualityAutomaton reduced `shouldBe` Left (ResidualLTAConstraint (State 0) guard)
                         pruneToECTA solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
             mapM_

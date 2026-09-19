@@ -73,7 +73,7 @@ module Data.CFTA.Interned (
     ViewPath,
     StateView (..),
     toTree,
-    terms,
+    reachable,
 ) where
 
 import Data.Bifunctor (first)
@@ -90,7 +90,7 @@ import Data.CFTA (StateView (..), ViewPath)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint
 import Data.CFTA.Constraint.Equality (EqConstraints)
-import Data.CFTA.Internal.Tree (termsBy, toTreeBy)
+import Data.CFTA.Internal.Tree (toTreeBy)
 import Data.CFTA.Interned.Operations hiding (
     dropConstraints,
     dropEdgeConstraints,
@@ -393,21 +393,6 @@ reachable root = collect IntMap.empty [root]
       where
         ident = nodeIdentity node
         edges = nodeEdges node
-
-{- | Every term of the underlying ordinary graph of a closed root, ordered by depth.
-
-See 'FTA.terms': each term appears once, constraints are not interpreted,
-and a recursive graph gives an infinite list.
--}
-terms ::
-    (Hashable symbol, Ord symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [Tree.Tree symbol]
-terms EmptyNode = []
-terms root =
-    termsBy
-        [ (ident, [(edgeSymbol edge, map nodeIdentity (edgeChildren edge)) | edge <- edges])
-        | (ident, edges) <- IntMap.toList (reachable root)
-        ]
-        (nodeIdentity root)
 
 -- | Failure while importing a finite explicit-state graph.
 newtype FTAImportError state = RecursiveFTAState state

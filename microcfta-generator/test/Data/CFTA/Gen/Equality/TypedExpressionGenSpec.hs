@@ -19,9 +19,9 @@ import Data.CFTA.Equality (
     edgeChildren,
     edgeConstraint,
     edgeSymbol,
-    getAllTerms,
     nodeEdges,
     numNestedMu,
+    terms,
     unfoldBounded,
  )
 import qualified Data.CFTA.Equality as ECTA
@@ -154,7 +154,7 @@ spec =
                     Set.fromList (map fst outcomes) `shouldBe` expectedLanguage
             case ECTAGen.support depthTwoGenerator of
                 Left err -> expectationFailure $ show err
-                Right node -> length (getAllTerms node) `shouldBe` 27054
+                Right node -> length (terms node) `shouldBe` 27054
 
         it "represents unary, binary, and ternary dependencies in ECTA edges" $
             case ECTAGen.support (expressionGenAtDepth 1) of
@@ -351,7 +351,7 @@ spec =
                     numNestedMu node `shouldBe` 1
                     -- Unfolding the recursion twice admits the literals and one
                     -- application layer, and nothing ill-typed: 46 members.
-                    length (getAllTerms $ unfoldBounded 2 node) `shouldBe` 46
+                    length (terms $ unfoldBounded 2 node) `shouldBe` 46
 
         it "keeps every recursive group at its own result type" $ do
             let groupHasType result = do

@@ -113,7 +113,7 @@ spec = do
 
     describe "ECTA-nodes" $ do
         it "equality constraints constrain" $
-            getAllTerms ex1 `shouldSatisfy` ((== 2) . length)
+            terms ex1 `shouldSatisfy` ((== 2) . length)
 
         it "reduces paths constrained by equality constraints" $
             reducePartially ex2 `shouldBe` reducePartially ex1
@@ -135,7 +135,7 @@ spec = do
                             (mkEqConstraints [[path [0], path [1]]])
                         ]
                 rightIsA = TemplateNode "pair" [Hole, TemplateNode "a" []]
-            getAllTerms (termsMatching rightIsA pairs)
+            terms (termsMatching rightIsA pairs)
                 `shouldBe` [Tree.Node "pair" [Tree.Node "a" [], Tree.Node "a" []]]
 
         it "distinguishes exact arity from an explicit prefix" $ do
@@ -155,27 +155,27 @@ spec = do
                     ConcreteSymbol symbol -> symbol
                     UVarHole _ -> Recursion
                     TruncatedRecursion -> Recursion
-            getAllTermsWith Recursion successors
+            termsWith Recursion successors
                 `shouldBe` [Tree.Node Succ [Tree.Node Zero []]]
-            getAllTruncatedTerms successors
+            truncatedTerms successors
                 `shouldBe` [Tree.Node (ConcreteSymbol Succ) [Tree.Node (ConcreteSymbol Zero) []]]
-            map (fmap materialize) (getAllTruncatedTerms successors)
+            map (fmap materialize) (truncatedTerms successors)
                 `shouldBe` [Tree.Node Succ [Tree.Node Zero []]]
 
         it "restricting a finite ECTA agrees with filtering its terms" $
             property $
                 mapSize (min 3) $ \(template :: Template Symbol) (node :: Node Symbol EqConstraints) ->
-                    HashSet.fromList (getAllTerms $ termsMatching template node)
-                        `shouldBe` HashSet.fromList (filter (matchesTemplate template) $ getAllTerms node)
+                    HashSet.fromList (terms $ termsMatching template node)
+                        `shouldBe` HashSet.fromList (filter (matchesTemplate template) $ terms node)
 
     describe "intersection" $ do
-        it "intersection commutes with getAllTerms" $
+        it "intersection commutes with terms" $
             property $
                 mapSize (min 3) $ \(n1 :: Node Symbol EqConstraints) (n2 :: Node Symbol EqConstraints) ->
-                    HashSet.fromList (getAllTerms $ intersect n1 n2)
+                    HashSet.fromList (terms $ intersect n1 n2)
                         `shouldBe` HashSet.intersection
-                            (HashSet.fromList $ getAllTerms n1)
-                            (HashSet.fromList $ getAllTerms n2)
+                            (HashSet.fromList $ terms n1)
+                            (HashSet.fromList $ terms n2)
 
         it "intersect is associative" $
             property $
@@ -207,7 +207,7 @@ spec = do
         -- This test is a bit indirect: the intersection results in a term with what I /think/ is an inaccessible branch.
         -- Not sure if there is a clean-up pass we can do.
         it "add constraints" $
-            getAllTerms (intTest5 `intersect` intTest6) `shouldBe` [Tree.Node "g" [Tree.Node "a" [], Tree.Node "b" []]]
+            terms (intTest5 `intersect` intTest6) `shouldBe` [Tree.Node "g" [Tree.Node "a" [], Tree.Node "b" []]]
 
         -- Intersection examples with Mu nodes
 
@@ -233,10 +233,10 @@ spec = do
             intersect intTest11 intTest12 `shouldBe` Node [Edge "f" [createMu $ \r -> Node [Edge "f" [r]]]]
 
     describe "reduction" $ do
-        it "reduction preserves getAllTerms" $
+        it "reduction preserves terms" $
             property $
                 mapSize (min 3) $
-                    \(n :: Node Symbol EqConstraints) -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
+                    \(n :: Node Symbol EqConstraints) -> HashSet.fromList (terms n) `shouldBe` HashSet.fromList (terms $ reducePartially n)
 
         it "reducing child domains preserves constrained terms" $
             property $
@@ -245,8 +245,8 @@ spec = do
                         ecs = edgeConstraint e
                         ns' = reduceEqConstraints ecs EmptyConstraints ns
                         reduced = mkEdge (edgeSymbol e) ns' ecs
-                     in HashSet.fromList (getAllTerms $ Node [reduced])
-                            `shouldBe` HashSet.fromList (getAllTerms $ Node [e])
+                     in HashSet.fromList (terms $ Node [reduced])
+                            `shouldBe` HashSet.fromList (terms $ Node [e])
 
         it "reducing intersected child domains preserves constrained terms" $
             let intersectingEdge :: Gen (Edge Symbol EqConstraints)
@@ -257,8 +257,8 @@ spec = do
                         ecs = edgeConstraint e'
                         ns' = reduceEqConstraints ecs EmptyConstraints ns
                         reduced = mkEdge (edgeSymbol e') ns' ecs
-                     in HashSet.fromList (getAllTerms $ Node [reduced])
-                            `shouldBe` HashSet.fromList (getAllTerms $ Node [e'])
+                     in HashSet.fromList (terms $ Node [reduced])
+                            `shouldBe` HashSet.fromList (terms $ Node [e'])
 
         it "reducing a constraint is idempotent: buggy input 6/27/21" $ do
             pendingWith
@@ -326,7 +326,7 @@ spec = do
         it "reduction preserves enumeration on nodes without mu" $
             property $
                 mapSize (min 3) $
-                    \(n :: Node Symbol EqConstraints) -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
+                    \(n :: Node Symbol EqConstraints) -> HashSet.fromList (terms n) `shouldBe` HashSet.fromList (terms $ reducePartially n)
 
     describe "degenerate inputs" $ do
         it "maxIndegree of a node with nothing to count is zero" $ do
@@ -335,28 +335,28 @@ spec = do
             maxIndegree ex3 `shouldBe` 2
 
         it "a non-positive unfold bound terminates" $ do
-            getAllTerms (unfoldBounded 0 intTest7) `shouldBe` []
-            getAllTerms (unfoldBounded (-1) intTest7) `shouldBe` []
-            getAllTerms (unfoldBounded (-100) intTest7) `shouldBe` []
+            terms (unfoldBounded 0 intTest7) `shouldBe` []
+            terms (unfoldBounded (-1) intTest7) `shouldBe` []
+            terms (unfoldBounded (-100) intTest7) `shouldBe` []
 
     describe "enumerating recursive automata" $ do
-        -- A root Mu is never expanded, so before this was fixed getAllTerms
-        -- reported the empty language and getAllTruncatedTerms raised.
+        -- A root Mu is never expanded, so before this was fixed terms
+        -- reported the empty language and truncatedTerms raised.
         it "a bare Mu truncates instead of reporting an empty language" $ do
-            getAllTerms intTest7 `shouldBe` [Tree.Node "Mu" []]
-            getAllTruncatedTerms intTest7
+            terms intTest7 `shouldBe` [Tree.Node "Mu" []]
+            truncatedTerms intTest7
                 `shouldBe` [Tree.Node TruncatedRecursion []]
 
         it "a Mu under an edge truncates the same way" $
-            getAllTerms (Node [Edge "wrap" [intTest7]])
+            terms (Node [Edge "wrap" [intTest7]])
                 `shouldBe` [Tree.Node "wrap" [Tree.Node "Mu" []]]
 
         it "unfolding first enumerates past the recursion" $
-            getAllTerms (unfoldBounded 2 intTest7)
+            terms (unfoldBounded 2 intTest7)
                 `shouldMatchList` [Tree.Node "a" [], Tree.Node "f" [Tree.Node "a" []]]
 
         it "a recursion with no base case unfolds to nothing" $
-            getAllTerms (unfoldBounded 2 infiniteFNode) `shouldBe` []
+            terms (unfoldBounded 2 infiniteFNode) `shouldBe` []
 
     describe "dropping constraints" $ do
         it "an edge keeps its symbol and children" $ do
@@ -367,28 +367,28 @@ spec = do
 
         it "the language grows to every combination of children" $ do
             let constrained = Node [constrainedPair]
-            length (getAllTerms constrained) `shouldBe` 2
-            length (getAllTerms $ dropConstraints constrained) `shouldBe` 4
+            length (terms constrained) `shouldBe` 2
+            length (terms $ dropConstraints constrained) `shouldBe` 4
 
         it "the original language is retained" $ do
             let constrained = Node [constrainedPair]
-                relaxed = HashSet.fromList $ getAllTerms $ dropConstraints constrained
-            getAllTerms constrained `shouldSatisfy` all (`HashSet.member` relaxed)
+                relaxed = HashSet.fromList $ terms $ dropConstraints constrained
+            terms constrained `shouldSatisfy` all (`HashSet.member` relaxed)
 
     describe "pruning" $ do
         it "an oracle that never prunes enumerates the whole language" $
-            HashSet.fromList (getAllTermsPrune () keepEverything searchNode)
-                `shouldBe` HashSet.fromList (getAllTerms searchNode)
+            HashSet.fromList (termsPrune () keepEverything searchNode)
+                `shouldBe` HashSet.fromList (terms searchNode)
 
         it "rejecting the node before expansion drops the whole branch" $
-            getAllTermsPrune () rejectEveryNode searchNode `shouldBe` []
+            termsPrune () rejectEveryNode searchNode `shouldBe` []
 
         it "rejecting a produced fragment drops only that branch" $ do
             let oracle state _ (Left frag) = do
                     partial <- expandPartialTermFrag frag
                     return (partial == partialTerm (applied "f" "x"), state)
                 oracle state _ (Right _) = return (False, state)
-            HashSet.fromList (getAllTermsPrune () oracle searchNode)
+            HashSet.fromList (termsPrune () oracle searchNode)
                 `shouldBe` HashSet.fromList
                     [applied "f" "y", applied "g" "x", applied "g" "y"]
 
@@ -418,7 +418,7 @@ spec = do
 
                 shared symbol = Tree.Node "filter" [wrapped symbol, wrapped symbol]
                 wrapped symbol = Tree.Node symbol [Tree.Node "T" []]
-            getAllTermsPrune IntMap.empty oracle sharedFilterNode `shouldBe` [shared "g"]
+            termsPrune IntMap.empty oracle sharedFilterNode `shouldBe` [shared "g"]
 
         it "an expansion order steers which hole is expanded first" $ do
             -- Rejects a branch whose first hole to become concrete is "x"-rooted.
@@ -435,16 +435,16 @@ spec = do
                     uv : _ -> Just uv
                     [] -> Nothing
             -- The enumerator reaches the left hole first, which is never "x".
-            length (getAllTermsPruneWith "Mu" Nothing noExpansionPreference oracle twoHoleNode)
+            length (termsPruneWith "Mu" Nothing noExpansionPreference oracle twoHoleNode)
                 `shouldBe` 4
             -- Steering to the last candidate reaches the right hole first.
-            length (getAllTermsPruneWith "Mu" Nothing preferLast oracle twoHoleNode)
+            length (termsPruneWith "Mu" Nothing preferLast oracle twoHoleNode)
                 `shouldBe` 2
 
         it "a preference outside the candidates is ignored" $ do
             let preferAbsent _ _ = Just (intToUVar 9999)
-            getAllTermsPruneWith "Mu" () preferAbsent keepEverything twoHoleNode
-                `shouldBe` getAllTerms twoHoleNode
+            termsPruneWith "Mu" () preferAbsent keepEverything twoHoleNode
+                `shouldBe` terms twoHoleNode
 
     describe "counted nested Mu" $ do
         it "no Mu" $
@@ -646,12 +646,13 @@ holesOf (TermFragmentNode _ children) = concatMap holesOf children
 holesOf (TermFragmentUVar uv) = [uv]
 
 -- | An oracle that keeps every branch.
-keepEverything :: () -> UVar -> Either (TermFragment Symbol) (Node Symbol EqConstraints) -> EnumerateM Symbol (Bool, ())
+keepEverything ::
+    () -> UVar -> Either (TermFragment Symbol) (Node Symbol EqConstraints) -> EnumerateM Symbol EqConstraints (Bool, ())
 keepEverything state _ _ = return (False, state)
 
 -- | An oracle that rejects every node before it is expanded.
 rejectEveryNode ::
-    () -> UVar -> Either (TermFragment Symbol) (Node Symbol EqConstraints) -> EnumerateM Symbol (Bool, ())
+    () -> UVar -> Either (TermFragment Symbol) (Node Symbol EqConstraints) -> EnumerateM Symbol EqConstraints (Bool, ())
 rejectEveryNode state _ (Right _) = return (True, state)
 rejectEveryNode state _ (Left _) = return (False, state)
 

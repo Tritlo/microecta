@@ -26,6 +26,7 @@ module Data.CFTA.Refinement.Constraint (
 ) where
 
 import Data.Hashable (Hashable)
+import Data.Maybe (isNothing)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Constraint (Constraint (..))
@@ -34,6 +35,7 @@ import Data.CFTA.Constraint.Equality (
     Path,
     combineEqConstraints,
     constraintsAreContradictory,
+    mkEqConstraints,
     subsumptionOrderedEclasses,
     unPathEClass,
  )
@@ -79,14 +81,32 @@ data LiquidConstraint = LiquidConstraint
 
 instance Hashable LiquidConstraint
 
--- | Pure construction operations. Semantic checks remain in the LTA layer.
+{- | Pure construction operations. Semantic checks remain in the LTA layer.
+
+The path equalities of a constraint are its cached equalities together with
+the positive 'Same' atoms of its guard, so enumeration solves those by
+unification. A guard with anything else, including a scoped or negated
+equality, is a residual that the complete subterm must be checked against.
+-}
 instance Constraint LiquidConstraint where
     noConstraint = unconstrainedConstraint
     conjoinConstraints = combineConstraints
     contradictory LiquidConstraint{constraintEqualities, constraintGuard} =
         constraintsAreContradictory constraintEqualities || constraintGuard == Bottom
-    equalities = constraintEqualities
-    residual LiquidConstraint{constraintGuard} = constraintGuard /= Top
+    equalities LiquidConstraint{constraintEqualities, constraintGuard} =
+        maybe constraintEqualities (combineEqConstraints constraintEqualities) (positiveEqualities constraintGuard)
+    residual LiquidConstraint{constraintGuard} = isNothing (positiveEqualities constraintGuard)
+
+{- | The path equalities of a guard made only of 'Top', 'Same' between two
+distinct paths, and 'And'. A reflexive 'Same' requires its path to exist and
+is not an equality, so it stays a residual.
+-}
+positiveEqualities :: Guard -> Maybe EqConstraints
+positiveEqualities Top = Just EmptyConstraints
+positiveEqualities (Same left right)
+    | left /= right = Just $ mkEqConstraints [[left, right]]
+positiveEqualities (And guards) = foldr (\guard rest -> combineEqConstraints <$> positiveEqualities guard <*> rest) (Just EmptyConstraints) guards
+positiveEqualities _ = Nothing
 
 -- | A transition with neither equality nor liquid obligations.
 unconstrainedConstraint :: LiquidConstraint
