@@ -63,7 +63,7 @@ import qualified Data.CFTA.Template as Template
 | Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
 | Intersect languages | `FTA.intersect`, `FTA.intersectWith`, `Common.intersect` | A grammar for the common trees. Annotations require the interpretation described below. |
 | Inspect states, transitions, and cycles | `FTA.states`, `FTA.transitionsFrom`, `FTA.cyclicStates` | Graph structure, not accepted values. |
-| Change symbols or annotations | `FTA.mapSymbols`, `FTA.annotate`, `FTA.mapGuards`, `FTA.stripGuards` | A transformed graph. Removing annotations does not solve constraints. |
+| Change symbols or annotations | `FTA.mapSymbols`, `FTA.annotate`, `FTA.mapConstraints`, `FTA.dropConstraints` | A transformed graph. Removing annotations does not solve constraints. |
 | Build a shared or recursive grammar | `Common.Node`, `Common.Edge`, `Common.Mu` | An interned graph that reuses equal subgraphs. |
 | Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
 | Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
@@ -234,9 +234,9 @@ An automaton checks symbol arities and child-state references at construction.
 Cycles are valid. `PlainFTA` uses `()` for transition annotations.
 
 `Data.CFTA.intersect` constructs reachable product states and pairs the
-input annotations. Apply `stripGuards` to the result of two plain FTAs before
+input annotations. Apply `dropConstraints` to the result of two plain FTAs before
 calling `accepts`. Use `intersectWith` when you need a different annotation
-combination. `stripGuards` removes annotations; it does not solve constraints.
+combination. `dropConstraints` removes annotations; it does not solve constraints.
 
 ## Visualize a grammar
 
@@ -245,8 +245,8 @@ combination. `stripGuards` removes annotations; it does not solve constraints.
 ```haskell
 toTree ::
     (Ord state) =>
-    FTA state symbol guard ->
-    Tree (Either (StateView state) (Transition state symbol guard))
+    FTA state symbol constraint ->
+    Tree (Either (StateView state) (Transition state symbol constraint))
 ```
 
 `Left` contains a state definition or reference. `Right` contains the original

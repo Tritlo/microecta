@@ -49,8 +49,8 @@ spec = do
                                 , Tree.Node (Left $ Automaton.Recursive [(1, 1)] Expression) []
                                 ]
                             ]
-                    let functionLabels = Tree.flatten $ Automaton.toTree $ Automaton.mapGuards (const not) automaton
-                    [Automaton.transitionGuard edge True | Right edge <- functionLabels] `shouldBe` [False, False]
+                    let functionLabels = Tree.flatten $ Automaton.toTree $ Automaton.mapConstraints (const not) automaton
+                    [Automaton.transitionConstraint edge True | Right edge <- functionLabels] `shouldBe` [False, False]
 
         it "constructs the ordinary product intersection" $ do
             let left = Automaton.mkFTA Expression [(Expression, [Transition "left" [] (), Transition "shared" [] ()])]
@@ -60,7 +60,7 @@ spec = do
                     case Automaton.intersect leftAutomaton rightAutomaton of
                         Left err -> expectationFailure $ show err
                         Right intersection -> do
-                            let ordinary = Automaton.stripGuards intersection
+                            let ordinary = Automaton.dropConstraints intersection
                             Automaton.accepts ordinary (Tree.Node "shared" []) `shouldBe` True
                             Automaton.accepts ordinary (Tree.Node "left" []) `shouldBe` False
                             Automaton.accepts ordinary (Tree.Node "right" []) `shouldBe` False
@@ -152,7 +152,7 @@ spec = do
             case Common.toFTA graph of
                 Left err -> expectationFailure $ show err
                 Right view ->
-                    map Automaton.transitionGuard (Automaton.transitionsFrom view $ Automaton.initialState view)
+                    map Automaton.transitionConstraint (Automaton.transitionsFrom view $ Automaton.initialState view)
                         `shouldBe` [Only "a"]
 
         it "does not intersect constructors with different arities" $ do

@@ -99,7 +99,7 @@ match. Only reachable pairs are built.
 -}
 restrictFTA ::
     (Ord state, Ord symbol) =>
-    Template symbol -> FTA state symbol guard -> FTA (state, Template symbol) symbol guard
+    Template symbol -> FTA state symbol constraint -> FTA (state, Template symbol) symbol constraint
 restrictFTA template automaton =
     -- The input is ranked, so the restriction is ranked and validation cannot fail.
     fromRight (error "restrictFTA: the restriction of a ranked automaton is ranked")

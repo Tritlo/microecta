@@ -143,7 +143,7 @@ compileUnconstrainedAutomaton buildValue acceptedSupport = do
             $ Ranked.Indexed
                 total
                 (generatedAtWith buildValue acceptedSupport counts)
-    pure (ranked, automatonShrinkRanks (FTA.stripGuards acceptedSupport) counts)
+    pure (ranked, automatonShrinkRanks (FTA.dropConstraints acceptedSupport) counts)
 
 -- | Compile Boolean equality over annotated symbols with exact unique ranks.
 compileSymbolicAutomaton ::
@@ -226,10 +226,10 @@ language; it needs the ECTA counting path instead of an FTA product count.
 -}
 ensureUnconstrained :: EqualityAutomaton -> Either GeneratorError ()
 ensureUnconstrained automaton =
-    case [ (state, FTA.transitionGuard transition)
+    case [ (state, FTA.transitionConstraint transition)
          | (state, transitions) <- Map.toList $ automatonTransitions automaton
          , transition <- transitions
-         , FTA.transitionGuard transition /= EmptyConstraints
+         , FTA.transitionConstraint transition /= EmptyConstraints
          ] of
         residual : _ -> Left $ uncurry ResidualEquality residual
         [] -> Right ()

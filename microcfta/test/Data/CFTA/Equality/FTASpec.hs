@@ -47,5 +47,5 @@ spec =
                 ] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->
-                    map Automaton.transitionGuard (Automaton.transitionsFrom automaton Expression)
+                    map Automaton.transitionConstraint (Automaton.transitionsFrom automaton Expression)
                         `shouldBe` [equalChildren]

@@ -101,7 +101,7 @@ spec =
                 Right original -> case lowerToEqualityAutomaton original of
                     Left err -> expectationFailure $ show err
                     Right lowered ->
-                        traverse (accepts solver $ FTA.mapGuards equalityConstraint lowered) optionalDescendantTerms
+                        traverse (accepts solver $ FTA.mapConstraints equalityConstraint lowered) optionalDescendantTerms
                             >>= (`shouldBe` [Yes, Yes])
 
         it "does not erase absent descendants implied by an ancestor equality" $ do
@@ -234,7 +234,7 @@ spec =
                             Right reduced ->
                                 case Map.findWithDefault [] (State 0) $ automatonTransitions reduced of
                                     [root] -> do
-                                        FTA.transitionGuard root
+                                        FTA.transitionConstraint root
                                             `shouldBe` mkEqConstraints [[path [0], path [1]]]
                                         case transitionChildren root of
                                             leftState : _ -> do
@@ -242,7 +242,7 @@ spec =
                                                     transitionSymbol
                                                     (Map.findWithDefault [] leftState $ automatonTransitions reduced)
                                                     `shouldBe` ["shared"]
-                                                let lifted = FTA.mapGuards equalityConstraint reduced
+                                                let lifted = FTA.mapConstraints equalityConstraint reduced
                                                 traverse (accepts solver lifted) syntacticPairTerms
                                                     >>= (`shouldBe` [Yes, No, No])
                                             [] -> expectationFailure "pair transition lost its children"
@@ -304,7 +304,7 @@ spec =
                                 case result of
                                     Left err -> expectationFailure $ show err
                                     Right reduced -> do
-                                        after <- denotationAtMost solver 1 $ FTA.mapGuards equalityConstraint reduced
+                                        after <- denotationAtMost solver 1 $ FTA.mapConstraints equalityConstraint reduced
                                         equivalentTermSets before after `shouldBe` True
                                         fmap length after `shouldBe` Right 2
                 mapM_ check $ permutations requirements

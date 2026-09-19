@@ -79,7 +79,7 @@ transitionChildren = FTA.transitionChildren
 
 -- | Complete equality and semantic constraint attached to a transition.
 transitionConstraint :: Transition -> LiquidConstraint
-transitionConstraint = FTA.transitionGuard
+transitionConstraint = FTA.transitionConstraint
 
 -- | ECTA equality classes attached to a transition.
 transitionEqualities :: Transition -> EqConstraints
@@ -149,7 +149,7 @@ fromInterned root = do
   where
     annotate _ transition =
         let LiquidSymbol symbol refinement = FTA.transitionSymbol transition
-         in (symbol, refinement, FTA.transitionGuard transition)
+         in (symbol, refinement, FTA.transitionConstraint transition)
 
 {- | Add liquid labels and constraints to an existing FTA.
 
@@ -159,8 +159,8 @@ The result uses consecutive state names and normal LTA validation.
 -}
 annotateFTA ::
     (Ord state) =>
-    (state -> FTA.Transition state symbol guard -> (Symbol, Refinement, LiquidConstraint)) ->
-    FTA.FTA state symbol guard ->
+    (state -> FTA.Transition state symbol constraint -> (Symbol, Refinement, LiquidConstraint)) ->
+    FTA.FTA state symbol constraint ->
     Either AutomatonError Automaton
 annotateFTA annotate graph =
     mkAutomaton

@@ -331,7 +331,7 @@ fromDatatypeUpToDepth depth datatype =
         Right graph -> decode <$> fromLTA depth graph
   where
     annotate _ transition =
-        let (refinement, constraint) = FTA.transitionGuard transition
+        let (refinement, constraint) = FTA.transitionConstraint transition
          in (fromString $ constructorLabel $ FTA.transitionSymbol transition, refinement, constraint)
     decode term =
         case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) $ eraseRefinements term) of

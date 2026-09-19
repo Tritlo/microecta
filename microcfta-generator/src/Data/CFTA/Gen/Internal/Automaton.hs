@@ -90,7 +90,7 @@ Transition annotations are ignored. A constrained layer must discharge them
 before treating these counts as accepted terms. A reachable cycle returns its
 state. Empty states retain a zero count.
 -}
-countRuns :: (Ord state) => FTA.FTA state symbol guard -> Either state (Map.Map state Integer)
+countRuns :: (Ord state) => FTA.FTA state symbol constraint -> Either state (Map.Map state Integer)
 countRuns automaton =
     snd <$> countState Set.empty Map.empty (FTA.initialState automaton)
   where
@@ -128,7 +128,7 @@ The caller checks acyclicity first. Annotations are ignored. Two alternatives
 overlap when their labels match and every child-state pair has a common term.
 Each state pair is checked once, including repeated subtrees of a shared graph.
 -}
-ambiguousState :: (Ord state, Ord symbol) => FTA.FTA state symbol guard -> [state] -> Maybe state
+ambiguousState :: (Ord state, Ord symbol) => FTA.FTA state symbol constraint -> [state] -> Maybe state
 ambiguousState automaton = go Map.empty
   where
     table = FTA.transitionTable automaton
@@ -200,7 +200,8 @@ The caller supplies exact counts and a valid rank. No intermediate term is
 constructed. Transition and child order define the mixed-radix rank domain.
 -}
 {-# INLINE foldAt #-}
-foldAt :: (Ord state) => (symbol -> [a] -> a) -> FTA.FTA state symbol guard -> Map.Map state Integer -> Integer -> a
+foldAt ::
+    (Ord state) => (symbol -> [a] -> a) -> FTA.FTA state symbol constraint -> Map.Map state Integer -> Integer -> a
 foldAt buildValue automaton counts = decode (FTA.initialState automaton)
   where
     table = FTA.transitionTable automaton

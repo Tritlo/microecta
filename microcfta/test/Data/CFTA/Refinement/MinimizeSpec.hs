@@ -71,7 +71,7 @@ spec =
                         case inferred of
                             Left err -> expectationFailure $ show err
                             Right related -> do
-                                let changed = FTA.mapGuards (const $ semanticConstraint $ Satisfies (path []) Fixpoint.PTrue) original
+                                let changed = FTA.mapConstraints (const $ semanticConstraint $ Satisfies (path []) Fixpoint.PTrue) original
                                 minimize changed related `shouldBe` Left StaleSimilarity
 
         it "rejects a similarity snapshot when only the accepting state changes" $

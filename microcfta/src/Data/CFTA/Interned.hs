@@ -417,7 +417,7 @@ fromFTA graph = case FTA.cycleState trimmed of
         mkEdge
             (FTA.transitionSymbol transition)
             (map (nodes Map.!) (FTA.transitionChildren transition))
-            (FTA.transitionGuard transition)
+            (FTA.transitionConstraint transition)
 
 -- | Name the empty state or read the shared canonical identity.
 stateOf :: Node symbol constraint -> InternedState

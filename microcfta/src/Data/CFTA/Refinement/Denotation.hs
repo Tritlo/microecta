@@ -80,7 +80,9 @@ denotationAtMost entailment bound automaton
         pure $ nubOrd $ map fst accepted
   where
     bounded = FTA.boundDepth bound automaton
-    plain transition = equalities (FTA.transitionGuard transition) == EmptyConstraints && not (residual (FTA.transitionGuard transition))
+    plain transition =
+        equalities (FTA.transitionConstraint transition) == EmptyConstraints
+            && not (residual (FTA.transitionConstraint transition))
     root = case fromFTA bounded of
         Left err -> error $ "microcfta bug in Data.CFTA.Refinement.denotationAtMost: a depth-bounded automaton is cyclic: " <> show err
         Right node -> node
