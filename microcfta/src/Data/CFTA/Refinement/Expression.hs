@@ -1,5 +1,5 @@
 -- | Small expression helpers over Liquid Fixpoint refinements.
-module Data.LTA.Refinement (
+module Data.CFTA.Refinement.Expression (
     Expr,
     variable,
     integer,
@@ -17,7 +17,7 @@ module Data.LTA.Refinement (
     (.>=.),
 ) where
 
-import Data.LTA (Refinement)
+import Data.CFTA.Refinement (Refinement)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A Liquid Fixpoint expression. Its solver sort comes from declarations.

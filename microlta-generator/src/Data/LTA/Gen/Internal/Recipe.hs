@@ -20,7 +20,7 @@ module Data.LTA.Gen.Internal.Recipe (
 import Control.Monad (void)
 import Data.List (nub)
 
-import Data.LTA
+import Data.CFTA.Refinement
 import Data.LTA.Gen.Internal.Error (GeneratorError)
 import Data.LTA.Gen.Internal.Replay (cardinality, mapCompiled)
 import Data.LTA.Gen.Internal.Types

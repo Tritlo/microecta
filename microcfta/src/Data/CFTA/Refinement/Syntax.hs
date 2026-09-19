@@ -4,7 +4,7 @@ The only LTA-specific additions are the transition refinement and a
 'GuardBuilder', so constructor arguments in a liquid constraint receive names
 rather than numeric paths.
 -}
-module Data.LTA.Syntax (
+module Data.CFTA.Refinement.Syntax (
     Transition,
     Row,
     row,
@@ -13,7 +13,7 @@ module Data.LTA.Syntax (
     automatonWithFinals,
 ) where
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError (GuardArityMismatch),
     Refinement,
@@ -22,8 +22,8 @@ import Data.LTA (
     mkAutomaton,
     mkAutomatonWithFinals,
  )
-import qualified Data.LTA as Core
-import Data.LTA.Guard (GuardBuilder, buildGuard, guardArgumentCount)
+import qualified Data.CFTA.Refinement as Core
+import Data.CFTA.Refinement.Guard (GuardBuilder, buildGuard, guardArgumentCount)
 
 -- | A named transition whose construction errors are checked by 'automaton'.
 type Transition = Either AutomatonError Core.Transition

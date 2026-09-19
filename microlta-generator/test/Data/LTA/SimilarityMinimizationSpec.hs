@@ -3,9 +3,9 @@ module Data.LTA.SimilarityMinimizationSpec (spec) where
 import Data.String (fromString)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
+import Data.CFTA.Refinement.Expression (true, (./=.), (.>=.))
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (true, (./=.), (.>=.))
 import Data.LTA.TypedExpressionLanguage (nonNegative, solverDeclarations, value)
 
 data Candidate = Candidate

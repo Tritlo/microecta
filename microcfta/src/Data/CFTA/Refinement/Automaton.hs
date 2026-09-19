@@ -5,7 +5,7 @@
 'mkAutomaton' is the only construction path. It checks that each ranked symbol
 keeps one arity and that no guard inspects a position whose state is recursive.
 -}
-module Data.LTA.Automaton (
+module Data.CFTA.Refinement.Automaton (
     Transition,
     pattern Transition,
     transitionSymbol,
@@ -49,11 +49,11 @@ import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Path (statesAt)
 import Data.CFTA.Symbol (Symbol)
 
-import Data.LTA.Constraint (
+import Data.CFTA.Refinement.Constraint (
     LiquidConstraint (constraintEqualities),
     constraintPaths,
  )
-import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement, State (State))
+import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement, State (State))
 
 -- | One refinement-labelled, constrained alternative from an LTA state.
 type Transition = FTA.Transition State LiquidSymbol LiquidConstraint
@@ -315,7 +315,7 @@ only after every machine integer names a state.
 -}
 reserveState :: [State] -> (State, [State])
 reserveState (state : remaining) = (state, remaining)
-reserveState [] = error "microlta bug in Data.LTA.reserveState: the state domain is exhausted"
+reserveState [] = error "microcfta bug in Data.CFTA.Refinement.reserveState: the state domain is exhausted"
 
 -- | Safe zero-based list lookup.
 atIndex :: Int -> [a] -> Maybe a

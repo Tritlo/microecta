@@ -90,6 +90,20 @@ library
     Data.CFTA.Interned.Operations
     Data.CFTA.Interned.Type
     Data.CFTA.Path
+    Data.CFTA.Refinement
+    Data.CFTA.Refinement.Automaton
+    Data.CFTA.Refinement.Constraint
+    Data.CFTA.Refinement.Denotation
+    Data.CFTA.Refinement.Equality
+    Data.CFTA.Refinement.Evaluate
+    Data.CFTA.Refinement.Expression
+    Data.CFTA.Refinement.Guard
+    Data.CFTA.Refinement.LiquidFixpoint
+    Data.CFTA.Refinement.Minimize
+    Data.CFTA.Refinement.Prune
+    Data.CFTA.Refinement.Syntax
+    Data.CFTA.Refinement.Types
+    Data.CFTA.Refinement.Verdict
     Data.CFTA.Symbol
     Data.CFTA.Template
 
@@ -103,6 +117,7 @@ library
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     intern >=0.9 && <0.10,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
     transformers >=0.6 && <0.7,
@@ -125,15 +140,26 @@ test-suite unit-tests
     Data.CFTA.EqualitySpec
     Data.CFTA.Example.TermSearchSpec
     Data.CFTA.Internal.UnionFindSpec
+    Data.CFTA.Refinement.GuardSpec
+    Data.CFTA.Refinement.MinimizeSpec
+    Data.CFTA.Refinement.PruneSpec
+    Data.CFTA.Refinement.RecognitionSpec
+    Data.CFTA.Refinement.RecursiveSpec
+    Data.CFTA.Refinement.RefinementRelationSpec
+    Data.CFTA.Refinement.SubstitutionSpec
+    Data.CFTA.Refinement.SyntaxSpec
+    Data.CFTA.Refinement.TestSupport
     Data.CFTASpec
     Test.Generators.Equality
 
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    directory >=1.3 && <1.4,
     equivalence >=0.4.1 && <0.5,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,

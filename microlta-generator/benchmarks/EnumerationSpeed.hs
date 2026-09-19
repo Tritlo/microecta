@@ -21,8 +21,7 @@ import Text.Printf (printf)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality
 import qualified Data.CFTA.Interned as Interned
-import Data.CFTA.Symbol (Symbol (Symbol))
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     LiquidSymbol (LiquidSymbol),
     State (State),
@@ -32,7 +31,8 @@ import Data.LTA (
     mkAutomaton,
     unconstrainedConstraint,
  )
-import Data.LTA.Refinement (true)
+import Data.CFTA.Refinement.Expression (true)
+import Data.CFTA.Symbol (Symbol (Symbol))
 
 -- | One row: every repeat prepares its own language before timing starts.
 data Bench = forall language. Bench

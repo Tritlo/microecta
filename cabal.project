@@ -4,7 +4,6 @@ packages:
   microcfta
   microfta-generator
   microecta-generator
-  microlta
   microlta-generator
 
 package *

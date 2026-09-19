@@ -1,9 +1,11 @@
-module Data.LTA.RecognitionSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.RecognitionSpec (spec) where
 
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     AutomatonError (DanglingState, InconsistentArity),
     LiquidSymbol (LiquidSymbol),
     State (State),
@@ -16,8 +18,8 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
-import Data.LTA.Refinement (true, value, (.==.))
-import Data.LTA.TestSupport (unusedEntailment)
+import Data.CFTA.Refinement.Expression (true, value, (.==.))
+import Data.CFTA.Refinement.TestSupport (unusedEntailment)
 import qualified Data.Set as Set
 
 spec :: Spec

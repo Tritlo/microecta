@@ -4,7 +4,7 @@
 applies one deterministic schedule of M-Trans, keeping the original automaton
 whenever a step would lose a finite derivation.
 -}
-module Data.LTA.Minimize (
+module Data.CFTA.Refinement.Minimize (
     TransitionId (..),
     Subtyping (..),
     refinementSubtypingBy,
@@ -20,7 +20,7 @@ import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.LTA.Automaton (
+import Data.CFTA.Refinement.Automaton (
     Automaton,
     AutomatonError (CyclicGuardReference),
     Transition,
@@ -31,8 +31,8 @@ import Data.LTA.Automaton (
     transitionChildren,
     transitionRefinement,
  )
-import Data.LTA.Types (State)
-import Data.LTA.Verdict (Entailment, Verdict (..), entails)
+import Data.CFTA.Refinement.Types (State)
+import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entails)
 
 {- | Stable address of a transition in one automaton snapshot.
 

@@ -3,8 +3,8 @@ module Data.LTA.SizedVectorSpec (spec) where
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.SizedVectorLanguage
 import Data.LTA.TestSupport (values)
 import qualified Data.LTA.TestSupport as Support

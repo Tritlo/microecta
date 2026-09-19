@@ -4,9 +4,9 @@ module Data.LTA.ExampleSupport (
     oneofOrDie,
 ) where
 
-import Data.LTA (Refinement)
+import Data.CFTA.Refinement (Refinement)
+import Data.CFTA.Refinement.Expression (value, (.>=.))
 import qualified Data.LTA.Gen as LTA
-import Data.LTA.Refinement (value, (.>=.))
 
 -- | The non-negative integer refinement.
 nonNegative :: Refinement

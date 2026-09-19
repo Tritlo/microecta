@@ -8,11 +8,11 @@ module Main (main) where
 import Control.Monad (unless)
 import qualified Test.QuickCheck as QC
 
-import Data.LTA (Refinement)
+import Data.CFTA.Refinement (Refinement)
+import Data.CFTA.Refinement.Expression (integer, value, variable, (./=.), (.==.))
+import Data.CFTA.Refinement.Guard (requires)
+import Data.CFTA.Refinement.LiquidFixpoint (integerDeclarations, withZ3Assuming)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (requires)
-import Data.LTA.LiquidFixpoint (integerDeclarations, withZ3Assuming)
-import Data.LTA.Refinement (integer, value, variable, (./=.), (.==.))
 
 -- | The refinement used by the division precondition.
 nonZero :: Refinement

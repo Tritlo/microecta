@@ -2,8 +2,8 @@ module Data.LTA.SubsumptionTypedExpressionSpec (spec) where
 
 import Test.Hspec (Spec, describe, it, shouldBe, shouldContain)
 
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.TestSupport (values)
 import qualified Data.LTA.TestSupport as Support
 import Data.LTA.TypedExpressionLanguage

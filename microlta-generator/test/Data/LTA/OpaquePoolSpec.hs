@@ -11,12 +11,18 @@ import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
-import Data.LTA (Entailment (Entailment), Guard (Bottom), LiquidConstraint, Refinement, Verdict (Unknown, Yes))
+import Data.CFTA.Refinement (
+    Entailment (Entailment),
+    Guard (Bottom),
+    LiquidConstraint,
+    Refinement,
+    Verdict (Unknown, Yes),
+ )
+import Data.CFTA.Refinement.Expression (value, (./=.), (.<.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (Position, allOf, isSameTermAs, isSubtypeOf, requires, unconstrained)
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.LTA.ExampleSupport (nonNegative)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (Position, allOf, isSameTermAs, isSubtypeOf, requires, unconstrained)
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (value, (./=.), (.<.), (.==.), (.>=.))
 import Data.LTA.TestSupport (compileOrFail, rightOrFail)
 import qualified Data.Ranked as Tree
 import Data.Ranked.Internal.Sampler (Exact (..))

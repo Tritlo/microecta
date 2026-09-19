@@ -1,15 +1,17 @@
-module Data.LTA.RefinementRelationSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.RefinementRelationSpec (spec) where
 
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     RefinementRelation (..),
     SemanticIntersection (..),
     refinementRelation,
     semanticIntersection,
  )
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (value, (./=.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Expression (value, (./=.), (.==.), (.>=.))
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec

@@ -7,7 +7,7 @@ Every semantic question about an LTA reaches a solver through 'Entailment'. A
 solver can answer 'Unknown', and each combinator here keeps that answer
 distinct from 'No'.
 -}
-module Data.LTA.Verdict (
+module Data.CFTA.Refinement.Verdict (
     Verdict (..),
     Entailment (Entailment, entails),
     entailmentWithBindings,
@@ -25,7 +25,7 @@ module Data.LTA.Verdict (
 
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA.Types (Refinement)
+import Data.CFTA.Refinement.Types (Refinement)
 
 -- | A three-valued decision. Solver uncertainty is never silently made false.
 data Verdict = Yes | No | Unknown

@@ -22,11 +22,11 @@ module Data.LTA.TypedExpressionLanguage (
 
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA (LiquidConstraint, Refinement, Symbol)
+import Data.CFTA.Refinement (LiquidConstraint, Refinement, Symbol)
+import Data.CFTA.Refinement.Expression (true, value, variable, (.+.), (./=.), (.==.))
+import Data.CFTA.Refinement.Guard (Position, allOf, descendant, isSubtypeOf, requires, unconstrained, withActualFor)
 import Data.LTA.ExampleSupport (nonNegative)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (Position, allOf, descendant, isSubtypeOf, requires, unconstrained, withActualFor)
-import Data.LTA.Refinement (true, value, variable, (.+.), (./=.), (.==.))
 
 -- | Expressions used by the LTA capability examples.
 data Expression

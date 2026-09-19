@@ -7,7 +7,7 @@ Pruning discharges a transition guard by splitting the states below it until
 every observed position is homogeneous in what the guard reads. Combinations
 that fail, and the states they strand, are removed to a fixed point.
 -}
-module Data.LTA.Prune (
+module Data.CFTA.Refinement.Prune (
     PruneError (..),
     prune,
     pruneToECTA,
@@ -34,7 +34,7 @@ import Data.CFTA.Equality.Constraints (
  )
 import Data.CFTA.Path (statesAt)
 
-import Data.LTA.Automaton (
+import Data.CFTA.Refinement.Automaton (
     Automaton,
     AutomatonError,
     EqualityAutomaton,
@@ -55,7 +55,7 @@ import Data.LTA.Automaton (
     unusedStates,
     pattern Transition,
  )
-import Data.LTA.Constraint (
+import Data.CFTA.Refinement.Constraint (
     Guard (..),
     LiquidConstraint (..),
     combineConstraints,
@@ -64,16 +64,16 @@ import Data.LTA.Constraint (
     splitGuard,
     symbolSensitivePaths,
  )
-import Data.LTA.Evaluate (evaluateGuardWithShape, substitutionValues)
-import Data.LTA.Minimize (
+import Data.CFTA.Refinement.Evaluate (evaluateGuardWithShape, substitutionValues)
+import Data.CFTA.Refinement.Minimize (
     MinimizeError,
     SimilarityError,
     Subtyping,
     minimize,
     similarity,
  )
-import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement, State)
-import Data.LTA.Verdict (Entailment, Verdict (..))
+import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement, State)
+import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..))
 
 -- | A semantic obstacle encountered while pruning guarded transitions.
 data PruneError

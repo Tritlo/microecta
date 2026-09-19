@@ -10,7 +10,7 @@ LTA semantics about generator joins.
 The conversion accepts acyclic automata only. Bound a recursive LTA before
 conversion; 'RecursiveEqualityState' reports one that was not.
 -}
-module Data.LTA.ECTA (
+module Data.CFTA.Refinement.Equality (
     EqualityView,
     EqualityViewError (..),
     toECTA,
@@ -27,7 +27,7 @@ import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraints (EqConstraints)
 import qualified Data.CFTA.Interned as Common
-import Data.LTA (
+import Data.CFTA.Refinement (
     EqualityAutomaton,
     LiquidSymbol,
     State,
@@ -60,7 +60,7 @@ toECTA :: EqualityAutomaton -> Either EqualityViewError EqualityView
 toECTA automaton = do
     -- The alphabet map is injective, so renaming cannot change an arity.
     graph <- case FTA.mapSymbols (alphabet Map.!) automaton of
-        Left _ -> error "microlta bug in Data.LTA.ECTA.toECTA: an injective renaming changed a validated arity"
+        Left _ -> error "microcfta bug in Data.CFTA.Refinement.Equality.toECTA: an injective renaming changed a validated arity"
         Right renamed -> Right renamed
     root <- case Common.fromFTA graph of
         Left (Common.RecursiveFTAState state) -> Left $ RecursiveEqualityState state

@@ -1,4 +1,6 @@
-module Data.LTA.GuardSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.GuardSpec (spec) where
 
 import Control.Exception (evaluate)
 import qualified Data.Tree as Tree
@@ -6,7 +8,7 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 import Data.CFTA.Equality.Constraints (mkEqConstraints)
-import Data.LTA (
+import Data.CFTA.Refinement (
     Guard (Bottom, Entails, Not, Or, Same, Satisfies, Substitute),
     LiquidSymbol (LiquidSymbol),
     Substitution (Substitution),
@@ -18,10 +20,10 @@ import Data.LTA (
     path,
     semanticConstraint,
  )
-import Data.LTA.Guard (anyOf, buildGuard, isSameTermAs, notGuard, requires, withActualFor)
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (true, value, variable, (.+.), (.==.), (.>=.))
-import Data.LTA.TestSupport (tableEntailment)
+import Data.CFTA.Refinement.Expression (true, value, variable, (.+.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (anyOf, buildGuard, isSameTermAs, notGuard, requires, withActualFor)
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import Data.CFTA.Refinement.TestSupport (tableEntailment)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec

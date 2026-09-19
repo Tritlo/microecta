@@ -56,7 +56,7 @@ import qualified Data.Tree as Tree
 
 import qualified Data.CFTA.Equality as ECTA.Core
 import Data.CFTA.Equality.Constraints (EqConstraints)
-import Data.LTA
+import Data.CFTA.Refinement
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Witness (Witness)
 import qualified Data.Ranked as Ranked

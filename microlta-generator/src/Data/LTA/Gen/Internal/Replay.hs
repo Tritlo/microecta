@@ -20,7 +20,7 @@ import Data.Bifunctor (first)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 
-import Data.LTA
+import Data.CFTA.Refinement
 import Data.LTA.Gen.Internal.Error (GeneratorError, fromRankedError)
 import Data.LTA.Gen.Internal.ShrinkSearch (acceptedShrinks)
 import Data.LTA.Gen.Internal.Types

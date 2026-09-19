@@ -40,15 +40,15 @@ import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
-import Data.LTA
+import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (true)
+import Data.CFTA.Refinement.Guard (GuardBuilder, buildGuard, guardArgumentCount)
 import Data.LTA.Gen.Internal.AutomatonCompile (compileBoundedAutomaton)
 import Data.LTA.Gen.Internal.Error (GeneratorError (..))
 import Data.LTA.Gen.Internal.Recipe (childRecipeArity, knownEmptyRecipe, validateGenerator)
 import Data.LTA.Gen.Internal.Replay (compiledSource)
 import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (Witness (..), compileWitnesses)
-import Data.LTA.Guard (GuardBuilder, buildGuard, guardArgumentCount)
-import Data.LTA.Refinement (true)
 
 -- | Build one refined pool entry.
 refined :: a -> Symbol -> Refinement -> Refined a

@@ -10,7 +10,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldRetur
 
 import Data.CFTA.Equality.Constraints (mkEqConstraints)
 import qualified Data.CFTA.Generic as Datatype
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,
     Entailment (Entailment),
@@ -25,8 +25,8 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
+import Data.CFTA.Refinement.Expression (true)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Refinement (true)
 
 -- | Two compact shared subtrees with equal languages and distinct state names.
 sharedSubtreeAutomaton :: Int -> Symbol -> Either AutomatonError Automaton

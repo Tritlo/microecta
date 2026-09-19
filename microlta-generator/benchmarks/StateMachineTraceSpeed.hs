@@ -12,8 +12,8 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3Assuming)
 import Data.LTA.StateMachineTraceLanguage
 import GeneratorSpeedHarness (Benchmark (..), benchmarkMain)
 

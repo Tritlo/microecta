@@ -35,10 +35,9 @@ module Data.LTA.SafeBufferLanguage (
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA (LiquidConstraint, Refinement)
-import Data.LTA.ExampleSupport (nonNegative)
-import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (
+import Data.CFTA.Refinement (LiquidConstraint, Refinement)
+import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (
     Position,
     descendant,
     isSubtypeOf,
@@ -47,7 +46,8 @@ import Data.LTA.Guard (
     withActualFor,
     withActualsFor,
  )
-import Data.LTA.Refinement (value, variable, (.+.), (.<.), (.==.), (.>=.))
+import Data.LTA.ExampleSupport (nonNegative)
+import qualified Data.LTA.Gen.QuickCheck as LTA
 
 -- | Buffer expressions understood by the example interpreter.
 data BufferExpression

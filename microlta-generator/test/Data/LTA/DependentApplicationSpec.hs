@@ -2,8 +2,8 @@ module Data.LTA.DependentApplicationSpec (spec) where
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.TypedExpressionLanguage
 
 spec :: Spec

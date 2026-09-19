@@ -65,7 +65,7 @@ import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,
     Entailment,
@@ -78,9 +78,8 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
-import Data.LTA.ExampleSupport (oneofOrDie)
-import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (
+import Data.CFTA.Refinement.Expression (value, variable, (.*.), (.+.), (.-.), (.<=.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (
     Position,
     allOf,
     argument,
@@ -90,7 +89,8 @@ import Data.LTA.Guard (
     unconstrained,
     withActualFor,
  )
-import Data.LTA.Refinement (value, variable, (.*.), (.+.), (.-.), (.<=.), (.==.), (.>=.))
+import Data.LTA.ExampleSupport (oneofOrDie)
+import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.List (elemIndex)
 
 -- | Ground value types shared with the typed-expression example.

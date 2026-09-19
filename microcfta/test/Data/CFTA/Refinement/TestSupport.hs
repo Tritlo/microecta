@@ -1,12 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Helpers shared by the core specs.
-module Data.LTA.TestSupport (
+module Data.CFTA.Refinement.TestSupport (
     tableEntailment,
     unusedEntailment,
     declarations,
 ) where
 
-import Data.LTA (Entailment (Entailment), Verdict (..))
-import Data.LTA.Refinement (true)
+import Data.CFTA.Refinement (Entailment (Entailment), Verdict (..))
+import Data.CFTA.Refinement.Expression (true)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A small decidable implication table that keeps syntax tests independent of Z3.

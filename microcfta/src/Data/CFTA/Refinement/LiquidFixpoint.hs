@@ -1,7 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 
 -- | A Z3-backed 'Entailment' implemented with Liquid Fixpoint's SMT API.
-module Data.LTA.LiquidFixpoint (
+module Data.CFTA.Refinement.LiquidFixpoint (
     integerDeclarations,
     withZ3,
     withZ3Assuming,
@@ -12,7 +12,7 @@ import Control.Exception (bracket)
 import Control.Monad.State.Lazy (runStateT)
 import qualified Data.Text as Text
 
-import Data.LTA (Entailment, Verdict (..), entailmentWithBindings)
+import Data.CFTA.Refinement (Entailment, Verdict (..), entailmentWithBindings)
 import qualified Language.Fixpoint.Smt.Interface as SMT
 import qualified Language.Fixpoint.Smt.Types as SMTTypes
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -20,7 +20,7 @@ import Language.Fixpoint.Types.Config (SMTSolver (Z3), defConfig, solver)
 
 {- | Explicitly declare each supplied name as an integer.
 
-Include @v@ when predicates use @Data.LTA.Refinement.value@. Include every
+Include @v@ when predicates use @Data.CFTA.Refinement.Expression.value@. Include every
 other free name and the actual and formal value names used by substitutions.
 The helper does not infer sorts. Pass other Liquid Fixpoint sorts directly to
 'withZ3' or 'withZ3Assuming' when the language needs them.

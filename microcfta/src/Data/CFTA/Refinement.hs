@@ -14,11 +14,11 @@ Recursive automata are accepted. As required by the LTA construction, a guard
 may only inspect positions whose states are acyclic; recursive states can still
 occur elsewhere in the generated term.
 
-"Data.LTA.Guard" provides higher-level guard syntax in terms of constructor
+"Data.CFTA.Refinement.Guard" provides higher-level guard syntax in terms of constructor
 arguments. This module also exposes the underlying constructors for tools that
 need arbitrary paths.
 -}
-module Data.LTA (
+module Data.CFTA.Refinement (
     -- * Terms and refinements
     Symbol (Symbol),
     Path,
@@ -99,11 +99,11 @@ module Data.LTA (
 import Data.CFTA.Equality.Constraints (Path, path, unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
-import Data.LTA.Automaton
-import Data.LTA.Constraint
-import Data.LTA.Denotation
-import Data.LTA.Evaluate
-import Data.LTA.Minimize
-import Data.LTA.Prune
-import Data.LTA.Types
-import Data.LTA.Verdict
+import Data.CFTA.Refinement.Automaton
+import Data.CFTA.Refinement.Constraint
+import Data.CFTA.Refinement.Denotation
+import Data.CFTA.Refinement.Evaluate
+import Data.CFTA.Refinement.Minimize
+import Data.CFTA.Refinement.Prune
+import Data.CFTA.Refinement.Types
+import Data.CFTA.Refinement.Verdict

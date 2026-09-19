@@ -4,7 +4,7 @@ module Data.LTA.Gen.Internal.Bounded (boundAutomaton) where
 import qualified Data.Map.Strict as Map
 
 import qualified Data.CFTA as FTA
-import Data.LTA (Automaton, AutomatonError, State (State), mkAutomaton)
+import Data.CFTA.Refinement (Automaton, AutomatonError, State (State), mkAutomaton)
 
 -- | Retain terms up to the given constructor depth. A leaf has depth zero.
 boundAutomaton :: Int -> Automaton -> Either AutomatonError Automaton

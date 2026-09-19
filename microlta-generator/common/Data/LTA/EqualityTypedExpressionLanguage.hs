@@ -19,16 +19,7 @@ module Data.LTA.EqualityTypedExpressionLanguage (
 import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.ECTA.Gen.Example.TypedExpressionLanguage (
-    BinaryFunctionInstance (..),
-    Expression (..),
-    Function (..),
-    Type (..),
-    TypedExpression (..),
-    allTypes,
-    binaryFunctionInstances,
- )
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,
     Entailment,
@@ -41,9 +32,18 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
+import Data.CFTA.Refinement.Expression (value, (.==.))
+import Data.CFTA.Refinement.Guard (allOf, argument, requires)
+import Data.ECTA.Gen.Example.TypedExpressionLanguage (
+    BinaryFunctionInstance (..),
+    Expression (..),
+    Function (..),
+    Type (..),
+    TypedExpression (..),
+    allTypes,
+    binaryFunctionInstances,
+ )
 import qualified Data.LTA.Gen as LTA
-import Data.LTA.Guard (allOf, argument, requires)
-import Data.LTA.Refinement (value, (.==.))
 
 -- | Encode one ground type as an exact integer equality refinement.
 typeEquality :: Type -> Refinement

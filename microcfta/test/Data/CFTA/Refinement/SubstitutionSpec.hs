@@ -1,9 +1,11 @@
-module Data.LTA.SubstitutionSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.SubstitutionSpec (spec) where
 
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Entailment (Entailment),
     Guard (Satisfies, Substitute),
     LiquidConstraint,
@@ -14,9 +16,9 @@ import Data.LTA (
     evaluateGuard,
     path,
  )
-import Data.LTA.Guard (buildGuard, isSubtypeOf, withActualFor, withActualsFor)
-import Data.LTA.LiquidFixpoint (withZ3, withZ3Assuming)
-import Data.LTA.Refinement (false, true, variable, (.<.), (.==.))
+import Data.CFTA.Refinement.Expression (false, true, variable, (.<.), (.==.))
+import Data.CFTA.Refinement.Guard (buildGuard, isSubtypeOf, withActualFor, withActualsFor)
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3, withZ3Assuming)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 equalityEntailment :: Entailment

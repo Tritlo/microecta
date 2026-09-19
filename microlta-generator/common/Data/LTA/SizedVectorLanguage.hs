@@ -33,10 +33,9 @@ module Data.LTA.SizedVectorLanguage (
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA (Refinement)
-import Data.LTA.ExampleSupport (nonNegative, oneofOrDie)
-import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (
+import Data.CFTA.Refinement (Refinement)
+import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.<=.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (
     Position,
     allOf,
     descendant,
@@ -45,7 +44,8 @@ import Data.LTA.Guard (
     withActualFor,
     withActualsFor,
  )
-import Data.LTA.Refinement (value, variable, (.+.), (.<.), (.<=.), (.==.), (.>=.))
+import Data.LTA.ExampleSupport (nonNegative, oneofOrDie)
+import qualified Data.LTA.Gen.QuickCheck as LTA
 
 -- | Pure syntax for a small sized-vector pipeline.
 data VectorExpression

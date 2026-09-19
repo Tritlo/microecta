@@ -4,7 +4,7 @@
 only the positions a guard names, which lets the pruner decide a guard without
 enumerating terms. Both share one evaluator, so the two views cannot drift.
 -}
-module Data.LTA.Evaluate (
+module Data.CFTA.Refinement.Evaluate (
     evaluateGuard,
     evaluateGuardWithShape,
     evaluateConstraint,
@@ -21,15 +21,15 @@ import Data.CFTA.Equality.Constraints (EqConstraints, Path, getPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.LTA.Constraint (
+import Data.CFTA.Refinement.Constraint (
     Guard (..),
     LiquidConstraint (constraintEqualities, constraintGuard),
     Substitution (..),
     equalityPathPairs,
     guardPaths,
  )
-import Data.LTA.Types (LiquidSymbol (LiquidSymbol), Refinement)
-import Data.LTA.Verdict (
+import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement)
+import Data.CFTA.Refinement.Verdict (
     Entailment,
     Verdict (..),
     andM,

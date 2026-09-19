@@ -24,7 +24,7 @@ import qualified Prelude
 
 import qualified Data.Map.Strict as Map
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Entailment,
     Guard (And, Satisfies),
     LiquidConstraint (constraintGuard),
@@ -32,9 +32,9 @@ import Data.LTA (
     Symbol,
     unPath,
  )
+import Data.CFTA.Refinement.Guard (GuardBuilder, buildGuard)
 import Data.LTA.Gen
 import Data.LTA.Gen.Do
-import Data.LTA.Guard (GuardBuilder, buildGuard)
 import qualified Data.Ranked.QuickCheck as Tree
 
 {- | A native generator that can use refinements demanded by its LTA context.

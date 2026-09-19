@@ -1,4 +1,6 @@
-module Data.LTA.PruneSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.PruneSpec (spec) where
 
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
@@ -8,7 +10,7 @@ import qualified Data.Map.Strict as Map
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality.Constraints (mkEqConstraints)
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,
     Entailment (Entailment),
@@ -37,10 +39,10 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
-import qualified Data.LTA.Guard as Guard
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (value, variable, (.==.), (.>=.))
-import Data.LTA.TestSupport (declarations)
+import Data.CFTA.Refinement.Expression (value, variable, (.==.), (.>=.))
+import qualified Data.CFTA.Refinement.Guard as Guard
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import Data.CFTA.Refinement.TestSupport (declarations)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec

@@ -5,9 +5,9 @@
 
 A 'LiquidConstraint' holds the authoritative Boolean 'Guard' and a compiled
 cache of its positive syntactic equalities. This module only builds and
-inspects constraints; "Data.LTA.Evaluate" decides them.
+inspects constraints; "Data.CFTA.Refinement.Evaluate" decides them.
 -}
-module Data.LTA.Constraint (
+module Data.CFTA.Refinement.Constraint (
     Guard (..),
     Substitution (..),
     LiquidConstraint (..),
@@ -38,7 +38,7 @@ import Data.CFTA.Equality.Constraints (
     unPathEClass,
  )
 
-import Data.LTA.Types (Refinement)
+import Data.CFTA.Refinement.Types (Refinement)
 
 -- | A transition guard over paths relative to the transition's root term.
 data Guard

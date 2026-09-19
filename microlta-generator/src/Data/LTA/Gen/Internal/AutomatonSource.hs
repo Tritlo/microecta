@@ -7,7 +7,7 @@ module Data.LTA.Gen.Internal.AutomatonSource (
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     EqualityAutomaton,
     LiquidSymbol (LiquidSymbol),
     Path,

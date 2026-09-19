@@ -8,10 +8,10 @@ import Control.Monad (unless)
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Refinement.Expression ((.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (isSubtypeOf)
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (isSubtypeOf)
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement ((.==.), (.>=.))
 
 main :: IO ()
 main =

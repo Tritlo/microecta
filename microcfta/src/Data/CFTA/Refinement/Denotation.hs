@@ -4,7 +4,7 @@
 Figure 6 denotation up to a height bound. Both are deliberately simple, so they
 serve as the oracle that generator backends are checked against.
 -}
-module Data.LTA.Denotation (
+module Data.CFTA.Refinement.Denotation (
     EnumerationError (..),
     accepts,
     denotationAtMost,
@@ -16,11 +16,11 @@ import qualified Data.CFTA as FTA
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Tree as Tree
 
-import Data.LTA.Automaton (Automaton, Transition, transitionConstraint)
-import Data.LTA.Constraint (unconstrainedConstraint)
-import Data.LTA.Evaluate (evaluateConstraint)
-import Data.LTA.Types (LiquidSymbol, State)
-import Data.LTA.Verdict (Entailment, Verdict (..))
+import Data.CFTA.Refinement.Automaton (Automaton, Transition, transitionConstraint)
+import Data.CFTA.Refinement.Constraint (unconstrainedConstraint)
+import Data.CFTA.Refinement.Evaluate (evaluateConstraint)
+import Data.CFTA.Refinement.Types (LiquidSymbol, State)
+import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..))
 
 -- | Failure while computing the bounded denotation from Figure 6.
 newtype EnumerationError

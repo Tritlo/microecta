@@ -21,9 +21,9 @@ it evaluates the division.
 {-# LANGUAGE QualifiedDo #-}
 
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.Guard (requires)
-import Data.LTA.LiquidFixpoint (integerDeclarations, withZ3)
-import Data.LTA.Refinement (integer, value, (./=.), (.==.))
+import Data.CFTA.Refinement.Guard (requires)
+import Data.CFTA.Refinement.LiquidFixpoint (integerDeclarations, withZ3)
+import Data.CFTA.Refinement.Expression (integer, value, (./=.), (.==.))
 import qualified Test.QuickCheck as QC
 
 main :: IO ()
@@ -162,7 +162,7 @@ intersections and complements after semantic pruning. Residual semantic or
 scoped compound-equality guards return an error.
 
 [`AutomatonInterop.hs`](https://github.com/Tritlo/microecta/blob/main/microlta-generator/examples/AutomatonInterop.hs) constructs a recursive
-automaton with `Data.LTA.Syntax`, imports it, and composes it with a refined pool:
+automaton with `Data.CFTA.Refinement.Syntax`, imports it, and composes it with a refined pool:
 
 ```sh
 nix-shell --run 'cabal run lta-automaton-interop'

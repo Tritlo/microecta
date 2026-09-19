@@ -5,7 +5,7 @@
 This module carries the vocabulary that both the constraint language and the
 automaton structure use. It depends on neither of them.
 -}
-module Data.LTA.Types (
+module Data.CFTA.Refinement.Types (
     Refinement,
     eraseRefinements,
     State (..),

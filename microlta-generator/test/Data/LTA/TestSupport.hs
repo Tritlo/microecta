@@ -7,7 +7,7 @@ module Data.LTA.TestSupport (
 
 import Test.Hspec (expectationFailure)
 
-import Data.LTA (Entailment)
+import Data.CFTA.Refinement (Entailment)
 import qualified Data.LTA.Gen as LTA
 
 -- | Compile a fixture, reporting a compilation error as an Hspec failure.

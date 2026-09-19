@@ -1,9 +1,11 @@
-module Data.LTA.RecursiveSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.RecursiveSpec (spec) where
 
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Automaton,
     AutomatonError (CyclicGuardReference),
     Entailment (Entailment),
@@ -18,7 +20,7 @@ import Data.LTA (
     unconstrainedConstraint,
     pattern Transition,
  )
-import Data.LTA.Refinement (true)
+import Data.CFTA.Refinement.Expression (true)
 
 alwaysEntails :: Entailment
 alwaysEntails = Entailment $ \_ _ -> pure Yes

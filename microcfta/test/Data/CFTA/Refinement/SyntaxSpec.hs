@@ -1,4 +1,6 @@
-module Data.LTA.SyntaxSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Data.CFTA.Refinement.SyntaxSpec (spec) where
 
 import Data.Either (rights)
 import Data.Tree (flatten)
@@ -7,12 +9,18 @@ import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.CFTA.Interned as Common
-import Data.LTA (AutomatonError (GuardArityMismatch), LiquidSymbol (LiquidSymbol), State (State), Verdict (..), accepts)
-import qualified Data.LTA as LTA
-import Data.LTA.Guard (isSubtypeOf, requires, unconstrained)
-import Data.LTA.Refinement (true, value, (.>=.))
-import qualified Data.LTA.Syntax as Syntax
-import Data.LTA.TestSupport (tableEntailment)
+import Data.CFTA.Refinement (
+    AutomatonError (GuardArityMismatch),
+    LiquidSymbol (LiquidSymbol),
+    State (State),
+    Verdict (..),
+    accepts,
+ )
+import qualified Data.CFTA.Refinement as LTA
+import Data.CFTA.Refinement.Expression (true, value, (.>=.))
+import Data.CFTA.Refinement.Guard (isSubtypeOf, requires, unconstrained)
+import qualified Data.CFTA.Refinement.Syntax as Syntax
+import Data.CFTA.Refinement.TestSupport (tableEntailment)
 
 spec :: Spec
 spec =

@@ -6,9 +6,9 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatis
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
-import Data.LTA (LiquidSymbol (LiquidSymbol))
+import Data.CFTA.Refinement (LiquidSymbol (LiquidSymbol))
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3Assuming)
 import Data.LTA.StateMachineTraceLanguage
 import Data.LTA.TestSupport (values)
 import qualified Data.LTA.TestSupport as Support

@@ -20,7 +20,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
-import Data.LTA
+import Data.CFTA.Refinement
 import Data.LTA.Gen.Internal.Error (GeneratorError (..))
 
 -- | One complete generated node with its refinement, guard, and children.

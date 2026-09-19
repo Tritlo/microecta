@@ -34,7 +34,7 @@ use the same implementation. Constraint interpretation stays in its own layer.
 `Data.LTA.fromInterned` validates an interned liquid graph for LTA operations.
 
 Ordinary and equality-constrained automata are built with `Data.CFTA.mkFTA`.
-`Data.LTA.Syntax` owns refinement-labelled transitions whose guards use the
+`Data.CFTA.Refinement.Syntax` owns refinement-labelled transitions whose guards use the
 paper's complete Boolean LTA constraint language. Constraint theories remain
 in their own namespaces.
 

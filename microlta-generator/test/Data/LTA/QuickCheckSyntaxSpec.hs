@@ -4,7 +4,7 @@ import Control.Monad (forM_, void)
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     AutomatonError (GuardArityMismatch, InconsistentArity),
     Entailment (Entailment),
     Guard (Bottom, Entails, Satisfies, Top),
@@ -13,8 +13,8 @@ import Data.LTA (
     path,
     semanticConstraint,
  )
-import qualified Data.LTA.Gen as LTA
-import Data.LTA.Guard (
+import Data.CFTA.Refinement.Expression (false, true, (.<.), (.==.))
+import Data.CFTA.Refinement.Guard (
     anyOf,
     argument,
     buildGuard,
@@ -26,8 +26,8 @@ import Data.LTA.Guard (
     withActualFor,
     withActualsFor,
  )
-import Data.LTA.LiquidFixpoint (withZ3)
-import Data.LTA.Refinement (false, true, (.<.), (.==.))
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import qualified Data.LTA.Gen as LTA
 import Data.LTA.TypedExpressionLanguage (nonNegative)
 import qualified Language.Fixpoint.Types as Fixpoint
 

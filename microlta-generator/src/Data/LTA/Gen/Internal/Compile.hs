@@ -11,8 +11,8 @@ module Data.LTA.Gen.Internal.Compile (
 
 import Data.Bifunctor (first)
 
+import Data.CFTA.Refinement
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.LTA
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.LTA.Gen.Internal.Recipe (requiredImplications, transparentCompiled, validateGenerator)
 import Data.LTA.Gen.Internal.Relational (

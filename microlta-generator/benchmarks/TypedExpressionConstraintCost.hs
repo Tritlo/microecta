@@ -9,6 +9,7 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (
     Expression (..),
     TypedExpression (..),
@@ -22,7 +23,6 @@ import Data.LTA.EqualityTypedExpressionLanguage (
     solverDeclarations,
  )
 import qualified Data.LTA.Gen.QuickCheck as LTA
-import Data.LTA.LiquidFixpoint (withZ3)
 import GeneratorSpeedHarness (Benchmark (..), benchmarkMain)
 
 main :: IO ()

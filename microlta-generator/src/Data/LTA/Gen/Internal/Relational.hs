@@ -26,9 +26,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
+import Data.CFTA.Refinement
 import Data.ECTA.Gen.Internal.Symbolic (symbolicGroupsWith)
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.LTA
 import Data.LTA.Gen.Internal.AutomatonCompile (constraintTerms, countAutomaton, ensureUnconstrained, symbolicGraph)
 import qualified Data.LTA.Gen.Internal.AutomatonSource as AutomatonSource
 import Data.LTA.Gen.Internal.Error (GeneratorError (..), fromRankedError)

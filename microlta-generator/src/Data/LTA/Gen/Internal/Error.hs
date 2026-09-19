@@ -11,9 +11,9 @@ module Data.LTA.Gen.Internal.Error (
 ) where
 
 import Data.CFTA.Equality.Constraints (EqConstraints)
+import Data.CFTA.Refinement
+import qualified Data.CFTA.Refinement.Equality as LTAECTA
 import qualified Data.ECTA.Gen.QuickCheck as ECTA
-import Data.LTA
-import qualified Data.LTA.ECTA as LTAECTA
 import qualified Data.Ranked as Tree
 
 -- | Failure while building, checking, or selecting from a generator.

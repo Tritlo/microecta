@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- | Guard syntax in terms of constructor arguments.
-module Data.LTA.Guard (
+module Data.CFTA.Refinement.Guard (
     Position,
     GuardBuilder (buildGuardFrom, guardArgumentCount),
     buildGuard,
@@ -23,7 +23,7 @@ module Data.LTA.Guard (
     -- * Compatibility aliases
 ) where
 
-import Data.LTA (
+import Data.CFTA.Refinement (
     Guard (Entails, Not, Or, Same, Satisfies, Substitute),
     LiquidConstraint,
     Refinement,
