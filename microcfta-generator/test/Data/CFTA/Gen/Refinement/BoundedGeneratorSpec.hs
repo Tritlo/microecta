@@ -12,14 +12,14 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldSatisfy)
 import Text.Read (readMaybe)
 
-import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Refinement (
     Automaton,
+    DenotationError,
     Entailment (Entailment),
-    EnumerationError,
     Guard (Bottom, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint,
     LiquidSymbol (LiquidSymbol),
@@ -476,5 +476,5 @@ spec = do
 {- | Compare a bounded denotation with the terms it should contain. The
 denotation is a set, so order is not compared.
 -}
-shouldDenote :: IO (Either EnumerationError [Tree.Tree LiquidSymbol]) -> [Tree.Tree LiquidSymbol] -> IO ()
+shouldDenote :: IO (Either DenotationError [Tree.Tree LiquidSymbol]) -> [Tree.Tree LiquidSymbol] -> IO ()
 shouldDenote denotation expected = denotation >>= \result -> fmap sort result `shouldBe` Right (sort expected)

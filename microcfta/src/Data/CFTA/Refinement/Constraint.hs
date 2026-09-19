@@ -29,7 +29,7 @@ import Data.Maybe (isNothing)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Constraint (Constraint (..))
-import Data.CFTA.Constraint.Equality (
+import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     combineEqConstraints,
     constraintsAreContradictory,

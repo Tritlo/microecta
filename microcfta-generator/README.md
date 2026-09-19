@@ -1543,7 +1543,8 @@ Replacing the outcome lists with `PlanAp` removed product allocation but did
 not remove the work: the old surface compiler still visited `11^6 = 1,771,561`
 ranks to discover 13,760 valid traces. Retaining the applicative recipe changes
 that algorithm. Children are grouped by only the refinements their parent
-observes; the solver selects live key tuples, and MicroECTA counts their products
+observes; the solver selects live key tuples, and the equality counter counts
+their products
 without visiting members. The same qualified-do source now reaches length 40.
 
 The direct automaton rows isolate decoding cost. At length 40, fusing the

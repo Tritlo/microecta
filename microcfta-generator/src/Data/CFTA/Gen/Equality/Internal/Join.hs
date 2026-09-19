@@ -17,8 +17,8 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node), mkEdge, reducePartially)
+import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Bucket
 import Data.CFTA.Gen.Equality.Internal.Chain
 import Data.CFTA.Gen.Equality.Internal.Inspection

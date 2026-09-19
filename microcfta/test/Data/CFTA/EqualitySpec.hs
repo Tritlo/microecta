@@ -118,11 +118,11 @@ spec = do
         it "reduces paths constrained by equality constraints" $
             reducePartially ex2 `shouldBe` reducePartially ex1
 
-        it "nodeRepresents requires exact term arity" $ do
+        it "accepts requires exact term arity" $ do
             let n = Node [Edge "f" [constTerms ["a"], constTerms ["b"]]]
-            nodeRepresents n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` True
-            nodeRepresents n (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` False
-            nodeRepresents n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" [], Tree.Node "c" []]) `shouldBe` False
+            accepts n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` True
+            accepts n (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` False
+            accepts n (Tree.Node "f" [Tree.Node "a" [], Tree.Node "b" [], Tree.Node "c" []]) `shouldBe` False
 
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do

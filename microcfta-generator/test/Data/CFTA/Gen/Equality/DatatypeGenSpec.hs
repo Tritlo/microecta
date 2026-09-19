@@ -14,9 +14,9 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
-import qualified Data.CFTA.Constraint.Equality as Paths
 import qualified Data.CFTA.Equality as Automaton
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
+import qualified Data.CFTA.Equality.Constraint as Paths
 import qualified Data.CFTA.Gen.Equality as Core
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import qualified Data.CFTA.Generic as Datatype
@@ -106,7 +106,7 @@ spec = do
             support <- either (fail . show) pure $ ECTAGen.support generator
             forM_ [0, count `div` 2, count - 1] $ \rank -> do
                 selected <- timeout 10000000 $ evaluate $ case ECTAGen.unrank generator rank of
-                    Right term -> Automaton.nodeRepresents support term
+                    Right term -> Automaton.accepts support term
                     _ -> False
                 selected `shouldBe` Just True
 

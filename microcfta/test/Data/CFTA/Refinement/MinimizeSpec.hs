@@ -20,6 +20,7 @@ import Data.CFTA.Refinement (
     Verdict (No),
     automatonAlphabet,
     denotationAtMost,
+    edgeChildren,
     minimize,
     mkEdge,
     nodeEdges,
@@ -30,7 +31,6 @@ import Data.CFTA.Refinement (
     semanticConstraint,
     similarity,
     similarityPairs,
-    transitionChildren,
     transitionSymbol,
     unconstrainedConstraint,
     pattern Transition,
@@ -86,13 +86,13 @@ spec =
                 case reducedResult of
                     Left err -> expectationFailure $ show err
                     Right reduced -> do
-                        map transitionChildren (nodeEdges reduced) `shouldMatchList` [[naturalNode], [naturalNode]]
+                        map edgeChildren (nodeEdges reduced) `shouldMatchList` [[naturalNode], [naturalNode]]
                         automatonAlphabet reduced `shouldSatisfy` Set.notMember (LiquidSymbol "unknown" Fixpoint.PTrue)
 
         it "keeps unrelated alternatives at a removed transition's target" $
             withZ3 declarations $ \solver ->
                 checkMinimization (atomSubtyping solver) sharedSupertypeState $ \reduced -> do
-                    map transitionChildren (nodeEdges reduced)
+                    map edgeChildren (nodeEdges reduced)
                         `shouldMatchList` [[naturalNode], [Node [otherAtom]], [naturalNode]]
                     denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
 
@@ -113,14 +113,14 @@ spec =
         it "allows multiple representatives for one target and substitutes repeated nodes together" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) multipleRepresentatives $ \reduced -> do
-                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
+                    [edgeChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
                         `shouldMatchList` [[Node [otherAtom], Node [otherAtom]], [specificANode, specificANode], [specificBNode, specificBNode]]
                     denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 5)
 
         it "composes substitutions for distinct source nodes on earlier copies" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) composedRepresentatives $ \reduced -> do
-                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
+                    [edgeChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
                         `shouldMatchList` [ [otherANode, otherBNode]
                                           , [specificANode, otherBNode]
                                           , [otherANode, specificBNode]
@@ -131,20 +131,20 @@ spec =
         it "keeps a redirected copy when its original supertype transition is removed" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) copiedSupertype $ \reduced -> do
-                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "goal"]
+                    [edgeChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "goal"]
                         `shouldMatchList` [[Node [Transition "unknown-b" Fixpoint.PTrue [specificANode] unconstrainedConstraint]], [specificBNode]]
                     denotationAtMost solver 2 reduced >>= (\terms -> fmap length terms `shouldBe` Right 4)
 
         it "applies M-Trans transitively over one similarity snapshot" $
             withZ3 declarations $ \solver ->
                 checkMinimization (threeAtomSubtyping solver) transitiveSimilarAtoms $ \reduced ->
-                    map transitionChildren (nodeEdges reduced) `shouldBe` replicate 3 [Node [specificAtom]]
+                    map edgeChildren (nodeEdges reduced) `shouldBe` replicate 3 [Node [specificAtom]]
 
         it "uses one inferred representative for overlapping subtypes" $
             withZ3 declarations $ \solver ->
                 checkMinimization (overlappingAtomSubtyping solver) overlappingSimilarAtoms $ \reduced -> do
                     length (nodeEdges reduced) `shouldBe` 3
-                    map transitionChildren (nodeEdges reduced) `shouldSatisfy` notElem [Node [unknownAtom]]
+                    map edgeChildren (nodeEdges reduced) `shouldSatisfy` notElem [Node [unknownAtom]]
                     denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
 
         it "retains a base required by a stricter representative" $

@@ -13,7 +13,7 @@ module Data.CFTA.Gen.Error (
 
 import Data.List (intercalate)
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import qualified Data.CFTA.Ranked as Ranked
 import Data.CFTA.Refinement (
     AutomatonError (GuardArityMismatch),

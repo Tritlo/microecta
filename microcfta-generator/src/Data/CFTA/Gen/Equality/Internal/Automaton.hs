@@ -29,7 +29,6 @@ import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Equality (
     Edge,
     Node,
@@ -41,6 +40,7 @@ import Data.CFTA.Equality (
     nodeEdges,
     nodeIdentity,
  )
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Path (unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 

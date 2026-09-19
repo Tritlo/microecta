@@ -9,8 +9,8 @@ import qualified Data.Text as Text
 import Data.Tree (Tree, drawTree, flatten)
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.CFTA.Gen.Equality as Gen
 import Data.CFTA.Gen.TypedExpressionLanguage (
     Type (TInt),

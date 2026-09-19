@@ -26,8 +26,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
-import Data.CFTA.Enumeration (unconstrained)
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicGroupsWith)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
@@ -277,7 +276,7 @@ compileSourceGroups requested compiled = do
                 Nothing -> do
                     (root, labels) <- symbolicGraph view
                     let interpret constraint = case constraintTerms constraint of
-                            Right terms -> terms
+                            Right interpreted -> interpreted
                             Left _ -> error "compileSourceGroups: unsupported guard in a compiled symbolic source"
                         alphabet =
                             Map.fromListWith

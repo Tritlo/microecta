@@ -54,8 +54,8 @@ module Data.CFTA.Gen.Refinement.Internal.Types (
 import Data.Bifunctor (first)
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Equality as ECTA.Core
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Witness (Witness)
 import qualified Data.CFTA.Ranked as Ranked

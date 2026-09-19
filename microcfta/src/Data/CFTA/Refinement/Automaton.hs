@@ -15,8 +15,6 @@ module Data.CFTA.Refinement.Automaton (
     pattern Transition,
     transitionSymbol,
     transitionRefinement,
-    transitionChildren,
-    transitionConstraint,
     AutomatonError (..),
     validate,
     explicitView,
@@ -77,14 +75,6 @@ transitionSymbol (Transition symbol _ _ _) = symbol
 -- | Refinement formula at the root of a transition.
 transitionRefinement :: Transition -> Refinement
 transitionRefinement (Transition _ refinement _ _) = refinement
-
--- | Child nodes of a transition, from left to right.
-transitionChildren :: Transition -> [Automaton]
-transitionChildren = edgeChildren
-
--- | Complete equality and semantic constraint attached to a transition.
-transitionConstraint :: Transition -> LiquidConstraint
-transitionConstraint = edgeConstraint
 
 -- | A structural error found while validating an automaton.
 data AutomatonError

@@ -15,9 +15,9 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeChildren, edgeConstraint, edgeSymbol, mkEdge)
 import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Symbol (Symbol)
 

@@ -13,8 +13,8 @@ module Data.CFTA.Interned.Operations (
     nodeCount,
     edgeCount,
     union,
-    nodeRepresentsWith,
-    edgeRepresentsWith,
+    acceptsWith,
+    edgeAcceptsWith,
     dropEdgeConstraints,
     dropConstraints,
     intersect,
@@ -46,7 +46,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
 import Data.CFTA.Constraint (Constraint (..))
-import Data.CFTA.Constraint.Equality (EqConstraints)
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Internal.Tree (adjustAt)
 import Data.CFTA.Interned.Cache (Id)
 import Data.CFTA.Interned.Memo
@@ -535,27 +535,27 @@ union :: (Hashable symbol, Typeable symbol, Constraint constraint) => [Node symb
 union = Node . concatMap nodeEdges
 
 -- | Recognize a term with an explicit pure constraint interpreter.
-{-# INLINEABLE nodeRepresentsWith #-}
-nodeRepresentsWith ::
+{-# INLINEABLE acceptsWith #-}
+acceptsWith ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
     (constraint -> Tree.Tree symbol -> Bool) -> Node symbol constraint -> Tree.Tree symbol -> Bool
-nodeRepresentsWith _ EmptyNode _ = False
-nodeRepresentsWith acceptsConstraint (Node es) term = any (\edge -> edgeRepresentsWith acceptsConstraint edge term) es
-nodeRepresentsWith acceptsConstraint node@(Mu _) term = nodeRepresentsWith acceptsConstraint (unfoldOuterRec node) term
-nodeRepresentsWith _ _ _ = False
+acceptsWith _ EmptyNode _ = False
+acceptsWith acceptsConstraint (Node es) term = any (\edge -> edgeAcceptsWith acceptsConstraint edge term) es
+acceptsWith acceptsConstraint node@(Mu _) term = acceptsWith acceptsConstraint (unfoldOuterRec node) term
+acceptsWith _ _ _ = False
 
 -- | Recognize one constructor and apply its constraint interpreter.
-{-# INLINEABLE edgeRepresentsWith #-}
-edgeRepresentsWith ::
+{-# INLINEABLE edgeAcceptsWith #-}
+edgeAcceptsWith ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
     (constraint -> Tree.Tree symbol -> Bool) -> Edge symbol constraint -> Tree.Tree symbol -> Bool
-edgeRepresentsWith acceptsConstraint edge term@(Tree.Node symbol children) =
+edgeAcceptsWith acceptsConstraint edge term@(Tree.Node symbol children) =
     symbol == edgeSymbol edge
         && childrenRepresent (edgeChildren edge) children
         && acceptsConstraint (edgeConstraint edge) term
   where
     childrenRepresent [] [] = True
-    childrenRepresent (node : nodes) (child : rest) = nodeRepresentsWith acceptsConstraint node child && childrenRepresent nodes rest
+    childrenRepresent (node : nodes) (child : rest) = acceptsWith acceptsConstraint node child && childrenRepresent nodes rest
     childrenRepresent _ _ = False
 
 -- | Tables for removal of redundant alternatives.

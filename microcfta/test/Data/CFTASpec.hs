@@ -15,8 +15,8 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatch
 import Data.CFTA (Transition (Transition), statesAt)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (Constraint (..))
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Enumeration as Enumeration
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
@@ -170,8 +170,8 @@ spec = do
                 onlyB = Common.Node [Common.mkEdge "a" [] (Only "b")]
             Common.nodeIdentity plain `shouldNotBe` Common.nodeIdentity free
             onlyA `shouldNotBe` onlyB
-            Common.nodeRepresentsWith acceptsAllowed onlyA (Tree.Node "a" []) `shouldBe` True
-            Common.nodeRepresentsWith acceptsAllowed onlyB (Tree.Node "a" []) `shouldBe` False
+            Common.acceptsWith acceptsAllowed onlyA (Tree.Node "a" []) `shouldBe` True
+            Common.acceptsWith acceptsAllowed onlyB (Tree.Node "a" []) `shouldBe` False
             Common.intersect onlyA onlyB `shouldBe` Common.EmptyNode
             Common.intersect free onlyA `shouldBe` onlyA
 
@@ -326,4 +326,4 @@ acceptsAllowed NothingAllowed _ = False
 
 -- | Recognize an ordinary interned automaton.
 acceptPlain :: Common.PlainNode String -> Tree.Tree String -> Bool
-acceptPlain = Common.nodeRepresentsWith (\() _ -> True)
+acceptPlain = Common.acceptsWith (\() _ -> True)

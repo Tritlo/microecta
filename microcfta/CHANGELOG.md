@@ -60,6 +60,13 @@ remains a separate ECTA-only package.
   separate state type, syntax module, or lowering to an equality automaton:
   residual positive equalities stay on the transition as its `equalities`.
 
+- One vocabulary across the layers: membership is `accepts` (`acceptsWith`
+  on the interned engine takes the constraint interpreter), the equality
+  theory's constraints live in `Data.CFTA.Equality.Constraint` beside the
+  equality facade, the bounded denotation reports a `DenotationError`, and
+  both theory facades re-export the engine, the paths, the enumerator, and
+  the templates.
+
 ### Differences from microecta 0.1.0.0
 
 - The type of an ECTA is `Node symbol EqConstraints`; there is no separate

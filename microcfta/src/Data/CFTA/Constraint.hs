@@ -4,7 +4,7 @@ module Data.CFTA.Constraint (Constraint (..)) where
 import Data.Hashable (Hashable)
 import Data.Typeable (Typeable)
 
-import Data.CFTA.Constraint.Equality (
+import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     combineEqConstraints,
     constraintsAreContradictory,

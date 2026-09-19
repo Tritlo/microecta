@@ -8,11 +8,11 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatch
 import Data.List (permutations)
 
 import Data.CFTA.Constraint (Constraint (equalities))
-import Data.CFTA.Constraint.Equality (mkEqConstraints)
+import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import Data.CFTA.Refinement (
     Automaton,
+    DenotationError,
     Entailment (Entailment),
-    EnumerationError,
     Guard (And, Entails, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint (constraintGuard),
     LiquidSymbol (LiquidSymbol),
@@ -24,11 +24,11 @@ import Data.CFTA.Refinement (
     Verdict (No, Unknown, Yes),
     accepts,
     denotationAtMost,
+    edgeConstraint,
     nodeEdges,
     path,
     prune,
     semanticConstraint,
-    transitionConstraint,
     transitionSymbol,
     transitionsAt,
     unconstrainedConstraint,
@@ -82,7 +82,7 @@ spec =
             traverse (accepts solver original) optionalDescendantTerms >>= (`shouldBe` [No, Yes])
             checkPrunedLanguage solver original optionalDescendantTerms 1
             reduced <- prune solver original
-            fmap (map (constraintGuard . transitionConstraint) . nodeEdges) reduced `shouldBe` Right [guard]
+            fmap (map (constraintGuard . edgeConstraint) . nodeEdges) reduced `shouldBe` Right [guard]
 
         it "keeps reflexive equality on an always-present path as a residual guard" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
@@ -163,7 +163,7 @@ spec =
                         Right reduced -> do
                             denotationAtMost solver 1 reduced
                                 >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
-                            map (constraintGuard . transitionConstraint) (nodeEdges reduced) `shouldBe` [guard]
+                            map (constraintGuard . edgeConstraint) (nodeEdges reduced) `shouldBe` [guard]
             mapM_
                 check
                 [ (scope same, equalPairs)
@@ -196,7 +196,7 @@ spec =
                     Left err -> expectationFailure $ show err
                     Right reduced -> case nodeEdges reduced of
                         [root] -> do
-                            equalities (transitionConstraint root) `shouldBe` mkEqConstraints [[path [0], path [1]]]
+                            equalities (edgeConstraint root) `shouldBe` mkEqConstraints [[path [0], path [1]]]
                             map transitionSymbol (transitionsAt root $ path [0]) `shouldBe` ["shared"]
                             map transitionSymbol (transitionsAt root $ path [1]) `shouldBe` ["shared"]
                             traverse (accepts solver reduced) syntacticPairTerms >>= (`shouldBe` [Yes, No, No])
@@ -221,7 +221,7 @@ spec =
                     Left err -> expectationFailure $ show err
                     Right lta -> do
                         traverse (accepts solver lta) syntacticPairTerms >>= (`shouldBe` [No, Yes, Yes])
-                        map (constraintGuard . transitionConstraint) (nodeEdges lta) `shouldBe` [negativeEquality]
+                        map (constraintGuard . edgeConstraint) (nodeEdges lta) `shouldBe` [negativeEquality]
 
         it "solves nested positive conjunctions in every requirement order" $
             withZ3 declarations $ \solver -> do
@@ -259,8 +259,8 @@ checkPrunedLanguage solver original terms expected = do
 
 -- | Compare denotations as sets without requiring an ordering for Fixpoint expressions.
 equivalentTermSets ::
-    Either EnumerationError [Tree.Tree LiquidSymbol] ->
-    Either EnumerationError [Tree.Tree LiquidSymbol] ->
+    Either DenotationError [Tree.Tree LiquidSymbol] ->
+    Either DenotationError [Tree.Tree LiquidSymbol] ->
     Bool
 equivalentTermSets (Right left) (Right right) =
     all (`elem` right) left && all (`elem` left) right

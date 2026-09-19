@@ -5,7 +5,7 @@ constraints over paths, and algorithms for saturating these constraints.
 
 The 'Data.CFTA.Constraint.Constraint' instance lives with the class.
 -}
-module Data.CFTA.Constraint.Equality (
+module Data.CFTA.Equality.Constraint (
     getMaxNonemptyIndex,
     PathTrie (..),
     isEmptyPathTrie,

@@ -307,4 +307,4 @@ expressionDepth (Expressions.Multiply left right) =
 
 -- | Membership in a plain interned support.
 acceptsPlain :: Common.PlainNode String -> Tree.Tree String -> Bool
-acceptsPlain = Common.nodeRepresentsWith (\() _ -> True)
+acceptsPlain = Common.acceptsWith (\() _ -> True)

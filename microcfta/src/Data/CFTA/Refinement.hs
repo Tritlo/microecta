@@ -22,9 +22,7 @@ need arbitrary paths.
 module Data.CFTA.Refinement (
     -- * Terms and refinements
     Symbol (Symbol),
-    Path,
-    path,
-    unPath,
+    module Data.CFTA.Path,
     Refinement,
     LiquidSymbol (..),
     eraseRefinements,
@@ -54,13 +52,13 @@ module Data.CFTA.Refinement (
 
     -- * Automata
     module Data.CFTA.Interned,
+    module Data.CFTA.Enumeration,
+    module Data.CFTA.Template,
     Automaton,
     Transition,
     pattern Transition,
     transitionSymbol,
     transitionRefinement,
-    transitionChildren,
-    transitionConstraint,
     AutomatonError (..),
     validate,
     explicitView,
@@ -70,7 +68,7 @@ module Data.CFTA.Refinement (
     -- * Pruning and denotation
     PruneError (..),
     prune,
-    EnumerationError (..),
+    DenotationError (..),
     accepts,
     denotationAtMost,
 
@@ -88,9 +86,11 @@ module Data.CFTA.Refinement (
     reduce,
 ) where
 
+import Data.CFTA.Enumeration
 import Data.CFTA.Interned
-import Data.CFTA.Path (Path, path, unPath)
+import Data.CFTA.Path
 import Data.CFTA.Symbol (Symbol (Symbol))
+import Data.CFTA.Template
 
 import Data.CFTA.Refinement.Automaton
 import Data.CFTA.Refinement.Constraint

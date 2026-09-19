@@ -96,8 +96,8 @@ import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal
 import Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.CFTA.Gen.Equality.Internal.Grouped

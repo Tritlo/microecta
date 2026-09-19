@@ -1,4 +1,4 @@
-module Data.CFTA.Constraint.EqualitySpec (spec) where
+module Data.CFTA.Equality.ConstraintSpec (spec) where
 
 import qualified Data.IntMap.Lazy as IntMap
 import Data.List (nub, sort, subsequences, (\\))
@@ -6,7 +6,7 @@ import Data.List (nub, sort, subsequences, (\\))
 import Test.Hspec
 import Test.QuickCheck
 
-import Data.CFTA.Constraint.Equality
+import Data.CFTA.Equality.Constraint
 import Data.CFTA.Path
 
 -----------------------------------------------------------------

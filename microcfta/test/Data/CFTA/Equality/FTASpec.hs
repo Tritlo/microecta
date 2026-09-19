@@ -6,8 +6,8 @@ import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.CFTA as Automaton
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), mkEqConstraints)
 import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Path (path)
 
@@ -24,8 +24,8 @@ spec =
                     Common.Node
                         [Common.mkEdge "pair" [leaves, leaves] equalChildren]
                 ecta = graph :: Core.Node String EqConstraints
-            Core.nodeRepresents ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "a" []]) `shouldBe` True
-            Core.nodeRepresents ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` False
+            Core.accepts ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "a" []]) `shouldBe` True
+            Core.accepts ecta (Tree.Node "pair" [Tree.Node "a" [], Tree.Node "b" []]) `shouldBe` False
             case Core.toTree ecta of
                 Left err -> expectationFailure $ show err
                 Right tree ->

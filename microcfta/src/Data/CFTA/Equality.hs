@@ -24,7 +24,7 @@ The usual workflow is:
 2. Combine nodes with 'union' and 'intersect'.
 3. Propagate equality constraints with 'reducePartially'.
 4. Remove implied alternatives with 'withoutRedundantEdges'.
-5. Check concrete membership with 'nodeRepresents', or restrict a language
+5. Check concrete membership with 'accepts', or restrict a language
    with 'termsMatching'.
 6. Enumerate accepted terms with 'terms' or 'termsPrune'.
 
@@ -101,14 +101,13 @@ module Data.CFTA.Equality (
 
     -- * Paths and path equalities
     module Data.CFTA.Path,
-    module Data.CFTA.Constraint.Equality,
+    module Data.CFTA.Equality.Constraint,
 
     -- * Equality operations
     module Data.CFTA.Equality.Operations,
 
     -- * Templates
-    Template (..),
-    matchesTemplate,
+    module Data.CFTA.Template,
 
     -- * Enumeration
 
@@ -126,18 +125,18 @@ module Data.CFTA.Equality (
     uvarToInt,
 ) where
 
-import Data.CFTA.Constraint.Equality
 import Data.CFTA.Enumeration
+import Data.CFTA.Equality.Constraint
 import Data.CFTA.Equality.Operations
 import Data.CFTA.Internal.UnionFind (UVar, uvarToInt)
 import Data.CFTA.Interned
 import Data.CFTA.Path
-import Data.CFTA.Template (Template (..), matchesTemplate)
+import Data.CFTA.Template
 
 {- $setup
 >>> :set -XDeriveGeneric -XOverloadedStrings
 >>> import Data.Hashable (Hashable)
->>> import Data.CFTA.Constraint.Equality
+>>> import Data.CFTA.Equality.Constraint
 >>> import Data.CFTA.Symbol
 >>> import GHC.Generics (Generic)
 -}

@@ -58,7 +58,7 @@ import qualified Data.Tree as Tree
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, typeRep)
 
-import Data.CFTA.Constraint.Equality (
+import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     PathEClass (getPathTrie),
     PathTrie,

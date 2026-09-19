@@ -54,8 +54,8 @@ module Data.CFTA.Interned (
     withoutRedundantEdges,
     dropEdgeConstraints,
     dropConstraints,
-    nodeRepresentsWith,
-    edgeRepresentsWith,
+    acceptsWith,
+    edgeAcceptsWith,
     fixUnbounded,
     pathsMatching,
     requirePath,
@@ -85,7 +85,7 @@ import Type.Reflection (Typeable)
 import Data.CFTA (StateView (..), ViewPath)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint
-import Data.CFTA.Constraint.Equality (EqConstraints)
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Internal.Tree (toTreeBy)
 import Data.CFTA.Interned.Operations hiding (
     dropConstraints,

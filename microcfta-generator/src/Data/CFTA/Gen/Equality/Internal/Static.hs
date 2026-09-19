@@ -46,8 +46,8 @@ import qualified Data.Sequence as Sequence
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Support (
     applySymbol,

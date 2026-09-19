@@ -18,11 +18,11 @@ import Data.CFTA.Refinement (
     automatonAlphabet,
     constraintAsGuard,
     denotationAtMost,
+    edgeConstraint,
     mkEdge,
     nodeEdges,
     path,
     semanticConstraint,
-    transitionConstraint,
     unconstrainedConstraint,
     validate,
     pattern Transition,
@@ -74,7 +74,7 @@ spec =
                     ]
             validate root `shouldBe` Right ()
             automatonAlphabet root `shouldSatisfy` Set.member (LiquidSymbol "zero" nonNegative)
-            map (constraintAsGuard . transitionConstraint) (nodeEdges root)
+            map (constraintAsGuard . edgeConstraint) (nodeEdges root)
                 `shouldBe` [Entails (path [0]) (path [1])]
             mapM (accepts tableEntailment root) terms
                 >>= (`shouldBe` [Yes, Yes, No, Yes])

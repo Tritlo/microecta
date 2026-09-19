@@ -7,7 +7,7 @@ Figure 6 denotation up to a height bound. Both are deliberately simple, so they
 serve as the oracle that generator backends are checked against.
 -}
 module Data.CFTA.Refinement.Denotation (
-    EnumerationError (..),
+    DenotationError (..),
     accepts,
     denotationAtMost,
 ) where
@@ -30,9 +30,9 @@ import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol))
 import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..))
 
 -- | Failure while computing the bounded denotation from Figure 6.
-data EnumerationError
+data DenotationError
     = -- | The solver could not decide a transition's guard on the subterm the transition built.
-      EnumerationUnknown LiquidConstraint (Tree.Tree LiquidSymbol)
+      DenotationUnknown LiquidConstraint (Tree.Tree LiquidSymbol)
     deriving (Eq, Show)
 
 {- | Decide whether an annotated term is accepted at the root.
@@ -78,7 +78,7 @@ the paper defines a set of terms even when several runs accept the same tree.
 This is the authoritative, deliberately simple semantics oracle; generator
 backends are optimizations and should be checked against it on bounded inputs.
 -}
-denotationAtMost :: Entailment -> Int -> Automaton -> IO (Either EnumerationError [Tree.Tree LiquidSymbol])
+denotationAtMost :: Entailment -> Int -> Automaton -> IO (Either DenotationError [Tree.Tree LiquidSymbol])
 denotationAtMost entailment bound automaton
     | bound < 0 = pure (Right [])
     | unconstrained automaton = pure (Right (plainTermsAtMost bound automaton))
@@ -93,4 +93,4 @@ denotationAtMost entailment bound automaton
         case verdict of
             Yes -> pure True
             No -> pure False
-            Unknown -> throwError (EnumerationUnknown constraint term)
+            Unknown -> throwError (DenotationUnknown constraint term)

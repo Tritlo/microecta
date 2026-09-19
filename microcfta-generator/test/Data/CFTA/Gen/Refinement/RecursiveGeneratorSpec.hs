@@ -10,7 +10,7 @@ import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldReturn)
 
-import Data.CFTA.Constraint.Equality (mkEqConstraints)
+import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Refinement (

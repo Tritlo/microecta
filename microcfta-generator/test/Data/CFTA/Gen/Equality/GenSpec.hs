@@ -17,9 +17,9 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
-import Data.CFTA.Equality (Node (Node), edgeChildren, edgeConstraint, edgeSymbol, nodeRepresents, terms)
+import Data.CFTA.Equality (Node (Node), accepts, edgeChildren, edgeConstraint, edgeSymbol, terms)
 import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
@@ -167,7 +167,7 @@ spec = do
                                     let witnesses = terms regrouped
                                     ECTAGen.cardinality labelled `shouldBe` Right 2
                                     length witnesses `shouldBe` 2
-                                    witnesses `shouldSatisfy` all (nodeRepresents support)
+                                    witnesses `shouldSatisfy` all (accepts support)
                                 (Left err, _) -> expectationFailure $ show err
                                 (_, Left err) -> expectationFailure $ show err
                     inspectionLabels fromAutomaton `shouldBe` Right []

@@ -74,9 +74,9 @@ library
   exposed-modules:
     Data.CFTA
     Data.CFTA.Constraint
-    Data.CFTA.Constraint.Equality
     Data.CFTA.Enumeration
     Data.CFTA.Equality
+    Data.CFTA.Equality.Constraint
     Data.CFTA.Equality.Operations
     Data.CFTA.Generic
     Data.CFTA.Internal.UnionFind
@@ -131,7 +131,7 @@ test-suite unit-tests
     -Wno-orphans
 
   other-modules:
-    Data.CFTA.Constraint.EqualitySpec
+    Data.CFTA.Equality.ConstraintSpec
     Data.CFTA.Equality.FTASpec
     Data.CFTA.EqualitySpec
     Data.CFTA.Internal.UnionFindSpec

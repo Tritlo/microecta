@@ -28,8 +28,8 @@ module Data.CFTA.Gen.Equality.Internal.Inspect (
 
 import qualified Data.Map.Strict as Map
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Node)
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal
 import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Ranked.Internal.Sampler

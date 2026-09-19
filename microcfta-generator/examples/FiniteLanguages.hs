@@ -6,7 +6,7 @@ module Main (main) where
 import Control.Monad (unless)
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), mkEqConstraints)
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import qualified Data.CFTA.Gen.QuickCheck as FTA
 import Data.CFTA.Generic (Constructor, TypedFTA, annotateDatatype, constructorFields, deriveFTAWith, domain)

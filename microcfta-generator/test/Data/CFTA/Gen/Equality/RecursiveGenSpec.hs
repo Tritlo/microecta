@@ -16,17 +16,17 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Constraint.Equality (EqConstraints, mkEqConstraints)
 import Data.CFTA.Equality (
     Edge (Edge),
     Node (Node),
+    accepts,
     createMu,
     mkEdge,
     nodeCount,
-    nodeRepresents,
     numNestedMu,
     terms,
  )
+import Data.CFTA.Equality.Constraint (EqConstraints, mkEqConstraints)
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, GenError (..), Sig (..))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
@@ -354,7 +354,7 @@ spec = do
         modifyMaxSuccess (const 200) $
             it "samples only terms the automaton accepts" $
                 QC.forAll (QC.resize 6 $ ECTAGen.toGen $ ECTAGen.fromAutomaton typeAutomaton) $
-                    \term -> QC.counterexample (show term) $ QC.property $ nodeRepresents typeAutomaton term
+                    \term -> QC.counterexample (show term) $ QC.property $ accepts typeAutomaton term
 
         it "retains the term of every member, so a bounded language is inspectable" $ do
             let bounded = ECTAGen.upToSize 2 $ ECTAGen.fromAutomaton typeAutomaton

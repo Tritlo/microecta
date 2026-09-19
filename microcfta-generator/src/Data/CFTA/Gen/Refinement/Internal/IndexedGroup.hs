@@ -6,8 +6,8 @@ module Data.CFTA.Gen.Refinement.Internal.IndexedGroup (indexedGroup) where
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import Data.CFTA.Symbol (Symbol)
 

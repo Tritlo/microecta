@@ -21,8 +21,7 @@ module Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
 
 import Data.Bifunctor (first)
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (subsumptionOrderedEclasses, unPathEClass)
-import Data.CFTA.Enumeration (unconstrained)
+import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRankedWith)
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
@@ -158,14 +157,14 @@ compileSymbolicAutomaton ::
 compileSymbolicAutomaton buildValue pruned view = do
     mapM_ (first ResidualGuard . constraintTerms . FTA.transitionConstraint) (viewTransitions view)
     (root, alphabet) <- symbolicGraph view
-    terms <- first fromRankedError $ symbolicRankedWith interpret root
+    ranked <- first fromRankedError $ symbolicRankedWith interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (fmap (alphabet IntMap.!) term)
-        size rank = either (const 0) nodeSize $ Ranked.unrank terms rank
-        shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank terms rank
-    pure $ Compiled (AutomatonSupport pruned) (generated <$> terms) shrinks
+        size rank = either (const 0) nodeSize $ Ranked.unrank ranked rank
+        shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank ranked rank
+    pure $ Compiled (AutomatonSupport pruned) (generated <$> ranked) shrinks
   where
     interpret constraint = case constraintTerms constraint of
-        Right terms -> terms
+        Right interpreted -> interpreted
         Left _ -> error "compileSymbolicAutomaton: unsupported guard after validation"
     foldTerm alphabet build = Tree.foldTree $ \identifier childValues ->
         let LiquidSymbol symbol refinement = alphabet IntMap.! identifier
@@ -209,7 +208,7 @@ constraintTerms constraint = do
     guardTerms (Or guards) = complement . foldl' conjoin [(1, [])] . map complement <$> traverse guardTerms guards
     guardTerms guard = Left guard
 
-    complement terms = (1, []) : [(negate weight, classes) | (weight, classes) <- terms]
+    complement summands = (1, []) : [(negate weight, classes) | (weight, classes) <- summands]
     conjoin left right =
         [ (leftWeight * rightWeight, leftClasses <> rightClasses)
         | (leftWeight, leftClasses) <- left

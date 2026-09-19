@@ -46,7 +46,6 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), mkEqConstraints)
 import Data.CFTA.Equality (
     Edge (Edge),
     Node (Mu, Node),
@@ -56,6 +55,7 @@ import Data.CFTA.Equality (
     mkEdge,
     unfoldOuterRec,
  )
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
 import Data.CFTA.Path (path)
 import Data.CFTA.Symbol (Symbol (Symbol))
 

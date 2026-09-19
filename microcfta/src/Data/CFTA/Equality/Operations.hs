@@ -8,7 +8,7 @@ membership, and template restriction. Most users import "Data.CFTA.Equality".
 theory; the interned 'Symbol' alphabet with 'EqConstraints' has its own table.
 -}
 module Data.CFTA.Equality.Operations (
-    nodeRepresents,
+    accepts,
     reducePartially,
     reduceEdgeIntersection,
     reduceEqConstraints,
@@ -23,7 +23,7 @@ import qualified Data.Tree as Tree
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
 
-import Data.CFTA.Constraint.Equality
+import Data.CFTA.Equality.Constraint
 import Data.CFTA.Internal.Tree (adjustAt)
 import Data.CFTA.Interned
 import Data.CFTA.Interned.Memo (
@@ -63,8 +63,8 @@ equalitiesSatisfied constraints t = all eclassSatisfied (unsafeGetEclasses const
     {-# INLINE allTheSame #-}
 
 -- | Recognize through the common traversal and the equality interpreter.
-nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Tree.Tree symbol -> Bool
-nodeRepresents = nodeRepresentsWith equalitiesSatisfied
+accepts :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Tree.Tree symbol -> Bool
+accepts = acceptsWith equalitiesSatisfied
 
 ------------------------------------
 ------ Reduction

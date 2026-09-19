@@ -56,7 +56,7 @@ import qualified Data.CFTA.Template as Template
 | Build a grammar with named states | `FTA.mkFTA` | A checked explicit-state graph. |
 | Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
-| Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
+| Check membership | `FTA.accepts`, `Common.acceptsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
 | List accepted terms | `FTA.terms`, `Enumeration.terms`, `Enumeration.plainTerms`, `Enumeration.plainTermsAtMost` | Every term, by depth. `terms` solves constraints and stops at recursion; `FTA.terms` and `plainTerms` ignore constraints and give an infinite list for a recursive grammar; `plainTermsAtMost` stops at a depth. |
 | Restrict to a pattern | `Template.restrictFTA`, `Template.restrict` | A grammar for the terms that match a `Template`. |
 | List terms a check accepts | `FTA.termsUpToM` | The terms up to a depth, each checked once by a monadic predicate that sees its transition. |
@@ -204,7 +204,7 @@ does not construct those trees. Reusing `child` shares its language; it does
 not require the two selected child trees to be equal.
 
 `Common.union` combines alternatives. `Common.intersect` retains trees that
-both inputs accept. `Common.nodeRepresentsWith (\() _ -> True)` recognizes
+both inputs accept. `Common.acceptsWith (\() _ -> True)` recognizes
 ordinary terms. `Common.toFTA` exposes each reachable node as one explicit
 state for inspection or for the explicit-state operations.
 
@@ -379,7 +379,7 @@ Useful operations:
   alternatives those constraints locally rule out. It does not decide
   emptiness: a fully reduced automaton can still accept nothing.
 - `withoutRedundantEdges` removes alternatives implied by other alternatives.
-- `nodeRepresents` checks concrete term membership.
+- `accepts` checks concrete term membership.
 - `matchesTemplate` checks a concrete term against an explicit `Template`.
 - `termsMatching` restricts a node to the accepted terms matching a template,
   while preserving its equality constraints.
@@ -987,7 +987,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Symbol` | Interned text symbols that compare and hash by identity. |
 | `Data.CFTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 | `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
-| `Data.CFTA.Constraint.Equality` | Equality constraints over paths and their tries. |
+| `Data.CFTA.Equality.Constraint` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
 | `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
@@ -997,7 +997,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 
 The interned engine has a symbol type and a constraint type. A `Constraint`
-instance supplies conjunction and known contradictions; `nodeRepresentsWith`
+instance supplies conjunction and known contradictions; `acceptsWith`
 takes the concrete-term interpreter. The three layers share the graph
 implementation and differ only in how they interpret the constraint.
 

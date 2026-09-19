@@ -24,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
+import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Equality.Operations (reduceEdgeIntersection)
 import Data.CFTA.Interned (
     InternedMu (internedMuBody, internedMuId),

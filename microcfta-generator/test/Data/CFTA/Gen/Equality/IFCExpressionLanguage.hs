@@ -61,8 +61,8 @@ import Data.String (fromString)
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (EmptyNode, Node))
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (frequencyInteger)
