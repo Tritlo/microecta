@@ -13,7 +13,7 @@ one ranked layer and three generators, one per constraint theory:
 | `Data.CFTA.Gen.Do` | Qualified do-notation for the child blocks of every layer; import it qualified under the same alias as the generator module. |
 | `Data.CFTA.Gen.Error` | The one failure vocabulary of every layer, and `explain`. |
 | `Data.CFTA.Gen.Equality` | Equality-constrained sources, equality and relational joins, retained key groups, and recursive generation. |
-| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and adds `pool`, `freeze`, `toGen`, `forAll`, and `sized`. |
+| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and adds `samplePool`, `freeze`, `toGen`, `forAll`, and `sized`. |
 | `Data.CFTA.Gen.Refinement` | Refinement-constrained sources compiled once with a solver into pure sampling, replay, and shrinking. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | The QuickCheck-facing refinement API. |
 | `Data.CFTA.Ranked.Internal.*`, `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Gen.Equality.Internal.Symbolic` | The shared decoder, sampler, size, shrink, and symbolic-count implementation; exposed for integration, not covered by the PVP contract. |
@@ -758,14 +758,14 @@ the same cardinality, ranks, and sampler but never tabulates a small indexed
 source while compiling its replay decoder. LTA counting uses it so the
 automaton remains a graph until one rank is selected.
 
-`pool n native` bridges a large or infinite QuickCheck source into this finite
+`samplePool n native` bridges a large or infinite QuickCheck source into this finite
 world. Its outer `Gen` samples `n` values once and returns an `ECTAGen` whose
 ranks are those draws. The result supports exact inspection and constrained
 joins. Repeated draws remain repeated ranks and therefore retain their
 empirical weight. Reuse the returned generator when two choices must range over
 the same frozen universe.
 
-`freeze seed n native` is `pool` with the draws fixed by a seed, so it is an
+`freeze seed n native` is `samplePool` with the draws fixed by a seed, so it is an
 ordinary transparent generator rather than a `Gen` of one: it can be weighted
 by `uniformly`, keyed, joined, replayed, and shrunk, and its ranks are the same
 in every run under the same seed. The native generator runs at QuickCheck size
@@ -824,9 +824,9 @@ main :: IO ()
 main = withZ3 (integerDeclarations ["v"]) $ \solver -> do
   let nonZero = value ./=. integer 0
       denominators = LTA.pool
-        [ LTA.refined (0 :: Integer) "zero" (value .==. integer 0)
-        , LTA.refined 1 "one" (value .==. integer 1)
-        , LTA.refined 2 "two" (value .==. integer 2)
+        [ LTA.Refined (0 :: Integer) "zero" (value .==. integer 0)
+        , LTA.Refined 1 "one" (value .==. integer 1)
+        , LTA.Refined 2 "two" (value .==. integer 2)
         ]
       divisions =
         LTA.node "divide" (\denominator -> denominator `requires` nonZero) $ LTA.do

@@ -258,7 +258,7 @@ numberPool :: [Int] -> LTA.LTAGen RefinedNumber
 numberPool integers =
     LTA.pool
         [ let refinement = exact integer
-           in LTA.refined
+           in LTA.Refined
                 (RefinedNumber integer refinement)
                 (fromString $ numberName integer)
                 refinement

@@ -56,8 +56,8 @@ variablePairAutomaton = Node [plain "missing" [EmptyNode], plain "pair" [choice,
     choice = Node [plain "wrap" [Node [plain "x" [], plain "y" []]], plain "atom" []]
 
 -- | Count the physical nodes of one small test term.
-termNodes :: Tree.Tree LiquidSymbol -> Integer
-termNodes = Tree.foldTree $ \_ counts -> 1 + sum counts
+termSize :: Tree.Tree LiquidSymbol -> Int
+termSize = length . Tree.flatten
 
 unusedEntailment :: Entailment
 unusedEntailment = Entailment $ \_ _ -> pure Unknown
@@ -127,7 +127,7 @@ spec = do
                 forM_ (LTA.shrinkRank compiled rank) $ \candidate -> do
                     target <- either (fail . show) pure $ LTA.unrank compiled candidate
                     let term = LTA.generatedTerm target
-                    (termNodes term < termNodes (LTA.generatedTerm source)) `shouldBe` True
+                    (termSize term < termSize (LTA.generatedTerm source)) `shouldBe` True
                     accepts unusedEntailment variablePairAutomaton term `shouldReturn` Yes
 
         it "keeps graph shrinks independent of generated and mapped values" $ do

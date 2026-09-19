@@ -132,7 +132,7 @@ resultTypes =
   where
     result symbolName actualName =
         let refinement = value .==. (variable actualName .+. (1 :: Int))
-         in LTA.refined (ResultType refinement) symbolName refinement
+         in LTA.Refined (ResultType refinement) symbolName refinement
 
 namedArguments :: LTA.LTAGen RefinedExpression
 namedArguments =
@@ -152,4 +152,4 @@ incrementFunction =
 
 atom :: Expression -> Symbol -> Refinement -> LTA.Refined RefinedExpression
 atom expression symbol refinement =
-    LTA.refined (RefinedExpression expression refinement) symbol refinement
+    LTA.Refined (RefinedExpression expression refinement) symbol refinement

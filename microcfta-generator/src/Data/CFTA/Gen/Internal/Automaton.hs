@@ -2,6 +2,7 @@
 
 -- | Shared size indexing for ordinary, possibly recursive automata.
 module Data.CFTA.Gen.Internal.Automaton (
+    rowsOf,
     automatonIndex,
     tableIndex,
     minimumSizes,
@@ -16,7 +17,13 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
+import Data.Hashable (Hashable)
+import qualified Data.IntMap.Strict as IntMap
+import Data.Typeable (Typeable)
+
 import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Interned (Node, edgeChildren, edgeSymbol, nodeIdentity, reachable)
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex,
     choiceIndex,
@@ -26,14 +33,23 @@ import Data.CFTA.Ranked.Internal.Size (
     withMinimumMemberSize,
  )
 
+{- | The rows of an interned graph, one per reachable node, keyed by node
+identity. Constraints are dropped; the caller checks them first. The root
+must not be the empty node.
+-}
+rowsOf ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Node symbol constraint -> Map.Map Int [FTA.Transition Int symbol ()]
+rowsOf root =
+    Map.fromList
+        [ (ident, [FTA.Transition (edgeSymbol edge) (map nodeIdentity $ edgeChildren edge) () | edge <- edges])
+        | (ident, edges) <- IntMap.toList (reachable root)
+        ]
+
 {- | Count accepting runs by their number of tree nodes.
 
 Ranks are size-major. Ambiguous automata can assign several ranks to one term.
 Each state shares one index, including recursive references to that index.
-
-This module belongs to the @internal@ sublibrary. It is an integration
-interface for the constrained generator packages, and its exports are not
-covered by the PVP contract of the main library.
 -}
 automatonIndex :: (Ord state) => FTA.PlainFTA state symbol -> SizeIndex (Tree.Tree symbol)
 automatonIndex automaton = tableIndex (FTA.initialState automaton) (FTA.transitionTable automaton)

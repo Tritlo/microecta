@@ -50,8 +50,8 @@ divisions =
         (if constructorName constructor == "Zero" then value .==. integer 0 else positive, unconstrainedConstraint)
     numerators =
         LTA.pool
-            [ LTA.refined 12 "twelve" (value .==. integer 12)
-            , LTA.refined 24 "twenty-four" (value .==. integer 24)
+            [ LTA.Refined 12 "twelve" (value .==. integer 12)
+            , LTA.Refined 24 "twenty-four" (value .==. integer 24)
             ]
 
 -- | Compile once, check every replay rank, and sample the accepted divisions.

@@ -10,7 +10,6 @@ module Data.CFTA.Ranked.Internal (
     WeightedIndexed (..),
     Ranked,
     rankedPlan,
-    rankedSampler,
     rankedValueAt,
     RankedError (..),
     fromIndexed,
@@ -28,6 +27,7 @@ module Data.CFTA.Ranked.Internal (
     shrinkRank,
     smallerMembers,
     sizeOfRank,
+    withOffsets,
 ) where
 
 import Data.Array (listArray, (!))
@@ -50,6 +50,7 @@ import Data.CFTA.Ranked.Internal.Shrink (
     planMemberSize,
     shrinkPlanRank,
     smallerPlanMembers,
+    withOffsets,
  )
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeClasses, sizeIndex)
 
@@ -272,7 +273,7 @@ frequency alternatives
                           , (Bifunctor.first (offset +))
                                 <$> runRankSampler (rankedSampler ranked)
                           )
-                        | (offset, (weight, ranked)) <- withOffsets alternatives
+                        | (offset, (weight, ranked)) <- withOffsets (cardinality . snd) alternatives
                         ]
                     )
                 )
@@ -342,10 +343,3 @@ makeRanked plan sampler =
 decode :: RankDecoder a -> Integer -> a
 decode (SmallDecoder _ select) = select . fromInteger
 decode (LargeDecoder _ select) = select
-
-withOffsets :: [(Integer, Ranked a)] -> [(Integer, (Integer, Ranked a))]
-withOffsets = go 0
-  where
-    go _ [] = []
-    go offset (alternative@(_, ranked) : rest) =
-        (offset, alternative) : go (offset + cardinality ranked) rest

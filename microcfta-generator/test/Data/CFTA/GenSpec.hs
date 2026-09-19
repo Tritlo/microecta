@@ -62,7 +62,7 @@ data Growing a = GrowEnd | Grow (Growing [a])
 instance (Datatype.HasFTA a) => Datatype.HasFTA (Growing a)
 
 atoms :: FTA.FTAGen String Int
-atoms = FTA.oneof [FTA.leaf "zero" 0, FTA.leaf "one" 1]
+atoms = FTA.oneof [FTA.leaf 0 "zero", FTA.leaf 1 "one"]
 
 pairs :: FTA.FTAGen String (Int, Int)
 pairs = FTA.node "pair" $ FTA.do
@@ -81,7 +81,7 @@ spec = do
                         check generator = do
                             FTA.cardinality generator `shouldBe` Right 6
                             traverse (FTA.unrank generator) [0 .. 5] `shouldBe` Right expected
-                            traverse (FTA.generatedTerm generator) [0 .. 5]
+                            traverse (FTA.termAt generator) [0 .. 5]
                                 `shouldBe` Right (map Datatype.encodeTerm expected)
                             map (Datatype.decodeTerm . Datatype.encodeTerm) expected
                                 `shouldBe` map Just expected
@@ -140,12 +140,12 @@ spec = do
                     FTA.pure $ value + 1
             FTA.cardinality boxed `shouldBe` Right 2
             FTA.unrank boxed 1 `shouldBe` Right 2
-            FTA.generatedTerm boxed 1
+            FTA.termAt boxed 1
                 `shouldBe` Right (Tree.Node "box" [Tree.Node "one" []])
 
         it "uses each do binding as one direct constructor child" $ do
             FTA.cardinality pairs `shouldBe` Right 4
-            FTA.generatedTerm pairs 2
+            FTA.termAt pairs 2
                 `shouldBe` Right (Tree.Node "pair" [Tree.Node "one" [], Tree.Node "zero" []])
 
         it "builds exact support carrying the public node labels" $

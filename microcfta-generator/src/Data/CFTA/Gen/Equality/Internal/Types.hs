@@ -41,8 +41,12 @@ import qualified Data.Map.Strict as Map
 import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal
+import Data.CFTA.Gen.Equality.Internal.Bucket
 import Data.CFTA.Gen.Equality.Internal.Inspection
+import Data.CFTA.Gen.Equality.Internal.Recursive
+import Data.CFTA.Gen.Equality.Internal.Static
+import Data.CFTA.Gen.Equality.Internal.Support
+import Data.CFTA.Gen.Error
 import Data.CFTA.Ranked.Internal.Decoder (RankDecoder (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (mapIndex, productIndex)

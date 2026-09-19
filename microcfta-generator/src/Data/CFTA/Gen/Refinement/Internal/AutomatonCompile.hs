@@ -13,7 +13,6 @@ module Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     compileBoundedAutomaton,
     View,
     automatonView,
-    countAutomaton,
     distinctCounts,
     constraintTerms,
     symbolicGraph,
@@ -159,7 +158,7 @@ compileSymbolicAutomaton buildValue pruned view = do
     (root, alphabet) <- symbolicGraph view
     ranked <- first fromRankedError $ symbolicRankedWith interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (fmap (alphabet IntMap.!) term)
-        size rank = either (const 0) nodeSize $ Ranked.unrank ranked rank
+        size rank = either (const 0) (length . Tree.flatten) $ Ranked.unrank ranked rank
         shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank ranked rank
     pure $ Compiled (AutomatonSupport pruned) (generated <$> ranked) shrinks
   where
@@ -169,8 +168,6 @@ compileSymbolicAutomaton buildValue pruned view = do
     foldTerm alphabet build = Tree.foldTree $ \identifier childValues ->
         let LiquidSymbol symbol refinement = alphabet IntMap.! identifier
          in build symbol refinement childValues
-    nodeSize :: Tree.Tree Int -> Integer
-    nodeSize = Tree.foldTree $ \_ counts -> 1 + sum counts
 
 -- | Every transition of the explicit view, in table order.
 viewTransitions :: View -> [FTA.Transition InternedState LiquidSymbol LiquidConstraint]

@@ -102,7 +102,7 @@ opaquePool sampleCount source =
                 (sourceGenerate source $ Map.findWithDefault [] 0 requirements)
   where
     annotate value =
-        refined
+        Refined
             value
             (sourceSymbol source value)
             (sourceRefinement source value)
@@ -195,14 +195,9 @@ toGenWithRank compiled =
 
 -- | Quantify over accepted values and shrink along compiled liquid relations.
 forAll :: (QC.Testable prop, Show a) => Compiled a -> (a -> prop) -> QC.Property
-forAll compiled prop =
-    QC.forAllShrinkShow
-        (toGenWithRank compiled)
-        shrink
-        (\(rank, value) -> "rank " <> show rank <> ": " <> show value)
-        (prop . snd)
+forAll compiled = Tree.forAllWith (toGenWithRank compiled) shrink
   where
-    shrink (rank, _) =
+    shrink rank =
         [ (candidate, generatedValue generated)
         | candidate <- shrinkRank compiled rank
         , Right generated <- [unrank compiled candidate]

@@ -3,7 +3,9 @@
 An indexed source stores a finite cardinality and a function from indices to
 values. Applicative composition tracks exact cardinalities and rank-based
 selection alongside the ECTA, without materializing the product language.
-Joins count matched group products and unrank directly within them.
+Joins count matched group products and unrank directly within them. A
+construction failure stays inside the generator; 'cardinality' and
+'Data.CFTA.Gen.Equality.QuickCheck.toGen' report it.
 -}
 module Data.CFTA.Gen.Equality (
     -- * Generators
@@ -76,6 +78,7 @@ module Data.CFTA.Gen.Equality (
     pmfAtSize,
     smallest,
     unrank,
+    termAt,
     sizeOfRank,
     smallerMembers,
     shrinkRank,
@@ -98,17 +101,21 @@ import qualified Test.QuickCheck as QC
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Equality.Constraint (EqConstraints)
-import Data.CFTA.Gen.Equality.Internal
 import Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.CFTA.Gen.Equality.Internal.Grouped
 import Data.CFTA.Gen.Equality.Internal.Inspect
-import Data.CFTA.Gen.Equality.Internal.Inspection (choiceInspection, plainInspection)
+import Data.CFTA.Gen.Equality.Internal.Inspection
+import Data.CFTA.Gen.Equality.Internal.Join
 import Data.CFTA.Gen.Equality.Internal.Recursion
-import Data.CFTA.Gen.Equality.Internal.Static (indexedStaticWithLabels)
+import Data.CFTA.Gen.Equality.Internal.Recursive
+import Data.CFTA.Gen.Equality.Internal.Static
+import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
+import Data.CFTA.Gen.Error
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
 import Data.CFTA.Ranked.Internal.Size (choiceIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
@@ -334,7 +341,7 @@ For finite inspectable inputs, the relation is evaluated once per live key
 pair. The accepted group products are counted and sampled directly without
 rejection. The key types may differ, and the relation need not be symmetric.
 The relation must be total for every live key pair. An opaque input uses
-backend rejection filtering instead.
+QuickCheck rejection filtering instead.
 -}
 relate ::
     (Ord leftKey, Ord rightKey) =>

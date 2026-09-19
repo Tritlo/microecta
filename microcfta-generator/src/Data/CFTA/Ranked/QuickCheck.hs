@@ -7,6 +7,7 @@ module Data.CFTA.Ranked.QuickCheck (
     toGen,
     toGenWithRank,
     forAll,
+    forAllWith,
 ) where
 
 import Data.List (mapAccumL, sortOn)
@@ -64,15 +65,27 @@ toGenWithRank ranked = case Tree.lowerWithRank ranked of
 
 -- | Quantify over a ranked language and shrink only to valid members.
 forAll :: (QC.Testable prop, Show a) => Tree.Ranked a -> (a -> prop) -> QC.Property
-forAll ranked prop =
-    QC.forAllShrinkShow
-        (toGenWithRank ranked)
-        shrink
-        (\(rank, value) -> "rank " <> show rank <> ": " <> show value)
-        (prop . snd)
+forAll ranked = forAllWith (toGenWithRank ranked) shrink
   where
-    shrink (rank, _) =
+    shrink rank =
         [ (candidate, value)
         | candidate <- Tree.shrinkRank ranked rank
         , Right value <- [Tree.unrank ranked candidate]
         ]
+
+{- | Quantify over ranked members with a shrink function of the layer's
+choosing, which maps a failing rank to candidate ranks and their members.
+The failing rank is printed with the counterexample.
+-}
+forAllWith ::
+    (QC.Testable prop, Show a) =>
+    QC.Gen (Integer, a) ->
+    (Integer -> [(Integer, a)]) ->
+    (a -> prop) ->
+    QC.Property
+forAllWith ranked shrink prop =
+    QC.forAllShrinkShow
+        ranked
+        (shrink . fst)
+        (\(rank, value) -> "rank " <> show rank <> ": " <> show value)
+        (prop . snd)

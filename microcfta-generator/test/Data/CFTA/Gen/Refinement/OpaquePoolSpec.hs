@@ -71,7 +71,7 @@ unconstrainedReads =
   where
     rawOffset = do
         offset <- QC.chooseInt (-128, 127)
-        pure $ LTA.refined offset (fromString $ "offset-" <> show offset) $ exactOffset offset
+        pure $ LTA.Refined offset (fromString $ "offset-" <> show offset) $ exactOffset offset
 
 -- | Read the selected byte. An invalid generated offset raises an exception.
 runRead :: PageRead -> Int
@@ -178,9 +178,9 @@ spec = do
                 let atoms :: LTA.LTAGen Int
                     atoms =
                         LTA.pool
-                            [ LTA.refined 2 "z" $ exactOffset 2
-                            , LTA.refined 0 "a" $ exactOffset 0
-                            , LTA.refined 1 "m" $ exactOffset 1
+                            [ LTA.Refined 2 "z" $ exactOffset 2
+                            , LTA.Refined 0 "a" $ exactOffset 0
+                            , LTA.Refined 1 "m" $ exactOffset 1
                             ]
                     generator =
                         LTA.node
@@ -198,9 +198,9 @@ spec = do
                 let generator =
                         void
                             ( LTA.pool
-                                [ LTA.refined (1 :: Int) "z" $ exactOffset 1
-                                , LTA.refined 1 "z" $ exactOffset 1
-                                , LTA.refined 0 "a" $ exactOffset 0
+                                [ LTA.Refined (1 :: Int) "z" $ exactOffset 1
+                                , LTA.Refined 1 "z" $ exactOffset 1
+                                , LTA.Refined 0 "a" $ exactOffset 0
                                 ]
                             )
                 compiled <- compileOrFail solver generator
@@ -216,12 +216,12 @@ spec = do
                             [
                                 ( 3
                                 , LTA.pool
-                                    [ LTA.refined (2 :: Int) "z" $ exactOffset 2
-                                    , LTA.refined 0 "m" $ exactOffset 0
+                                    [ LTA.Refined (2 :: Int) "z" $ exactOffset 2
+                                    , LTA.Refined 0 "m" $ exactOffset 0
                                     ]
                                 )
-                            , (1, LTA.pool [LTA.refined 1 "a" $ exactOffset 1])
-                            , (7, LTA.pool [LTA.refined 0 "trailing" $ exactOffset 0])
+                            , (1, LTA.pool [LTA.Refined 1 "a" $ exactOffset 1])
+                            , (7, LTA.pool [LTA.Refined 0 "trailing" $ exactOffset 0])
                             ]
                 let generator =
                         LTA.node
@@ -248,8 +248,8 @@ spec = do
                 let atoms :: LTA.LTAGen Int
                     atoms =
                         LTA.pool
-                            [ LTA.refined 0 "non-negative" nonNegative
-                            , LTA.refined 1 "one" $ exactOffset 1
+                            [ LTA.Refined 0 "non-negative" nonNegative
+                            , LTA.Refined 1 "one" $ exactOffset 1
                             ]
                     generator =
                         LTA.node "pair" isSubtypeOf $
@@ -263,7 +263,7 @@ spec = do
 
         it "keeps accepted pools when optional shrink implications are unknown" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
-                generator = LTA.pool [LTA.refined (0 :: Int) "zero" $ exactOffset 0, LTA.refined 1 "one" $ exactOffset 1]
+                generator = LTA.pool [LTA.Refined (0 :: Int) "zero" $ exactOffset 0, LTA.Refined 1 "one" $ exactOffset 1]
             compiled <- compileOrFail solver generator
             LTA.cardinality compiled `shouldBe` 2
             map (LTA.shrinkRank compiled) [0, 1] `shouldBe` [[], []]
@@ -272,8 +272,8 @@ spec = do
             let precise = exactOffset 1
                 solver = Entailment $ \source target ->
                     pure $ if source == precise && target == nonNegative then Yes else Unknown
-                broadEntry = LTA.refined (0 :: Int) "non-negative" nonNegative
-                preciseEntry = LTA.refined 1 "one" precise
+                broadEntry = LTA.Refined (0 :: Int) "non-negative" nonNegative
+                preciseEntry = LTA.Refined 1 "one" precise
             forM_ [([broadEntry, preciseEntry], [[], [0]]), ([preciseEntry, broadEntry], [[], []])] $ \(entries, expected) -> do
                 compiled <- compileOrFail solver $ LTA.pool entries
                 LTA.cardinality compiled `shouldBe` 2
@@ -355,8 +355,8 @@ bitForest width =
   where
     bits =
         LTA.pool
-            [ LTA.refined 0 "zero" $ exactOffset 0
-            , LTA.refined 1 "one" $ exactOffset 1
+            [ LTA.Refined 0 "zero" $ exactOffset 0
+            , LTA.Refined 1 "one" $ exactOffset 1
             ]
 
 -- | A large fallback whose values and refinements must remain unobserved.
@@ -374,7 +374,7 @@ unavailableProduct =
 homogeneousBits :: Int -> LTA.LTAGen [Int]
 homogeneousBits width = foldr (\_ rest -> prepend rest) ((: []) <$> bit) [2 .. width]
   where
-    bit = LTA.pool [LTA.refined (0 :: Int) "zero" nonNegative, LTA.refined 1 "one" $ exactOffset 1]
+    bit = LTA.pool [LTA.Refined (0 :: Int) "zero" nonNegative, LTA.Refined 1 "one" $ exactOffset 1]
     prepend rest =
         LTA.refinedNodeByRoots "cons" firstRefinement equivalent $
             (:) <$> LTA.children bit <*> LTA.children rest

@@ -407,7 +407,7 @@ spec = do
             let native = QC.chooseInteger (0, 3)
                 seed = QCRandom.mkQCGen 20260818
                 expected = QCGen.unGen (QC.vectorOf 8 native) seed 30
-                pooled = QCGen.unGen (ECTAGen.pool 8 native) seed 30
+                pooled = QCGen.unGen (ECTAGen.samplePool 8 native) seed 30
             ECTAGen.cardinality pooled `shouldBe` Right 8
             traverse (ECTAGen.unrank pooled) [0 .. 7] `shouldBe` Right expected
             ECTAGen.countBy id pooled
@@ -417,7 +417,7 @@ spec = do
             let native = QC.chooseInteger (0, 3)
                 seed = QCRandom.mkQCGen 20260818
                 values = QCGen.unGen (QC.vectorOf 8 native) seed 30
-                pooled = QCGen.unGen (ECTAGen.pool 8 native) seed 30
+                pooled = QCGen.unGen (ECTAGen.samplePool 8 native) seed 30
                 equalPairs = ECTAGen.match (id :==: id) pooled pooled
                 accepted = [(left, right) | left <- values, right <- values, left == right]
                 acceptedCount = toInteger $ length accepted
@@ -431,7 +431,7 @@ spec = do
         it "turns a non-positive pool size into an empty generator" $ do
             let freeze sampleCount =
                     QCGen.unGen
-                        (ECTAGen.pool sampleCount (pure Alice))
+                        (ECTAGen.samplePool sampleCount (pure Alice))
                         (QCRandom.mkQCGen 20260818)
                         30
             ECTAGen.cardinality (freeze 0) `shouldBe` Left ECTAGen.EmptyGenerator

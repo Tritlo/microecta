@@ -59,7 +59,7 @@ spec = do
                 `shouldBe` Left (LTA.InvalidSupport $ GuardArityMismatch "wrap" 1 2)
 
         it "checks guard arity without enumerating a large child product" $ do
-            let source = LTA.pool [LTA.refined (0 :: Int) "zero" true, LTA.refined 1 "one" true]
+            let source = LTA.pool [LTA.Refined (0 :: Int) "zero" true, LTA.Refined 1 "one" true]
                 forest = foldr (\_ rest -> (:) <$> LTA.children source <*> rest) (pure []) [1 .. 50 :: Int]
                 generator = LTA.node "many" (`requires` true) forest
             compiled <- LTA.compile unusedEntailment generator
@@ -103,7 +103,7 @@ spec = do
             fmap selectedValues relational `shouldBe` fmap selectedValues complete
 
         it "checks the alphabet of a compact product without decoding members" $ do
-            let source = LTA.pool [LTA.refined (0 :: Int) "zero" true, LTA.refined 1 "one" true]
+            let source = LTA.pool [LTA.Refined (0 :: Int) "zero" true, LTA.Refined 1 "one" true]
                 forest = foldr (\_ rest -> (:) <$> LTA.children source <*> rest) (pure []) [1 .. 50 :: Int]
             compiled <- LTA.compileRelational unusedEntailment $ LTA.node "many" Top forest
             fmap LTA.cardinality compiled `shouldBe` Right (2 ^ (50 :: Int))
@@ -154,8 +154,8 @@ spec = do
                 annotation name = variable "v" .==. variable name
                 actuals =
                     LTA.pool
-                        [ LTA.refined (10 :: Int) "a" $ annotation "a"
-                        , LTA.refined 20 "b" $ annotation "b"
+                        [ LTA.Refined (10 :: Int) "a" $ annotation "a"
+                        , LTA.Refined 20 "b" $ annotation "b"
                         ]
                 formal = LTA.leaf (99 :: Int) "x" $ annotation "x"
                 generator =

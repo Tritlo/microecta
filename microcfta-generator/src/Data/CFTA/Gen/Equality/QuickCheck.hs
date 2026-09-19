@@ -47,16 +47,14 @@ module Data.CFTA.Gen.Equality.QuickCheck (
     module Data.CFTA.Gen.Equality,
 
     -- * Pools
-    pool,
+    samplePool,
     freeze,
 
     -- * Sampling and properties
     toGen,
     toGenWithRank,
     toGenEither,
-    toGenWithRankEither,
     forAll,
-    forAllWithLimit,
     smallerMemberLimit,
     sized,
 
@@ -71,6 +69,7 @@ import Test.QuickCheck.Random (mkQCGen)
 
 import Data.CFTA.Gen.Do
 import Data.CFTA.Gen.Equality
+import qualified Data.CFTA.Ranked.QuickCheck as Tree
 
 {- | Sample a finite pool from an ordinary QuickCheck generator.
 
@@ -80,22 +79,22 @@ ECTA-aware shrinking. Repeated draws remain repeated ranks and retain the
 native generator's empirical weight. A non-positive pool size produces an
 empty generator.
 -}
-pool :: Int -> QC.Gen a -> QC.Gen (ECTAGen a)
-pool sampleCount native =
+samplePool :: Int -> QC.Gen a -> QC.Gen (ECTAGen a)
+samplePool sampleCount native =
     elements <$> QC.vectorOf (max 0 sampleCount) native
 
-{- | 'pool' with the draws fixed by a seed.
+{- | 'samplePool' with the draws fixed by a seed.
 
 The native generator is run once, at QuickCheck size 30 (the default of
 'QC.generate'), so the result is an ordinary transparent generator: it can be
 weighted by 'uniformly', keyed, joined, replayed, and shrunk, and its ranks are
-the same in every run under the same seed. That is the trade against 'pool',
+the same in every run under the same seed. That is the trade against 'samplePool',
 which draws afresh each time its outer 'QC.Gen' runs. Use 'QC.resize' on the
 native generator for another size.
 -}
 freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
 freeze seed sampleCount native =
-    unGen (pool sampleCount native) (mkQCGen seed) 30
+    unGen (samplePool sampleCount native) (mkQCGen seed) 30
 
 {- | Sample a non-recursive generator while retaining structured generator errors.
 
@@ -104,15 +103,6 @@ size parameter; apply 'upToSize' explicitly first.
 -}
 toGenEither :: ECTAGen a -> QC.Gen (Either GenError a)
 toGenEither = lower
-
-{- | Sample a finite transparent generator while retaining its stable rank and
-errors.
-
-Unlike 'toGenWithRank', this does not bound a recursive generator from
-QuickCheck's size parameter; apply 'upToSize' explicitly first.
--}
-toGenWithRankEither :: ECTAGen a -> QC.Gen (Either GenError (Integer, a))
-toGenWithRankEither = lowerWithRank
 
 {- | Sample through the generator type expected by QuickCheck.
 
@@ -135,7 +125,7 @@ toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
 toGenWithRank generator
     | isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
     | Just direct <- lowerUniformWithRank generator = direct
-    | otherwise = either (raise "toGenWithRank") id <$> toGenWithRankEither generator
+    | otherwise = either (raise "toGenWithRank") id <$> lowerWithRank generator
   where
     bounded = [toGenWithRank (upToSize (max firstSize size) generator) | size <- [0 ..]]
     firstSize = either (raise "toGenWithRank") (fromMaybe 1) $ minimumSize generator
@@ -192,14 +182,9 @@ forAllWithLimit ::
     (QC.Testable prop, Show a) => Int -> ECTAGen a -> (a -> prop) -> QC.Property
 forAllWithLimit limit generator prop
     | isOpaque generator = QC.forAll (toGen generator) prop
-    | otherwise =
-        QC.forAllShrinkShow
-            (toGenWithRank generator)
-            shrinkCandidates
-            showRanked
-            (prop . snd)
+    | otherwise = Tree.forAllWith (toGenWithRank generator) shrinkCandidates prop
   where
-    shrinkCandidates (rank, _) = smaller <> structural
+    shrinkCandidates rank = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
         -- 'shrinkRank' has no candidates for a recursive generator, so the
@@ -213,8 +198,6 @@ forAllWithLimit limit generator prop
             | candidate <- shrinkRank bounded rank
             , Right value <- [unrank generator candidate]
             ]
-
-    showRanked (rank, value) = "rank " <> show rank <> ": " <> show value
 
 {- | 'forAll' tests at most this many members of strictly smaller size per
 shrink step before falling back to component shrinking.

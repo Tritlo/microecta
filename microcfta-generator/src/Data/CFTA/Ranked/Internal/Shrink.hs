@@ -28,9 +28,9 @@ interface for the constrained generator packages, and its exports are not
 covered by the PVP contract of the main library.
 -}
 module Data.CFTA.Ranked.Internal.Shrink (
+    withOffsets,
     shrinkPlanRank,
     smallestPlanRank,
-    smallestPlanMember,
     planMemberSize,
     smallerPlanMembers,
 ) where
@@ -53,43 +53,41 @@ smallestPlanRank = fmap snd . smallestPlanMember
 
 -- | The size and rank of a structurally smallest member; see 'smallestPlanRank'.
 smallestPlanMember :: Plan a -> Maybe (Int, Integer)
-smallestPlanMember = minimumMember
+smallestPlanMember (PlanSelect cardinality _) =
+    if cardinality > 0 then Just (1, 0) else Nothing
+smallestPlanMember (PlanSelectOnDemand cardinality _) =
+    if cardinality > 0 then Just (1, 0) else Nothing
+smallestPlanMember (PlanShared _ _ plan) = smallestPlanMember plan
+smallestPlanMember (PlanMap _ plan) = smallestPlanMember plan
+smallestPlanMember (PlanChoice branches) = go 0 branches
   where
-    minimumMember :: Plan b -> Maybe (Int, Integer)
-    minimumMember (PlanSelect cardinality _) =
-        if cardinality > 0 then Just (1, 0) else Nothing
-    minimumMember (PlanSelectOnDemand cardinality _) =
-        if cardinality > 0 then Just (1, 0) else Nothing
-    minimumMember (PlanShared _ _ plan) = minimumMember plan
-    minimumMember (PlanMap _ plan) = minimumMember plan
-    minimumMember (PlanChoice branches) =
-        minimumChoice 0 branches
-      where
-        minimumChoice _ [] = Nothing
-        minimumChoice offset ((cardinality, branch) : rest) =
-            choose
-                (fmap (fmap (+ offset)) $ minimumMember branch)
-                (minimumChoice (offset + cardinality) rest)
-    minimumMember (PlanAp rightCardinality functions arguments) = do
-        (functionSize, functionRank) <- minimumMember functions
-        (argumentSize, argumentRank) <- minimumMember arguments
-        pure
-            ( functionSize + argumentSize
-            , functionRank * rightCardinality + argumentRank
-            )
-    minimumMember (PlanSized classes) = minimumClass 0 classes
-      where
-        minimumClass _ [] = Nothing
-        minimumClass offset ((size, count, _, _) : rest) =
-            choose
-                (if count > 0 then Just (size, offset) else Nothing)
-                (minimumClass (offset + count) rest)
+    go _ [] = Nothing
+    go offset ((cardinality, branch) : rest) =
+        smallerMember
+            (fmap (fmap (+ offset)) $ smallestPlanMember branch)
+            (go (offset + cardinality) rest)
+smallestPlanMember (PlanAp rightCardinality functions arguments) = do
+    (functionSize, functionRank) <- smallestPlanMember functions
+    (argumentSize, argumentRank) <- smallestPlanMember arguments
+    pure
+        ( functionSize + argumentSize
+        , functionRank * rightCardinality + argumentRank
+        )
+smallestPlanMember (PlanSized classes) = go 0 classes
+  where
+    go _ [] = Nothing
+    go offset ((size, count, _, _) : rest) =
+        smallerMember
+            (if count > 0 then Just (size, offset) else Nothing)
+            (go (offset + count) rest)
 
-    choose Nothing right = right
-    choose left Nothing = left
-    choose left@(Just first) right@(Just second)
-        | first <= second = left
-        | otherwise = right
+-- | The smaller of two optional members, preferring the first on a tie.
+smallerMember :: Maybe (Int, Integer) -> Maybe (Int, Integer) -> Maybe (Int, Integer)
+smallerMember Nothing right = right
+smallerMember left Nothing = left
+smallerMember left@(Just first) right@(Just second)
+    | first <= second = left
+    | otherwise = right
 
 {- | Shrink candidates for one rank, guided by the plan structure.
 
@@ -113,11 +111,11 @@ shrinkPlanRank = go
     go (PlanShared _ _ plan) index = go plan index
     go (PlanMap _ plan) index = go plan index
     go (PlanChoice branches) index =
-        case break (holdsRank index) (withOffsets branches) of
-            (earlier, (offset, _, branch) : _) ->
+        case break (holdsRank index) (withOffsets fst branches) of
+            (earlier, (offset, (_, branch)) : _) ->
                 let currentSize = planMemberSize branch (index - offset)
                  in [ offset' + smallest
-                    | (offset', _, earlierBranch) <- earlier
+                    | (offset', (_, earlierBranch)) <- earlier
                     , Just (size, smallest) <- [smallestPlanMember earlierBranch]
                     , size <= currentSize
                     ]
@@ -141,17 +139,17 @@ shrinkPlanRank = go
     towardZero index =
         [index - step | step <- takeWhile (> 0) (iterate (`div` 2) index)]
 
--- | Pair each branch with its cumulative rank offset.
-withOffsets :: [(Integer, Plan a)] -> [(Integer, Integer, Plan a)]
-withOffsets = go 0
+-- | Pair each alternative with its cumulative rank offset, given its cardinality.
+withOffsets :: (a -> Integer) -> [a] -> [(Integer, a)]
+withOffsets cardinalityOf = go 0
   where
     go _ [] = []
-    go offset ((branchCardinality, branch) : rest) =
-        (offset, branchCardinality, branch) : go (offset + branchCardinality) rest
+    go offset (alternative : rest) =
+        (offset, alternative) : go (offset + cardinalityOf alternative) rest
 
 -- | Whether a rank falls inside an offset branch.
-holdsRank :: Integer -> (Integer, Integer, Plan a) -> Bool
-holdsRank rank (offset, branchCardinality, _) =
+holdsRank :: Integer -> (Integer, (Integer, Plan a)) -> Bool
+holdsRank rank (offset, (branchCardinality, _)) =
     rank < offset + branchCardinality
 
 {- | The size of the member a rank decodes to: its number of source choices.
@@ -165,8 +163,8 @@ planMemberSize (PlanSelectOnDemand _ _) _ = 1
 planMemberSize (PlanShared _ _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =
-    case dropWhile (not . holdsRank rank) (withOffsets branches) of
-        (offset, _, branch) : _ -> planMemberSize branch (rank - offset)
+    case dropWhile (not . holdsRank rank) (withOffsets fst branches) of
+        (offset, (_, branch)) : _ -> planMemberSize branch (rank - offset)
         [] ->
             error
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.Shrink.planMemberSize: \

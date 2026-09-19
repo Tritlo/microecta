@@ -64,9 +64,11 @@ rankOf compiled term = case elemIndex term (termsOf compiled) of
     Just rank -> pure $ toInteger rank
     Nothing -> fail $ "term is not in the compiled language: " <> show term
 
--- | Count all tree nodes with no machine-integer bound.
-nodeCount :: Tree.Tree LiquidSymbol -> Integer
-nodeCount = Tree.foldTree $ \_ counts -> 1 + sum counts
+{- | Count all tree nodes with no machine-integer bound.
+| The number of nodes of a term.
+-}
+termSize :: Tree.Tree LiquidSymbol -> Int
+termSize = length . Tree.flatten
 
 -- | Check shrink membership, strict decrease, and finite reachability.
 checkShrinks :: Entailment -> Automaton -> LTA.Compiled a -> IO ()
@@ -78,8 +80,8 @@ checkShrinks solver automaton compiled =
         forM_ targets $ \target -> do
             generated <- either (fail . show) pure $ LTA.unrank compiled target
             accepts solver automaton (LTA.generatedTerm generated) >>= (`shouldBe` Yes)
-            nodeCount (LTA.generatedTerm generated)
-                `shouldSatisfy` (< nodeCount (LTA.generatedTerm source))
+            termSize (LTA.generatedTerm generated)
+                `shouldSatisfy` (< termSize (LTA.generatedTerm source))
         toInteger (length $ LTA.smallerMembers compiled rank)
             `shouldSatisfy` (< LTA.cardinality compiled)
 
@@ -156,7 +158,7 @@ spec = do
                     forM_ (LTA.shrinkRank compiled rank) $ \target -> do
                         smaller <- either (fail . show) pure $ LTA.unrank compiled target
                         LTA.generatedValue smaller `shouldSatisfy` (`elem` expected)
-                        nodeCount (LTA.generatedTerm smaller) `shouldSatisfy` (< nodeCount (LTA.generatedTerm generated))
+                        termSize (LTA.generatedTerm smaller) `shouldSatisfy` (< termSize (LTA.generatedTerm generated))
 
     describe "bounded LTA sources in ordinary generators" $ do
         it "defers support inspection and preserves the bounded term language" $ do
@@ -177,7 +179,7 @@ spec = do
             imported <- compileBounded unusedEntailment 1 ambiguousTerms
             let weighted =
                     LTA.frequency
-                        [ (2, LTA.pool [LTA.refined (7 :: Int) "draw" true, LTA.refined 7 "draw" true])
+                        [ (2, LTA.pool [LTA.Refined (7 :: Int) "draw" true, LTA.Refined 7 "draw" true])
                         , (5, LTA.leaf 7 "other" true)
                         ]
             let source = fmap (const (7 :: Int)) $ LTA.fromAutomatonUpToDepth 1 ambiguousTerms

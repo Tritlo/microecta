@@ -16,8 +16,6 @@ module Data.CFTA.Gen.Equality.Internal.Support (
     leftKeyedSymbol,
     rightKeyedSymbol,
     argKeyedSymbol,
-    familySymbol,
-    keyRestrictSymbol,
     indexedSymbol,
     frequencySymbol,
     keySymbol,

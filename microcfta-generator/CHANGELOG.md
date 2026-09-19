@@ -25,3 +25,20 @@ and refinement generators into one package over `microcfta`.
   contract.
 - The package has three test suites, `plain-tests`, `equality-tests`, and
   `refinement-tests`, and one copy of the generator benchmark harness.
+- The three layers share one vocabulary. `Data.CFTA.Gen.Error` holds the one
+  `GenError` and its `explain`; a construction failure lives inside the
+  generator value, so `frequency`, `oneof`, and the imports return the
+  generator and the observers return `Either GenError`. Every layer imports
+  its own interned automaton with `fromAutomaton`, `fromAutomatonUpToDepth`,
+  and `fromAutomatonUpToSize`, returns an interned node from `support`, and
+  has `shrinkRank` and `smallerMembers`. One `Data.CFTA.Gen.Do` serves every
+  layer's qualified do-blocks.
+- `ECTAGen a` has no backend parameter: an opaque source is a QuickCheck
+  generator, and `Data.CFTA.Gen.Equality.QuickCheck` keeps only what is
+  QuickCheck-specific. `lowerVia` lowers a transparent generator through any
+  sampling backend for exact distributions.
+- The refinement compiler takes the core's interned LTA. A pruned automaton
+  without constraints is counted as an ordinary automaton on its explicit
+  view and everything else symbolically, so `CompiledSupport` has one
+  automaton constructor and `ResidualGuard` reports a guard the symbolic
+  counter cannot interpret.

@@ -61,4 +61,4 @@ spec =
             map candidateName candidates `shouldBe` ["natural", "non-zero"]
   where
     entry className name refinement =
-        LTA.refined (Candidate className name) (fromString name) refinement
+        LTA.Refined (Candidate className name) (fromString name) refinement

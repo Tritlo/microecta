@@ -106,7 +106,7 @@ sourceBuffers =
     source name lengthName contents =
         let refinement = value .==. variable lengthName
             buffer = RefinedBuffer (Source name contents) refinement
-         in LTA.refined buffer (fromString lengthName) refinement
+         in LTA.Refined buffer (fromString lengthName) refinement
 
 -- | Index candidates deliberately include negative and upper-bound failures.
 indexes :: LTA.LTAGen (String, Int)
@@ -120,7 +120,7 @@ indexes =
         ]
   where
     index name integer =
-        LTA.refined (name, integer) (fromString name) (value .==. variable name)
+        LTA.Refined (name, integer) (fromString name) (value .==. variable name)
 
 -- | Programs whose symbolic index is proved in bounds for the chosen buffer.
 safeReads :: LTA.LTAGen Program
@@ -186,7 +186,7 @@ possibleLengths =
   where
     result length_ =
         let refinement = value .==. length_
-         in LTA.refined
+         in LTA.Refined
                 (LengthResult refinement)
                 (fromString $ "length-" <> show length_)
                 refinement

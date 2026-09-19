@@ -27,9 +27,9 @@ annotation. The ambient assumption in 'main' fixes the named input at two.
 denominators :: LTA.LTAGen Integer
 denominators =
     LTA.pool
-        [ LTA.refined 0 "zero" (value .==. integer 0)
-        , LTA.refined 1 "nonzero" nonZero
-        , LTA.refined 2 "input" (value .==. variable "input")
+        [ LTA.Refined 0 "zero" (value .==. integer 0)
+        , LTA.Refined 1 "nonzero" nonZero
+        , LTA.Refined 2 "input" (value .==. variable "input")
         ]
 
 -- | Reject the zero denominator before evaluating the division.

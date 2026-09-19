@@ -2,12 +2,12 @@
 
 {- | Ordinary finite-language generators over plain automata.
 
-The automaton remains the inspectable support. This module adds exact
+The interned node remains the inspectable support. This module adds exact
 cardinality, stable replay ranks, backend-independent sampling, and
 structural shrinking. Ranks identify accepting derivations; an ambiguous
 automaton may therefore produce the same concrete term at more than one rank.
-A construction failure stays inside the generator and surfaces when the
-generator is inspected or sampled.
+A construction failure stays inside the generator; 'cardinality' and
+'Data.CFTA.Gen.QuickCheck.toGen' report it.
 -}
 module Data.CFTA.Gen (
     FTAGen,
@@ -24,7 +24,7 @@ module Data.CFTA.Gen (
     toRanked,
     cardinality,
     unrank,
-    generatedTerm,
+    termAt,
     shrinkRank,
     smallerMembers,
     support,
@@ -37,7 +37,6 @@ module Data.CFTA.Gen (
 
 import Data.Bifunctor (first)
 import Data.Hashable (Hashable)
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Lazy as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -53,12 +52,9 @@ import Data.CFTA.Interned (
     Node (EmptyNode, Node),
     PlainNode,
     boundDepth,
-    edgeChildren,
-    edgeSymbol,
     freeVars,
     nodeIdentity,
     numNestedMu,
-    reachable,
     union,
  )
 import Data.CFTA.Ranked (Ranked)
@@ -126,8 +122,8 @@ failed :: GenError -> FTAGen symbol a
 failed = FTAGen . Left
 
 -- | Build one nullary constructor.
-leaf :: symbol -> a -> FTAGen symbol a
-leaf symbol value =
+leaf :: a -> symbol -> FTAGen symbol a
+leaf value symbol =
     FTAGen $ Right $ pure $ Generated value (Tree.Node symbol [])
 
 {- | Close an applicative child forest with one constructor label.
@@ -188,8 +184,8 @@ unrank generator rank = do
     first fromRankedError $ Ranked.unrank ranked rank
 
 -- | Inspect the concrete witness retained at one rank.
-generatedTerm :: FTAGen symbol a -> Integer -> Either GenError (Tree.Tree symbol)
-generatedTerm (FTAGen ranked) rank = do
+termAt :: FTAGen symbol a -> Integer -> Either GenError (Tree.Tree symbol)
+termAt (FTAGen ranked) rank = do
     language <- ranked
     generatedWitness <$> first fromRankedError (Ranked.unrank language rank)
 
@@ -209,7 +205,7 @@ languages only.
 support :: (Hashable symbol, Typeable symbol) => FTAGen symbol a -> Either GenError (PlainNode symbol)
 support generator = do
     total <- cardinality generator
-    terms <- traverse (generatedTerm generator) [0 .. total - 1]
+    terms <- traverse (termAt generator) [0 .. total - 1]
     pure $ union $ map termNode terms
   where
     termNode (Tree.Node symbol subterms) = Node [Edge symbol $ map termNode subterms]
@@ -226,7 +222,7 @@ fromAutomaton EmptyNode = failed EmptyGenerator
 fromAutomaton root
     | not $ Set.null $ freeVars root = failed $ InvalidSupport OpenAutomaton
     | numNestedMu root > 0 = failed UnboundedGenerator
-    | otherwise = fromTable (nodeIdentity root) (rowsOf root)
+    | otherwise = fromTable (nodeIdentity root) (Automaton.rowsOf root)
 
 {- | Compile all accepting runs with at most the given number of tree nodes.
 
@@ -239,7 +235,7 @@ fromAutomatonUpToSize ::
 fromAutomatonUpToSize _ EmptyNode = failed EmptyGenerator
 fromAutomatonUpToSize bound root
     | not $ Set.null $ freeVars root = failed $ InvalidSupport OpenAutomaton
-    | otherwise = fromSizeIndex bound $ Automaton.tableIndex (nodeIdentity root) (rowsOf root)
+    | otherwise = fromSizeIndex bound $ Automaton.tableIndex (nodeIdentity root) (Automaton.rowsOf root)
 
 {- | Compile every accepting run up to the given constructor depth.
 
@@ -278,14 +274,6 @@ fromDatatypeTerms datatype (FTAGen ranked) = FTAGen $ fmap generated <$> ranked
             error
                 "microcfta-generator bug in Data.CFTA.Gen.fromDatatypeTerms: \
                 \the derived codec rejected a term of its own grammar"
-
--- | The alternatives of every reachable node, by identity; a recursive node lists its unfolding.
-rowsOf :: (Hashable symbol, Typeable symbol) => PlainNode symbol -> Map.Map Int [FTA.Transition Int symbol ()]
-rowsOf root =
-    Map.fromList
-        [ (ident, [FTA.Transition (edgeSymbol edge) (map nodeIdentity $ edgeChildren edge) () | edge <- edges])
-        | (ident, edges) <- IntMap.toList (reachable root)
-        ]
 
 -- | A size-major language, or 'EmptyGenerator' when the bound admits no term.
 fromSizeIndex :: Int -> SizeIndex (Tree.Tree symbol) -> FTAGen symbol (Tree.Tree symbol)

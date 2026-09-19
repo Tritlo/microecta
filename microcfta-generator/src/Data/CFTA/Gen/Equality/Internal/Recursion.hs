@@ -17,10 +17,12 @@ import Data.Either (fromRight)
 import qualified Data.Map.Strict as Map
 
 import Data.CFTA.Equality (Node (EmptyNode), createMu, numNestedMu)
-import Data.CFTA.Gen.Equality.Internal
 import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Support (familyNodeWith, keySymbol, restrictToKeyWith)
+import Data.CFTA.Gen.Equality.Internal.Recursive
+import Data.CFTA.Gen.Equality.Internal.Static
+import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Equality.Internal.Types
+import Data.CFTA.Gen.Error
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
     choiceIndex,

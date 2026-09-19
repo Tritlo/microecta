@@ -15,6 +15,7 @@ module Data.CFTA.Gen.Equality.Internal.Inspect (
 
     -- * Ranks
     unrank,
+    termAt,
     smallest,
     sizeOfRank,
     shrinkRank,
@@ -27,11 +28,15 @@ module Data.CFTA.Gen.Equality.Internal.Inspect (
 ) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
 import Data.CFTA.Equality.Constraint (EqConstraints)
-import Data.CFTA.Gen.Equality.Internal
+import Data.CFTA.Gen.Equality.Internal.Inspection
+import Data.CFTA.Gen.Equality.Internal.Recursive
+import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Types
+import Data.CFTA.Gen.Error
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (
     planMemberSize,
@@ -125,6 +130,20 @@ unrank (Cyclic result) index = do
                 $ sum
                 $ sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
+
+{- | The term of one member by rank.
+
+A recursive generator keeps its automaton rather than its members' terms,
+so it reports 'CannotInspectRecursiveGenerator'; 'unrank' still gives the
+value.
+-}
+termAt :: ECTAGen a -> Integer -> Either GenError (Tree.Tree Symbol)
+termAt _ index | index < 0 = Left $ NegativeRank index
+termAt (Transparent result) index = do
+    static <- result
+    outcomeTerm <$> outcomeSelect (staticOutcomes static) index
+termAt (Cyclic _) _ = Left CannotInspectRecursiveGenerator
+termAt (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 {- | Return the first member in structural size and rank order.
 

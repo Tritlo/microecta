@@ -23,6 +23,7 @@ term twice; such an automaton is rejected rather than miscounted.
 module Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton) where
 
 import qualified Control.Monad.State.Strict as State
+import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
@@ -31,7 +32,7 @@ import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (
     Edge,
-    Node,
+    Node (EmptyNode),
     edgeChildren,
     edgeConstraint,
     edgeSymbol,
@@ -39,14 +40,16 @@ import Data.CFTA.Equality (
     intersect,
     nodeEdges,
     nodeIdentity,
+    reachable,
  )
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Path (unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Gen.Equality.Internal (GenError (..), Static, termStatic)
+import Data.CFTA.Gen.Equality.Internal.Static (Static, termStatic)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked)
+import Data.CFTA.Gen.Error (GenError (..))
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
 import qualified Data.CFTA.Interned as Interned
 import qualified Data.CFTA.Ranked.Internal as Ranked
@@ -60,46 +63,20 @@ language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
 automatonIndex :: Node Symbol EqConstraints -> Either GenError (SizeIndex (Tree.Tree Symbol))
+automatonIndex EmptyNode = Right $ Ordinary.tableIndex (0 :: Int) Map.empty
 automatonIndex root
     | not $ Set.null $ freeVars root = Left $ InvalidSupport OpenAutomaton
-    | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges
-    | any ambiguous reachable = Left AmbiguousAutomaton
-    | otherwise = Right $ Ordinary.tableIndex (stateOf root) (ordinaryRows reachable)
+    | any (any constrained) alternatives = Left CannotCountConstrainedEdges
+    | any ambiguous alternatives = Left AmbiguousAutomaton
+    | otherwise = Right $ Ordinary.tableIndex (nodeIdentity root) (Ordinary.rowsOf root)
   where
-    reachable = reachableNodes root
-
--- | Name an ordinary node or the empty language without forcing its identity.
-stateOf :: Node Symbol EqConstraints -> Maybe Int
-stateOf node
-    | null (nodeEdges node) = Nothing
-    | otherwise = Just $ nodeIdentity node
-
--- | Expose the validated unconstrained rows to the common index compiler.
-ordinaryRows :: [Node Symbol EqConstraints] -> Map.Map (Maybe Int) [FTA.Transition (Maybe Int) Symbol ()]
-ordinaryRows nodes = Map.fromList [(stateOf node, map transition $ nodeEdges node) | node <- nodes]
-  where
-    transition edge = FTA.Transition (edgeSymbol edge) (map stateOf $ edgeChildren edge) ()
-
--- | Every node reachable from a root, one per interned identity.
-reachableNodes :: Node Symbol EqConstraints -> [Node Symbol EqConstraints]
-reachableNodes root = collect Map.empty [root]
-  where
-    collect seen [] = Map.elems seen
-    collect seen (node : rest)
-        | null edges = collect seen rest
-        | Map.member (nodeIdentity node) seen = collect seen rest
-        | otherwise =
-            collect
-                (Map.insert (nodeIdentity node) node seen)
-                (concatMap edgeChildren edges <> rest)
-      where
-        edges = nodeEdges node
+    alternatives = IntMap.elems (reachable root)
 
 -- | Whether a node accepts any term at all.
 productive :: Node Symbol EqConstraints -> Bool
 productive node
     | null (nodeEdges node) = False
-    | otherwise = Map.member (stateOf node) $ Ordinary.minimumSizes $ ordinaryRows $ reachableNodes node
+    | otherwise = Map.member (nodeIdentity node) $ Ordinary.minimumSizes $ Ordinary.rowsOf node
 
 {- | Whether a node has two edges that accept a common term.
 
@@ -108,11 +85,11 @@ symbol and arity share a term exactly when every child position does, and a
 child position shares one exactly when the intersection of the two children
 is productive.
 -}
-ambiguous :: Node Symbol EqConstraints -> Bool
-ambiguous node =
+ambiguous :: [Edge Symbol EqConstraints] -> Bool
+ambiguous alternatives =
     or
         [ overlapping left right
-        | left : rest <- tails $ nodeEdges node
+        | left : rest <- tails alternatives
         , right <- rest
         ]
   where

@@ -7,11 +7,11 @@ source shrink plans into accepted ranks through the shared shrink search.
 module Data.CFTA.Gen.Refinement.Internal.Replay (
     cardinality,
     unrank,
+    termAt,
     shrinkRank,
     smallerMembers,
     mapCompiled,
     compiledSource,
-    ImplicationTable,
     evaluateImplications,
     sourceShrinkRanks,
 ) where
@@ -19,6 +19,7 @@ module Data.CFTA.Gen.Refinement.Internal.Replay (
 import Data.Bifunctor (first)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 import Data.CFTA.Gen.Error (GenError, fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.ShrinkSearch (acceptedShrinks)
@@ -34,6 +35,10 @@ cardinality = Tree.cardinality . compiledRanked
 -- | Decode one accepted zero-based rank into its value and witness.
 unrank :: Compiled a -> Integer -> Either GenError (Generated a)
 unrank compiled rank = first fromRankedError $ Tree.unrank (compiledRanked compiled) rank
+
+-- | The annotated term of one member by rank.
+termAt :: Compiled a -> Integer -> Either GenError (Tree.Tree LiquidSymbol)
+termAt compiled rank = generatedTerm <$> unrank compiled rank
 
 -- | Direct valid shrinks of one accepted rank.
 shrinkRank :: Compiled a -> Integer -> [Integer]

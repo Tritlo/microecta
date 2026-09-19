@@ -3,7 +3,8 @@
 'pool' supplies refined atoms. 'node' adds one constructor around an
 applicatively-built child forest; "Data.CFTA.Gen.Do" provides the corresponding
 qualified-do syntax. 'compile' checks guards and refinement-shrink relations
-once, then returns pure sampling, replay, and shrinking.
+once, then returns pure sampling, replay, and shrinking. A construction
+failure stays inside the generator; 'compile' reports it.
 -}
 module Data.CFTA.Gen.Refinement (
     LTAGen,
@@ -14,8 +15,7 @@ module Data.CFTA.Gen.Refinement (
     Generated (..),
 
     -- * Refined sources
-    Refined,
-    refined,
+    Refined (..),
     pool,
     minimizePoolBy,
     leaf,
@@ -52,6 +52,7 @@ module Data.CFTA.Gen.Refinement (
     compiledRanked,
     cardinality,
     unrank,
+    termAt,
     shrinkRank,
     smallerMembers,
 
@@ -71,7 +72,7 @@ import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
  )
 import Data.CFTA.Gen.Refinement.Internal.Compile (compile, validOutcomes)
 import Data.CFTA.Gen.Refinement.Internal.Relational (compileRelational)
-import Data.CFTA.Gen.Refinement.Internal.Replay (cardinality, mapCompiled, shrinkRank, smallerMembers, unrank)
+import Data.CFTA.Gen.Refinement.Internal.Replay (cardinality, mapCompiled, shrinkRank, smallerMembers, termAt, unrank)
 import Data.CFTA.Gen.Refinement.Internal.Surface (
     binary,
     frequency,
@@ -82,7 +83,6 @@ import Data.CFTA.Gen.Refinement.Internal.Surface (
     node,
     oneof,
     pool,
-    refined,
     refinedNode,
     refinedNodeBy,
     refinedNodeByRoots,
@@ -96,7 +96,7 @@ import Data.CFTA.Gen.Refinement.Internal.Types (
     Generated (..),
     LTAGen,
     NodeLayer,
-    Refined,
+    Refined (..),
     RootObservation (..),
     applyChildren,
     children,

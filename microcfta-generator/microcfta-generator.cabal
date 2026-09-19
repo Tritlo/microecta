@@ -102,7 +102,6 @@ library
     Data.CFTA.Ranked.QuickCheck
 
   other-modules:
-    Data.CFTA.Gen.Equality.Internal
     Data.CFTA.Gen.Equality.Internal.Automaton
     Data.CFTA.Gen.Equality.Internal.Bucket
     Data.CFTA.Gen.Equality.Internal.Chain

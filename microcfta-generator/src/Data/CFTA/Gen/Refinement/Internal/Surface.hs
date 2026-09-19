@@ -9,7 +9,6 @@ it with the same constructors.
 -}
 module Data.CFTA.Gen.Refinement.Internal.Surface (
     -- * Refined sources
-    refined,
     pool,
     minimizePoolBy,
     leaf,
@@ -46,13 +45,10 @@ import Data.CFTA.Gen.Refinement.Internal.Replay (compiledSource)
 import Data.CFTA.Gen.Refinement.Internal.Types
 import Data.CFTA.Gen.Refinement.Internal.Witness (Witness (..), compileWitnesses)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
+import Data.CFTA.Ranked.Internal (withOffsets)
 import Data.CFTA.Refinement
 import Data.CFTA.Refinement.Expression (true)
 import Data.CFTA.Refinement.Guard (GuardBuilder, buildGuard, guardArgumentCount)
-
--- | Build one refined pool entry.
-refined :: a -> Symbol -> Refinement -> Refined a
-refined = Refined
 
 {- | Build a finite source whose shrink order is discovered from refinements.
 
@@ -133,9 +129,9 @@ minimizePoolBy entailment similarityKey entries = do
 
     poolSymbol index = fromString $ "__microlta_pool_" <> show index
 
--- | Build a singleton refined leaf.
+-- | Build a singleton Refined leaf.
 leaf :: a -> Symbol -> Refinement -> LTAGen a
-leaf value symbol refinement = pool [refined value symbol refinement]
+leaf value symbol refinement = pool [Refined value symbol refinement]
 
 {- | Add one annotated constructor around a generated child forest.
 
@@ -259,14 +255,14 @@ frequency alternatives = case mapM_ ensurePositive alternatives of
   where
     preparedAlternative (weight, generator) = (,) weight <$> generatorPrepared generator
     compilePrepared prepared =
-        let branches = withOffsets prepared
+        let branches = withOffsets (branchCount . snd) prepared
          in Prepared (finiteOneof $ map weightedOutcomes branches) (shrinkChoice branches)
 
     ensurePositive (weight, _)
         | weight > 0 = Right ()
         | otherwise = Left (NonPositiveWeight weight)
 
-    weightedOutcomes (_, weight, generator, _) =
+    weightedOutcomes (_, (weight, generator)) =
         fmap
             (\outcome -> outcome{outcomeWeight = weight * outcomeWeight outcome})
             (preparedOutcomes generator)
@@ -274,23 +270,18 @@ frequency alternatives = case mapM_ ensurePositive alternatives of
     recipeAlternative (weight, generator) =
         fmap (weight,) $ generatorRecipe generator
 
--- | Place each choice branch at its own offset in one combined rank domain.
-withOffsets :: [(Integer, Prepared a)] -> [(Integer, Integer, Prepared a, Integer)]
-withOffsets = go 0
-  where
-    go _ [] = []
-    go offset ((weight, generator) : rest) =
-        let count = finiteCardinality $ preparedOutcomes generator
-         in (offset, weight, generator, count) : go (offset + count) rest
+-- | The number of ranks one prepared branch contributes.
+branchCount :: Prepared a -> Integer
+branchCount = finiteCardinality . preparedOutcomes
 
 -- | Shrink toward every earlier non-empty branch, and within the selected one.
-shrinkChoice :: [(Integer, Integer, Prepared a, Integer)] -> Integer -> [ShrinkCandidate]
-shrinkChoice branches index = case break (\(offset, _, _, count) -> index < offset + count) branches of
+shrinkChoice :: [(Integer, (Integer, Prepared a))] -> Integer -> [ShrinkCandidate]
+shrinkChoice branches index = case break (\(offset, (_, generator)) -> index < offset + branchCount generator) branches of
     (_, []) -> []
-    (earlier, (offset, _, generator, _) : _) ->
+    (earlier, (offset, (_, generator)) : _) ->
         [ ShrinkCandidate earlierOffset AlwaysShrink
-        | (earlierOffset, _, _, earlierCount) <- earlier
-        , earlierCount > 0
+        | (earlierOffset, (_, earlierGenerator)) <- earlier
+        , branchCount earlierGenerator > 0
         ]
             <> [ liftShrink (offset +) candidate
                | candidate <- preparedShrinks generator (index - offset)

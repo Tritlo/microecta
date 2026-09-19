@@ -19,8 +19,8 @@ main =
         let choices :: LTA.LTAGen Integer
             choices =
                 LTA.pool
-                    [ LTA.refined 0 "non-negative" (value .>=. (0 :: Integer))
-                    , LTA.refined 1 "one" (value .==. (1 :: Integer))
+                    [ LTA.Refined 0 "non-negative" (value .>=. (0 :: Integer))
+                    , LTA.Refined 1 "one" (value .==. (1 :: Integer))
                     ]
             pairs =
                 LTA.node

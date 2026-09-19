@@ -37,8 +37,8 @@ data Expression
 literals :: FTA.FTAGen String Expression
 literals =
     FTA.oneof
-        [ FTA.leaf "zero" $ Literal 0
-        , FTA.leaf "one" $ Literal 1
+        [ FTA.leaf (Literal 0) "zero"
+        , FTA.leaf (Literal 1) "one"
         ]
 
 -- | Add one ordinary binary-constructor layer.
