@@ -11,13 +11,13 @@ import Data.CFTA.Refinement (
     Entailment (Entailment),
     Guard (Satisfies),
     LiquidSymbol (LiquidSymbol),
-    State (State),
+    Node (Mu, Node),
     Verdict (Yes),
     accepts,
-    mkAutomaton,
     path,
     semanticConstraint,
     unconstrainedConstraint,
+    validate,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (true)
@@ -25,44 +25,34 @@ import Data.CFTA.Refinement.Expression (true)
 alwaysEntails :: Entailment
 alwaysEntails = Entailment $ \_ _ -> pure Yes
 
-recursiveLists :: Either AutomatonError Automaton
-recursiveLists =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "nil" true [] unconstrainedConstraint
-                , Transition "cons" true [State 1, State 0] unconstrainedConstraint
-                ]
-            )
-        , (State 1, [Transition "item" true [] unconstrainedConstraint])
+recursiveLists :: Automaton
+recursiveLists = Mu $ \list ->
+    Node
+        [ Transition "nil" true [] unconstrainedConstraint
+        , Transition "cons" true [item, list] unconstrainedConstraint
         ]
+  where
+    item = Node [Transition "item" true [] unconstrainedConstraint]
 
 spec :: Spec
 spec =
     describe "recursive LTAs" $ do
-        it "accepts cyclic languages when guards do not inspect the cycle" $
-            case recursiveLists of
-                Left err -> expectationFailure $ show err
-                Right automaton -> do
-                    let item = Tree.Node (LiquidSymbol "item" true) []
-                        nil = Tree.Node (LiquidSymbol "nil" true) []
-                        list = Tree.Node (LiquidSymbol "cons" true) [item, Tree.Node (LiquidSymbol "cons" true) [item, nil]]
-                    accepts alwaysEntails automaton list >>= (`shouldBe` Yes)
+        it "accepts cyclic languages when guards do not inspect the cycle" $ do
+            let item = Tree.Node (LiquidSymbol "item" true) []
+                nil = Tree.Node (LiquidSymbol "nil" true) []
+                list = Tree.Node (LiquidSymbol "cons" true) [item, Tree.Node (LiquidSymbol "cons" true) [item, nil]]
+            validate recursiveLists `shouldBe` Right ()
+            accepts alwaysEntails recursiveLists list >>= (`shouldBe` Yes)
 
-        it "allows a guard to inspect an acyclic sibling of a recursive child" $
-            case mkAutomaton
-                (State 0)
-                [ (State 0, [Transition "wrap" true [State 0, State 1] (semanticConstraint $ Satisfies (path [1]) true)])
-                , (State 1, [Transition "checked" true [] unconstrainedConstraint])
-                ] of
-                Right _ -> pure ()
-                Left err -> expectationFailure $ show err
+        it "allows a guard to inspect an acyclic sibling of a recursive child" $ do
+            let checked = Node [Transition "checked" true [] unconstrainedConstraint]
+                automaton = Mu $ \self ->
+                    Node [Transition "wrap" true [self, checked] (semanticConstraint $ Satisfies (path [1]) true)]
+            validate automaton `shouldBe` Right ()
 
-        it "rejects a guard that points into a recursive state" $
-            mkAutomaton
-                (State 0)
-                [ (State 0, [Transition "loop" true [State 0] (semanticConstraint $ Satisfies (path [0]) true)])
-                ]
-                `shouldBe` Left (CyclicGuardReference (State 0) (path [0]))
+        it "rejects a guard that points into a recursive node" $ do
+            let automaton = Mu $ \self ->
+                    Node [Transition "loop" true [self] (semanticConstraint $ Satisfies (path [0]) true)]
+            case validate automaton of
+                Left (CyclicGuardReference _ target) -> target `shouldBe` path [0]
+                other -> expectationFailure $ show other

@@ -860,8 +860,8 @@ The caller must still justify the refinements assigned to each constructor.
 
 The natural-number example in `examples/AutomatonInterop.hs` derives its
 recursive grammar, annotates zero and successor, and uses the generated
-datatype in safe divisions. For handwritten graphs, `Data.CFTA.Refinement.annotateFTA`
-adds liquid labels and constraints without repeating states or child lists.
+datatype in safe divisions. A handwritten graph is an LTA already: build it
+with `Node`, `Transition`, and `Mu`, and pass it to `fromLTA`.
 
 Finite counting, structural ambiguity checks, direct value decoding, depth
 bounds, and ordinary automaton shrinking use the shared FTA implementation.
@@ -944,8 +944,9 @@ runs count each accepted term once. Boolean subtree equality uses symbolic
 intersections and complements after semantic pruning. Residual semantic or
 scoped compound-equality guards return an error.
 
-[`AutomatonInterop.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/AutomatonInterop.hs) constructs a recursive
-automaton with `Data.CFTA.Refinement.Syntax`, imports it, and composes it with a refined pool:
+[`AutomatonInterop.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/AutomatonInterop.hs) derives a recursive
+natural-number grammar, annotates it, imports it with `fromDatatypeUpToDepth`,
+and composes it with a refined pool:
 
 ```sh
 nix-shell --run 'cabal run cfta-automaton-interop'
@@ -969,10 +970,10 @@ equality after semantic pruning. Their `With` variants fold each selected
 transition directly into a domain value and leave the term witness lazy.
 Use `compile` with `fromLTA` for a bounded source that composes with other sources.
 
-The authoritative representation remains an LTA. Pruning returns an LTA;
-`lowerToEqualityAutomaton` is an optional lowering for positive conjunctive
-equality. Negated
-or disjunctive equality stays in the LTA and uses the symbolic counter. Core
+The authoritative representation remains an LTA. Pruning returns an LTA. A
+pruned automaton without constraints is counted as an ordinary FTA; residual
+positive, negated, or disjunctive equality uses the symbolic counter. A
+residual guard outside that fragment is reported as `ResidualGuard`. Core
 `denotationAtMost` remains an explicit bounded reference evaluator.
 
 ### Frozen native pools
@@ -1292,9 +1293,9 @@ ranks, retaining empirical weight, while implication supplies semantic shrink
 edges.
 
 `compiledSupport` records which lower layer backs the ranked plan.
-`EqualitySupport` contains the ECTA-shaped generic FTA returned by semantic
-pruning; `RelationalSupport` contains the native hash-consed ECTA built by the
-grouped surface compiler. `Data.CFTA.Ranked` and `Data.CFTA.Ranked.QuickCheck` provide
+`AutomatonSupport` contains the LTA returned by semantic pruning;
+`RelationalSupport` contains the native hash-consed ECTA built by the grouped
+surface compiler. `Data.CFTA.Ranked` and `Data.CFTA.Ranked.QuickCheck` provide
 the shared sampling and shrinking machinery. Weights influence sampling but do
 not duplicate replay ranks. Transition refinements are part of the support
 alphabet, so replay cannot invent a new annotation for an existing constructor.

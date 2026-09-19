@@ -47,12 +47,10 @@ data GeneratorError
       RelationalEqualityUnsupported !EqConstraints
     | -- | The sparse relational shortcut cannot inspect complete subtrees.
       RelationalSyntacticEqualityUnsupported !Guard
-    | -- | A state still carries equality constraints that the selected ranker cannot count.
-      ResidualEquality !State !EqConstraints
+    | -- | A guard remained after pruning that the symbolic ranker cannot count.
+      ResidualGuard !Guard
     | -- | The automaton is recursive; bound it with 'fromLTA' first.
       RecursiveAutomaton
-    | -- | Several runs accept the same term at the given state.
-      AmbiguousAutomaton !State
     | -- | The generator contains a deferred 'fromLTA' source; call 'compile' first.
       SourceRequiresCompilation
     deriving (Eq, Show)
@@ -93,16 +91,12 @@ explain (RelationalEqualityUnsupported _) =
     "The source observations do not decide this equality. Use fromLTA for symbolic equality over a bounded automaton, or validOutcomes for explicit diagnostics on small inputs."
 explain (RelationalSyntacticEqualityUnsupported _) =
     "The source observations do not decide this syntactic equality. Use fromLTA for ordinary bounded subtree equality. Scoped equality on compound subtrees remains unsupported by the compiler."
-explain (ResidualEquality state _) =
-    "State "
-        <> show state
-        <> " still has equality constraints that the selected ranker cannot count. Use compile with fromLTA and an explicit height bound."
+explain (ResidualGuard guard) =
+    "The guard "
+        <> show guard
+        <> " remained after pruning and the symbolic ranker cannot count it. Scoped equality on compound subtrees stays unsupported by the compiler; use validOutcomes for explicit diagnostics on small inputs."
 explain RecursiveAutomaton =
     "This automaton is recursive. Use fromLTA with an explicit height bound, then compile the generator."
-explain (AmbiguousAutomaton state) =
-    "Several runs can accept the same term at "
-        <> show state
-        <> ". Use compile with fromLTA and an explicit height bound to retain one rank per distinct term."
 explain SourceRequiresCompilation =
     "This generator contains a deferred fromLTA source. Call compile first, then inspect compiledSupport."
 

@@ -66,7 +66,7 @@ module Data.CFTA.Interned (
     requirePathList,
 
     -- * Views and conversion
-    InternedState,
+    InternedState (..),
     FTAViewError (..),
     toFTA,
     fromFTA,

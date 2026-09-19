@@ -58,6 +58,7 @@ module Data.CFTA.Gen.Refinement.StateMachineTraceLanguage (
 ) where
 
 import Control.Monad (foldM, guard)
+import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (fromString)
@@ -73,11 +74,11 @@ import Data.CFTA.Refinement (
     Entailment,
     LiquidConstraint,
     LiquidSymbol (..),
+    Node (Node),
     Refinement,
-    State (State),
     Symbol,
-    mkAutomaton,
     unconstrainedConstraint,
+    validate,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (value, variable, (.*.), (.+.), (.-.), (.<=.), (.==.), (.>=.))
@@ -208,45 +209,37 @@ finishTracePrefix TracePrefix{prefixEvents, prefixFinalState} =
 
 {- | Build the unpruned LTA for one exact trace length.
 
-States are indexed by @(prefix length, output stack)@. Each candidate @step@
-transition combines one preceding state, one reusable liquid command schema,
-and one possible output state. The liquid guard—not the Haskell model—decides
-which transitions survive. The graph grows linearly with trace length.
+Nodes are shared by @(prefix length, output stack)@ through a lazy map. Each
+candidate @step@ transition combines one preceding node, one reusable liquid
+command schema, and one possible output state. The liquid guard, not the
+Haskell model, decides which transitions survive. The graph grows linearly
+with trace length.
 -}
 traceAutomaton :: Int -> Either AutomatonError Automaton
-traceAutomaton requestedLength =
-    mkAutomaton initialState $ rootRow : prefixRows <> contractRows
+traceAutomaton requestedLength = validate rootNode >> pure rootNode
   where
     traceLength = max 0 requestedLength
-    initialState = State 0
-    rootRow
-        | traceLength == 0 =
-            (initialState, [Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint])
-        | otherwise =
-            ( initialState
-            , concatMap (stepTransitions traceLength) stackStates
-            )
-    prefixRows =
-        [ ( traceState prefixLength output
-          , if prefixLength == 0
-                then
-                    [ Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint
-                    | output == emptyState
-                    ]
-                else stepTransitions prefixLength output
-          )
-        | prefixLength <- [0 .. traceLength - 1]
-        , output <- stackStates
-        ]
-    contractRows
-        | traceLength == 0 = []
-        | otherwise =
-            [ (commandState contractRank, [contractTransition contract])
-            | (contractRank, contract) <- zip [0 ..] commandContractValues
+    rootNode
+        | traceLength == 0 = Node [start]
+        | otherwise = Node $ concatMap (stepTransitions traceLength) stackStates
+    start = Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint
+    nodes =
+        LazyMap.fromList $
+            [ ( TraceNode prefixLength output
+              , Node $
+                    if prefixLength == 0
+                        then [start | output == emptyState]
+                        else stepTransitions prefixLength output
+              )
+            | prefixLength <- [0 .. traceLength - 1]
+            , output <- stackStates
             ]
-                <> [(formalState, [Transition "model" stateRange [] unconstrainedConstraint])]
-                <> [ ( postState contractRank
-                     , [Transition "post-state" (contractPostState contract) [] unconstrainedConstraint]
+                <> [ (CommandNode contractRank, Node [contractTransition contract])
+                   | (contractRank, contract) <- zip [0 ..] commandContractValues
+                   ]
+                <> [(FormalNode, Node [Transition "model" stateRange [] unconstrainedConstraint])]
+                <> [ ( PostNode contractRank
+                     , Node [Transition "post-state" (contractPostState contract) [] unconstrainedConstraint]
                      )
                    | (contractRank, contract) <- zip [0 ..] commandContractValues
                    ]
@@ -255,8 +248,8 @@ traceAutomaton requestedLength =
         [ Transition
             "step"
             (stateRefinement output)
-            [ traceState (prefixLength - 1) input
-            , commandState contractRank
+            [ nodes LazyMap.! TraceNode (prefixLength - 1) input
+            , nodes LazyMap.! CommandNode contractRank
             ]
             (validStep (argument 0) (argument 1))
         | input <- stackStates
@@ -267,7 +260,7 @@ traceAutomaton requestedLength =
         Transition
             (contractSymbol contract)
             (contractInputSpace contract)
-            [formalState, postState $ findContractIndex contract]
+            [nodes LazyMap.! FormalNode, nodes LazyMap.! PostNode (findContractIndex contract)]
             unconstrainedConstraint
 
     findContractIndex selected =
@@ -275,34 +268,13 @@ traceAutomaton requestedLength =
             Just index -> index
             Nothing -> error "traceAutomaton: unknown command contract"
 
-    stateCount = length stackStates
-    contractCount = length commandContractValues
-    traceState prefixLength output =
-        State $
-            1
-                + prefixLength * stateCount
-                + stateIndex output
-    commandState index =
-        State $
-            1
-                + traceLength * stateCount
-                + index
-    formalState =
-        State $
-            1
-                + traceLength * stateCount
-                + contractCount
-    postState index =
-        State $
-            2
-                + traceLength * stateCount
-                + contractCount
-                + index
-
-    stateIndex selected =
-        case elemIndex selected stackStates of
-            Just index -> index
-            Nothing -> error "traceAutomaton: unknown stack state"
+-- | The shared nodes of the exact-length trace LTA.
+data TraceNodeKey
+    = TraceNode !Int !StackState
+    | CommandNode !Int
+    | FormalNode
+    | PostNode !Int
+    deriving (Eq, Ord)
 
 {- | Compile one exact trace surface language as relational ECTA joins.
 

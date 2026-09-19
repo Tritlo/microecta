@@ -119,7 +119,6 @@ library
     Data.CFTA.Gen.Equality.Internal.Types
     Data.CFTA.Gen.Refinement.Internal.AutomatonCompile
     Data.CFTA.Gen.Refinement.Internal.AutomatonSource
-    Data.CFTA.Gen.Refinement.Internal.Bounded
     Data.CFTA.Gen.Refinement.Internal.Compile
     Data.CFTA.Gen.Refinement.Internal.Error
     Data.CFTA.Gen.Refinement.Internal.IndexedGroup

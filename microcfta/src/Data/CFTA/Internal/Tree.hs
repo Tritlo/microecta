@@ -8,6 +8,7 @@ module Data.CFTA.Internal.Tree (
     toTreeBy,
     trimRows,
     termsBy,
+    termLevelsBy,
     termsUpToBy,
 ) where
 
@@ -107,8 +108,15 @@ all carry distinct symbols cannot repeat a term, and the others are
 deduplicated per level. Every child key must have a row.
 -}
 termsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
-termsBy rows root
-    | Map.member root table = concatMap (Map.! root) $ takeWhile (not . all null) $ map exactly levels
+termsBy rows root = concat $ termLevelsBy rows root
+
+{- | The terms of 'termsBy' grouped by depth: the terms of depth zero first,
+then the terms of depth one, and so on. The list of levels is lazy, so a
+prefix of it bounds the depth without building the deeper terms.
+-}
+termLevelsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [[Tree symbol]]
+termLevelsBy rows root
+    | Map.member root table = map (Map.! root) $ takeWhile (not . all null) $ map exactly levels
     | otherwise = []
   where
     table = trimRows snd rows root

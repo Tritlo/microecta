@@ -26,11 +26,9 @@ import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Refinement (
     Automaton,
     LiquidSymbol (LiquidSymbol),
-    State (State),
     Verdict (Yes),
     denotationAtMost,
     entailmentWithBindings,
-    mkAutomaton,
     unconstrainedConstraint,
  )
 import Data.CFTA.Refinement.Constraint (Guard (Same), semanticConstraint)
@@ -113,23 +111,16 @@ boundedExpressions = unfoldBounded 4 . expressionsMu
 
 -- | The expression language as an unconstrained LTA; guards are decided without a solver.
 ltaExpressions :: Automaton
-ltaExpressions =
-    either (error . show) id $
-        mkAutomaton
-            (State 0)
-            [
-                ( State 0
-                ,
-                    [ transition "zero" []
-                    , transition "one" []
-                    , transition "neg" [State 0]
-                    , transition "add" [State 0, State 0]
-                    , transition "mul" [State 0, State 0]
-                    ]
-                )
-            ]
+ltaExpressions = Mu $ \self ->
+    Node
+        [ transition "zero" []
+        , transition "one" []
+        , transition "neg" [self]
+        , transition "add" [self, self]
+        , transition "mul" [self, self]
+        ]
   where
-    transition symbol children = FTA.Transition (LiquidSymbol symbol true) children unconstrainedConstraint
+    transition symbol children = mkEdge (LiquidSymbol symbol true) children unconstrainedConstraint
 
 ltaTerms :: Int -> IO Int
 ltaTerms depth = do
@@ -139,26 +130,24 @@ ltaTerms depth = do
 -- | pair(q, q) with the guard [0] = [1] over expressions of height at most two: 302 terms, 91,204 candidate pairs.
 ltaEqualPair :: Automaton
 ltaEqualPair =
-    either (error . show) id $
-        mkAutomaton
-            (State 0)
-            [
-                ( State 0
-                , [FTA.Transition (LiquidSymbol "pair" true) [State 1, State 1] (semanticConstraint (Same (path [0]) (path [1])))]
-                )
-            , (State 1, level (State 2))
-            , (State 2, level (State 3))
-            , (State 3, [transition "zero" [], transition "one" []])
-            ]
-  where
-    level below =
-        [ transition "zero" []
-        , transition "one" []
-        , transition "neg" [below]
-        , transition "add" [below, below]
-        , transition "mul" [below, below]
+    Node
+        [ mkEdge
+            (LiquidSymbol "pair" true)
+            [expressions, expressions]
+            (semanticConstraint (Same (path [0]) (path [1])))
         ]
-    transition symbol children = FTA.Transition (LiquidSymbol symbol true) children unconstrainedConstraint
+  where
+    expressions = level (level leaves)
+    leaves = Node [transition "zero" [], transition "one" []]
+    level below =
+        Node
+            [ transition "zero" []
+            , transition "one" []
+            , transition "neg" [below]
+            , transition "add" [below, below]
+            , transition "mul" [below, below]
+            ]
+    transition symbol children = mkEdge (LiquidSymbol symbol true) children unconstrainedConstraint
 
 ltaEqualPairTerms :: IO Int
 ltaEqualPairTerms = do

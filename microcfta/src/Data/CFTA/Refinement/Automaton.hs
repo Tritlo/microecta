@@ -2,10 +2,15 @@
 
 {- | Transitions, automata, and the structural validation of an LTA.
 
-'mkAutomaton' is the only construction path. It checks that each ranked symbol
-keeps one arity and that no guard inspects a position whose state is recursive.
+An LTA is an interned graph from "Data.CFTA.Interned" whose symbols carry
+refinements and whose edges carry liquid constraints. Build it with 'Node',
+'Edge', 'mkEdge', and 'Mu', or with "Data.CFTA.Refinement.Guard" when a guard
+names the constructor arguments. 'validate' checks the paper's restriction
+that no guard inspects a position whose node is recursive, and that each
+ranked symbol keeps one arity.
 -}
 module Data.CFTA.Refinement.Automaton (
+    Automaton,
     Transition,
     pattern Transition,
     transitionSymbol,
@@ -13,314 +18,191 @@ module Data.CFTA.Refinement.Automaton (
     transitionChildren,
     transitionConstraint,
     transitionEqualities,
-    transitionLiquidSymbol,
-    replaceTransitionChildren,
-    Automaton,
-    ViewPath,
-    StateView (..),
-    toTree,
-    EqualityAutomaton,
     AutomatonError (..),
-    InternedAutomatonError (..),
-    fromInterned,
-    annotateFTA,
-    mkAutomaton,
-    mkAutomatonWithFinals,
-    fromFTAError,
-    automatonInitial,
-    automatonStates,
+    validate,
+    explicitView,
+    fromViewError,
+    located,
     automatonAlphabet,
-    automatonTransitions,
+    nodesAt,
     transitionsAt,
-    unusedStates,
-    reserveState,
-    atIndex,
 ) where
 
 import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrdOn)
+import qualified Data.IntMap.Strict as IntMap
+import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Tree (Tree)
 
-import Data.CFTA (StateView (..), ViewPath, statesAt)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint.Equality (EqConstraints)
-import qualified Data.CFTA.Interned as Interned
+import Data.CFTA.Interned (
+    Edge (InternedEdge),
+    FTAViewError (..),
+    InternedState (..),
+    Node (..),
+    UninternedEdge (..),
+    edgeChildren,
+    edgeConstraint,
+    edgeSymbol,
+    mkEdge,
+    nodeEdges,
+    nodeIdentity,
+    toFTA,
+ )
 import Data.CFTA.Path (Path, unPath)
 import Data.CFTA.Symbol (Symbol)
 
-import Data.CFTA.Refinement.Constraint (
-    LiquidConstraint (constraintEqualities),
-    constraintPaths,
- )
-import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement, State (State))
+import Data.CFTA.Refinement.Constraint (LiquidConstraint (constraintEqualities), constraintPaths)
+import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement)
 
--- | One refinement-labelled, constrained alternative from an LTA state.
-type Transition = FTA.Transition State LiquidSymbol LiquidConstraint
+-- | A liquid tree automaton: an interned graph with refined symbols and liquid constraints.
+type Automaton = Node LiquidSymbol LiquidConstraint
+
+-- | One refinement-labelled, constrained alternative of an LTA node.
+type Transition = Edge LiquidSymbol LiquidConstraint
 
 -- | Construct or match an LTA transition.
-pattern Transition :: Symbol -> Refinement -> [State] -> LiquidConstraint -> Transition
-pattern Transition symbol refinement children constraint =
-    FTA.Transition (LiquidSymbol symbol refinement) children constraint
+pattern Transition :: Symbol -> Refinement -> [Automaton] -> LiquidConstraint -> Transition
+pattern Transition symbol refinement children constraint <-
+    InternedEdge _ (UninternedEdge (LiquidSymbol symbol refinement) children constraint)
+  where
+    Transition symbol refinement children constraint =
+        mkEdge (LiquidSymbol symbol refinement) children constraint
 
 {-# COMPLETE Transition #-}
 
 -- | Symbol at the root of a transition.
-transitionSymbol :: FTA.Transition State LiquidSymbol constraint -> Symbol
-transitionSymbol (FTA.Transition (LiquidSymbol symbol _) _ _) = symbol
+transitionSymbol :: Transition -> Symbol
+transitionSymbol (Transition symbol _ _ _) = symbol
 
 -- | Refinement formula at the root of a transition.
-transitionRefinement :: FTA.Transition State LiquidSymbol constraint -> Refinement
-transitionRefinement (FTA.Transition (LiquidSymbol _ refinement) _ _) = refinement
+transitionRefinement :: Transition -> Refinement
+transitionRefinement (Transition _ refinement _ _) = refinement
 
--- | Child states of a transition, from left to right.
-transitionChildren :: FTA.Transition State LiquidSymbol constraint -> [State]
-transitionChildren = FTA.transitionChildren
+-- | Child nodes of a transition, from left to right.
+transitionChildren :: Transition -> [Automaton]
+transitionChildren = edgeChildren
 
 -- | Complete equality and semantic constraint attached to a transition.
 transitionConstraint :: Transition -> LiquidConstraint
-transitionConstraint = FTA.transitionConstraint
+transitionConstraint = edgeConstraint
 
 -- | ECTA equality classes attached to a transition.
 transitionEqualities :: Transition -> EqConstraints
 transitionEqualities = constraintEqualities . transitionConstraint
 
--- | Liquid symbol carried by a transition.
-transitionLiquidSymbol :: Transition -> LiquidSymbol
-transitionLiquidSymbol (FTA.Transition symbol _ _) = symbol
-
--- | Replace only the child states of one transition.
-replaceTransitionChildren :: [State] -> Transition -> Transition
-replaceTransitionChildren children transition =
-    Transition
-        (transitionSymbol transition)
-        (transitionRefinement transition)
-        children
-        (transitionConstraint transition)
-
--- | A validated LTA, possibly with recursive states.
-type Automaton = FTA.FTA State LiquidSymbol LiquidConstraint
-
-{- | Expose the reachable LTA graph as typed state and transition labels.
-
-Transitions retain their refinements and constraints. 'Recursive' and 'Shared'
-state labels identify references. Map the labels to strings before using
-@drawTree@. This operation does not enumerate terms or call a solver.
--}
-toTree :: Automaton -> Tree (Either (StateView State) Transition)
-toTree = FTA.toTree
-
--- | The ECTA-shaped result of discharging every semantic guard in an LTA.
-type EqualityAutomaton = FTA.FTA State LiquidSymbol EqConstraints
-
--- | A structural error found while constructing an automaton.
+-- | A structural error found while validating an automaton.
 data AutomatonError
-    = MissingInitialState !State
-    | -- | A declared accepting state has no transition row.
-      MissingFinalState !State
-    | DanglingState !State
-    | {- | A guard position reaches a recursive state, which would produce an
+    = -- | A recursive reference is free in the root.
+      OpenAutomaton
+    | {- | A guard position reaches a recursive node, which would produce an
       unbounded logical obligation during semantic operations.
       -}
-      CyclicGuardReference !State !Path
+      CyclicGuardReference !Transition !Path
     | InconsistentArity !Symbol !Int !Int
     | -- | Named guard arguments do not match the constructor's child count.
       GuardArityMismatch !Symbol !Int !Int
     deriving (Eq, Show)
 
--- | Failure while validating an interned graph as an LTA.
-data InternedAutomatonError
-    = InvalidInternedGraph !(Interned.FTAViewError LiquidSymbol)
-    | InvalidLiquidAutomaton !AutomatonError
-    deriving (Eq, Show)
+{- | Check the structure of an LTA.
 
-{- | Validate a common interned automaton with liquid constraints.
-
-This operation retains refinements and guards. It assigns consecutive state
-names and applies the same path and recursion checks as 'mkAutomaton'. It does
-not enumerate terms or call a solver.
+The graph must be closed, each ranked symbol must keep one arity, and no
+guard may inspect a position whose node is recursive. The check does not
+enumerate terms or call a solver.
 -}
-fromInterned ::
-    Interned.Node LiquidSymbol LiquidConstraint ->
-    Either InternedAutomatonError Automaton
-fromInterned root = do
-    graph <- first InvalidInternedGraph (Interned.toFTA root)
-    first InvalidLiquidAutomaton $ annotateFTA annotate graph
+validate :: Automaton -> Either AutomatonError ()
+validate root = do
+    view <- explicitView root
+    consistentArity Map.empty [edge | (_, edges) <- alternativesOf, edge <- edges]
+    let cyclic = FTA.cyclicStates view
+        recursive node = Set.member (InternedState (nodeIdentity node)) cyclic
+        offending =
+            [ (edge, target)
+            | (node, edges) <- alternativesOf
+            , edge <- edges
+            , target <- constraintPaths (edgeConstraint edge)
+            , reached <- if null (unPath target) then [node] else nodesAt edge target
+            , recursive reached
+            ]
+    case offending of
+        (edge, target) : _ -> Left $ CyclicGuardReference edge target
+        [] -> Right ()
   where
-    annotate _ transition =
-        let LiquidSymbol symbol refinement = FTA.transitionSymbol transition
-         in (symbol, refinement, FTA.transitionConstraint transition)
+    alternativesOf = located root
 
-{- | Add liquid labels and constraints to an existing FTA.
+    consistentArity _ [] = Right ()
+    consistentArity known (Transition symbol _ children _ : rest) =
+        case Map.lookup symbol known of
+            Nothing -> consistentArity (Map.insert symbol (length children) known) rest
+            Just expected
+                | expected == length children -> consistentArity known rest
+                | otherwise -> Left $ InconsistentArity symbol expected (length children)
 
-The callback receives the source state and transition. It supplies the result
-symbol, refinement, and constraint. Constructor children retain their order.
-The result uses consecutive state names and normal LTA validation.
--}
-annotateFTA ::
-    (Ord state) =>
-    (state -> FTA.Transition state symbol constraint -> (Symbol, Refinement, LiquidConstraint)) ->
-    FTA.FTA state symbol constraint ->
-    Either AutomatonError Automaton
-annotateFTA annotate graph =
-    mkAutomaton
-        (rename $ FTA.initialState graph)
-        [(rename state, map (transition state) outgoing) | (state, outgoing) <- Map.toList $ FTA.transitionTable graph]
+-- | The explicit-state view of an LTA, with one state per reachable node.
+explicitView :: Automaton -> Either AutomatonError (FTA.FTA InternedState LiquidSymbol LiquidConstraint)
+explicitView = first viewError . toFTA
   where
-    names = Map.fromList $ zip (FTA.states graph) (map State [0 ..])
-    rename state = names Map.! state
-    transition state source =
-        let (symbol, refinement, constraint) = annotate state source
-         in Transition symbol refinement (map rename $ FTA.transitionChildren source) constraint
+    viewError OpenNode = OpenAutomaton
+    viewError (InvalidFTA err) = fromViewError err
 
--- | Validate and construct an LTA, including guarded-cycle well-formedness.
-mkAutomaton :: State -> [(State, [Transition])] -> Either AutomatonError Automaton
-mkAutomaton initial rows = do
-    automaton <- first fromFTAError $ FTA.mkFTA initial rows
-    ensureConsistentSymbolArity automaton
-    ensureGuardedPositionsAcyclic automaton
-    pure automaton
-
--- | Translate a structural FTA error into the LTA error vocabulary.
-fromFTAError :: FTA.FTAError State LiquidSymbol -> AutomatonError
-fromFTAError (FTA.MissingInitialState state) = MissingInitialState state
-fromFTAError (FTA.DanglingState state) = DanglingState state
-fromFTAError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
+-- | Translate a structural error of the explicit view into the LTA vocabulary.
+fromViewError :: FTA.FTAError InternedState LiquidSymbol -> AutomatonError
+fromViewError (FTA.InconsistentArity (LiquidSymbol symbol _) expected actual) =
     InconsistentArity symbol expected actual
+fromViewError err =
+    error $
+        "microcfta bug in Data.CFTA.Refinement.Automaton: the explicit view of an interned graph is malformed: " <> show err
 
-{- | Construct the paper's LTA with an arbitrary final-state set.
+{- | Every reachable node with its alternatives, in identity order.
 
-Internally, multiple final states are normalized to one fresh state whose row
-is the union of their outgoing transitions. This preserves
-@union [JqK | q <- Qf]@ from Figure 6 without adding epsilon transitions or
-changing any constructor in the ranked alphabet. An empty final-state set uses
-a fresh state with no transitions. A singleton set needs no normalization.
+A recursive node lists its unfolded alternatives, so the children of every
+listed transition are again listed nodes.
 -}
-mkAutomatonWithFinals ::
-    [State] ->
-    [(State, [Transition])] ->
-    Either AutomatonError Automaton
-mkAutomatonWithFinals finals rows =
-    case missingFinals of
-        missing : _ -> Left $ MissingFinalState missing
-        [] -> case uniqueFinals of
-            [final] -> mkAutomaton final rows
-            _ -> mkAutomaton normalizedFinal ((normalizedFinal, finalTransitions) : rows)
+located :: Automaton -> [(Automaton, [Transition])]
+located EmptyNode = []
+located root = IntMap.elems $ collect IntMap.empty [root]
   where
-    table = Map.fromListWith (flip (<>)) rows
-    uniqueFinals = Set.toAscList $ Set.fromList finals
-    missingFinals = filter (`Map.notMember` table) uniqueFinals
-    normalizedFinal = fst $ reserveState $ unusedStates table
-    finalTransitions = concatMap (table Map.!) uniqueFinals
+    collect seen [] = seen
+    collect seen (Rec _ : pending) = collect seen pending
+    collect seen (node : pending)
+        | IntMap.member ident seen = collect seen pending
+        | otherwise = collect (IntMap.insert ident (node, edges) seen) (concatMap edgeChildren edges <> pending)
+      where
+        ident = nodeIdentity node
+        edges = nodeEdges node
 
-{- | Initial state of an LTA.
+-- | Finite ranked alphabet used by an automaton.
+automatonAlphabet :: Automaton -> Set.Set LiquidSymbol
+automatonAlphabet root = Set.fromList [edgeSymbol edge | (_, edges) <- located root, edge <- edges]
 
-It is also the single accepting state: 'mkAutomatonWithFinals' normalizes
-the paper's arbitrary final-state set to one fresh state.
+{- | The nodes at a child-index path below a transition.
+
+The first index selects a child of the transition; each further index selects
+that child of every alternative of the nodes reached so far. The empty path
+gives no nodes.
 -}
-automatonInitial :: FTA.FTA State LiquidSymbol constraint -> State
-automatonInitial = FTA.initialState
-
-{- | States of the normalized LTA.
-
-The implementation uses the standard top-down presentation of the paper's
-bottom-up transition relation. Its initial state is the single normalized
-accepting state.
--}
-automatonStates :: FTA.FTA State LiquidSymbol constraint -> Set.Set State
-automatonStates = Set.fromList . FTA.states
-
--- | Finite ranked alphabet actually used by an automaton.
-automatonAlphabet :: FTA.FTA State LiquidSymbol constraint -> Set.Set LiquidSymbol
-automatonAlphabet automaton =
-    Set.fromList
-        [ FTA.transitionSymbol transition
-        | transitions <- Map.elems $ automatonTransitions automaton
-        , transition <- transitions
-        ]
-
--- | Complete transition table of an LTA.
-automatonTransitions ::
-    FTA.FTA State LiquidSymbol constraint -> Map.Map State [FTA.Transition State LiquidSymbol constraint]
-automatonTransitions = FTA.transitionTable
+nodesAt :: Transition -> Path -> [Automaton]
+nodesAt edge target = case unPath target of
+    [] -> []
+    index : rest -> maybe [] (descend rest) (edgeChildren edge !? index)
+  where
+    descend [] node = [node]
+    descend (index : rest) node =
+        nubOrdOn nodeIdentity $
+            concat
+                [ descend rest child
+                | alternative <- nodeEdges node
+                , Just child <- [edgeChildren alternative !? index]
+                ]
 
 {- | Transitions reachable at a position below one transition (Definition 5).
 
-The empty position denotes the supplied transition. A non-empty position first
-selects one child state and then unions the alternatives encountered at each
-subsequent component. An invalid component denotes the empty set.
+The empty position denotes the supplied transition. A non-empty position
+selects the alternatives of every node at that position.
 -}
-transitionsAt :: Automaton -> Transition -> Path -> [Transition]
-transitionsAt automaton transition target
-    | null (unPath target) = [transition]
-    | otherwise = concatMap (FTA.transitionsFrom automaton) $ statesAt (FTA.transitionsFrom automaton) transition target
-
--- | Every ranked symbol must keep one arity across the automaton.
-ensureConsistentSymbolArity :: Automaton -> Either AutomatonError ()
-ensureConsistentSymbolArity automaton = go Map.empty allTransitions
-  where
-    allTransitions = concat $ Map.elems $ automatonTransitions automaton
-
-    go _ [] = Right ()
-    go arities (transition : rest) =
-        let symbol = transitionSymbol transition
-            arity = length $ transitionChildren transition
-         in case Map.lookup symbol arities of
-                Nothing -> go (Map.insert symbol arity arities) rest
-                Just expected
-                    | expected == arity -> go arities rest
-                    | otherwise -> Left (InconsistentArity symbol expected arity)
-
--- | No guard may inspect a position whose state is recursive.
-ensureGuardedPositionsAcyclic :: Automaton -> Either AutomatonError ()
-ensureGuardedPositionsAcyclic automaton =
-    case referencesIntoCycles of
-        (state, target) : _ -> Left (CyclicGuardReference state target)
-        [] -> Right ()
-  where
-    cyclic = FTA.cyclicStates automaton
-    referencesIntoCycles =
-        [ (referenced, target)
-        | (state, transitions) <- Map.toList $ automatonTransitions automaton
-        , transition <- transitions
-        , target <- constraintPaths $ transitionConstraint transition
-        , referenced <- Set.toList $ statesAtPath automaton state transition target
-        , Set.member referenced cyclic
-        ]
-
--- | States that one guarded position of a transition can reach.
-statesAtPath :: Automaton -> State -> Transition -> Path -> Set.Set State
-statesAtPath automaton parent transition target
-    | null (unPath target) = Set.singleton parent
-    | otherwise = Set.fromList $ statesAt (FTA.transitionsFrom automaton) transition target
-
--- | Unused identities, excluding child references before graph validation.
-unusedStates :: Map.Map State [Transition] -> [State]
-unusedStates table =
-    filter (`Set.notMember` occupied) $ map State $ [0 .. maxBound] <> [minBound .. -1]
-  where
-    occupied =
-        Map.keysSet table
-            `Set.union` Set.fromList
-                [ child
-                | transitions <- Map.elems table
-                , transition <- transitions
-                , child <- transitionChildren transition
-                ]
-
-{- | Consume one unused identity from the state domain.
-
-The domain is every 'Int' identity not already in use, so it is exhausted
-only after every machine integer names a state.
--}
-reserveState :: [State] -> (State, [State])
-reserveState (state : remaining) = (state, remaining)
-reserveState [] = error "microcfta bug in Data.CFTA.Refinement.reserveState: the state domain is exhausted"
-
--- | Safe zero-based list lookup.
-atIndex :: Int -> [a] -> Maybe a
-atIndex index values
-    | index < 0 = Nothing
-    | otherwise = case drop index values of
-        value : _ -> Just value
-        [] -> Nothing
+transitionsAt :: Transition -> Path -> [Transition]
+transitionsAt edge target
+    | null (unPath target) = [edge]
+    | otherwise = concatMap nodeEdges $ nodesAt edge target

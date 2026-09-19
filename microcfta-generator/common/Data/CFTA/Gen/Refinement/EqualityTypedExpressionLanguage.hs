@@ -16,6 +16,7 @@ module Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage (
     compileEqualityExpressionsAtDepth,
 ) where
 
+import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -34,12 +35,12 @@ import Data.CFTA.Refinement (
     AutomatonError,
     Entailment,
     LiquidSymbol (..),
+    Node (Node),
     Refinement,
-    State (State),
     Symbol,
     Transition,
-    mkAutomaton,
     unconstrainedConstraint,
+    validate,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (value, (.==.))
@@ -53,22 +54,23 @@ typeEquality type_ = value .==. typeTag type_
 solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 solverDeclarations = [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)]
 
--- | Build the exact-depth typed-expression language as a guarded LTA.
+{- | Build the exact-depth typed-expression language as a guarded LTA.
+
+The nodes of each exact depth and ground type are shared through a lazy map,
+so the graph grows linearly with the depth.
+-}
 equalityExpressionAutomaton :: Int -> Either AutomatonError Automaton
-equalityExpressionAutomaton requestedDepth =
-    mkAutomaton initialState $ rootRow : childRows
+equalityExpressionAutomaton requestedDepth = validate root >> pure root
   where
     depth = max 0 requestedDepth
-    initialState = State 0
-    rootRow =
-        ( initialState
-        , concatMap (expressionTransitions depth) allTypes
-        )
-    childRows =
-        [ (expressionState childDepth result, expressionTransitions childDepth result)
-        | childDepth <- [0 .. depth - 1]
-        , result <- allTypes
-        ]
+    root = Node $ concatMap (expressionTransitions expressionNode depth) allTypes
+    nodes =
+        LazyMap.fromList
+            [ ((childDepth, result), Node $ expressionTransitions expressionNode childDepth result)
+            | childDepth <- [0 .. depth - 1]
+            , result <- allTypes
+            ]
+    expressionNode childDepth result = nodes LazyMap.! (childDepth, result)
 
 -- | Compile and decode one exact-depth equality-refined expression language.
 compileEqualityExpressionsAtDepth ::
@@ -89,13 +91,16 @@ compileEqualityExpressionsAtDepth entailment depth =
                 error
                     "compileEqualityExpressionsAtDepth: pruned LTA produced an invalid expression"
 
--- | Candidate transitions for one exact depth and result-type state.
-expressionTransitions :: Int -> Type -> [Transition]
-expressionTransitions 0 result = literalTransitions result
-expressionTransitions depth result =
-    unaryTransitions childDepth result
-        <> binaryTransitions childDepth result
-        <> conditionalTransitions childDepth result
+-- | The node of one exact depth and ground type.
+type ExpressionNode = Int -> Type -> Automaton
+
+-- | Candidate transitions for one exact depth and result type.
+expressionTransitions :: ExpressionNode -> Int -> Type -> [Transition]
+expressionTransitions _ 0 result = literalTransitions result
+expressionTransitions expressionNode depth result =
+    unaryTransitions expressionNode childDepth result
+        <> binaryTransitions expressionNode childDepth result
+        <> conditionalTransitions expressionNode childDepth result
   where
     childDepth = depth - 1
 
@@ -111,25 +116,25 @@ literalTransitions TBool =
     ]
 
 -- | Every actual child type; the liquid guard keeps only Boolean arguments.
-unaryTransitions :: Int -> Type -> [Transition]
-unaryTransitions childDepth result =
+unaryTransitions :: ExpressionNode -> Int -> Type -> [Transition]
+unaryTransitions expressionNode childDepth result =
     [ Transition
         "not"
         (typeEquality TBool)
-        [expressionState childDepth actual]
+        [expressionNode childDepth actual]
         (argument 0 `requires` typeEquality TBool)
     | result == TBool
     , actual <- allTypes
     ]
 
 -- | Every actual child-type pair checked against each ground function instance.
-binaryTransitions :: Int -> Type -> [Transition]
-binaryTransitions childDepth result =
+binaryTransitions :: ExpressionNode -> Int -> Type -> [Transition]
+binaryTransitions expressionNode childDepth result =
     [ Transition
         (functionSymbol $ binaryFunction instance_)
         (typeEquality result)
-        [ expressionState childDepth actualFirst
-        , expressionState childDepth actualSecond
+        [ expressionNode childDepth actualFirst
+        , expressionNode childDepth actualSecond
         ]
         ( allOf
             [ argument 0 `requires` typeEquality (firstArgumentType instance_)
@@ -143,14 +148,14 @@ binaryTransitions childDepth result =
     ]
 
 -- | Every actual child-type triple checked against the conditional signature.
-conditionalTransitions :: Int -> Type -> [Transition]
-conditionalTransitions childDepth result =
+conditionalTransitions :: ExpressionNode -> Int -> Type -> [Transition]
+conditionalTransitions expressionNode childDepth result =
     [ Transition
         "if"
         (typeEquality result)
-        [ expressionState childDepth actualCondition
-        , expressionState childDepth actualTrue
-        , expressionState childDepth actualFalse
+        [ expressionNode childDepth actualCondition
+        , expressionNode childDepth actualTrue
+        , expressionNode childDepth actualFalse
         ]
         ( allOf
             [ argument 0 `requires` typeEquality TBool
@@ -162,10 +167,6 @@ conditionalTransitions childDepth result =
     , actualTrue <- allTypes
     , actualFalse <- allTypes
     ]
-
--- | Stable state identity for one exact-depth, ground-type sublanguage.
-expressionState :: Int -> Type -> State
-expressionState depth result = State $ 1 + 2 * depth + fromEnum result
 
 -- | Stable integer tag for a ground type.
 typeTag :: Type -> Int

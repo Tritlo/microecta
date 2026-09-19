@@ -24,6 +24,7 @@ module Data.CFTA.Enumeration (
     runs,
     truncatedTerms,
     plainTerms,
+    plainTermsAtMost,
     unconstrained,
 
     -- * Pruning oracles
@@ -68,7 +69,7 @@ import Data.CFTA.Constraint.Equality (
     pathTrieDescend,
     unsafeGetEclasses,
  )
-import Data.CFTA.Internal.Tree (termsBy)
+import Data.CFTA.Internal.Tree (termLevelsBy)
 import Data.CFTA.Internal.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.CFTA.Internal.UnionFind as UnionFind
 import Data.CFTA.Interned
@@ -776,9 +777,23 @@ listing.
 -}
 plainTerms ::
     (Hashable symbol, Ord symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [Tree.Tree symbol]
-plainTerms EmptyNode = []
-plainTerms root =
-    termsBy
+plainTerms = concat . plainTermLevels
+
+{- | The terms of 'plainTerms' whose leaves are at most the given depth from
+the root. A leaf has depth zero, and a negative depth gives no terms. The
+deeper terms are never built, so a recursive graph gives a finite list.
+-}
+plainTermsAtMost ::
+    (Hashable symbol, Ord symbol, Typeable symbol, Constraint constraint) =>
+    Int -> Node symbol constraint -> [Tree.Tree symbol]
+plainTermsAtMost depth = concat . take (depth + 1) . plainTermLevels
+
+-- | The terms of the underlying ordinary graph, grouped by depth.
+plainTermLevels ::
+    (Hashable symbol, Ord symbol, Typeable symbol, Constraint constraint) => Node symbol constraint -> [[Tree.Tree symbol]]
+plainTermLevels EmptyNode = []
+plainTermLevels root =
+    termLevelsBy
         [ (ident, [(edgeSymbol edge, map nodeIdentity (edgeChildren edge)) | edge <- edges])
         | (ident, edges) <- IntMap.toList (reachable root)
         ]

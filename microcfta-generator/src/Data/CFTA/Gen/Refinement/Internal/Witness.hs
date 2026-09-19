@@ -96,51 +96,19 @@ checkWitness entailment witness = do
 -- | Build the LTA support that accepts exactly the given witnesses.
 compileWitnesses :: [Witness] -> Either GeneratorError Automaton
 compileWitnesses [] = Left EmptyGenerator
-compileWitnesses witnesses =
-    first InvalidSupport . mkAutomaton root . Map.toList . buildRows $
-        foldl (flip $ addWitnessAt root) initialBuild witnesses
-  where
-    root = State 0
-    initialBuild = Build 1 (Map.singleton root [])
+compileWitnesses witnesses = do
+    let root = Node $ map witnessTransition witnesses
+    first InvalidSupport $ validate root
+    pure root
 
--- | The states allocated so far while witnesses become an automaton.
-data Build = Build
-    { buildNextState :: !Int
-    , buildRows :: !(Map.Map State [Transition])
-    }
-
--- | Add one transition for a witness, and rows for its children.
-addWitnessAt :: State -> Witness -> Build -> Build
-addWitnessAt state witness build =
-    let (childStates, withChildren) = addChildren (witnessChildren witness) build
-        transition =
-            Transition
-                (witnessSymbol witness)
-                (witnessRefinement witness)
-                childStates
-                (witnessConstraint witness)
-     in withChildren
-            { buildRows =
-                Map.insertWith
-                    (flip (<>))
-                    state
-                    [transition]
-                    (buildRows withChildren)
-            }
-
--- | Allocate one fresh state for each direct child witness.
-addChildren :: [Witness] -> Build -> ([State], Build)
-addChildren [] build = ([], build)
-addChildren (witness : rest) build =
-    let child = State (buildNextState build)
-        allocated =
-            build
-                { buildNextState = buildNextState build + 1
-                , buildRows = Map.insert child [] (buildRows build)
-                }
-        withChild = addWitnessAt child witness allocated
-        (childStates, finished) = addChildren rest withChild
-     in (child : childStates, finished)
+-- | One transition whose children each accept exactly one child witness.
+witnessTransition :: Witness -> Transition
+witnessTransition Witness{witnessSymbol, witnessRefinement, witnessConstraint, witnessChildren} =
+    Transition
+        witnessSymbol
+        witnessRefinement
+        [Node [witnessTransition child] | child <- witnessChildren]
+        witnessConstraint
 
 {- | Cache exact refinement queries for one compilation run.
 

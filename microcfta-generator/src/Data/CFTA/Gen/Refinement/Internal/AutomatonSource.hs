@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | Group counted automaton ranks by finite observations without decoding terms.
 module Data.CFTA.Gen.Refinement.Internal.AutomatonSource (
     Observations,
@@ -7,19 +9,13 @@ module Data.CFTA.Gen.Refinement.Internal.AutomatonSource (
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Gen.Refinement.Internal.SourceIndex as Source
 import Data.CFTA.Refinement (
-    EqualityAutomaton,
     LiquidSymbol (LiquidSymbol),
     Path,
-    State,
     Symbol,
-    automatonInitial,
-    automatonTransitions,
     path,
-    transitionChildren,
-    transitionRefinement,
-    transitionSymbol,
     unPath,
  )
 
@@ -33,14 +29,15 @@ type Alphabet = Map.Map Symbol (Set.Set Int)
 type Groups = Map.Map Observations (Alphabet, Source.SourceIndex)
 
 -- | Shared groups for one state and a sorted set of requested positions.
-type Cache = Map.Map (State, [Path]) Groups
+type Cache state = Map.Map (state, [Path]) Groups
 
 {- | Partition the initial state's ranks by the requested observations.
 
-The caller supplies an acyclic, unambiguous automaton without equality guards
-and its exact accepting-run counts. Each group's index uses the complete state
-count as its domain. Transition order and child order match the automaton's
-mixed-radix decoder. Empty states and transitions contribute no groups.
+The caller supplies the explicit view of an acyclic, unambiguous automaton
+without constraints and its exact accepting-run counts. Each group's index
+uses the complete state count as its domain. Transition order and child order
+match the automaton's mixed-radix decoder. Empty states and transitions
+contribute no groups.
 
 Only requested positions occur in the keys. Missing positions are omitted.
 Each group's alphabet includes its unobserved descendants as well. With no
@@ -48,17 +45,19 @@ requested positions, one group retains the complete state interval. Equal
 state/request pairs share their groups; no accepted tree is constructed.
 -}
 groupAutomaton ::
+    forall state constraint.
+    (Ord state) =>
     [Path] ->
-    EqualityAutomaton ->
-    Map.Map State Integer ->
+    FTA.FTA state LiquidSymbol constraint ->
+    Map.Map state Integer ->
     Map.Map Observations (Map.Map Symbol (Set.Set Int), Source.SourceIndex)
 groupAutomaton requested automaton counts =
-    fst $ groupState (automatonInitial automaton) requested Map.empty
+    fst $ groupState (FTA.initialState automaton) requested Map.empty
   where
-    table = automatonTransitions automaton
+    table = FTA.transitionTable automaton
     count state = Map.findWithDefault 0 state counts
 
-    groupState :: State -> [Path] -> Cache -> (Groups, Cache)
+    groupState :: state -> [Path] -> Cache state -> (Groups, Cache state)
     groupState state targets cache
         | count state <= 0 = (Map.empty, cache)
         | Just groups <- Map.lookup key cache = (groups, cache)
@@ -86,7 +85,7 @@ groupAutomaton requested automaton counts =
         | otherwise =
             let root =
                     if observesRoot
-                        then Map.singleton (path []) (LiquidSymbol symbol refinement, null children)
+                        then Map.singleton (path []) (FTA.transitionSymbol transition, null children)
                         else Map.empty
                 initial = Map.singleton root (Map.singleton symbol $ Set.singleton $ length children, Source.full 1)
                 (variants, completed) =
@@ -97,9 +96,8 @@ groupAutomaton requested automaton counts =
                         variants
              in (offset + total, Map.unionWith mergeGroup groups indexed, completed)
       where
-        children = transitionChildren transition
-        symbol = transitionSymbol transition
-        refinement = transitionRefinement transition
+        children = FTA.transitionChildren transition
+        LiquidSymbol symbol _ = FTA.transitionSymbol transition
         total = product $ map count children
 
     addChild childRequests (prefixes, cache) (index, child) =

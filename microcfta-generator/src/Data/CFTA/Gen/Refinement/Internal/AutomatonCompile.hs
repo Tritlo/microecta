@@ -1,8 +1,9 @@
 {- | Compile a core LTA directly into a ranked generator.
 
-The core 'prune' pass runs first. An equality-free, unambiguous result uses
-the ordinary FTA ranker. Other equality languages use shared symbolic counts.
-Unsupported semantic guards produce an error before any member is constructed.
+The core 'prune' pass runs first. A result without constraints uses the
+ordinary FTA ranker on the explicit view of the graph. Other languages use
+shared symbolic counts over the pruned constraints. Unsupported semantic
+guards produce an error before any member is constructed.
 -}
 module Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     compileAutomaton,
@@ -10,23 +11,24 @@ module Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     compileAutomatonUpToDepth,
     compileAutomatonUpToDepthWith,
     compileBoundedAutomaton,
+    View,
+    automatonView,
     countAutomaton,
-    ensureUnconstrained,
+    distinctCounts,
     constraintTerms,
     symbolicGraph,
 ) where
 
 import Data.Bifunctor (first)
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
+import Data.CFTA.Constraint.Equality (subsumptionOrderedEclasses, unPathEClass)
+import Data.CFTA.Enumeration (unconstrained)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRankedWith)
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
 import Data.CFTA.Gen.Internal.Shrink (automatonShrinkRanks)
-import Data.CFTA.Gen.Refinement.Internal.Bounded (boundAutomaton)
 import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Types
 import Data.CFTA.Gen.Refinement.Internal.Witness (cacheEntailment)
-import qualified Data.CFTA.Interned as Interned
 import qualified Data.CFTA.Ranked as Ranked
 import Data.CFTA.Refinement
 import qualified Data.IntMap.Strict as IntMap
@@ -36,11 +38,11 @@ import qualified Data.Tree as Tree
 
 {- | Prune and rank a finite acyclic LTA.
 
-The core's authoritative 'prune' pass runs first. If no syntactic equality
-remains, the adapter counts accepting runs by dynamic programming and only
-'unrank' materializes the chosen 'Tree.Tree' 'LiquidSymbol'. Positive equality residuals are
-compiled through the shared symbolic equality ranker.
-Use 'compileAutomatonUpToDepth' for recursive automata or general constraints.
+The core's authoritative 'prune' pass runs first. If no constraint remains,
+the adapter counts accepting runs by dynamic programming and only 'unrank'
+materializes the chosen 'Tree.Tree' 'LiquidSymbol'. Residual equalities are
+compiled through the shared symbolic equality ranker. Use
+'compileAutomatonUpToDepth' for recursive automata or general constraints.
 Shrinks reduce the tree node count and remain in the accepted language.
 -}
 compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled (Tree.Tree LiquidSymbol)))
@@ -66,7 +68,7 @@ compileAutomatonWith uncachedEntailment buildValue automaton = do
 
 A leaf has height zero. A negative bound or empty language gives 'EmptyGenerator'.
 The compiler bounds the graph, then counts it symbolically. Unsupported guards
-give 'InvalidPruning'; undecidable solver obligations give 'SolverUnknown'.
+give 'ResidualGuard'; undecidable solver obligations give 'SolverUnknown'.
 Each distinct 'Tree.Tree' 'LiquidSymbol' has one rank, even when
 multiple runs accept it. Ranks are deterministic for a fixed automaton and bound.
 Shrinks stay in the accepted language and strictly reduce the tree node count.
@@ -101,9 +103,7 @@ compileBoundedAutomaton ::
     IO (Either GeneratorError (Compiled a))
 compileBoundedAutomaton entailment buildValue maximumHeight automaton
     | maximumHeight < 0 = pure $ Left EmptyGenerator
-    | otherwise = case boundAutomaton maximumHeight automaton of
-        Left err -> pure $ Left $ InvalidSupport err
-        Right bounded -> compilePrunedAutomaton entailment buildValue bounded
+    | otherwise = compilePrunedAutomaton entailment buildValue (boundDepth maximumHeight automaton)
 
 -- | Compile pruned support with the caller's scoped entailment cache.
 compilePrunedAutomaton ::
@@ -115,84 +115,81 @@ compilePrunedAutomaton entailment buildValue automaton = do
     reduced <- prune entailment automaton
     pure $ do
         pruned <- first pruningError reduced
-        case lowerToEqualityAutomaton pruned of
-            Right acceptedSupport ->
-                case ensureUnconstrained acceptedSupport >> compileUnconstrainedAutomaton buildValue acceptedSupport of
-                    Right (ranked, shrinks) ->
-                        Right $ Compiled (EqualitySupport acceptedSupport) ranked shrinks
-                    Left (ResidualEquality _ _) -> compileSymbolicAutomaton buildValue (SymbolicSupport pruned) pruned
-                    Left (AmbiguousAutomaton _) -> compileSymbolicAutomaton buildValue (SymbolicSupport pruned) pruned
-                    Left err -> Left err
-            Left _ -> compileSymbolicAutomaton buildValue (SymbolicSupport pruned) pruned
+        view <- automatonView pruned
+        counted <- if unconstrained pruned then distinctCounts view else pure Nothing
+        case counted of
+            Just counts -> do
+                (ranked, shrinks) <- compileUnconstrainedAutomaton buildValue view counts
+                pure $ Compiled (AutomatonSupport pruned) ranked shrinks
+            Nothing -> compileSymbolicAutomaton buildValue pruned view
   where
     pruningError (PruneUnknown _) = SolverUnknown
     pruningError err = InvalidPruning err
 
--- | Count and unrank an equality-free reduced LTA as an ordinary FTA.
+-- | The explicit-state view of an LTA, with one state per reachable node.
+type View = FTA.FTA InternedState LiquidSymbol LiquidConstraint
+
+-- | Expose an LTA as an explicit-state automaton, or report why it is not one.
+automatonView :: Automaton -> Either GeneratorError View
+automatonView = first InvalidSupport . explicitView
+
+-- | Count and unrank a constraint-free, unambiguous pruned LTA as an ordinary FTA.
 compileUnconstrainedAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
-    EqualityAutomaton ->
+    View ->
+    Map.Map InternedState Integer ->
     Either GeneratorError (Ranked.Ranked (Generated a), Integer -> [Integer])
-compileUnconstrainedAutomaton buildValue acceptedSupport = do
-    counts <- countAutomaton acceptedSupport
-    ensureUnambiguous acceptedSupport $ Map.keys counts
-    let total = Map.findWithDefault 0 (automatonInitial acceptedSupport) counts
+compileUnconstrainedAutomaton buildValue view counts = do
+    let total = Map.findWithDefault 0 (FTA.initialState view) counts
     ranked <-
         first fromRankedError
             $ Ranked.fromIndexedOnDemand
             $ Ranked.Indexed
                 total
-                (generatedAtWith buildValue acceptedSupport counts)
-    pure (ranked, automatonShrinkRanks (FTA.dropConstraints acceptedSupport) counts)
+                (generatedAtWith buildValue view counts)
+    pure (ranked, automatonShrinkRanks (FTA.dropConstraints view) counts)
 
 -- | Compile Boolean equality over annotated symbols with exact unique ranks.
 compileSymbolicAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
-    CompiledSupport ->
     Automaton ->
+    View ->
     Either GeneratorError (Compiled a)
-compileSymbolicAutomaton buildValue support automaton = do
-    mapM_
-        validate
-        [ (state, transitionConstraint transition)
-        | (state, transitions) <- Map.toList $ automatonTransitions automaton
-        , transition <- transitions
-        ]
-    (root, alphabet) <- symbolicGraph automaton
+compileSymbolicAutomaton buildValue pruned view = do
+    mapM_ (first ResidualGuard . constraintTerms . FTA.transitionConstraint) (viewTransitions view)
+    (root, alphabet) <- symbolicGraph view
     terms <- first fromRankedError $ symbolicRankedWith interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (fmap (alphabet IntMap.!) term)
-        size rank = either (const 0) nodeCount $ Ranked.unrank terms rank
+        size rank = either (const 0) nodeSize $ Ranked.unrank terms rank
         shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank terms rank
-    pure $ Compiled support (generated <$> terms) shrinks
+    pure $ Compiled (AutomatonSupport pruned) (generated <$> terms) shrinks
   where
-    validate (state, constraint) =
-        first (InvalidPruning . ResidualLTAConstraint state) $ constraintTerms constraint
     interpret constraint = case constraintTerms constraint of
         Right terms -> terms
         Left _ -> error "compileSymbolicAutomaton: unsupported guard after validation"
     foldTerm alphabet build = Tree.foldTree $ \identifier childValues ->
         let LiquidSymbol symbol refinement = alphabet IntMap.! identifier
          in build symbol refinement childValues
-    nodeCount :: Tree.Tree Int -> Integer
-    nodeCount = Tree.foldTree $ \_ counts -> 1 + sum counts
+    nodeSize :: Tree.Tree Int -> Integer
+    nodeSize = Tree.foldTree $ \_ counts -> 1 + sum counts
+
+-- | Every transition of the explicit view, in table order.
+viewTransitions :: View -> [FTA.Transition InternedState LiquidSymbol LiquidConstraint]
+viewTransitions = concat . Map.elems . FTA.transitionTable
 
 -- | Give symbolic ranks a textual alphabet order independent of interning order.
-symbolicGraph :: Automaton -> Either GeneratorError (Interned.Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
-symbolicGraph automaton = do
-    case FTA.cycleState automaton of
+symbolicGraph :: View -> Either GeneratorError (Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
+symbolicGraph view = do
+    case FTA.cycleState view of
         Just _ -> Left RecursiveAutomaton
         Nothing -> Right ()
-    renamed <- first (const RecursiveAutomaton) $ FTA.mapSymbols (identifiers Map.!) automaton
-    pure (Interned.fromFTA renamed, IntMap.fromList $ zip [0 ..] alphabet)
+    renamed <- first (const RecursiveAutomaton) $ FTA.mapSymbols (identifiers Map.!) view
+    pure (fromFTA renamed, IntMap.fromList $ zip [0 ..] alphabet)
   where
     alphabet =
         sortOn name
             $ Map.keys
-            $ Map.fromList
-                [ (FTA.transitionSymbol transition, ())
-                | transitions <- Map.elems $ automatonTransitions automaton
-                , transition <- transitions
-                ]
+            $ Map.fromList [(FTA.transitionSymbol transition, ()) | transition <- viewTransitions view]
     name (LiquidSymbol symbol refinement) = (show symbol, show refinement)
     identifiers = Map.fromList $ zip alphabet [0 ..]
 
@@ -219,42 +216,31 @@ constraintTerms constraint = do
         , (rightWeight, rightClasses) <- right
         ]
 
-{- | Require the pruned automaton to be an ordinary FTA before multiplying
-child cardinalities.
-
-Semantic guards are eliminated by LTA state splitting. Syntactic equality may
-remain because equality between arbitrary subtrees is not a regular tree
-language; it needs the ECTA counting path instead of an FTA product count.
--}
-ensureUnconstrained :: EqualityAutomaton -> Either GeneratorError ()
-ensureUnconstrained automaton =
-    case [ (state, FTA.transitionConstraint transition)
-         | (state, transitions) <- Map.toList $ automatonTransitions automaton
-         , transition <- transitions
-         , FTA.transitionConstraint transition /= EmptyConstraints
-         ] of
-        residual : _ -> Left $ uncurry ResidualEquality residual
-        [] -> Right ()
-
 -- | Count ordinary candidate runs through the common automaton compiler.
-countAutomaton :: EqualityAutomaton -> Either GeneratorError (Map.Map State Integer)
+countAutomaton :: View -> Either GeneratorError (Map.Map InternedState Integer)
 countAutomaton = first (const RecursiveAutomaton) . Ordinary.countRuns
 
--- | Require distinct terms after constraints have been discharged.
-ensureUnambiguous :: EqualityAutomaton -> [State] -> Either GeneratorError ()
-ensureUnambiguous automaton states = case Ordinary.ambiguousState automaton states of
-    Nothing -> Right ()
-    Just state -> Left $ AmbiguousAutomaton state
+{- | Exact accepting-run counts of a view whose runs are distinct terms.
+
+The result is 'Nothing' when several runs accept one term, because then run
+counts do not count terms and the symbolic ranker must be used instead.
+-}
+distinctCounts :: View -> Either GeneratorError (Maybe (Map.Map InternedState Integer))
+distinctCounts view = do
+    counts <- countAutomaton view
+    pure $ case Ordinary.ambiguousState view (Map.keys counts) of
+        Nothing -> Just counts
+        Just _ -> Nothing
 
 -- | Decode the value and lazy witness through the same ordinary rank fold.
 generatedAtWith ::
     (Symbol -> Refinement -> [a] -> a) ->
-    EqualityAutomaton ->
-    Map.Map State Integer ->
+    View ->
+    Map.Map InternedState Integer ->
     Integer ->
     Generated a
-generatedAtWith buildValue automaton counts rank =
+generatedAtWith buildValue view counts rank =
     Generated
         1
-        (Ordinary.foldAt (\(LiquidSymbol symbol refinement) -> buildValue symbol refinement) automaton counts rank)
-        (Ordinary.foldAt Tree.Node automaton counts rank)
+        (Ordinary.foldAt (\(LiquidSymbol symbol refinement) -> buildValue symbol refinement) view counts rank)
+        (Ordinary.foldAt Tree.Node view counts rank)

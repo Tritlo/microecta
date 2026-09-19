@@ -25,13 +25,15 @@ import Data.List (mapAccumL, nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
+import Data.CFTA.Enumeration (unconstrained)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicGroupsWith)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
+    automatonView,
     constraintTerms,
-    countAutomaton,
-    ensureUnconstrained,
+    distinctCounts,
     symbolicGraph,
  )
 import qualified Data.CFTA.Gen.Refinement.Internal.AutomatonSource as AutomatonSource
@@ -260,34 +262,38 @@ compileSourceGroups ::
     Either GeneratorError (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups)
 compileSourceGroups requested compiled = do
     groups <- case compiledSupport compiled of
-        EqualitySupport automaton | Right () <- ensureUnconstrained automaton -> do
-            counts <- countAutomaton automaton
-            pure $
-                Map.fromList
-                    [ ( ObservationKey $ Map.map toObservation observations
-                      , GroupInfo alphabet sources
-                      )
-                    | (observations, (alphabet, sources)) <- Map.toList $ AutomatonSource.groupAutomaton requested automaton counts
-                    ]
-        SymbolicSupport automaton -> do
-            (root, labels) <- symbolicGraph automaton
-            let interpret constraint = case constraintTerms constraint of
-                    Right terms -> terms
-                    Left _ -> error "compileSourceGroups: unsupported guard in a compiled symbolic source"
-                alphabet =
-                    Map.fromListWith
-                        Set.union
-                        [ (transitionSymbol transition, Set.singleton $ length $ transitionChildren transition)
-                        | transitions <- Map.elems $ automatonTransitions automaton
-                        , transition <- transitions
-                        ]
-            pure $
-                Map.fromList
-                    [ ( ObservationKey $ Map.map (\(identifier, isLeaf) -> toObservation (labels IntMap.! identifier, isLeaf)) observations
-                      , GroupInfo alphabet $ Source.fromPrefix total count prefixAt
-                      )
-                    | (observations, (count, prefixAt)) <- Map.toList $ symbolicGroupsWith interpret requested root
-                    ]
+        AutomatonSupport automaton -> do
+            view <- automatonView automaton
+            counted <- if unconstrained automaton then distinctCounts view else pure Nothing
+            case counted of
+                Just counts ->
+                    pure $
+                        Map.fromList
+                            [ ( ObservationKey $ Map.map toObservation observations
+                              , GroupInfo alphabet sources
+                              )
+                            | (observations, (alphabet, sources)) <- Map.toList $ AutomatonSource.groupAutomaton requested view counts
+                            ]
+                Nothing -> do
+                    (root, labels) <- symbolicGraph view
+                    let interpret constraint = case constraintTerms constraint of
+                            Right terms -> terms
+                            Left _ -> error "compileSourceGroups: unsupported guard in a compiled symbolic source"
+                        alphabet =
+                            Map.fromListWith
+                                Set.union
+                                [ (symbol, Set.singleton $ length $ FTA.transitionChildren transition)
+                                | transitions <- Map.elems $ FTA.transitionTable view
+                                , transition <- transitions
+                                , let LiquidSymbol symbol _ = FTA.transitionSymbol transition
+                                ]
+                    pure $
+                        Map.fromList
+                            [ ( ObservationKey $ Map.map (\(identifier, isLeaf) -> toObservation (labels IntMap.! identifier, isLeaf)) observations
+                              , GroupInfo alphabet $ Source.fromPrefix total count prefixAt
+                              )
+                            | (observations, (count, prefixAt)) <- Map.toList $ symbolicGroupsWith interpret requested root
+                            ]
         _ -> Left RelationalPlanUnavailable
     pure
         ( ECTA.frequencies

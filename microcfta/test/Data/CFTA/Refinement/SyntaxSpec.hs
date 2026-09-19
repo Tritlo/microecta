@@ -2,109 +2,96 @@
 
 module Data.CFTA.Refinement.SyntaxSpec (spec) where
 
-import Data.Either (rights)
-import Data.Tree (flatten)
+import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldSatisfy)
 
-import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Refinement (
-    AutomatonError (GuardArityMismatch),
+    AutomatonError (CyclicGuardReference, GuardArityMismatch, OpenAutomaton),
+    Guard (Entails, Satisfies),
     LiquidSymbol (LiquidSymbol),
-    State (State),
+    Node (Mu, Node, Rec),
+    RecNodeId (RecUnint),
     Verdict (..),
     accepts,
+    automatonAlphabet,
+    constraintAsGuard,
+    denotationAtMost,
+    mkEdge,
+    nodeEdges,
+    path,
+    semanticConstraint,
+    transitionConstraint,
+    unconstrainedConstraint,
+    validate,
+    pattern Transition,
  )
-import qualified Data.CFTA.Refinement as LTA
 import Data.CFTA.Refinement.Expression (true, value, (.>=.))
-import Data.CFTA.Refinement.Guard (isSubtypeOf, requires, unconstrained)
-import qualified Data.CFTA.Refinement.Syntax as Syntax
+import Data.CFTA.Refinement.Guard (automaton, isSubtypeOf, requires, transition, unconstrained)
 import Data.CFTA.Refinement.TestSupport (tableEntailment)
 
 spec :: Spec
 spec =
-    describe "handwritten LTA syntax" $ do
+    describe "named guards and validation" $ do
         it "reports a named guard with the wrong number of arguments" $ do
-            let automaton =
-                    Syntax.automaton
-                        (State 0)
-                        [ Syntax.row
-                            (State 0)
-                            [Syntax.transition "wrap" true [State 1] (\actual expected -> actual `isSubtypeOf` expected)]
-                        , Syntax.row (State 1) [Syntax.transition "leaf" true [] unconstrained]
-                        ]
-            automaton `shouldBe` Left (GuardArityMismatch "wrap" 1 2)
+            let leaf = Node [Transition "leaf" true [] unconstrainedConstraint]
+            automaton [transition "wrap" true [leaf] (\actual expected -> actual `isSubtypeOf` expected)]
+                `shouldBe` Left (GuardArityMismatch "wrap" 1 2)
 
-        it "extends the FTA row shape with refinements and named guards" $ do
+        it "builds transitions from refinements and named guards" $ do
             let nonNegative = value .>=. (0 :: Int)
-            case Syntax.automaton
-                (State 0)
-                [ Syntax.row
-                    (State 0)
-                    [ Syntax.transition
-                        "sqrt"
-                        true
-                        [State 1]
-                        (`requires` nonNegative)
-                    ]
-                , Syntax.row
-                    (State 1)
-                    [Syntax.transition "zero" nonNegative [] unconstrained]
-                ] of
+                built = do
+                    zero <- automaton [transition "zero" nonNegative [] unconstrained]
+                    automaton [transition "sqrt" true [zero] (`requires` nonNegative)]
+            case built of
                 Left err -> expectationFailure $ show err
-                Right automaton ->
+                Right root ->
                     accepts
                         tableEntailment
-                        automaton
+                        root
                         (Tree.Node (LiquidSymbol "sqrt" true) [Tree.Node (LiquidSymbol "zero" nonNegative) []])
                         >>= (`shouldBe` Yes)
 
-        it "interprets entailments retained by the common interned engine" $ do
+        it "interprets entailments carried by interned edges" $ do
             let nonNegative = value .>=. (0 :: Int)
                 alternatives =
-                    Common.Node
-                        [ Common.Edge (LTA.LiquidSymbol "zero" nonNegative) []
-                        , Common.Edge (LTA.LiquidSymbol "unknown" true) []
+                    Node
+                        [ Transition "zero" nonNegative [] unconstrainedConstraint
+                        , Transition "unknown" true [] unconstrainedConstraint
                         ]
                 root =
-                    Common.Node
-                        [ Common.mkEdge
-                            (LTA.LiquidSymbol "check" true)
+                    Node
+                        [ mkEdge
+                            (LiquidSymbol "check" true)
                             [alternatives, alternatives]
-                            (LTA.semanticConstraint $ LTA.Entails (LTA.path [0]) (LTA.path [1]))
+                            (semanticConstraint $ Entails (path [0]) (path [1]))
                         ]
                 terms =
                     [ Tree.Node (LiquidSymbol "check" true) [left, right]
                     | left <- [Tree.Node (LiquidSymbol "zero" nonNegative) [], Tree.Node (LiquidSymbol "unknown" true) []]
                     , right <- [Tree.Node (LiquidSymbol "zero" nonNegative) [], Tree.Node (LiquidSymbol "unknown" true) []]
                     ]
-            case LTA.fromInterned root of
-                Left err -> expectationFailure $ show err
-                Right automaton -> do
-                    let edges = rights $ flatten $ LTA.toTree automaton
-                    [(LTA.transitionSymbol edge, LTA.transitionRefinement edge) | edge <- edges]
-                        `shouldSatisfy` elem ("zero", nonNegative)
-                    map (LTA.constraintAsGuard . LTA.transitionConstraint) edges
-                        `shouldSatisfy` elem (LTA.Entails (LTA.path [0]) (LTA.path [1]))
-                    mapM (accepts tableEntailment automaton) terms
-                        >>= (`shouldBe` [Yes, Yes, No, Yes])
-                    LTA.denotationAtMost tableEntailment 1 automaton
-                        >>= either (expectationFailure . show) (`shouldMatchList` map (terms !!) [0, 1, 3])
+            validate root `shouldBe` Right ()
+            automatonAlphabet root `shouldSatisfy` Set.member (LiquidSymbol "zero" nonNegative)
+            map (constraintAsGuard . transitionConstraint) (nodeEdges root)
+                `shouldBe` [Entails (path [0]) (path [1])]
+            mapM (accepts tableEntailment root) terms
+                >>= (`shouldBe` [Yes, Yes, No, Yes])
+            denotationAtMost tableEntailment 1 root
+                >>= either (expectationFailure . show) (`shouldMatchList` map (terms !!) [0, 1, 3])
 
-        it "validates recursive guard paths after interned construction" $ do
-            let root = Common.Mu $ \self ->
-                    Common.Node
-                        [ Common.mkEdge
-                            (LTA.LiquidSymbol "loop" true)
+        it "rejects a guard position inside a recursive node" $ do
+            let root = Mu $ \self ->
+                    Node
+                        [ mkEdge
+                            (LiquidSymbol "loop" true)
                             [self]
-                            (LTA.semanticConstraint $ LTA.Satisfies (LTA.path [0]) true)
+                            (semanticConstraint $ Satisfies (path [0]) true)
                         ]
-            case LTA.fromInterned root of
-                Left (LTA.InvalidLiquidAutomaton (LTA.CyclicGuardReference _ target)) ->
-                    target `shouldBe` LTA.path [0]
+            case validate root of
+                Left (CyclicGuardReference _ target) -> target `shouldBe` path [0]
                 other -> expectationFailure $ show other
 
-        it "rejects free recursive references in an interned LTA" $
-            LTA.fromInterned (Common.Rec $ Common.RecUnint 0)
-                `shouldBe` Left (LTA.InvalidInternedGraph Common.OpenNode)
+        it "rejects free recursive references" $
+            validate (Rec $ RecUnint 0) `shouldBe` Left OpenAutomaton

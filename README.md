@@ -23,12 +23,12 @@ same implementation. Each constraint theory interprets its own constraint:
 - `Data.CFTA.Equality` propagates path equalities by reduction and solves them
   by unification during enumeration.
 - `Data.CFTA.Refinement` prunes semantic guards by intersecting and splitting
-  transition states along only the positions each guard inspects. The
-  authoritative result remains an LTA. A separately named lowering can turn
-  residual positive equality conjunctions into `EqConstraints`; constraints
-  outside that fragment stay in the LTA.
-- `Data.CFTA.Refinement.Syntax` owns refinement-labelled transitions whose
-  guards use the paper's complete Boolean constraint language.
+  nodes along only the positions each guard inspects. The authoritative result
+  remains an LTA. Residual positive equalities stay on its transitions as
+  equality classes; constraints outside that fragment stay as guards.
+- `Data.CFTA.Refinement.Guard` builds refinement-labelled transitions whose
+  guards name the constructor arguments and use the paper's complete Boolean
+  constraint language.
 
 The semantic hierarchy is therefore concrete: an FTA has no constraints, an
 ECTA has positive path equalities, and an LTA has the full Boolean equality and

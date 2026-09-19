@@ -328,10 +328,8 @@ applyChildren = (<*>)
 
 -- | The support retained by either compilation path.
 data CompiledSupport
-    = -- | Semantic pruning produced an equality-annotated generic FTA.
-      EqualitySupport !EqualityAutomaton
-    | -- | A pruned LTA retains Boolean equalities interpreted by the symbolic ranker.
-      SymbolicSupport !Automaton
+    = -- | The pruned LTA; a constraint-free one is counted as an ordinary FTA, the rest symbolically.
+      AutomatonSupport !Automaton
     | -- | A grouped relational plan produced native hash-consed ECTA support.
       RelationalSupport !(ECTA.Core.Node Symbol EqConstraints)
 

@@ -92,7 +92,7 @@ pool entries =
 {- | Retain the most specific semantic representatives in each similarity
 class through the core LTA @Similarity@ and @Minimize@ procedures.
 
-The pool is represented as a one-state LTA whose transition refinements are the
+The pool is represented as a one-node LTA whose transition refinements are the
 entry annotations. The projection supplies the non-liquid type class used by
 'refinementSubtypingBy'. Within one class, a subtype replaces its supertype;
 equivalent refinements keep the earlier entry. Incomparable entries remain.
@@ -106,26 +106,19 @@ minimizePoolBy ::
     [Refined a] ->
     IO (Either GeneratorError (LTAGen a))
 minimizePoolBy _ _ [] = pure $ Left EmptyGenerator
-minimizePoolBy entailment similarityKey entries =
-    case mkAutomaton poolState [(poolState, poolTransitions)] of
-        Left err -> pure $ Left $ InvalidSupport err
-        Right automaton -> do
-            inferred <- similarity (refinementSubtypingBy entailment classify) automaton
-            pure $ do
-                related <- first InvalidSimilarity inferred
-                reduced <- first InvalidMinimization $ minimize automaton related
-                let retained =
-                        Set.fromList
-                            [ transitionSymbol transition
-                            | transition <- Map.findWithDefault [] poolState $ automatonTransitions reduced
-                            ]
-                pure . pool $
-                    [ entry
-                    | (symbol, entry) <- zip poolSymbols entries
-                    , Set.member symbol retained
-                    ]
+minimizePoolBy entailment similarityKey entries = do
+    inferred <- similarity (refinementSubtypingBy entailment classify) poolAutomaton
+    pure $ do
+        related <- first InvalidSimilarity inferred
+        reduced <- first InvalidMinimization $ minimize poolAutomaton related
+        let retained = Set.fromList [transitionSymbol transition | transition <- nodeEdges reduced]
+        pure . pool $
+            [ entry
+            | (symbol, entry) <- zip poolSymbols entries
+            , Set.member symbol retained
+            ]
   where
-    poolState = State 0
+    poolAutomaton = Node poolTransitions
     poolSymbols = map poolSymbol [0 :: Int .. length entries - 1]
     poolTransitions =
         [ Transition symbol refinement [] unconstrainedConstraint
@@ -320,19 +313,28 @@ fromLTA maximumHeight automaton =
 
 {- | Import a derived datatype with constructor refinements and liquid guards.
 
-The grammar is bounded before LTA validation. The existing compiler determines
-which terms satisfy the annotations. Its ranks and valid shrink graph remain
+The grammar is bounded, interned, and validated as an LTA. The existing
+compiler determines which terms satisfy the annotations. Its ranks and valid shrink graph remain
 unchanged when the datatype codec supplies the generated Haskell values.
 -}
 fromDatatypeUpToDepth :: Int -> TypedFTA (Refinement, LiquidConstraint) a -> LTAGen a
 fromDatatypeUpToDepth depth datatype =
-    case annotateFTA annotate (FTA.boundDepth depth $ datatypeFTA datatype) of
+    case validate graph of
         Left err -> LTAGen Nothing $ Left $ InvalidSupport err
-        Right graph -> decode <$> fromLTA depth graph
+        Right () -> decode <$> fromLTA depth graph
   where
-    annotate _ transition =
+    bounded = FTA.boundDepth depth $ datatypeFTA datatype
+    graph = nodes Map.! FTA.initialState bounded
+    -- The bounded graph is acyclic and the map is lazy in its values, so
+    -- each state is interned once, on demand.
+    nodes = fmap (Node . map liquidTransition) (FTA.transitionTable bounded)
+    liquidTransition transition =
         let (refinement, constraint) = FTA.transitionConstraint transition
-         in (fromString $ constructorLabel $ FTA.transitionSymbol transition, refinement, constraint)
+         in Transition
+                (fromString $ constructorLabel $ FTA.transitionSymbol transition)
+                refinement
+                (map (nodes Map.!) (FTA.transitionChildren transition))
+                constraint
     decode term =
         case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) $ eraseRefinements term) of
             Just value -> value

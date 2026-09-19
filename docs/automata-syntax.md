@@ -41,40 +41,44 @@ machine, but it would lose precisely this compositional input/output contract.
 
 ## Handwritten automata
 
-An ordinary FTA has no annotation noise:
+Every layer builds the same interned graph. An ordinary FTA has no annotation
+noise, and recursion is `Mu`:
 
 ```haskell
-FTA.automaton expression
-  [ FTA.row expression
-      [ FTA.transition "zero" []
-      , FTA.transition "add" [expression, expression]
-      ]
-  ]
+expression = Mu $ \self ->
+  Node
+    [ Edge "zero" []
+    , Edge "add" [self, self]
+    ]
 ```
 
-An FTA view carrying ECTA constraints uses the ECTA namespace:
+An ECTA carries its equality classes on the edge:
 
 ```haskell
-ECTA.transition "pair" [atom, atom]
+mkEdge "pair" [atom, atom]
   (mkEqConstraints [[path [0], path [1]]])
 ```
 
-The underlying graph remains `Data.CFTA`, but `EqConstraints` and its
+The graph is the same `Node symbol constraint`, but `EqConstraints` and its
 construction syntax belong to the equality layer rather than to the ordinary
 FTA API.
 
-An LTA adds its refinement label and lets the guard name child positions:
+An LTA adds its refinement label and lets the guard name child positions.
+`transition` and `automaton` come from `Data.CFTA.Refinement.Guard`:
 
 ```haskell
-LTA.transition "sqrt" nonNegative [integer]
-  (\argument -> argument `requires` nonNegative)
+automaton
+  [ transition "sqrt" nonNegative [integer]
+      (\argument -> argument `requires` nonNegative)
+  ]
 ```
 
 A named guard must take one argument per direct child, including unused
 arguments. `transition` retains an argument-count error for `automaton` to
-report. `automatonWithFinals` accepts any final-state set, including the empty
-set. Programmatic code can still construct raw `Data.CFTA.Refinement.Transition`
-values and paths.
+report, and `automaton` validates the node. The paper's final-state set is
+the `union` of the accepting nodes, including the empty union. Programmatic
+code can still construct raw `Data.CFTA.Refinement.Transition` values and
+paths.
 
 ## QuickCheck generators
 

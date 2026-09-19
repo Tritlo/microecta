@@ -57,7 +57,7 @@ import qualified Data.CFTA.Template as Template
 | Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
 | Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
 | Check membership | `FTA.accepts`, `Common.nodeRepresentsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
-| List accepted terms | `FTA.terms`, `Enumeration.terms`, `Enumeration.plainTerms` | Every term, by depth. `terms` solves constraints and stops at recursion; the other two ignore constraints and give an infinite list for a recursive grammar. |
+| List accepted terms | `FTA.terms`, `Enumeration.terms`, `Enumeration.plainTerms`, `Enumeration.plainTermsAtMost` | Every term, by depth. `terms` solves constraints and stops at recursion; `FTA.terms` and `plainTerms` ignore constraints and give an infinite list for a recursive grammar; `plainTermsAtMost` stops at a depth. |
 | Restrict to a pattern | `Template.restrictFTA`, `Template.restrict` | A grammar for the terms that match a `Template`. |
 | List terms a check accepts | `FTA.termsUpToM` | The terms up to a depth, each checked once by a monadic predicate that sees its transition. |
 | Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
@@ -620,29 +620,36 @@ defines that helper.
 
 ## Refinements
 
-`Data.CFTA.Refinement` is the liquid tree automata layer over `Data.CFTA`.
-It uses the equality layer for cached positive equalities and the optional
-lowering to an equality automaton.
+`Data.CFTA.Refinement` is the liquid tree automata layer. An LTA is an
+interned graph, `Node LiquidSymbol LiquidConstraint`, built with the same
+`Node`, `Edge`, `mkEdge`, and `Mu` as an ordinary or an equality-constrained
+automaton. The module re-exports `Data.CFTA.Interned`, so one import gives
+the constructors, the views, and the LTA operations. It uses the equality
+layer for the path equalities of a guard.
 Concrete annotated terms use `Data.Tree.Tree LiquidSymbol`. Construct a node
 with `Tree.Node (LiquidSymbol symbol refinement) children`. The label retains
 strict symbol and refinement fields. The tree label and child list use the
 standard lazy `Data.Tree` representation. `eraseRefinements` maps each label
 to its constructor symbol.
 
-A transition has a ranked constructor, its Liquid Fixpoint refinement, child
-states, and the paper's Boolean constraint language. Syntactic `Same` and semantic `Entails`
-are LTA atoms. Guards support substitution, negation, conjunction, and disjunction.
-Refinement implication is discharged through the small `Entailment`
-boundary; `Data.CFTA.Refinement.LiquidFixpoint.withZ3` supplies the reusable
-Z3 implementation.
+A transition is an edge whose symbol is a `LiquidSymbol`, a ranked constructor
+with its Liquid Fixpoint refinement, and whose constraint is the paper's
+Boolean constraint language over child positions. The pattern
+`Transition symbol refinement children constraint` builds and matches one.
+Syntactic `Same` and semantic `Entails` are LTA atoms. Guards support
+substitution, negation, conjunction, and disjunction. Refinement implication
+is discharged through the small `Entailment` boundary;
+`Data.CFTA.Refinement.LiquidFixpoint.withZ3` supplies the reusable Z3
+implementation.
 
-`LiquidConstraint` implements the common engine's pure `Constraint` interface.
-You can construct `Data.CFTA.Interned.Node LiquidSymbol LiquidConstraint`
-with the same interned nodes and edges used by FTA and ECTA. `fromInterned`
-retains its refinements and guards, assigns explicit state names, and runs the
-normal LTA validation. It rejects open graphs and guards that inspect recursive
-states. Construction does not call the solver. LTA recognition, pruning, and
-semantic intersection remain operations of this layer.
+`LiquidConstraint` implements the common engine's pure `Constraint` interface,
+so `union`, `intersect`, `boundDepth`, and the enumerator work on an LTA
+without conversion. Construction does not call the solver and does not
+validate. `validate` checks that the graph is closed, that each ranked symbol
+keeps one arity, and that no guard inspects a position whose node is
+recursive. The operations that need these properties call it and report an
+`AutomatonError`. Recognition, pruning, and semantic intersection remain
+operations of this layer.
 
 Position substitutions apply simultaneously within each scope and avoid bound
 variable capture in refinement expressions. Actual refinements remain facts
@@ -681,51 +688,48 @@ children. The generator DSL also offers a compressed convention in which a
 program constructor carries its result refinement directly. That convention is
 a surface encoding, not the definition of LTA.
 
-`mkAutomatonWithFinals` accepts the paper's arbitrary final-state set, including
-the empty set. It normalizes multiple final states to one fresh state whose row
-is the union of the original final rows. An empty set becomes a fresh final
-state with no transitions; a singleton needs no normalization. These cases
-preserve Figure 6's denotation. The input state set can also be empty when the
-final-state set is empty.
+The paper's arbitrary final-state set is the `union` of the accepting nodes.
+The empty union is `EmptyNode`, whose denotation is empty. This preserves
+Figure 6's denotation without a fresh state or epsilon transitions.
 
 The literal Figure 12 shape is therefore ordinary Haskell data:
 
 ```haskell
 figure12 =
-  mkAutomaton qf
-    [ (qf,
-        [ Transition "f" true [qPredicate, qPredicate]
-            (semanticConstraint (Entails (path [0]) (path [1])))
-        ])
-    , (qPredicate,
+  Node
+    [ Transition "f" true [predicate, predicate]
+        (semanticConstraint (Entails (path [0]) (path [1])))
+    ]
+  where
+    predicate =
+      Node
         [ Transition "predicate" phi1 [] unconstrainedConstraint
         , Transition "predicate" phi2 [] unconstrainedConstraint
         , Transition "predicate" phi3 [] unconstrainedConstraint
-        ])
-    ]
+        ]
 ```
 
 Here the three `(predicate, phi)` pairs are three distinct nullary alphabet
 symbols. They are not a Haskell pool hidden behind `relate`.
 
-Handwritten FTAs and LTAs deliberately have the same shape:
+A handwritten LTA has the shape of a handwritten interned FTA. A named guard
+replaces the raw constraint, and `Data.CFTA.Refinement.Guard` checks it
+against the children:
 
 ```haskell
-import Data.CFTA.Refinement.Guard (requires, unconstrained)
-import Data.CFTA.Refinement.Expression ((.>=.))
-import qualified Data.CFTA.Refinement.Syntax as LTA
+import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (value, (.>=.))
+import Data.CFTA.Refinement.Guard (automaton, requires, transition, unconstrained)
 
-numbers =
-  LTA.automaton expression
-    [ LTA.row expression
-        [ LTA.transition "sqrt" nonNegative [number]
-            (\argument -> argument `requires` nonNegative)
-        ]
-    , LTA.row number
-        [LTA.transition "zero" nonNegative [] unconstrained]
+numbers :: Either AutomatonError Automaton
+numbers = do
+  number <- automaton [transition "zero" nonNegative [] unconstrained]
+  automaton
+    [ transition "sqrt" nonNegative [number]
+        (\argument -> argument `requires` nonNegative)
     ]
   where
-    nonNegative = value .>=. 0
+    nonNegative = value .>=. (0 :: Int)
 ```
 
 The lambda receives symbolic child positions in transition order. Useful guard
@@ -743,27 +747,30 @@ common paper pattern `position Entails literalPredicate`. It avoids adding an
 otherwise uninteresting predicate child to every surface DSL node; the literal
 Figure 12 encoding can continue to use `Entails` between two tree positions.
 
-Raw paths and guard constructors remain available for generated automata.
-Named `Data.CFTA.Refinement.Syntax.transition` values retain construction errors until
-`automaton` checks their rows. Wrap a raw `Data.CFTA.Refinement.Transition` in `Right` to
-include it in a named-syntax row.
+Raw paths and guard constructors remain available for generated automata. A
+named `transition` retains its construction error until `automaton` checks the
+node. Wrap a raw `Transition` in `Right` to include it in the same list.
 
 `denotationAtMost` is the small, materializing implementation of Figure 6. It
-works for cyclic LTAs under an explicit tree-height bound and is the semantics
-oracle against which optimized pruning and generation can be checked.
+bounds the graph with `boundDepth`, so it works for cyclic LTAs under an
+explicit tree-height bound, and it is the semantics oracle against which
+optimized pruning and generation can be checked.
 
 ### Visualize a refined automaton
 
 `toTree` converts the reachable graph to a finite tree with typed labels:
 
 ```haskell
-toTree :: Automaton -> Tree (Either (StateView State) Transition)
+toTree ::
+    Automaton ->
+    Either (FTAViewError LiquidSymbol) (Tree (Either (StateView Automaton) Transition))
 ```
 
-`Left` contains a state definition or reference. `Right` contains the complete
-transition, including its refinement and constraint. Map these labels to
-strings before using `drawTree` from `containers`. This example defines its own
-renderer and uses Liquid Fixpoint's `showpp` for refinement formulas:
+`Left` contains a node definition or reference. `Right` contains the complete
+transition, including its refinement and constraint. An open graph gives
+`OpenNode`. Map these labels to strings before using `drawTree` from
+`containers`. This example defines its own renderer and uses Liquid Fixpoint's
+`showpp` for refinement formulas:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -778,31 +785,21 @@ import Data.Tree (drawTree)
 import Language.Fixpoint.Types (showpp)
 
 -- | A square root whose argument must have a nonnegative refinement.
-graph :: Either AutomatonError Automaton
+graph :: Automaton
 graph =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition
-                    "sqrt"
-                    true
-                    [State 1]
-                    (semanticConstraint (Satisfies (path [0]) nonNegative))
-                ]
-            )
-        ,
-            ( State 1
-            , [Transition "zero" nonNegative [] unconstrainedConstraint]
-            )
+    Node
+        [ Transition
+            "sqrt"
+            true
+            [Node [Transition "zero" nonNegative [] unconstrainedConstraint]]
+            (semanticConstraint (Satisfies (path [0]) nonNegative))
         ]
   where
     nonNegative = value .>=. (0 :: Int)
 
--- | Show state names, reference markers, and occurrence locations.
-renderNode :: StateView State -> String
-renderNode view = prefix ++ "q" ++ show (unState (viewNode view)) ++ " @" ++ renderPath (viewPath view)
+-- | Show reference markers and occurrence locations.
+renderNode :: StateView Automaton -> String
+renderNode view = prefix ++ "node @" ++ renderPath (viewPath view)
   where
     prefix = case view of
         Expanded{} -> ""
@@ -834,11 +831,11 @@ renderTransition transition =
                 ++ "]"
         guard -> " [" ++ show guard ++ "]"
 
--- | Draw the graph with the chosen state and transition labels.
+-- | Draw the graph with the chosen node and transition labels.
 main :: IO ()
 main = do
-    automaton <- either (fail . show) pure graph
-    putStr $ drawTree $ fmap (either renderNode renderTransition) $ toTree automaton
+    tree <- either (fail . show) pure (toTree graph)
+    putStr $ drawTree $ fmap (either renderNode renderTransition) tree
 ```
 
 Add `microcfta`, `containers`, `text`, and `liquid-fixpoint` to the component's
@@ -853,11 +850,11 @@ cabal exec -- runghc -package=microcfta -package=liquid-fixpoint Main.hs
 This program prints:
 
 ```text
-q0 @root
+node @root
 |
 `- sqrt [refinement(0) entails v >= 0]
    |
-   `- q1 @0:0
+   `- node @0:0
       |
       `- zero {v >= 0}
 ```
@@ -868,14 +865,14 @@ refinements and `Top` guards. `constraintAsGuard` recovers the complete
 constraint, including cached equalities. Guards other than `Satisfies` use a
 `Show` fallback, so the renderer retains every obligation.
 
-`Recursive` ends a cycle; `Shared` refers to a state expanded earlier. The
-example displays these as `mu qN` and `ref qN`. `viewNode` retains the original
-state, while `viewPath` locates each occurrence, including references.
+`Recursive` ends a cycle; `Shared` refers to a node expanded earlier. The
+example displays these as `mu node` and `ref node`. `viewNode` retains the
+original node, while `viewPath` locates each occurrence, including references.
 `ViewPath` is `[(Int, Int)]`; each pair selects a zero-based alternative and its
 zero-based child. The root is `[]`, displayed as `@root`. `@0:1/2:0` follows
 child 1 of alternative 0, then child 0 of alternative 2.
 
-View paths are graph-view locations, not persistent state identities. They
+View paths are graph-view locations, not node identities. They
 include alternative indexes and differ from the child-only paths in guards
 and equality constraints. `map snd` gives the child-only route for one
 occurrence; the finite view does not list every route through a shared graph.
@@ -884,36 +881,40 @@ This view does not enumerate terms or call a solver.
 
 ### Cycles and pruning
 
-Cycles are legal. A guard may not inspect a position whose state participates
-in a cycle, matching the paper's restriction that keeps solver obligations
-finite. `semanticIntersection` exposes Equation 4 directly: it retains the
-antecedent transition only when that refinement entails the consequent. It is
+Cycles are legal. A guard may not inspect a position whose node is recursive,
+matching the paper's restriction that keeps solver obligations finite;
+`validate` reports such a guard as `CyclicGuardReference`.
+`semanticIntersection` exposes Equation 4 directly: it retains the antecedent
+transition only when that refinement entails the consequent. It is
 directional, not a symmetric logical meet.
 
 `prune solver automaton` implements both rules behind the paper's pruning pass
-and returns another LTA.
-For `P-Syn-Eq`, it uses the ordinary `Data.CFTA.intersectWith` product to
-narrow the first position to the structural language also admitted at the
-second. For `P-Sem-Ent`, it partitions transition sets at the observed positions
-by refinement; actual/formal positions are partitioned by both refinement and
-value-naming symbol. It retains precisely the combinations whose entailment
-succeeds, replaces that semantic guard with `Top`, and removes newly dead
-transitions to a fixed point. Nested positions produce shared state splits;
-complete accepted terms are never constructed.
+and returns another LTA. It validates the automaton first. Nodes are pruned
+bottom up, and a node shared by several transitions is pruned once. For
+`P-Syn-Eq`, each transition narrows the positions its equalities relate to
+their intersection, through the same reduction the equality layer uses. For
+`P-Sem-Ent`, it partitions the nodes at the observed positions by refinement;
+actual/formal positions are partitioned by both refinement and value-naming
+symbol. It retains precisely the combinations whose entailment succeeds,
+replaces that semantic guard with `Top`, and drops a transition whose child
+became empty. Nested positions produce shared node splits; complete accepted
+terms are never constructed. A recursive node is pruned to a fixed point,
+because a guard inside its body may observe through the node itself.
 
 Pruning preserves missing observations until it evaluates the complete Boolean
 guard. A missing path in an optional branch does not discard a candidate.
 Semantic guards that need equality of complete compound actuals can remain on
 the LTA: sparse root observations cannot always determine whether two actuals
 share a value. In that case pruning retains the original transition and guard.
-`accepts` and `denotationAtMost` continue to evaluate the complete terms.
+`accepts` and `denotationAtMost` continue to evaluate the complete terms. When
+the solver cannot decide a guard whose actuals are known, pruning stops with
+`PruneUnknown` and the transition.
 
-`lowerToEqualityAutomaton` is a separate optimization. After `prune`, it
-lowers residual `Top`, positive `Same`, and conjunctions of those atoms to
-`EqConstraints`. Product intersection can remove disjoint
-choices, but equality between independently selected arbitrary subtrees is not
-in general a regular tree language. A negated, disjunctive, or still-semantic
-constraint remains an LTA and makes this optional lowering fail explicitly.
+Residual positive equalities stay on a transition as its `equalities`. The
+enumerator solves them by unification, and the generator counts them
+symbolically. A negated, disjunctive, or still-semantic constraint stays as a
+guard that complete terms are checked against; equality between independently
+selected arbitrary subtrees is not in general a regular tree language.
 
 ### Similarity and minimization
 
@@ -921,7 +922,7 @@ constraint remains an LTA and makes this optional lowering fail explicitly.
 paper's S-Trans/S-Eq and M-Trans/M-LTA rules. A `Subtyping` callback receives
 the current LTA and compares the type sub-automata associated with two program
 transitions. This supports source languages that represent an expression's type
-as a distinguished child state, as the paper does:
+as a distinguished child node, as the paper does:
 
 ```haskell
 let sourceSubtyping = Subtyping $ \current left right ->
@@ -946,30 +947,32 @@ Right reduced <- pure $ minimize automaton related
 ```
 
 `similarityPairs` exposes directed `(subtype, supertype)` pairs as
-`TransitionId`s. A `Similarity` also retains the exact source automaton.
-`minimize` returns `StaleSimilarity` if transition contents, states, or the
-accepting state have changed, including when the relation is empty.
+`TransitionId`s; each names the node and the transition. `similarity` validates
+the automaton first and reports `InvalidSimilarityAutomaton` otherwise. A
+`Similarity` also retains the exact source automaton. `minimize` returns
+`StaleSimilarity` if the automaton is a different node, including when the
+relation is empty.
 
-Minimization applies a finite schedule of the paper's M-Trans rule. It resolves
-transitive representatives, then considers each selected original supertype
-once in table order. Each step retains existing incoming transitions and adds
-copies that replace the supertype's target state with the representative's
-target state in the children. Repeated occurrences of that state change
+Minimization applies a finite schedule of the paper's M-Trans rule on the
+explicit view of the graph, then interns the result, so the returned automaton
+is again a node. It resolves transitive representatives, then considers each
+selected original supertype once in node order. Each step retains existing
+incoming transitions and adds copies that replace the supertype's node with the
+representative's node in the children. Repeated occurrences of that node change
 together. Later steps can copy transitions added by earlier steps. The step
 removes only the selected original supertype transition and deduplicates equal
-transitions. Shared target rows retain unrelated alternatives. One target can
-have multiple representatives, and final transitions can participate.
+transitions. A shared target node retains unrelated alternatives. One target can
+have multiple representatives, and root transitions can participate.
 
-Equivalent types keep the first transition in table order. When incomparable
+Equivalent types keep the first transition in node order. When incomparable
 subtypes can replace one supertype, the first inferred dominator selects its
-representative. The state set and normalized final state stay unchanged. This
-schedule does not promise a globally minimal automaton or an unchanged term
-language.
+representative. The root stays the root. This schedule does not promise a
+globally minimal automaton or an unchanged term language.
 
 The complete batch falls back to the original automaton if proposed redirects
 make a representative depend on its removed target, a representative loses all
-finite structural derivations, the last finite structural final derivation is
-lost, or a copied guard would inspect a cyclic state. Successful batches remove
+finite structural derivations, the last finite structural root derivation is
+lost, or a copied guard would inspect a recursive node. Successful batches remove
 transitions with structurally unproductive children. These checks use graph
 productivity; they do not prove that arbitrary transition guards are satisfiable.
 
@@ -989,7 +992,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
 | `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
-| `Data.CFTA.Refinement.Guard`, `Data.CFTA.Refinement.Syntax` | Guard syntax over named child positions and handwritten transition rows. |
+| `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, and `transition` and `automaton`, which check a named guard against the children. |
 | `Data.CFTA.Refinement.Expression` | Small helpers over Liquid Fixpoint refinement expressions. |
 | `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |

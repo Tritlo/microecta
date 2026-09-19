@@ -118,9 +118,11 @@ spec = do
                     let imported = Common.fromFTA nat :: Common.PlainNode String
                     imported `shouldBe` Common.createMu (\self -> Common.Node [Common.Edge "z" [], Common.Edge "s" [self]])
                     Common.numNestedMu (Common.fromFTA (Automaton.boundDepth 2 nat) :: Common.PlainNode String) `shouldBe` 0
-                    forM_ [0 .. 3] $ \depth ->
+                    forM_ [0 .. 3] $ \depth -> do
                         Enumeration.terms (Common.boundDepth depth imported)
                             `shouldMatchList` Automaton.terms (Automaton.boundDepth depth nat)
+                        Enumeration.plainTermsAtMost depth imported
+                            `shouldBe` Automaton.terms (Automaton.boundDepth depth nat)
 
         it "imports mutually recursive states with nested binders" $ do
             let rows =

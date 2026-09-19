@@ -1,9 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | Guard syntax in terms of constructor arguments.
+{- | Guard syntax in terms of constructor arguments, and the transition
+builders that check it against the constructor's children.
+-}
 module Data.CFTA.Refinement.Guard (
+    transition,
+    automaton,
     Position,
     GuardBuilder (buildGuardFrom, guardArgumentCount),
     buildGuard,
@@ -19,20 +24,25 @@ module Data.CFTA.Refinement.Guard (
     allOf,
     anyOf,
     notGuard,
-
-    -- * Compatibility aliases
 ) where
 
 import Data.CFTA.Refinement (
+    Automaton,
+    AutomatonError (GuardArityMismatch),
     Guard (Entails, Not, Or, Same, Satisfies, Substitute),
     LiquidConstraint,
+    Node (Node),
     Refinement,
     Substitution (Substitution),
+    Symbol,
+    Transition,
     combineConstraints,
     constraintAsGuard,
     path,
     semanticConstraint,
     unconstrainedConstraint,
+    validate,
+    pattern Transition,
  )
 import Data.Maybe (fromMaybe)
 import Numeric.Natural (Natural)
@@ -154,3 +164,31 @@ anyOf = semanticConstraint . Or . map constraintAsGuard
 -- | Negate one complete LTA constraint, including syntactic equality.
 notGuard :: LiquidConstraint -> LiquidConstraint
 notGuard = semanticConstraint . Not . constraintAsGuard
+
+{- | Build a transition from a guard that names the constructor arguments.
+
+A guard written as a function receives one position per child, in order, and
+the construction fails when the counts differ. 'automaton' collects the
+checked transitions of one node.
+-}
+transition ::
+    (GuardBuilder guard) =>
+    Symbol ->
+    Refinement ->
+    [Automaton] ->
+    guard ->
+    Either AutomatonError Transition
+transition symbol refinement children guard =
+    case guardArgumentCount guard of
+        Just supplied
+            | supplied /= length children ->
+                Left $ GuardArityMismatch symbol (length children) supplied
+        _ -> Right $ Transition symbol refinement children (buildGuard guard)
+
+-- | Collect checked transitions into one validated node.
+automaton :: [Either AutomatonError Transition] -> Either AutomatonError Automaton
+automaton transitions = do
+    alternatives <- sequence transitions
+    let node = Node alternatives
+    validate node
+    pure node

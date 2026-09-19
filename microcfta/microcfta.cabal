@@ -96,7 +96,6 @@ library
     Data.CFTA.Refinement.LiquidFixpoint
     Data.CFTA.Refinement.Minimize
     Data.CFTA.Refinement.Prune
-    Data.CFTA.Refinement.Syntax
     Data.CFTA.Refinement.Types
     Data.CFTA.Refinement.Verdict
     Data.CFTA.Symbol

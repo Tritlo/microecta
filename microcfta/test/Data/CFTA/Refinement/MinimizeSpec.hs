@@ -2,28 +2,28 @@
 
 module Data.CFTA.Refinement.MinimizeSpec (spec) where
 
+import qualified Data.Set as Set
 import qualified Data.Tree as Tree
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldSatisfy)
 
-import qualified Data.Map.Strict as Map
-
-import qualified Data.CFTA as FTA
 import Data.CFTA.Refinement (
     Automaton,
-    AutomatonError,
     Entailment,
     Guard (Satisfies),
     LiquidSymbol (LiquidSymbol),
     MinimizeError (StaleSimilarity),
-    State (State),
+    Node (Mu, Node),
     Subtyping (..),
+    Symbol,
+    Transition,
     TransitionId (TransitionId),
     Verdict (No),
-    automatonInitial,
-    automatonTransitions,
+    automatonAlphabet,
     denotationAtMost,
     minimize,
-    mkAutomaton,
+    mkEdge,
+    nodeEdges,
+    nodeMapChildren,
     path,
     reduce,
     refinementSubtypingBy,
@@ -44,187 +44,114 @@ spec :: Spec
 spec =
     describe "similarity and minimization" $ do
         it "infers transition similarity and removes the supertype" $
-            withZ3 declarations $ \solver ->
-                case similarAtoms of
+            withZ3 declarations $ \solver -> do
+                inferred <- similarity (atomSubtyping solver) similarAtoms
+                case inferred of
                     Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        inferred <- similarity (atomSubtyping solver) automaton
-                        case inferred of
-                            Left err -> expectationFailure $ show err
-                            Right related -> do
-                                similarityPairs related
-                                    `shouldBe` [(TransitionId (State 0) 1, TransitionId (State 0) 0)]
-                                case minimize automaton related of
-                                    Left err -> expectationFailure $ show err
-                                    Right reduced ->
-                                        map
-                                            transitionSymbol
-                                            (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                                            `shouldBe` ["natural"]
+                    Right related -> do
+                        similarityPairs related
+                            `shouldBe` [(TransitionId similarAtoms naturalAtom, TransitionId similarAtoms unknownAtom)]
+                        minimize similarAtoms related `shouldBe` Right (Node [naturalAtom])
 
         it "rejects a similarity snapshot when transition contents change at the same addresses" $
-            withZ3 declarations $ \solver ->
-                case similarAtoms of
+            withZ3 declarations $ \solver -> do
+                inferred <- similarity (atomSubtyping solver) similarAtoms
+                case inferred of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        inferred <- similarity (atomSubtyping solver) original
-                        case inferred of
-                            Left err -> expectationFailure $ show err
-                            Right related -> do
-                                let changed = FTA.mapConstraints (const $ semanticConstraint $ Satisfies (path []) Fixpoint.PTrue) original
-                                minimize changed related `shouldBe` Left StaleSimilarity
+                    Right related -> do
+                        let changed =
+                                nodeMapChildren
+                                    (\edge -> mkEdge (transitionLabel edge) [] (semanticConstraint $ Satisfies (path []) Fixpoint.PTrue))
+                                    similarAtoms
+                        minimize changed related `shouldBe` Left StaleSimilarity
 
-        it "rejects a similarity snapshot when only the accepting state changes" $
-            withZ3 declarations $ \solver ->
-                case separatedSimilarAtoms of
+        it "rejects a similarity snapshot when only the root changes" $
+            withZ3 declarations $ \solver -> do
+                inferred <- similarity (atomSubtyping solver) separatedSimilarAtoms
+                case inferred of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        inferred <- similarity (atomSubtyping solver) original
-                        case (inferred, mkAutomaton (State 1) $ Map.toList $ automatonTransitions original) of
-                            (Right related, Right changed) -> minimize changed related `shouldBe` Left StaleSimilarity
-                            (Left err, _) -> expectationFailure $ show err
-                            (_, Left err) -> expectationFailure $ show err
+                    Right related -> minimize naturalNode related `shouldBe` Left StaleSimilarity
 
-        it "checks snapshots even when the similarity set is empty" $
-            case (mkAutomaton (State 0) [(State 0, [])], mkAutomaton (State 1) [(State 1, [])]) of
-                (Right original, Right changed) -> do
-                    inferred <- similarity (Subtyping $ \_ _ _ -> pure No) original
-                    case inferred of
-                        Left err -> expectationFailure $ show err
-                        Right related -> minimize changed related `shouldBe` Left StaleSimilarity
-                (Left err, _) -> expectationFailure $ show err
-                (_, Left err) -> expectationFailure $ show err
+        it "checks snapshots even when the similarity set is empty" $ do
+            inferred <- similarity (Subtyping $ \_ _ _ -> pure No) similarAtoms
+            case inferred of
+                Left err -> expectationFailure $ show err
+                Right related -> do
+                    similarityPairs related `shouldBe` []
+                    minimize naturalNode related `shouldBe` Left StaleSimilarity
 
         it "redirects incoming edges to the retained subtype target" $
-            withZ3 declarations $ \solver ->
-                case separatedSimilarAtoms of
+            withZ3 declarations $ \solver -> do
+                reducedResult <- reduce solver (atomSubtyping solver) separatedSimilarAtoms
+                case reducedResult of
                     Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        reducedResult <- reduce solver (atomSubtyping solver) automaton
-                        case reducedResult of
-                            Left err -> expectationFailure $ show err
-                            Right reduced -> do
-                                map
-                                    transitionChildren
-                                    (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                                    `shouldBe` [[State 1], [State 1]]
-                                Map.findWithDefault [] (State 2) (automatonTransitions reduced)
-                                    `shouldBe` []
+                    Right reduced -> do
+                        map transitionChildren (nodeEdges reduced) `shouldMatchList` [[naturalNode], [naturalNode]]
+                        automatonAlphabet reduced `shouldSatisfy` Set.notMember (LiquidSymbol "unknown" Fixpoint.PTrue)
 
         it "keeps unrelated alternatives at a removed transition's target" $
             withZ3 declarations $ \solver ->
                 checkMinimization (atomSubtyping solver) sharedSupertypeState $ \reduced -> do
-                    map transitionSymbol (Map.findWithDefault [] (State 2) $ automatonTransitions reduced)
-                        `shouldBe` ["other"]
-                    map transitionChildren (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                        `shouldBe` [[State 1], [State 2], [State 1]]
+                    map transitionChildren (nodeEdges reduced)
+                        `shouldMatchList` [[naturalNode], [Node [otherAtom]], [naturalNode]]
                     denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
 
-        it "does not strand the paper's final state during minimization" $
-            withZ3 declarations $ \solver ->
-                case finalStateSupertype of
+        it "does not strand the root during minimization" $
+            withZ3 declarations $ \solver -> do
+                inferred <- similarity (atomSubtyping solver) finalStateSupertype
+                case inferred of
                     Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        inferred <- similarity (atomSubtyping solver) automaton
-                        case inferred of
-                            Left err -> expectationFailure $ show err
-                            Right related ->
-                                minimize automaton related
-                                    `shouldBe` Right automaton
+                    Right related -> minimize finalStateSupertype related `shouldBe` Right finalStateSupertype
 
-        it "can remove a final transition when another final derivation remains" $
+        it "can remove a root transition when another root derivation remains" $
             withZ3 declarations $ \solver ->
                 checkMinimization (atomSubtyping solver) finalStateWithAlternative $ \reduced -> do
-                    automatonInitial reduced `shouldBe` State 2
+                    reduced `shouldBe` Node [otherAtom]
                     denotationAtMost solver 0 reduced
                         >>= (`shouldBe` Right [Tree.Node (LiquidSymbol "other" Fixpoint.PTrue) []])
 
-        it "allows multiple representatives for one target and substitutes repeated states together" $
+        it "allows multiple representatives for one target and substitutes repeated nodes together" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) multipleRepresentatives $ \reduced -> do
-                    map transitionSymbol (Map.findWithDefault [] (State 1) $ automatonTransitions reduced)
-                        `shouldBe` ["other"]
-                    map transitionChildren (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                        `shouldBe` [[State 1, State 1], [State 2, State 2], [State 3, State 3]]
-                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
+                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
+                        `shouldMatchList` [[Node [otherAtom], Node [otherAtom]], [specificANode, specificANode], [specificBNode, specificBNode]]
+                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 5)
 
-        it "composes substitutions for distinct source states on earlier copies" $
+        it "composes substitutions for distinct source nodes on earlier copies" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) composedRepresentatives $ \reduced -> do
-                    map transitionChildren (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                        `shouldBe` [[State 1, State 2], [State 3, State 2], [State 1, State 4], [State 3, State 4]]
-                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 4)
+                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "pair"]
+                        `shouldMatchList` [ [otherANode, otherBNode]
+                                          , [specificANode, otherBNode]
+                                          , [otherANode, specificBNode]
+                                          , [specificANode, specificBNode]
+                                          ]
+                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 6)
 
         it "keeps a redirected copy when its original supertype transition is removed" $
             withZ3 declarations $ \solver ->
                 checkMinimization (twoClassSubtyping solver) copiedSupertype $ \reduced -> do
-                    map transitionChildren (Map.findWithDefault [] (State 2) $ automatonTransitions reduced)
-                        `shouldBe` [[State 3]]
-                    map transitionChildren (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                        `shouldBe` [[State 2], [State 4]]
-                    denotationAtMost solver 2 reduced >>= (\terms -> fmap length terms `shouldBe` Right 2)
-
-        it "deduplicates equivalent original transitions without removing another alternative" $
-            withZ3 declarations $ \solver -> do
-                let duplicates =
-                        mkAutomaton
-                            (State 0)
-                            [
-                                ( State 0
-                                ,
-                                    [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                                    , Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                                    , Transition "other" Fixpoint.PTrue [] unconstrainedConstraint
-                                    ]
-                                )
-                            ]
-                checkMinimization (atomSubtyping solver) duplicates $ \reduced ->
-                    map transitionSymbol (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                        `shouldBe` ["unknown", "other"]
+                    [transitionChildren edge | edge <- nodeEdges reduced, transitionSymbol edge == "goal"]
+                        `shouldMatchList` [[Node [Transition "unknown-b" Fixpoint.PTrue [specificANode] unconstrainedConstraint]], [specificBNode]]
+                    denotationAtMost solver 2 reduced >>= (\terms -> fmap length terms `shouldBe` Right 4)
 
         it "applies M-Trans transitively over one similarity snapshot" $
             withZ3 declarations $ \solver ->
-                case transitiveSimilarAtoms of
-                    Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        inferred <- similarity (threeAtomSubtyping solver) automaton
-                        case inferred of
-                            Left err -> expectationFailure $ show err
-                            Right related ->
-                                case minimize automaton related of
-                                    Left err -> expectationFailure $ show err
-                                    Right reduced -> do
-                                        map
-                                            transitionChildren
-                                            (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                                            `shouldBe` replicate 3 [State 1]
-                                        Map.findWithDefault [] (State 2) (automatonTransitions reduced)
-                                            `shouldBe` []
-                                        Map.findWithDefault [] (State 3) (automatonTransitions reduced)
-                                            `shouldBe` []
+                checkMinimization (threeAtomSubtyping solver) transitiveSimilarAtoms $ \reduced ->
+                    map transitionChildren (nodeEdges reduced) `shouldBe` replicate 3 [Node [specificAtom]]
 
-        it "uses the first inferred representative for overlapping subtypes" $
+        it "uses one inferred representative for overlapping subtypes" $
             withZ3 declarations $ \solver ->
-                case overlappingSimilarAtoms of
-                    Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        inferred <- similarity (overlappingAtomSubtyping solver) automaton
-                        case inferred of
-                            Left err -> expectationFailure $ show err
-                            Right related ->
-                                case minimize automaton related of
-                                    Left err -> expectationFailure $ show err
-                                    Right reduced ->
-                                        map
-                                            transitionChildren
-                                            (Map.findWithDefault [] (State 0) $ automatonTransitions reduced)
-                                            `shouldBe` [[State 1], [State 2], [State 1]]
+                checkMinimization (overlappingAtomSubtyping solver) overlappingSimilarAtoms $ \reduced -> do
+                    length (nodeEdges reduced) `shouldBe` 3
+                    map transitionChildren (nodeEdges reduced) `shouldSatisfy` notElem [Node [unknownAtom]]
+                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
 
         it "retains a base required by a stricter representative" $
             withZ3 declarations $ \solver ->
                 checkRetainedBatch solver (threeAtomSubtyping solver) dependentRepresentative 1
 
-        it "retains a base required by a recursive alternative in the same row" $
+        it "retains a base required by a recursive alternative in the same node" $
             withZ3 declarations $ \solver ->
                 checkRetainedBatch solver (threeAtomSubtyping solver) recursiveRepresentative 4
 
@@ -234,41 +161,35 @@ spec =
 
         it "retains batches whose combined redirects create a dependency cycle" $
             withZ3 declarations $ \solver ->
-                checkRetainedBatch
-                    solver
-                    (twoClassSubtyping solver)
-                    mutuallyDependentRepresentatives
-                    1
+                checkRetainedBatch solver (twoClassSubtyping solver) mutuallyDependentRepresentatives 1
 
-        it "retains a batch whose copied guard would inspect a cyclic target" $
+        it "retains a batch whose copied guard would inspect a recursive node" $
             withZ3 declarations $ \solver ->
-                checkRetainedBatch solver (atomSubtyping solver) cyclicGuardRepresentative 1
+                checkRetainedBatch solver (atomSubtyping solver) cyclicGuardRepresentative 4
 
--- | Inspect a successful schedule while reporting construction and inference failures.
-checkMinimization :: Subtyping -> Either AutomatonError Automaton -> (Automaton -> IO ()) -> IO ()
-checkMinimization subtyping constructed check =
-    case constructed of
+-- | Inspect a successful schedule while reporting inference failures.
+checkMinimization :: Subtyping -> Automaton -> (Automaton -> IO ()) -> IO ()
+checkMinimization subtyping original check = do
+    inferred <- similarity subtyping original
+    case inferred of
         Left err -> expectationFailure $ show err
-        Right original -> do
-            inferred <- similarity subtyping original
-            case inferred of
-                Left err -> expectationFailure $ show err
-                Right related -> case minimize original related of
-                    Left err -> expectationFailure $ show err
-                    Right reduced -> check reduced
+        Right related -> case minimize original related of
+            Left err -> expectationFailure $ show err
+            Right reduced -> check reduced
 
 -- | Check that minimization retains the finite derivations required by a batch.
-checkRetainedBatch :: Entailment -> Subtyping -> Either AutomatonError Automaton -> Int -> IO ()
-checkRetainedBatch solver subtyping constructed expected =
-    case constructed of
+checkRetainedBatch :: Entailment -> Subtyping -> Automaton -> Int -> IO ()
+checkRetainedBatch solver subtyping original expected = do
+    before <- denotationAtMost solver 3 original
+    fmap length before `shouldBe` Right expected
+    inferred <- similarity subtyping original
+    case inferred of
         Left err -> expectationFailure $ show err
-        Right original -> do
-            before <- denotationAtMost solver 3 original
-            fmap length before `shouldBe` Right expected
-            inferred <- similarity subtyping original
-            case inferred of
-                Left err -> expectationFailure $ show err
-                Right related -> minimize original related `shouldBe` Right original
+        Right related -> minimize original related `shouldBe` Right original
+
+-- | The complete label of a transition.
+transitionLabel :: Transition -> LiquidSymbol
+transitionLabel (Transition symbol refinement _ _) = LiquidSymbol symbol refinement
 
 -- | Similarity for integer atom transitions; structural nodes are excluded.
 atomSubtyping :: Entailment -> Subtyping
@@ -296,7 +217,7 @@ overlappingAtomSubtyping solver = refinementSubtypingBy solver classify
             Just ("integer" :: String)
         | otherwise = Nothing
 
--- | Two independent source type classes for state-substitution schedules.
+-- | Two independent source type classes for node-substitution schedules.
 twoClassSubtyping :: Entailment -> Subtyping
 twoClassSubtyping solver = refinementSubtypingBy solver classify
   where
@@ -305,237 +226,137 @@ twoClassSubtyping solver = refinementSubtypingBy solver classify
         | transitionSymbol transition `elem` ["specific-b", "unknown-b"] = Just True
         | otherwise = Nothing
 
--- | Two refinements sharing one target state, as in an alternative row.
-similarAtoms :: Either AutomatonError Automaton
-similarAtoms =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint
-                ]
-            )
-        ]
+-- | An unrefined, unconstrained leaf transition.
+plain :: Symbol -> Transition
+plain symbol = Transition symbol Fixpoint.PTrue [] unconstrainedConstraint
 
--- | Paper-style representatives with one target state per program transition.
-separatedSimilarAtoms :: Either AutomatonError Automaton
+-- | An unrefined constructor with no constraint.
+wrap :: Symbol -> [Automaton] -> Transition
+wrap symbol children = Transition symbol Fixpoint.PTrue children unconstrainedConstraint
+
+unknownAtom, naturalAtom, otherAtom, specificAtom :: Transition
+unknownAtom = plain "unknown"
+naturalAtom = Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint
+otherAtom = plain "other"
+specificAtom = Transition "specific" (value .==. (0 :: Int)) [] unconstrainedConstraint
+
+naturalNode, specificANode, specificBNode, otherANode, otherBNode :: Automaton
+naturalNode = Node [naturalAtom]
+specificANode = Node [Transition "specific-a" (value .==. (0 :: Int)) [] unconstrainedConstraint]
+specificBNode = Node [Transition "specific-b" (value .==. (1 :: Int)) [] unconstrainedConstraint]
+otherANode = Node [plain "other-a"]
+otherBNode = Node [plain "other-b"]
+
+-- | Two refinements sharing one node, as in an alternative row.
+similarAtoms :: Automaton
+similarAtoms = Node [unknownAtom, naturalAtom]
+
+-- | Paper-style representatives with one node per program transition.
+separatedSimilarAtoms :: Automaton
 separatedSimilarAtoms =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "specific-box" Fixpoint.PTrue [State 1] unconstrainedConstraint
-                , Transition "general-box" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                ]
-            )
-        , (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 2, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
+    Node
+        [ wrap "specific-box" [naturalNode]
+        , wrap "general-box" [Node [unknownAtom]]
         ]
 
--- | A supertype transition shares its target with an unrelated alternative.
-sharedSupertypeState :: Either AutomatonError Automaton
+-- | A supertype transition shares its node with an unrelated alternative.
+sharedSupertypeState :: Automaton
 sharedSupertypeState =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "specific-box" Fixpoint.PTrue [State 1] unconstrainedConstraint
-                , Transition "general-box" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                ]
-            )
-        , (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        ,
-            ( State 2
-            ,
-                [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "other" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
+    Node
+        [ wrap "specific-box" [naturalNode]
+        , wrap "general-box" [Node [unknownAtom, otherAtom]]
         ]
 
--- | Removing the final supertype transition would leave no accepted derivation.
-finalStateSupertype :: Either AutomatonError Automaton
-finalStateSupertype =
-    mkAutomaton
-        (State 2)
-        [ (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 2, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
-        ]
+-- | Removing the only root transition would leave no accepted derivation.
+finalStateSupertype :: Automaton
+finalStateSupertype = Node [wrap "unknown" [naturalNode]]
 
--- | A final supertype can be removed while another final alternative remains.
-finalStateWithAlternative :: Either AutomatonError Automaton
-finalStateWithAlternative =
-    mkAutomaton
-        (State 2)
-        [ (State 1, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        ,
-            ( State 2
-            ,
-                [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "other" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ]
+-- | A root supertype can be removed while another root alternative remains.
+finalStateWithAlternative :: Automaton
+finalStateWithAlternative = Node [wrap "unknown" [naturalNode], otherAtom]
 
--- | Two removed transitions share a target but use different representatives.
-multipleRepresentatives :: Either AutomatonError Automaton
+-- | Two removed transitions share a node but use different representatives.
+multipleRepresentatives :: Automaton
 multipleRepresentatives =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] unconstrainedConstraint])
-        ,
-            ( State 1
-            ,
-                [ Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "unknown-b" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "other" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        , (State 2, [Transition "specific-a" (value .==. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 3, [Transition "specific-b" (value .==. (1 :: Int)) [] unconstrainedConstraint])
+    Node
+        [ wrap "pair" [shared, shared]
+        , wrap "use-a" [specificANode]
+        , wrap "use-b" [specificBNode]
         ]
+  where
+    shared = Node [plain "unknown-a", plain "unknown-b", otherAtom]
 
 -- | Independent substitutions can affect each argument of a copied transition.
-composedRepresentatives :: Either AutomatonError Automaton
+composedRepresentatives :: Automaton
 composedRepresentatives =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] unconstrainedConstraint])
-        ,
-            ( State 1
-            ,
-                [ Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "other-a" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ,
-            ( State 2
-            ,
-                [ Transition "unknown-b" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "other-b" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        , (State 3, [Transition "specific-a" (value .==. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 4, [Transition "specific-b" (value .==. (1 :: Int)) [] unconstrainedConstraint])
+    Node
+        [ wrap "pair" [Node [plain "unknown-a", plain "other-a"], Node [plain "unknown-b", plain "other-b"]]
+        , wrap "use-a" [specificANode]
+        , wrap "use-b" [specificBNode]
         ]
 
 -- | The first step copies a supertype whose original is removed by the second.
-copiedSupertype :: Either AutomatonError Automaton
+copiedSupertype :: Automaton
 copiedSupertype =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "goal" Fixpoint.PTrue [State 2] unconstrainedConstraint])
-        , (State 1, [Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 2, [Transition "unknown-b" Fixpoint.PTrue [State 1] unconstrainedConstraint])
-        , (State 3, [Transition "specific-a" (value .==. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 4, [Transition "specific-b" (value .==. (1 :: Int)) [] unconstrainedConstraint])
+    Node
+        [ wrap "goal" [Node [wrap "unknown-b" [Node [plain "unknown-a"]]]]
+        , wrap "use-a" [specificANode]
+        , wrap "use-b" [specificBNode]
         ]
 
--- | A representative's other alternative makes its state cyclic.
-cyclicGuardRepresentative :: Either AutomatonError Automaton
+-- | A representative's other alternative makes its node recursive.
+cyclicGuardRepresentative :: Automaton
 cyclicGuardRepresentative =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "goal" Fixpoint.PTrue [State 1] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue])
-        , (State 1, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
-        ,
-            ( State 2
-            ,
-                [ Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint
-                , Transition "loop" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                ]
-            )
+    Node
+        [ Transition "goal" Fixpoint.PTrue [Node [unknownAtom]] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue
+        , wrap "use" [Mu $ \self -> Node [naturalAtom, wrap "loop" [self]]]
         ]
 
--- | Three program states ordered exact-zero <: natural <: unknown.
-transitiveSimilarAtoms :: Either AutomatonError Automaton
+-- | Three program nodes ordered exact-zero <: natural <: unknown.
+transitiveSimilarAtoms :: Automaton
 transitiveSimilarAtoms =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "use-specific" Fixpoint.PTrue [State 1] unconstrainedConstraint
-                , Transition "use-natural" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                , Transition "use-unknown" Fixpoint.PTrue [State 3] unconstrainedConstraint
-                ]
-            )
-        , (State 1, [Transition "specific" (value .==. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 2, [Transition "natural" (value .>=. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 3, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
+    Node
+        [ wrap "use-specific" [Node [specificAtom]]
+        , wrap "use-natural" [naturalNode]
+        , wrap "use-unknown" [Node [unknownAtom]]
         ]
 
 -- | Two incomparable subtypes both related to one supertype.
-overlappingSimilarAtoms :: Either AutomatonError Automaton
+overlappingSimilarAtoms :: Automaton
 overlappingSimilarAtoms =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "use-zero" Fixpoint.PTrue [State 1] unconstrainedConstraint
-                , Transition "use-one" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                , Transition "use-any" Fixpoint.PTrue [State 3] unconstrainedConstraint
-                ]
-            )
-        , (State 1, [Transition "exact-zero" (value .==. (0 :: Int)) [] unconstrainedConstraint])
-        , (State 2, [Transition "exact-one" (value .==. (1 :: Int)) [] unconstrainedConstraint])
-        , (State 3, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
+    Node
+        [ wrap "use-zero" [Node [Transition "exact-zero" (value .==. (0 :: Int)) [] unconstrainedConstraint]]
+        , wrap "use-one" [Node [Transition "exact-one" (value .==. (1 :: Int)) [] unconstrainedConstraint]]
+        , wrap "use-any" [Node [unknownAtom]]
         ]
 
 -- | The stricter transition uses the only base term as its argument.
-dependentRepresentative :: Either AutomatonError Automaton
+dependentRepresentative :: Automaton
 dependentRepresentative =
-    mkAutomaton
-        (State 2)
-        [ (State 0, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 1, [Transition "specific" (value .==. (0 :: Int)) [State 0] unconstrainedConstraint])
-        , (State 2, [Transition "goal" Fixpoint.PTrue [State 1] unconstrainedConstraint])
-        ]
+    Node [wrap "goal" [Node [Transition "specific" (value .==. (0 :: Int)) [Node [unknownAtom]] unconstrainedConstraint]]]
 
--- | A recursive alternative and its only base share one target state.
-recursiveRepresentative :: Either AutomatonError Automaton
+-- | A recursive alternative and its only base share one node.
+recursiveRepresentative :: Automaton
 recursiveRepresentative =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "specific" (value .==. (0 :: Int)) [State 0] unconstrainedConstraint
-                ]
-            )
-        ]
+    Mu $ \self -> Node [unknownAtom, Transition "specific" (value .==. (0 :: Int)) [self] unconstrainedConstraint]
 
 -- | The subtype contains an unproductive cycle before minimization.
-unproductiveRepresentative :: Either AutomatonError Automaton
+unproductiveRepresentative :: Automaton
 unproductiveRepresentative =
-    mkAutomaton
-        (State 3)
-        [ (State 0, [Transition "unknown" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 1, [Transition "specific" (value .==. (0 :: Int)) [State 2] unconstrainedConstraint])
-        , (State 2, [Transition "loop" Fixpoint.PTrue [State 2] unconstrainedConstraint])
-        ,
-            ( State 3
-            ,
-                [ Transition "goal" Fixpoint.PTrue [State 0] unconstrainedConstraint
-                , Transition "other-goal" Fixpoint.PTrue [State 1] unconstrainedConstraint
-                ]
-            )
+    Node
+        [ wrap "goal" [Node [unknownAtom]]
+        , wrap "other-goal" [Node [Transition "specific" (value .==. (0 :: Int)) [loop] unconstrainedConstraint]]
         ]
+  where
+    loop = Mu $ \self -> Node [wrap "loop" [self]]
 
 -- | Two safe individual redirects form a cycle when applied together.
-mutuallyDependentRepresentatives :: Either AutomatonError Automaton
+mutuallyDependentRepresentatives :: Automaton
 mutuallyDependentRepresentatives =
-    mkAutomaton
-        (State 4)
-        [ (State 0, [Transition "unknown-a" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 1, [Transition "unknown-b" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 2, [Transition "specific-a" (value .==. (0 :: Int)) [State 1] unconstrainedConstraint])
-        , (State 3, [Transition "specific-b" (value .==. (0 :: Int)) [State 0] unconstrainedConstraint])
-        , (State 4, [Transition "goal" Fixpoint.PTrue [State 2, State 3] unconstrainedConstraint])
+    Node
+        [ wrap
+            "goal"
+            [ Node [Transition "specific-a" (value .==. (0 :: Int)) [Node [plain "unknown-b"]] unconstrainedConstraint]
+            , Node [Transition "specific-b" (value .==. (0 :: Int)) [Node [plain "unknown-a"]] unconstrainedConstraint]
+            ]
         ]

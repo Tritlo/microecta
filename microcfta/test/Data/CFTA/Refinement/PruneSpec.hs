@@ -6,34 +6,29 @@ import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList)
 
 import Data.List (permutations)
-import qualified Data.Map.Strict as Map
 
-import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint (Constraint (equalities))
 import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import Data.CFTA.Refinement (
     Automaton,
-    AutomatonError,
     Entailment (Entailment),
     EnumerationError,
-    EqualityAutomaton,
     Guard (And, Entails, Not, Or, Same, Satisfies, Substitute, Top),
-    LiquidConstraint,
+    LiquidConstraint (constraintGuard),
     LiquidSymbol (LiquidSymbol),
-    PruneError (PruneUnknown, ResidualLTAConstraint),
-    State (State),
+    Node (EmptyNode, Node),
+    PruneError (PruneUnknown),
     Substitution (Substitution),
+    Symbol,
     Transition,
     Verdict (No, Unknown, Yes),
     accepts,
-    automatonTransitions,
     denotationAtMost,
-    equalityConstraint,
-    lowerToEqualityAutomaton,
-    mkAutomaton,
+    nodeEdges,
     path,
     prune,
     semanticConstraint,
-    transitionChildren,
+    transitionConstraint,
     transitionSymbol,
     transitionsAt,
     unconstrainedConstraint,
@@ -45,27 +40,20 @@ import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Refinement.TestSupport (declarations)
 import qualified Language.Fixpoint.Types as Fixpoint
 
--- | Prune, then lower the survivors to an equality automaton.
-pruneLowered :: Entailment -> Automaton -> IO (Either PruneError EqualityAutomaton)
-pruneLowered solver automaton = fmap (>>= lowerToEqualityAutomaton) (prune solver automaton)
-
 spec :: Spec
 spec =
     describe "semantic pruning" $ do
-        it "splits heterogeneous states at semantic guard positions" $
+        it "splits heterogeneous nodes at semantic guard positions" $
             withZ3 declarations $ \solver ->
                 checkPrunedLanguage solver semanticPairs pairTerms 5
 
         it "computes Figure 12's bounded denotation directly" $
-            withZ3 declarations $ \solver ->
-                case semanticPairs of
-                    Left err -> expectationFailure $ show err
-                    Right automaton -> do
-                        terms <- denotationAtMost solver 1 automaton
-                        fmap length terms `shouldBe` Right 5
-                        case Map.findWithDefault [] (State 0) $ automatonTransitions automaton of
-                            [root] -> length (transitionsAt automaton root $ path [0]) `shouldBe` 3
-                            roots -> expectationFailure $ "unexpected Figure 12 roots: " <> show roots
+            withZ3 declarations $ \solver -> do
+                terms <- denotationAtMost solver 1 semanticPairs
+                fmap length terms `shouldBe` Right 5
+                case nodeEdges semanticPairs of
+                    [root] -> length (transitionsAt root $ path [0]) `shouldBe` 3
+                    roots -> expectationFailure $ "unexpected Figure 12 roots: " <> show roots
 
         it "splits nested semantic positions without enumerating complete terms" $
             withZ3 declarations $ \solver ->
@@ -90,57 +78,43 @@ spec =
         it "retains optional reflexive equality until complete paths can be checked" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
                 guard = Same (path [0, 0]) (path [0, 0])
-            case optionalDescendant guard of
-                Left err -> expectationFailure $ show err
-                Right original -> do
-                    traverse (accepts solver original) optionalDescendantTerms >>= (`shouldBe` [No, Yes])
-                    checkPrunedLanguage solver (Right original :: Either AutomatonError Automaton) optionalDescendantTerms 1
-                    lowerToEqualityAutomaton original `shouldBe` Left (ResidualLTAConstraint (State 0) guard)
-                    pruneLowered solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
+                original = optionalDescendant guard
+            traverse (accepts solver original) optionalDescendantTerms >>= (`shouldBe` [No, Yes])
+            checkPrunedLanguage solver original optionalDescendantTerms 1
+            reduced <- prune solver original
+            fmap (map (constraintGuard . transitionConstraint) . nodeEdges) reduced `shouldBe` Right [guard]
 
-        it "lowers reflexive equality when every transition has the observed path" $ do
+        it "keeps reflexive equality on an always-present path as a residual guard" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
-            case optionalDescendant $ Same (path [0]) (path [0]) of
+            reduced <- prune solver $ optionalDescendant $ Same (path [0]) (path [0])
+            case reduced of
                 Left err -> expectationFailure $ show err
-                Right original -> case lowerToEqualityAutomaton original of
-                    Left err -> expectationFailure $ show err
-                    Right lowered ->
-                        traverse (accepts solver $ FTA.mapConstraints equalityConstraint lowered) optionalDescendantTerms
-                            >>= (`shouldBe` [Yes, Yes])
+                Right pruned ->
+                    traverse (accepts solver pruned) optionalDescendantTerms >>= (`shouldBe` [Yes, Yes])
 
-        it "does not erase absent descendants implied by an ancestor equality" $ do
+        it "removes a transition whose equalities need an absent descendant" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
-                absent = Same (path [0, 0]) (path [1, 0])
-                constraint = semanticConstraint $ And [Same (path [0]) (path [1]), absent]
+                constraint = semanticConstraint $ And [Same (path [0]) (path [1]), Same (path [0, 0]) (path [1, 0])]
                 leaf = Tree.Node (LiquidSymbol "a" Fixpoint.PTrue) []
-            case mkAutomaton
-                (State 0)
-                [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] constraint])
-                , (State 1, [Transition "a" Fixpoint.PTrue [] unconstrainedConstraint])
-                ] of
-                Left err -> expectationFailure $ show err
-                Right original -> do
-                    accepts solver original (Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [leaf, leaf]) >>= (`shouldBe` No)
-                    lowerToEqualityAutomaton original `shouldBe` Left (ResidualLTAConstraint (State 0) absent)
+                original = Node [Transition "pair" Fixpoint.PTrue [atomA, atomA] constraint]
+            accepts solver original (Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [leaf, leaf]) >>= (`shouldBe` No)
+            prune solver original >>= (`shouldBe` Right EmptyNode)
 
-        it "keeps semantic and syntactic split states distinct at Int bounds" $
+        it "keeps semantic and syntactic splits apart" $
             withZ3 declarations $ \solver -> do
                 let zero = value .==. (0 :: Int)
                     one = value .==. (1 :: Int)
-                    rows =
-                        [ (State 1, [Transition "a" zero [] unconstrainedConstraint, Transition "b" one [] unconstrainedConstraint])
-                        , (State maxBound, [])
-                        , (State minBound, [Transition "sentinel" Fixpoint.PTrue [] unconstrainedConstraint])
-                        ]
+                    atoms =
+                        Node
+                            [ Transition "a" zero [] unconstrainedConstraint
+                            , Transition "b" one [] unconstrainedConstraint
+                            ]
                     leafA = Tree.Node (LiquidSymbol "a" zero) []
                     leafB = Tree.Node (LiquidSymbol "b" one) []
                     semantic =
-                        mkAutomaton (State 0) $
-                            (State 0, [Transition "f" Fixpoint.PTrue [State 1] $ semanticConstraint $ Satisfies (path [0]) zero]) : rows
+                        Node [Transition "f" Fixpoint.PTrue [atoms] $ semanticConstraint $ Satisfies (path [0]) zero]
                     syntactic =
-                        mkAutomaton (State 0) $
-                            (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] $ semanticConstraint $ Same (path [0]) (path [1])])
-                                : rows
+                        Node [Transition "pair" Fixpoint.PTrue [atoms, atoms] $ semanticConstraint $ Same (path [0]) (path [1])]
                 checkPrunedLanguage
                     solver
                     semantic
@@ -167,35 +141,29 @@ spec =
                 differentPairs = filter (`notElem` equalPairs) allPairs
                 term (left, right) =
                     Tree.Node
-                        ( LiquidSymbol
-                            "scoped"
-                            Fixpoint.PTrue
-                        )
+                        (LiquidSymbol "scoped" Fixpoint.PTrue)
                         [Tree.Node (LiquidSymbol symbol Fixpoint.PTrue) [] | symbol <- ["x", "y", left, right]]
                 automaton guard =
-                    mkAutomaton
-                        (State 0)
-                        [ (State 0, [Transition "scoped" Fixpoint.PTrue [State 1, State 2, State 3, State 3] $ semanticConstraint guard])
-                        , (State 1, [Transition "x" Fixpoint.PTrue [] unconstrainedConstraint])
-                        , (State 2, [Transition "y" Fixpoint.PTrue [] unconstrainedConstraint])
-                        , (State 3, [Transition symbol Fixpoint.PTrue [] unconstrainedConstraint | symbol <- ["x", "y", "z"]])
+                    Node
+                        [ Transition
+                            "scoped"
+                            Fixpoint.PTrue
+                            [leafNode "x", leafNode "y", xyz, xyz]
+                            (semanticConstraint guard)
                         ]
-                check (guard, acceptedPairs) = case automaton guard of
-                    Left err -> expectationFailure $ show err
-                    Right original -> do
-                        denotationAtMost solver 1 original >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
-                        checkPrunedLanguage
-                            solver
-                            (Right original :: Either AutomatonError Automaton)
-                            (map term allPairs)
-                            (length acceptedPairs)
-                        result <- prune solver original
-                        case result of
-                            Left err -> expectationFailure $ show err
-                            Right reduced -> do
-                                denotationAtMost solver 1 reduced >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
-                                lowerToEqualityAutomaton reduced `shouldBe` Left (ResidualLTAConstraint (State 0) guard)
-                        pruneLowered solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
+                xyz = Node [Transition symbol Fixpoint.PTrue [] unconstrainedConstraint | symbol <- ["x", "y", "z"]]
+                check (guard, acceptedPairs) = do
+                    let original = automaton guard
+                    denotationAtMost solver 1 original
+                        >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
+                    checkPrunedLanguage solver original (map term allPairs) (length acceptedPairs)
+                    result <- prune solver original
+                    case result of
+                        Left err -> expectationFailure $ show err
+                        Right reduced -> do
+                            denotationAtMost solver 1 reduced
+                                >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
+                            map (constraintGuard . transitionConstraint) (nodeEdges reduced) `shouldBe` [guard]
             mapM_
                 check
                 [ (scope same, equalPairs)
@@ -204,137 +172,90 @@ spec =
                 ]
 
         it "retains guards whose compound actual identities need complete terms" $
-            withZ3 ([(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["app", "known"] :: [String]] <> declarations) $ \solver ->
-                case compoundActuals of
+            withZ3 ([(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["app", "known"] :: [String]] <> declarations) $ \solver -> do
+                before <- denotationAtMost solver 2 compoundActuals
+                fmap length before `shouldBe` Right 3
+                result <- prune solver compoundActuals
+                case result of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        before <- denotationAtMost solver 2 original
-                        fmap length before `shouldBe` Right 3
-                        result <- prune solver original
-                        case result of
-                            Left err -> expectationFailure $ show err
-                            Right reduced -> do
-                                after <- denotationAtMost solver 2 reduced
-                                equivalentTermSets before after `shouldBe` True
-                                automatonTransitions reduced `shouldBe` automatonTransitions original
-                                lowerToEqualityAutomaton reduced
-                                    `shouldBe` Left (ResidualLTAConstraint (State 0) compoundEqualityGuard)
+                    Right reduced -> do
+                        after <- denotationAtMost solver 2 reduced
+                        equivalentTermSets before after `shouldBe` True
+                        reduced `shouldBe` compoundActuals
 
-        it "reports solver uncertainty when actual identities are known" $
-            case optionalDescendant $ Satisfies (path [0]) Fixpoint.PTrue of
-                Left err -> expectationFailure $ show err
-                Right original ->
-                    prune (Entailment $ \_ _ -> pure Unknown) original
-                        >>= (`shouldBe` Left (PruneUnknown $ State 0))
+        it "reports solver uncertainty when actual identities are known" $ do
+            result <- prune (Entailment $ \_ _ -> pure Unknown) $ optionalDescendant $ Satisfies (path [0]) Fixpoint.PTrue
+            case result of
+                Left (PruneUnknown _) -> pure ()
+                other -> expectationFailure $ "expected an undecided guard, got " <> show other
 
-        it "uses FTA product intersection to narrow syntactic equality" $
-            withZ3 declarations $ \solver ->
-                case syntacticPairs of
+        it "narrows syntactic equality to the intersection of the equal positions" $
+            withZ3 declarations $ \solver -> do
+                result <- prune solver syntacticPairs
+                case result of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        result <- pruneLowered solver original
-                        case result of
-                            Left err -> expectationFailure $ show err
-                            Right reduced ->
-                                case Map.findWithDefault [] (State 0) $ automatonTransitions reduced of
-                                    [root] -> do
-                                        FTA.transitionConstraint root
-                                            `shouldBe` mkEqConstraints [[path [0], path [1]]]
-                                        case transitionChildren root of
-                                            leftState : _ -> do
-                                                map
-                                                    transitionSymbol
-                                                    (Map.findWithDefault [] leftState $ automatonTransitions reduced)
-                                                    `shouldBe` ["shared"]
-                                                let lifted = FTA.mapConstraints equalityConstraint reduced
-                                                traverse (accepts solver lifted) syntacticPairTerms
-                                                    >>= (`shouldBe` [Yes, No, No])
-                                            [] -> expectationFailure "pair transition lost its children"
-                                    roots -> expectationFailure $ "unexpected root row: " <> show roots
+                    Right reduced -> case nodeEdges reduced of
+                        [root] -> do
+                            equalities (transitionConstraint root) `shouldBe` mkEqConstraints [[path [0], path [1]]]
+                            map transitionSymbol (transitionsAt root $ path [0]) `shouldBe` ["shared"]
+                            map transitionSymbol (transitionsAt root $ path [1]) `shouldBe` ["shared"]
+                            traverse (accepts solver reduced) syntacticPairTerms >>= (`shouldBe` [Yes, No, No])
+                        roots -> expectationFailure $ "unexpected root alternatives: " <> show roots
 
         it "applies syntactic intersection below a nested position" $
-            withZ3 declarations $ \solver ->
-                case nestedSyntacticPairs of
+            withZ3 declarations $ \solver -> do
+                result <- prune solver nestedSyntacticPairs
+                case result of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        result <- prune solver original
-                        case result of
-                            Left err -> expectationFailure $ show err
-                            Right reduced ->
-                                case Map.findWithDefault [] (State 0) $ automatonTransitions reduced of
-                                    [root] ->
-                                        case transitionChildren root of
-                                            leftState : _ ->
-                                                case Map.findWithDefault [] leftState $ automatonTransitions reduced of
-                                                    [box] ->
-                                                        case transitionChildren box of
-                                                            [nestedState] ->
-                                                                map
-                                                                    transitionSymbol
-                                                                    (Map.findWithDefault [] nestedState $ automatonTransitions reduced)
-                                                                    `shouldBe` ["shared"]
-                                                            children -> expectationFailure $ "unexpected box children: " <> show children
-                                                    row -> expectationFailure $ "unexpected nested row: " <> show row
-                                            [] -> expectationFailure "pair transition lost its children"
-                                    roots -> expectationFailure $ "unexpected root row: " <> show roots
+                    Right reduced -> case nodeEdges reduced of
+                        [root] -> do
+                            map transitionSymbol (transitionsAt root $ path [0]) `shouldBe` ["box"]
+                            map transitionSymbol (transitionsAt root $ path [0, 0]) `shouldBe` ["shared"]
+                            map transitionSymbol (transitionsAt root $ path [1]) `shouldBe` ["shared"]
+                        roots -> expectationFailure $ "unexpected root alternatives: " <> show roots
 
-        it "keeps Boolean syntactic constraints in the LTA when ECTA cannot express them" $
-            withZ3 declarations $ \solver ->
-                case negativeSyntacticPairs of
+        it "keeps Boolean syntactic constraints in the LTA when equality classes cannot express them" $
+            withZ3 declarations $ \solver -> do
+                reduced <- prune solver negativeSyntacticPairs
+                case reduced of
                     Left err -> expectationFailure $ show err
-                    Right original -> do
-                        reduced <- prune solver original
-                        case reduced of
-                            Left err -> expectationFailure $ show err
-                            Right lta ->
-                                traverse (accepts solver lta) syntacticPairTerms
-                                    >>= (`shouldBe` [No, Yes, Yes])
-                        pruneLowered solver original
-                            >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) negativeEquality))
+                    Right lta -> do
+                        traverse (accepts solver lta) syntacticPairTerms >>= (`shouldBe` [No, Yes, Yes])
+                        map (constraintGuard . transitionConstraint) (nodeEdges lta) `shouldBe` [negativeEquality]
 
-        it "lowers nested positive conjunctions in every requirement order" $
+        it "solves nested positive conjunctions in every requirement order" $
             withZ3 declarations $ \solver -> do
                 let requirements =
                         [ Guard.isSameTermAs (Guard.argument 0) (Guard.argument 1)
                         , Guard.isSameTermAs (Guard.argument 1) (Guard.argument 2)
                         , Guard.requires (Guard.argument 0) Fixpoint.PTrue
                         ]
-                    check order =
-                        case equalTriples $ Guard.allOf order of
+                    check order = do
+                        let original = equalTriples $ Guard.allOf order
+                        before <- denotationAtMost solver 1 original
+                        result <- prune solver original
+                        case result of
                             Left err -> expectationFailure $ show err
-                            Right original -> do
-                                before <- denotationAtMost solver 1 original
-                                result <- pruneLowered solver original
-                                case result of
-                                    Left err -> expectationFailure $ show err
-                                    Right reduced -> do
-                                        after <- denotationAtMost solver 1 $ FTA.mapConstraints equalityConstraint reduced
-                                        equivalentTermSets before after `shouldBe` True
-                                        fmap length after `shouldBe` Right 2
+                            Right reduced -> do
+                                after <- denotationAtMost solver 1 reduced
+                                equivalentTermSets before after `shouldBe` True
+                                fmap length after `shouldBe` Right 2
                 mapM_ check $ permutations requirements
 
 -- | Compare recognition before and after pruning, including the expected accepted count.
-checkPrunedLanguage ::
-    Entailment ->
-    Either error Automaton ->
-    [Tree.Tree LiquidSymbol] ->
-    Int ->
-    IO ()
-checkPrunedLanguage solver constructed terms expected =
-    case constructed of
-        Left _ -> expectationFailure "test LTA was structurally invalid"
-        Right original -> do
-            result <- prune solver original
-            case result of
-                Left err -> expectationFailure $ show err
-                Right reduced -> do
-                    before <- traverse (accepts solver original) terms
-                    after <- traverse (accepts solver reduced) terms
-                    after `shouldBe` before
-                    length (filter (== Yes) after) `shouldBe` expected
-                    beforeDenotation <- denotationAtMost solver 3 original
-                    afterDenotation <- denotationAtMost solver 3 reduced
-                    equivalentTermSets beforeDenotation afterDenotation `shouldBe` True
+checkPrunedLanguage :: Entailment -> Automaton -> [Tree.Tree LiquidSymbol] -> Int -> IO ()
+checkPrunedLanguage solver original terms expected = do
+    result <- prune solver original
+    case result of
+        Left err -> expectationFailure $ show err
+        Right reduced -> do
+            before <- traverse (accepts solver original) terms
+            after <- traverse (accepts solver reduced) terms
+            after `shouldBe` before
+            length (filter (== Yes) after) `shouldBe` expected
+            beforeDenotation <- denotationAtMost solver 3 original
+            afterDenotation <- denotationAtMost solver 3 reduced
+            equivalentTermSets beforeDenotation afterDenotation `shouldBe` True
 
 -- | Compare denotations as sets without requiring an ordering for Fixpoint expressions.
 equivalentTermSets ::
@@ -345,21 +266,32 @@ equivalentTermSets (Right left) (Right right) =
     all (`elem` right) left && all (`elem` left) right
 equivalentTermSets _ _ = False
 
--- | A descendant exists in only one alternative of the child state.
-optionalDescendant :: Guard -> Either AutomatonError Automaton
-optionalDescendant guard =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "f" Fixpoint.PTrue [State 1] $ semanticConstraint guard])
-        ,
-            ( State 1
-            ,
-                [ Transition "a" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "b" Fixpoint.PTrue [State 2] unconstrainedConstraint
-                ]
-            )
-        , (State 2, [Transition "a" Fixpoint.PTrue [] unconstrainedConstraint])
+-- | A node with one unrefined, unconstrained leaf.
+leafNode :: Symbol -> Automaton
+leafNode symbol = Node [Transition symbol Fixpoint.PTrue [] unconstrainedConstraint]
+
+-- | The leaf @a@.
+atomA :: Automaton
+atomA = leafNode "a"
+
+-- | The leaves @a@ and @b@.
+atomsAB :: Automaton
+atomsAB =
+    Node
+        [ Transition "a" Fixpoint.PTrue [] unconstrainedConstraint
+        , Transition "b" Fixpoint.PTrue [] unconstrainedConstraint
         ]
+
+-- | A descendant exists in only one alternative of the child node.
+optionalDescendant :: Guard -> Automaton
+optionalDescendant guard =
+    Node [Transition "f" Fixpoint.PTrue [choice] $ semanticConstraint guard]
+  where
+    choice =
+        Node
+            [ Transition "a" Fixpoint.PTrue [] unconstrainedConstraint
+            , Transition "b" Fixpoint.PTrue [atomA] unconstrainedConstraint
+            ]
 
 -- | Both finite terms of 'optionalDescendant' before its guard is checked.
 optionalDescendantTerms :: [Tree.Tree LiquidSymbol]
@@ -371,19 +303,9 @@ optionalDescendantTerms =
     leaf = Tree.Node (LiquidSymbol "a" Fixpoint.PTrue) []
 
 -- | Three independent choices constrained by positive equalities and entailment.
-equalTriples :: LiquidConstraint -> Either AutomatonError Automaton
+equalTriples :: LiquidConstraint -> Automaton
 equalTriples constraint =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "triple" Fixpoint.PTrue [State 1, State 1, State 1] constraint])
-        ,
-            ( State 1
-            ,
-                [ Transition "a" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "b" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ]
+    Node [Transition "triple" Fixpoint.PTrue [atomsAB, atomsAB, atomsAB] constraint]
 
 -- | Compare the values of two complete compound actual terms.
 compoundEqualityGuard :: Guard
@@ -393,31 +315,18 @@ compoundEqualityGuard =
         (Satisfies (path []) $ variable "x" .==. variable "y")
 
 -- | Root observations do not distinguish equal and unequal actual subtrees.
-compoundActuals :: Either AutomatonError Automaton
+compoundActuals :: Automaton
 compoundActuals =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            , [Transition "pair" Fixpoint.PTrue [State 1, State 1, State 2, State 3] $ semanticConstraint compoundEqualityGuard]
-            )
-        ,
-            ( State 1
-            ,
-                [ Transition "known" (value .==. (0 :: Int)) [] unconstrainedConstraint
-                , Transition "app" Fixpoint.PTrue [State 4] unconstrainedConstraint
-                ]
-            )
-        , (State 2, [Transition "x" Fixpoint.PTrue [] unconstrainedConstraint])
-        , (State 3, [Transition "y" Fixpoint.PTrue [] unconstrainedConstraint])
-        ,
-            ( State 4
-            ,
-                [ Transition "a" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "b" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
+    Node
+        [ Transition "pair" Fixpoint.PTrue [known, known, leafNode "x", leafNode "y"] $
+            semanticConstraint compoundEqualityGuard
         ]
+  where
+    known =
+        Node
+            [ Transition "known" (value .==. (0 :: Int)) [] unconstrainedConstraint
+            , Transition "app" Fixpoint.PTrue [atomsAB] unconstrainedConstraint
+            ]
 
 {- | Figure 12's LTA: @f(phi1, phi2)@ where @phi1 => phi2@.
 
@@ -425,77 +334,57 @@ Every formula is an ordinary nullary ranked-alphabet symbol. The implementation
 encodes that symbol as @LiquidSymbol "predicate" formula@; it is not metadata
 outside the automaton.
 -}
-semanticPairs :: Either AutomatonError Automaton
-semanticPairs =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 1] pairEntailment])
-        , (State 1, predicateTransitions)
-        ]
+semanticPairs :: Automaton
+semanticPairs = Node [Transition "pair" Fixpoint.PTrue [predicateNode, predicateNode] pairEntailment]
 
 -- | The same relation, with its left observation one constructor below the root.
-nestedPairs :: Either AutomatonError Automaton
-nestedPairs =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] nestedEntailment])
-        , (State 1, [Transition "box" Fixpoint.PTrue [State 2] unconstrainedConstraint])
-        , (State 2, predicateTransitions)
-        ]
+nestedPairs :: Automaton
+nestedPairs = Node [Transition "pair" Fixpoint.PTrue [box, predicateNode] nestedEntailment]
+  where
+    box = Node [Transition "box" Fixpoint.PTrue [predicateNode] unconstrainedConstraint]
 
 -- | A substitution guard whose actual names select matching output refinements.
-substitutedOutputs :: Either AutomatonError Automaton
+substitutedOutputs :: Automaton
 substitutedOutputs =
-    mkAutomaton
-        (State 0)
-        [
-            ( State 0
-            ,
-                [ Transition
-                    "application"
-                    Fixpoint.PTrue
-                    [State 1, State 2, State 3]
-                    substitutedRequirement
-                ]
-            )
-        ,
-            ( State 1
-            ,
-                [ Transition "x" (value .==. (0 :: Int)) [] unconstrainedConstraint
-                , Transition "y" (value .==. (1 :: Int)) [] unconstrainedConstraint
-                ]
-            )
-        , (State 2, [Transition "n" Fixpoint.PTrue [] unconstrainedConstraint])
-        ,
-            ( State 3
-            ,
-                [ Transition "output-x" (value .==. variable "x") [] unconstrainedConstraint
-                , Transition "output-y" (value .==. variable "y") [] unconstrainedConstraint
-                ]
-            )
+    Node
+        [ Transition
+            "application"
+            Fixpoint.PTrue
+            [actuals, leafNode "n", outputs]
+            substitutedRequirement
+        ]
+  where
+    actuals =
+        Node
+            [ Transition "x" (value .==. (0 :: Int)) [] unconstrainedConstraint
+            , Transition "y" (value .==. (1 :: Int)) [] unconstrainedConstraint
+            ]
+    outputs =
+        Node
+            [ Transition "output-x" (value .==. variable "x") [] unconstrainedConstraint
+            , Transition "output-y" (value .==. variable "y") [] unconstrainedConstraint
+            ]
+
+-- | The leaves @left@ and @shared@.
+leftOrShared :: Automaton
+leftOrShared =
+    Node
+        [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
+        , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+        ]
+
+-- | The leaves @shared@ and @right@.
+sharedOrRight :: Automaton
+sharedOrRight =
+    Node
+        [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
+        , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
         ]
 
 -- | Two overlapping structural languages tied by syntactic equality.
-syntacticPairs :: Either AutomatonError Automaton
+syntacticPairs :: Automaton
 syntacticPairs =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ semanticConstraint $ Same (path [0]) (path [1])])
-        ,
-            ( State 1
-            ,
-                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ,
-            ( State 2
-            ,
-                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ]
+    Node [Transition "pair" Fixpoint.PTrue [leftOrShared, sharedOrRight] $ semanticConstraint $ Same (path [0]) (path [1])]
 
 -- | One accepted equal pair followed by two rejected unequal pairs.
 syntacticPairTerms :: [Tree.Tree LiquidSymbol]
@@ -507,67 +396,29 @@ syntacticPairTerms =
   where
     pair left right =
         Tree.Node
-            ( LiquidSymbol
-                "pair"
-                Fixpoint.PTrue
-            )
+            (LiquidSymbol "pair" Fixpoint.PTrue)
             [Tree.Node (LiquidSymbol left Fixpoint.PTrue) [], Tree.Node (LiquidSymbol right Fixpoint.PTrue) []]
 
 -- | The same structural overlap reached below a wrapper on the left.
-nestedSyntacticPairs :: Either AutomatonError Automaton
+nestedSyntacticPairs :: Automaton
 nestedSyntacticPairs =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ semanticConstraint $ Same (path [0, 0]) (path [1])])
-        ,
-            ( State 1
-            ,
-                [ Transition "box" Fixpoint.PTrue [State 3] unconstrainedConstraint
-                , Transition "empty" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ,
-            ( State 2
-            ,
-                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ,
-            ( State 3
-            ,
-                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ]
+    Node [Transition "pair" Fixpoint.PTrue [boxOrEmpty, sharedOrRight] $ semanticConstraint $ Same (path [0, 0]) (path [1])]
+  where
+    boxOrEmpty =
+        Node
+            [ Transition "box" Fixpoint.PTrue [leftOrShared] unconstrainedConstraint
+            , Transition "empty" Fixpoint.PTrue [] unconstrainedConstraint
+            ]
 
--- | Negated equality is a valid LTA constraint but is not an ECTA constraint.
-negativeSyntacticPairs :: Either AutomatonError Automaton
+-- | Negated equality is a valid LTA constraint but is not an equality class.
+negativeSyntacticPairs :: Automaton
 negativeSyntacticPairs =
-    mkAutomaton
-        (State 0)
-        [ (State 0, [Transition "pair" Fixpoint.PTrue [State 1, State 2] $ semanticConstraint negativeEquality])
-        ,
-            ( State 1
-            ,
-                [ Transition "left" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ,
-            ( State 2
-            ,
-                [ Transition "shared" Fixpoint.PTrue [] unconstrainedConstraint
-                , Transition "right" Fixpoint.PTrue [] unconstrainedConstraint
-                ]
-            )
-        ]
+    Node [Transition "pair" Fixpoint.PTrue [leftOrShared, sharedOrRight] $ semanticConstraint negativeEquality]
 
 negativeEquality :: Guard
 negativeEquality = Not $ Same (path [0]) (path [1])
 
--- | All concrete pairs from the heterogeneous atom state.
+-- | All concrete pairs from the heterogeneous atom node.
 pairTerms :: [Tree.Tree LiquidSymbol]
 pairTerms = [Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [left, right] | left <- predicates, right <- predicates]
 
@@ -575,10 +426,7 @@ pairTerms = [Tree.Node (LiquidSymbol "pair" Fixpoint.PTrue) [left, right] | left
 nestedPairTerms :: [Tree.Tree LiquidSymbol]
 nestedPairTerms =
     [ Tree.Node
-        ( LiquidSymbol
-            "pair"
-            Fixpoint.PTrue
-        )
+        (LiquidSymbol "pair" Fixpoint.PTrue)
         [Tree.Node (LiquidSymbol "box" Fixpoint.PTrue) [left], right]
     | left <- predicates
     , right <- predicates
@@ -588,10 +436,7 @@ nestedPairTerms =
 substitutionTerms :: [Tree.Tree LiquidSymbol]
 substitutionTerms =
     [ Tree.Node
-        ( LiquidSymbol
-            "application"
-            Fixpoint.PTrue
-        )
+        (LiquidSymbol "application" Fixpoint.PTrue)
         [actual, Tree.Node (LiquidSymbol "n" Fixpoint.PTrue) [], output]
     | actual <- namedActuals
     , output <-
@@ -607,6 +452,10 @@ predicateTransitions =
     , Transition "predicate" (value .==. (1 :: Int)) [] unconstrainedConstraint
     , Transition "predicate" (value .>=. (0 :: Int)) [] unconstrainedConstraint
     ]
+
+-- | The node of the three predicate transitions.
+predicateNode :: Automaton
+predicateNode = Node predicateTransitions
 
 -- | Concrete formula terms matching 'predicateTransitions'.
 predicates :: [Tree.Tree LiquidSymbol]
