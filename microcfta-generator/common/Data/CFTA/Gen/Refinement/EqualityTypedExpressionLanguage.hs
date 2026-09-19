@@ -19,7 +19,8 @@ module Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage (
 import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.CFTA.Gen.Example.TypedExpressionLanguage (
+import qualified Data.CFTA.Gen.Refinement as LTA
+import Data.CFTA.Gen.TypedExpressionLanguage (
     BinaryFunctionInstance (..),
     Expression (..),
     Function (..),
@@ -28,7 +29,6 @@ import Data.CFTA.Gen.Example.TypedExpressionLanguage (
     allTypes,
     binaryFunctionInstances,
  )
-import qualified Data.CFTA.Gen.Refinement as LTA
 import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,

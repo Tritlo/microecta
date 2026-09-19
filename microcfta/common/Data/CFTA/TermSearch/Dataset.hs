@@ -2,19 +2,19 @@
 
 {- | Conversion from the tiny compatibility type language to ECTA nodes.
 
-The old @Data.CFTA.Example.TermSearch.Dataset@ module contained the large Hoogle
+The old @Data.CFTA.TermSearch.Dataset@ module contained the large Hoogle
 table. @microecta@ keeps this module name only for downstream compatibility; the
 only remaining operation is 'typeToFta'.
 -}
-module Data.CFTA.Example.TermSearch.Dataset (
+module Data.CFTA.TermSearch.Dataset (
     typeToFta,
 ) where
 
 import Data.CFTA.Equality
 import Data.CFTA.Symbol (Symbol)
 
-import Data.CFTA.Example.TermSearch.Type
-import Data.CFTA.Example.TermSearch.Utils
+import Data.CFTA.TermSearch.Type
+import Data.CFTA.TermSearch.Utils
 
 -- | Translate a 'TypeSkeleton' into the ECTA encoding used by term search.
 typeToFta :: TypeSkeleton -> Node Symbol EqConstraints

@@ -24,7 +24,7 @@ examples:
 
 1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../microcfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs)
    generates integer syntax. Constructor shape is the only constraint.
-2. [`Data.CFTA.Gen.Example.TypedExpressionLanguage`](../microcfta-generator/src/Data/CFTA/Gen/Example/TypedExpressionLanguage.hs)
+2. [`Data.CFTA.Gen.TypedExpressionLanguage`](../microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs)
    adds Boolean expressions. Equality constraints connect an operation's
    signature with the result types of its children.
 3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)

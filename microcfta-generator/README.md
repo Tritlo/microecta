@@ -14,7 +14,6 @@ one ranked layer and three generators, one per constraint theory:
 | `Data.CFTA.Gen.Equality.QuickCheck` | The QuickCheck-facing equality API, including `fromGen`, `toGen`, `forAll`, and `sized`. |
 | `Data.CFTA.Gen.Refinement` | Refinement-constrained sources compiled once with a solver into pure sampling, replay, and shrinking. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | The QuickCheck-facing refinement API. |
-| `Data.CFTA.Gen.Example.TypedExpressionLanguage` | The typed-expression flagship language. |
 | `Data.CFTA.Ranked.Internal.*`, `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Gen.Equality.Internal.Symbolic` | The shared decoder, sampler, size, shrink, and symbolic-count implementation; exposed for integration, not covered by the PVP contract. |
 
 The generator APIs close qualified-do child blocks consistently with
@@ -336,8 +335,8 @@ conditionalLayer children =
 ```
 
 The
-[`Data.CFTA.Gen.Example.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/src/Data/CFTA/Gen/Example/TypedExpressionLanguage.hs)
-flagship combines unary `Not`, binary functions, and
+[`Data.CFTA.Gen.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs)
+flagship, a test and benchmark support module, combines unary `Not`, binary functions, and
 ternary `IfExpression`. Its finite layers combine those three alternatives with
 `uniformlyGrouped`, so every expression remains equally likely. Its
 recursive layer uses equal structural alternatives, as recursive declarations

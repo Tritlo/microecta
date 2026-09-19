@@ -3,9 +3,9 @@
 The original @ecta@ package carried a much larger term-search application. In
 @microecta@, this module is just the lightweight type skeleton that downstream
 projects use before translating types to ECTA nodes with
-'Data.CFTA.Example.TermSearch.Dataset.typeToFta'.
+'Data.CFTA.TermSearch.Dataset.typeToFta'.
 -}
-module Data.CFTA.Example.TermSearch.Type (
+module Data.CFTA.TermSearch.Type (
     TypeSkeleton (..),
 ) where
 

@@ -7,7 +7,6 @@ import Test.Hspec (hspec)
 import qualified Data.CFTA.Equality.ConstraintsSpec
 import qualified Data.CFTA.Equality.FTASpec
 import qualified Data.CFTA.EqualitySpec
-import qualified Data.CFTA.Example.TermSearchSpec
 import qualified Data.CFTA.Internal.UnionFindSpec
 import qualified Data.CFTA.Refinement.GuardSpec
 import qualified Data.CFTA.Refinement.MinimizeSpec
@@ -17,6 +16,7 @@ import qualified Data.CFTA.Refinement.RecursiveSpec
 import qualified Data.CFTA.Refinement.RefinementRelationSpec
 import qualified Data.CFTA.Refinement.SubstitutionSpec
 import qualified Data.CFTA.Refinement.SyntaxSpec
+import qualified Data.CFTA.TermSearchSpec
 import qualified Data.CFTASpec
 
 main :: IO ()
@@ -31,7 +31,7 @@ main = do
         Data.CFTA.Equality.ConstraintsSpec.spec
         Data.CFTA.Equality.FTASpec.spec
         Data.CFTA.EqualitySpec.spec
-        Data.CFTA.Example.TermSearchSpec.spec
+        Data.CFTA.TermSearchSpec.spec
         Data.CFTA.Refinement.GuardSpec.spec
         Data.CFTA.Refinement.RecognitionSpec.spec
         Data.CFTA.Refinement.SubstitutionSpec.spec

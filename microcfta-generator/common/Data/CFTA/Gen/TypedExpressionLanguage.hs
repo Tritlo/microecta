@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QualifiedDo #-}
 
@@ -14,7 +15,7 @@ matches each operation signature with child groups of the right types instead
 of generating values and rejecting ill-typed combinations. Naive rejection
 and a handwritten type-directed generator provide like-for-like baselines.
 -}
-module Data.CFTA.Gen.Example.TypedExpressionLanguage (
+module Data.CFTA.Gen.TypedExpressionLanguage (
     -- * Language
     Type (..),
     Function (..),

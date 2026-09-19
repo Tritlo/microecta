@@ -76,7 +76,7 @@ expressive power concrete:
 | Automaton | Example | What becomes possible |
 | --- | --- | --- |
 | FTA | [`UntypedExpressionLanguage`](microcfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs) | Generate integer expression shapes. Every term has the one implicit sort. |
-| ECTA | [`TypedExpressionLanguage`](microcfta-generator/src/Data/CFTA/Gen/Example/TypedExpressionLanguage.hs) | Add integers and Booleans, then equate operation signatures with child result types. |
+| ECTA | [`TypedExpressionLanguage`](microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs) | Add integers and Booleans, then equate operation signatures with child result types. |
 | LTA | [`StateMachineTraceLanguage`](microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs) | Carry a typed operand stack from one command to the next and prove dependent input/output state contracts with Z3. |
 
 The LTA example generates a complete QuickCheck trace before executing it, as

@@ -6,7 +6,7 @@ These helpers deliberately stay as small wrappers around @Node@ and @Edge@.
 They are here to preserve the useful surface area of @ecta@ without bringing
 back the larger search application.
 -}
-module Data.CFTA.Example.TermSearch.Utils (
+module Data.CFTA.TermSearch.Utils (
     typeConst,
     theArrowNode,
     arrowType,

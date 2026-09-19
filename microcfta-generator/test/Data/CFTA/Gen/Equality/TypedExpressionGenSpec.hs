@@ -26,7 +26,7 @@ import Data.CFTA.Equality (
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraints (EqConstraints, unsafeGetEclasses)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Example.TypedExpressionLanguage
+import Data.CFTA.Gen.TypedExpressionLanguage
 import Data.CFTA.Symbol (Symbol)
 
 -- | Infer a ground type independently of either generator.

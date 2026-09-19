@@ -10,18 +10,18 @@ module Main (main) where
 import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
-import Data.CFTA.Gen.Example.TypedExpressionLanguage (
+import Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage (
+    compileEqualityExpressionsAtDepth,
+    solverDeclarations,
+ )
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import Data.CFTA.Gen.TypedExpressionLanguage (
     Expression (..),
     TypedExpression (..),
     allTypes,
     expressionCount,
     expressionGenAtDepth,
  )
-import Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage (
-    compileEqualityExpressionsAtDepth,
-    solverDeclarations,
- )
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import GeneratorSpeedHarness (Benchmark (..), benchmarkMain)
 

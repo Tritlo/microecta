@@ -65,7 +65,7 @@ import Data.CFTA.Equality (Edge (Edge), Node (EmptyNode, Node))
 import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Gen.Equality.QuickCheck (Grouped, Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Example.TypedExpressionLanguage (frequencyInteger)
+import Data.CFTA.Gen.TypedExpressionLanguage (frequencyInteger)
 import Data.CFTA.Symbol (Symbol)
 
 {- | Security labels. The derived 'Ord' is the flow order, MAC's @Less@ at

@@ -12,17 +12,17 @@ import System.Environment (getArgs)
 import Text.Printf (printf)
 
 import Data.CFTA.Equality
-import Data.CFTA.Example.TermSearch.Dataset (typeToFta)
-import Data.CFTA.Example.TermSearch.TermSearch (filterType, reduceFully)
-import Data.CFTA.Example.TermSearch.Type (TypeSkeleton (..))
-import Data.CFTA.Example.TermSearch.Utils (
+import Data.CFTA.Symbol (Symbol (Symbol))
+import Data.CFTA.TermSearch.Dataset (typeToFta)
+import Data.CFTA.TermSearch.TermSearch (filterType, reduceFully)
+import Data.CFTA.TermSearch.Type (TypeSkeleton (..))
+import Data.CFTA.TermSearch.Utils (
     arrowType,
     constFunc,
     mkDatatype,
     theArrowNode,
     typeConst,
  )
-import Data.CFTA.Symbol (Symbol (Symbol))
 
 data Bench = Bench
     { benchName :: String

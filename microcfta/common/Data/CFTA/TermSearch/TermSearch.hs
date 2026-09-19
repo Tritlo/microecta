@@ -6,7 +6,7 @@ The full search engine and Hoogle dataset are intentionally absent. This module
 keeps the two operations downstream code uses: constrain a term node by a type
 node with 'filterType', and run the standard reduction loop with 'reduceFully'.
 -}
-module Data.CFTA.Example.TermSearch.TermSearch (
+module Data.CFTA.TermSearch.TermSearch (
     filterType,
     reduceFully,
 ) where

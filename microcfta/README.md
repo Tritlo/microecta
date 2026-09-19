@@ -14,9 +14,9 @@ parameter selects how much a transition can say:
 The ordinary layer is a finite tree automaton (FTA). The equality layer is the
 equality-constrained tree automaton (ECTA) of Koppel, Guo, de Vries,
 Solar-Lezama and Polikarpova, [*Searching Entangled Program Spaces*, Proc.
-ACM Program. Lang. 6(ICFP), 2022](https://doi.org/10.1145/3547622), and it
-supersedes the [`microecta`](https://hackage.haskell.org/package/microecta)
-package. The refinement layer is the liquid tree automaton (LTA) of Mishra and
+ACM Program. Lang. 6(ICFP), 2022](https://doi.org/10.1145/3547622); its
+engine descends from the [`microecta`](https://hackage.haskell.org/package/microecta)
+package, which remains a separate, ECTA-only line. The refinement layer is the liquid tree automaton (LTA) of Mishra and
 Jagannathan, with Liquid Fixpoint refinements and Z3 entailment. Concrete
 terms are `Data.Tree.Tree` from `containers`.
 
@@ -615,18 +615,8 @@ reduceFully :: Node Symbol EqConstraints -> Node Symbol EqConstraints
 reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
 ```
 
-`Data.CFTA.Example.TermSearch.TermSearch` exports that helper directly.
-
-### Term-search compatibility layer
-
-The `Data.CFTA.Example.TermSearch.*` modules are intentionally tiny. They
-provide only the pieces that downstream term-search projects still use:
-
-- `TypeSkeleton`
-- `typeToFta`
-- `filterType`
-- small type constructors and helpers: `arrowType`, `mkDatatype`, `typeConst`,
-  `genVar`, and `constFunc`
+The test and benchmark support module `Data.CFTA.TermSearch.TermSearch`
+defines that helper.
 
 ## Refinements
 
@@ -997,7 +987,6 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
 | `Data.CFTA.Equality.Constraints` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Equality.Operations`, `Data.CFTA.Equality.Enumeration` | The equality algorithms behind the facade; exposed for lower-level callers. |
-| `Data.CFTA.Example.TermSearch.*` | The small term-search compatibility layer. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
 | `Data.CFTA.Refinement.Guard`, `Data.CFTA.Refinement.Syntax` | Guard syntax over named child positions and handwritten transition rows. |
 | `Data.CFTA.Refinement.Expression` | Small helpers over Liquid Fixpoint refinement expressions. |

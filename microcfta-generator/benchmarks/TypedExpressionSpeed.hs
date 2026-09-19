@@ -9,7 +9,7 @@ module Main (main) where
 import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
-import Data.CFTA.Gen.Example.TypedExpressionLanguage (
+import Data.CFTA.Gen.TypedExpressionLanguage (
     TypedExpression (expressionType),
     allTypes,
     expressionCount,
