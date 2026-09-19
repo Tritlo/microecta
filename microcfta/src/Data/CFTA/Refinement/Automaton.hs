@@ -24,7 +24,6 @@ module Data.CFTA.Refinement.Automaton (
     fromViewError,
     located,
     automatonAlphabet,
-    nodesAt,
     transitionsAt,
 ) where
 

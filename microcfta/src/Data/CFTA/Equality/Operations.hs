@@ -17,12 +17,15 @@ module Data.CFTA.Equality.Operations (
 ) where
 
 import Data.Hashable (Hashable (..))
-import Data.List (inits, tails)
+import qualified Data.IntMap.Strict as IntMap
+import Data.List (compareLength, inits, tails)
+import Data.Maybe (fromMaybe)
 import qualified Data.Tree as Tree
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
 
 import Data.CFTA.Constraint.Equality
+import Data.CFTA.Internal.Tree (adjustAt)
 import Data.CFTA.Interned
 import Data.CFTA.Interned.Memo (
     MemoCache,
@@ -32,7 +35,7 @@ import Data.CFTA.Interned.Memo (
     newMemoCache,
     newTypeableMemoCache,
  )
-import Data.CFTA.Path (Path, Pathable (..))
+import Data.CFTA.Path (Path (..), Pathable (..))
 import Data.CFTA.Symbol (Symbol)
 import Data.CFTA.Template (Template (..), restrict)
 
@@ -191,19 +194,14 @@ reduceEqConstraints = go
       where
         eclasses = unsafeSubsumptionOrderedEclasses ecs
 
-        -- \| TODO: Replace with a "requirePathTrie"
-        withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
+        withNeededChildren = requireAll (concatMap unPathEClass eclasses) origNs
 
         intersectList :: [Node symbol constraint] -> Node symbol constraint
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
         reduceEClass :: PathEClass -> [Node symbol constraint] -> [Node symbol constraint]
-        reduceEClass pec ns =
-            foldr
-                (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
-                ns
-                (zip ps (toIntersect ns ps))
+        reduceEClass pec ns = editAll (zip ps (map intersect (toIntersect ns ps))) ns
           where
             ps = unPathEClass pec
 
@@ -214,6 +212,67 @@ reduceEqConstraints = go
         -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
         dropOnes :: [a] -> [[a]]
         dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
+
+-- | A trie of child positions that must exist. An empty map ends a required path.
+newtype Needed = Needed (IntMap.IntMap Needed)
+
+{- | Restrict a child list to the terms that contain every path, in one
+traversal. This gives the same nodes as requiring the paths one at a time.
+-}
+requireAll ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    [Path] -> [Node symbol constraint] -> [Node symbol constraint]
+requireAll paths = requireList (foldr insertNeeded (Needed IntMap.empty) paths)
+  where
+    insertNeeded EmptyPath needed = needed
+    insertNeeded (ConsPath index rest) (Needed children) =
+        Needed $ IntMap.alter (Just . insertNeeded rest . fromMaybe (Needed IntMap.empty)) index children
+
+    requireList :: Needed -> [Node symbol constraint] -> [Node symbol constraint]
+    requireList (Needed children) ns = IntMap.foldrWithKey (\index needed -> adjustAt index (requireNode needed)) ns children
+
+    requireNode :: Needed -> Node symbol constraint -> Node symbol constraint
+    requireNode (Needed children) n | IntMap.null children = n
+    requireNode _ EmptyNode = EmptyNode
+    requireNode needed n@(Mu _) = requireNode needed (unfoldOuterRec n)
+    requireNode needed@(Needed children) (Node es) =
+        Node
+            [ setChildren e (requireList needed (edgeChildren e))
+            | e <- es
+            , compareLength (edgeChildren e) (fst (IntMap.findMax children)) == GT
+            ]
+    requireNode _ (Rec _) = error "requireAll: unexpected Rec"
+
+-- | Edits at child positions: one at the end of a path, or the edits below an index.
+data Edits symbol constraint
+    = EditAt (Node symbol constraint -> Node symbol constraint)
+    | EditBelow (IntMap.IntMap (Edits symbol constraint))
+
+{- | Apply edits at several paths, none a prefix of another, in one traversal.
+This gives the same nodes as 'modifyAtPath' at each path in turn.
+-}
+editAll ::
+    forall symbol constraint.
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    [(Path, Node symbol constraint -> Node symbol constraint)] -> [Node symbol constraint] -> [Node symbol constraint]
+editAll edits = editList (foldr (uncurry insertEdit) (EditBelow IntMap.empty) edits)
+  where
+    insertEdit EmptyPath f _ = EditAt f
+    insertEdit (ConsPath index rest) f (EditBelow children) =
+        EditBelow $ IntMap.alter (Just . insertEdit rest f . fromMaybe (EditBelow IntMap.empty)) index children
+    insertEdit (ConsPath _ _) _ leaf@(EditAt _) = leaf
+
+    editList :: Edits symbol constraint -> [Node symbol constraint] -> [Node symbol constraint]
+    editList (EditAt _) ns = ns
+    editList (EditBelow children) ns = IntMap.foldrWithKey (\index below -> adjustAt index (editNode below)) ns children
+
+    editNode :: Edits symbol constraint -> Node symbol constraint -> Node symbol constraint
+    editNode (EditAt f) n = f n
+    editNode _ EmptyNode = EmptyNode
+    editNode below n@(Mu _) = editNode below (unfoldOuterRec n)
+    editNode below (Node es) = Node (map (\e -> setChildren e (editList below (edgeChildren e))) es)
+    editNode _ (Rec _) = error "editAll: unexpected Rec"
 
 {- | Keep exactly the terms in a node that match a template.
 

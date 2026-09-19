@@ -28,6 +28,7 @@ module Data.CFTA.Interned.Operations (
     pathsMatching,
     requirePath,
     requirePathList,
+    onCommon,
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
@@ -45,15 +46,33 @@ import Data.Semigroup (Max (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
-import Data.Typeable (Typeable)
+import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
+import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
 import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Internal.Tree (adjustAt)
 import Data.CFTA.Interned.Cache (Id)
 import Data.CFTA.Interned.Memo
 import Data.CFTA.Interned.Type
 import Data.CFTA.Path (Path (ConsPath, EmptyPath), Pathable (..))
+import Data.CFTA.Symbol (Symbol)
+
+{- | Choose the specialization for the common interned alphabet and equality
+theory, or the generic definition for any other instantiation.
+-}
+onCommon ::
+    forall symbol constraint r.
+    (Typeable symbol, Typeable constraint) =>
+    ((symbol ~ Symbol, constraint ~ EqConstraints) => r) ->
+    r ->
+    r
+onCommon common generic =
+    case (eqTypeRep (typeRep @symbol) (typeRep @Symbol), eqTypeRep (typeRep @constraint) (typeRep @EqConstraints)) of
+        (Just HRefl, Just HRefl) -> common
+        _ -> generic
+{-# INLINE onCommon #-}
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}
@@ -338,12 +357,20 @@ genericIntersectEdgeSameSymbolCache :: TypeableMemoCache
 genericIntersectEdgeSameSymbolCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectEdgeSameSymbolCache #-}
 
+commonIntersectEdgeSameSymbolCache ::
+    MemoCache (Edge Symbol EqConstraints, Edge Symbol EqConstraints) (Edge Symbol EqConstraints)
+commonIntersectEdgeSameSymbolCache = unsafePerformIO newMemoCache
+{-# NOINLINE commonIntersectEdgeSameSymbolCache #-}
+
 -- | Intersect edges with equal symbols and reject unequal arities.
 intersectEdgeSameSymbol ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
     Edge symbol constraint -> Edge symbol constraint -> Edge symbol constraint
-intersectEdgeSameSymbol left right = memo2TypeableWith genericIntersectEdgeSameSymbolCache go left right
+intersectEdgeSameSymbol left right =
+    onCommon @symbol @constraint
+        (memo2With commonIntersectEdgeSameSymbolCache go left right)
+        (memo2TypeableWith genericIntersectEdgeSameSymbolCache go left right)
   where
     go e1 e2
         | e2 < e1 = intersectEdgeSameSymbol e2 e1
@@ -373,25 +400,34 @@ data IntersectionDom symbol constraint = ID
     -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
     -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
+    , idHash :: !Int
+    -- ^ Hash of the two fields, computed once: every memo lookup hashes the domain.
     }
     deriving (Eq)
 
 instance Hashable (IntersectionDom symbol constraint) where
-    -- Implementation notes:
-    --
-    -- - Both `IntMap.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
-    -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-    hashWithSalt s (ID free recInt) = hashWithSalt s (IntMap.toList free, Set.toList recInt)
+    hashWithSalt s dom = hashWithSalt s (idHash dom)
+
+-- | Build a domain and its hash. Both containers list their elements in key order, a canonical form.
+mkIntersectionDom :: IntMap (Node symbol constraint) -> Set IntersectId -> IntersectionDom symbol constraint
+mkIntersectionDom free recInt = ID free recInt (hash (IntMap.toList free, Set.toList recInt))
 
 -- | An intersection environment with no free or pending variables.
 {-# INLINEABLE emptyIntersectionDom #-}
 emptyIntersectionDom :: IntersectionDom symbol constraint
-emptyIntersectionDom = ID IntMap.empty Set.empty
+emptyIntersectionDom = mkIntersectionDom IntMap.empty Set.empty
 
 -- | Tables for node intersection in a recursive environment.
 genericIntersectOpenCache :: TypeableMemoCache
 genericIntersectOpenCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectOpenCache #-}
+
+commonIntersectOpenCache ::
+    MemoCache
+        (IntersectionDom Symbol EqConstraints, Node Symbol EqConstraints, Node Symbol EqConstraints)
+        (Node Symbol EqConstraints)
+commonIntersectOpenCache = unsafePerformIO newMemoCache
+{-# NOINLINE commonIntersectOpenCache #-}
 
 -- | Intersect two nodes under the same recursive environment.
 intersectOpen ::
@@ -399,7 +435,10 @@ intersectOpen ::
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
     (IntersectionDom symbol constraint, Node symbol constraint, Node symbol constraint) -> Node symbol constraint
 {-# INLINEABLE intersectOpen #-}
-intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
+intersectOpen input =
+    onCommon @symbol @constraint
+        (memoWith commonIntersectOpenCache worker input)
+        (memoTypeableWith genericIntersectOpenCache worker input)
   where
     worker (dom, left, right) = onNode dom left right
 
@@ -448,10 +487,9 @@ intersectOpen input = memoTypeableWith genericIntersectOpenCache worker input
         -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
         extendEnv :: [(Id, Node symbol constraint)] -> IntersectionDom symbol constraint
         extendEnv bindings =
-            ID
-                { idFree = IntMap.union (IntMap.fromList bindings) (idFree dom)
-                , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
-                }
+            mkIntersectionDom
+                (IntMap.union (IntMap.fromList bindings) (idFree dom))
+                (Set.insert (IntersectId i j) (idRecInt dom))
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
@@ -472,13 +510,23 @@ genericIntersectOpenEdgeCache :: TypeableMemoCache
 genericIntersectOpenEdgeCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericIntersectOpenEdgeCache #-}
 
+commonIntersectOpenEdgeCache ::
+    MemoCache
+        (IntersectionDom Symbol EqConstraints, Edge Symbol EqConstraints, Edge Symbol EqConstraints)
+        (Edge Symbol EqConstraints)
+commonIntersectOpenEdgeCache = unsafePerformIO newMemoCache
+{-# NOINLINE commonIntersectOpenEdgeCache #-}
+
 -- | Intersect two edges under the same recursive environment.
 intersectOpenEdge ::
     forall symbol constraint.
     (Hashable symbol, Typeable symbol, Constraint constraint) =>
     (IntersectionDom symbol constraint, Edge symbol constraint, Edge symbol constraint) -> Edge symbol constraint
 {-# INLINEABLE intersectOpenEdge #-}
-intersectOpenEdge input = memoTypeableWith genericIntersectOpenEdgeCache worker input
+intersectOpenEdge input =
+    onCommon @symbol @constraint
+        (memoWith commonIntersectOpenEdgeCache worker input)
+        (memoTypeableWith genericIntersectOpenEdgeCache worker input)
   where
     worker (dom, left, right) = onEdge dom left right
 

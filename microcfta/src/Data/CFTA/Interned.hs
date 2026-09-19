@@ -85,8 +85,7 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
-import Data.Type.Equality ((:~~:) (HRefl))
-import Type.Reflection (Typeable, eqTypeRep, typeRep)
+import Type.Reflection (Typeable)
 
 import Data.CFTA (StateView (..), ViewPath)
 import qualified Data.CFTA as FTA
@@ -145,22 +144,6 @@ import qualified Data.CFTA.Interned.Type as Generic (
     substFree,
  )
 import Data.CFTA.Symbol (Symbol)
-
-{- | Run the engine at the interned 'Symbol' alphabet with 'EqConstraints'
-when the types match, so GHC compiles a specialized copy for the common
-case, and run it generically otherwise. Both branches compute the same value.
--}
-onCommon ::
-    forall symbol constraint r.
-    (Typeable symbol, Typeable constraint) =>
-    ((symbol ~ Symbol, constraint ~ EqConstraints) => r) ->
-    r ->
-    r
-onCommon common generic =
-    case (eqTypeRep (typeRep @symbol) (typeRep @Symbol), eqTypeRep (typeRep @constraint) (typeRep @EqConstraints)) of
-        (Just HRefl, Just HRefl) -> common
-        _ -> generic
-{-# INLINE onCommon #-}
 
 -- | Construct or inspect one unconstrained edge.
 pattern Edge ::
