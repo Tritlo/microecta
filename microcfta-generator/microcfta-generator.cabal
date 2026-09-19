@@ -84,7 +84,6 @@ library
     Data.CFTA.Gen
     Data.CFTA.Gen.Do
     Data.CFTA.Gen.Equality
-    Data.CFTA.Gen.Equality.Do
     Data.CFTA.Gen.Equality.Internal.Symbolic
     Data.CFTA.Gen.Equality.QuickCheck
     Data.CFTA.Gen.Equality.Sig
@@ -93,7 +92,6 @@ library
     Data.CFTA.Gen.Internal.Shrink
     Data.CFTA.Gen.QuickCheck
     Data.CFTA.Gen.Refinement
-    Data.CFTA.Gen.Refinement.Do
     Data.CFTA.Gen.Refinement.QuickCheck
     Data.CFTA.Ranked
     Data.CFTA.Ranked.Internal

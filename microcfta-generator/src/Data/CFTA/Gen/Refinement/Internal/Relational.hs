@@ -27,8 +27,8 @@ import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
+import qualified Data.CFTA.Gen.Equality as ECTA
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicGroupsWith)
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     automatonView,

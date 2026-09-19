@@ -182,8 +182,9 @@ data TracePrefix = TracePrefix
 -- | Empty trace prefix before the public value is decoded.
 initialTracePrefix :: LTA.LTAGen TracePrefix
 initialTracePrefix =
-    LTA.refinedNode "start" (stateRefinement emptyState) unconstrained $
-        LTA.pure (TracePrefix id emptyState)
+    LTA.refinedNode "start" (stateRefinement emptyState) unconstrained start
+  where
+    start = LTA.pure (TracePrefix id emptyState) :: LTA.Children TracePrefix
 
 {- | Generate traces with exactly the requested number of commands through
 the compositional surface DSL.

@@ -1,7 +1,7 @@
 -- | QuickCheck-facing syntax for compiled liquid tree generators.
 module Data.CFTA.Gen.Refinement.QuickCheck (
     module Data.CFTA.Gen.Refinement,
-    module Data.CFTA.Gen.Refinement.Do,
+    module Data.CFTA.Gen.Do,
     OpaqueSource,
     opaqueSource,
     SampledChildren,
@@ -24,8 +24,8 @@ import qualified Prelude
 
 import qualified Data.Map.Strict as Map
 
+import Data.CFTA.Gen.Do
 import Data.CFTA.Gen.Refinement
-import Data.CFTA.Gen.Refinement.Do
 import qualified Data.CFTA.Ranked.QuickCheck as Tree
 import Data.CFTA.Refinement (
     Entailment,

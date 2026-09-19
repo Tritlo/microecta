@@ -11,7 +11,7 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 
 import Data.Bifunctor (first)
 
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
+import qualified Data.CFTA.Gen.Equality as ECTA
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Recipe (requiredImplications, transparentCompiled, validateGenerator)
 import Data.CFTA.Gen.Refinement.Internal.Relational (

@@ -9,10 +9,11 @@ one ranked layer and three generators, one per constraint theory:
 | `Data.CFTA.Ranked` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Ranked.QuickCheck` | QuickCheck sampling and properties over a ranked language. |
 | `Data.CFTA.Gen` | Ordinary automaton compilation and constructor-based source recipes. |
-| `Data.CFTA.Gen.QuickCheck` | Ordinary sampling, properties, and qualified do-notation. |
+| `Data.CFTA.Gen.QuickCheck` | Ordinary sampling and properties. |
+| `Data.CFTA.Gen.Do` | Qualified do-notation for the child blocks of every layer; import it qualified under the same alias as the generator module. |
 | `Data.CFTA.Gen.Error` | The one failure vocabulary of every layer, and `explain`. |
 | `Data.CFTA.Gen.Equality` | Equality-constrained sources, equality and relational joins, retained key groups, and recursive generation. |
-| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and its do-notation, and adds `pool`, `freeze`, `toGen`, `forAll`, and `sized`. |
+| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and adds `pool`, `freeze`, `toGen`, `forAll`, and `sized`. |
 | `Data.CFTA.Gen.Refinement` | Refinement-constrained sources compiled once with a solver into pure sampling, replay, and shrinking. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | The QuickCheck-facing refinement API. |
 | `Data.CFTA.Ranked.Internal.*`, `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Gen.Equality.Internal.Symbolic` | The shared decoder, sampler, size, shrink, and symbolic-count implementation; exposed for integration, not covered by the PVP contract. |
@@ -33,8 +34,8 @@ nix-shell --run 'cabal run cfta-pairs'
 [`examples/FinitePairs.hs`](examples/FinitePairs.hs) derives the pair datatype with the finite `Int`
 domain `[0, 1]`.
 It checks all replay ranks and samples the accepted pairs with QuickCheck.
-It also constructs the same language with `Common.Node String ()`, converts
-the shared graph with `Common.toFTA`, and checks the imported generator.
+It also constructs the same language as an interned `Common.PlainNode String`,
+imports it with `fromAutomaton`, and checks the imported generator.
 
 `FTA.node "pair"` closes an applicative child block. Each binding supplies one
 direct child. Enable `ApplicativeDo` and `QualifiedDo`, and finish the block
@@ -51,7 +52,8 @@ retains shared states.
 The compiler bounds the shared graph and preserves transition and child order.
 `fromAutomatonUpToSize` bounds the total number of tree nodes. Its ranks are ordered
 by size, and it samples uniformly over those ranks. Both imports count accepting
-runs. An empty bounded language returns `EmptyGenerator`.
+runs. An empty bounded language carries `EmptyGenerator`, which `cardinality`
+and `toGen` report.
 
 Recursive size indexing and finite automaton rank shrinking belong to
 `Data.CFTA.Gen.Internal.*`. ECTA retains its constraint and ambiguity
@@ -200,8 +202,12 @@ Import the QuickCheck-facing API:
 
 ```haskell
 import Data.CFTA.Gen.Equality.QuickCheck (ECTAGen)
+import qualified Data.CFTA.Gen.Do as ECTAGen
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 ```
+
+The second import puts the qualified do-notation under the same alias, so
+`ECTAGen.do` and `ECTAGen.pure` sit next to `ECTAGen.node`.
 
 ### Generator API
 
@@ -346,8 +352,8 @@ ternary `IfExpression`. Its finite layers combine those three alternatives with
 recursive layer uses equal structural alternatives, as recursive declarations
 require.
 
-Both layers also support qualified do-notation through `Data.CFTA.Gen.Equality.Do`,
-which `Data.CFTA.Gen.Equality.QuickCheck` re-exports. Enable `QualifiedDo` together
+Both layers also support qualified do-notation through `Data.CFTA.Gen.Do`,
+imported qualified under the generator's alias. Enable `QualifiedDo` together
 with `ApplicativeDo`; statements must stay independent, and the final
 statement must use the qualified `ECTAGen.pure`. A grouped block chooses the
 operation family first and then one argument per signature component in
@@ -807,6 +813,7 @@ it evaluates the division.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QualifiedDo #-}
 
+import qualified Data.CFTA.Gen.Do as LTA
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import Data.CFTA.Refinement.Guard (requires)
 import Data.CFTA.Refinement.LiquidFixpoint (integerDeclarations, withZ3)

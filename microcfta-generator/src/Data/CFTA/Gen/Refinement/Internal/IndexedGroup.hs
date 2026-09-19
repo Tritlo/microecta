@@ -8,7 +8,7 @@ import qualified Data.Tree as Tree
 
 import qualified Data.CFTA.Equality as Core
 import Data.CFTA.Equality.Constraint (EqConstraints)
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
+import qualified Data.CFTA.Gen.Equality as ECTA
 import Data.CFTA.Symbol (Symbol)
 
 {- | Represent each index below the bound with one binary-code term.

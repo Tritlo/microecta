@@ -1,7 +1,7 @@
 {- | Finite generators whose support is a liquid tree automaton.
 
 'pool' supplies refined atoms. 'node' adds one constructor around an
-applicatively-built child forest; "Data.CFTA.Gen.Refinement.Do" provides the corresponding
+applicatively-built child forest; "Data.CFTA.Gen.Do" provides the corresponding
 qualified-do syntax. 'compile' checks guards and refinement-shrink relations
 once, then returns pure sampling, replay, and shrinking.
 -}

@@ -61,7 +61,7 @@ module Data.CFTA.Gen.Equality.QuickCheck (
     sized,
 
     -- * Qualified do-notation
-    module Data.CFTA.Gen.Equality.Do,
+    module Data.CFTA.Gen.Do,
 ) where
 
 import Data.Maybe (fromMaybe)
@@ -69,8 +69,8 @@ import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
+import Data.CFTA.Gen.Do
 import Data.CFTA.Gen.Equality
-import Data.CFTA.Gen.Equality.Do
 
 {- | Sample a finite pool from an ordinary QuickCheck generator.
 

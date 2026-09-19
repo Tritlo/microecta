@@ -83,7 +83,10 @@ paths.
 ## QuickCheck generators
 
 Every qualified do-block describes direct constructor children. The matching
-`node` supplies the domain symbol and closes the block:
+`node` supplies the domain symbol and closes the block. The do-notation is
+`Data.CFTA.Gen.Do`, imported qualified under the same alias as the generator
+module, so `FTA.do`, `ECTA.do`, and `LTA.do` are one module under three
+aliases:
 
 ```haskell
 pair = FTA.node "pair" $ FTA.do
@@ -157,13 +160,14 @@ refinements as errors. Use `explain` to render an error, and `validOutcomes`
 for explicit diagnostics on small inputs. Sampling, replay, and shrinking
 use the pure compiled result.
 
-`LTA.fromLTA maximumHeight automaton` imports an existing automaton into the
-same source syntax. It preserves graph sharing until compilation. Each distinct
-accepted annotated term contributes one rank. Repeated ordinary pool draws keep
-their separate ranks and weights. A leaf has height zero; an empty bound is an
-empty source. The standalone
+`LTA.fromAutomatonUpToDepth maximumHeight automaton` imports an existing
+interned automaton into the same source syntax. It preserves graph sharing
+until compilation. Each distinct accepted annotated term contributes one rank.
+Repeated ordinary pool draws keep their separate ranks and weights. A leaf has
+height zero; an empty bound is an empty source. The standalone
 [`AutomatonInterop.hs`](../microcfta-generator/examples/AutomatonInterop.hs)
-checks this workflow with a recursive natural-number grammar.
+imports a derived recursive natural-number grammar with
+`fromDatatypeUpToDepth` and composes it with a refined pool.
 
 `refinedNodeByRoots` takes one function from child root observations to the
 result refinement. Compilation calls it once per observation group. The
