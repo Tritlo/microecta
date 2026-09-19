@@ -32,6 +32,7 @@ import Data.CFTA.Interned.Memo (
     newMemoCache,
     newTypeableMemoCache,
  )
+import Data.CFTA.Path (Path, Pathable (..))
 import Data.CFTA.Symbol (Symbol)
 import Data.CFTA.Template (Template (..), restrict)
 

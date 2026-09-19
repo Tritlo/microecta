@@ -27,12 +27,11 @@ import Data.CFTA (statesAt)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint.Equality (
     EqConstraints (EmptyConstraints),
-    Path,
     combineEqConstraints,
     constraintsAreContradictory,
     mkEqConstraints,
-    unPath,
  )
+import Data.CFTA.Path (Path, unPath)
 
 import Data.CFTA.Refinement.Automaton (
     Automaton,

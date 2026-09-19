@@ -99,7 +99,8 @@ module Data.CFTA.Equality (
     -- * Automata
     module Data.CFTA.Interned,
 
-    -- * Path equalities
+    -- * Paths and path equalities
+    module Data.CFTA.Path,
     module Data.CFTA.Constraint.Equality,
 
     -- * Equality operations
@@ -130,6 +131,7 @@ import Data.CFTA.Enumeration
 import Data.CFTA.Equality.Operations
 import Data.CFTA.Internal.UnionFind (UVar, uvarToInt)
 import Data.CFTA.Interned
+import Data.CFTA.Path
 import Data.CFTA.Template (Template (..), matchesTemplate)
 
 {- $setup

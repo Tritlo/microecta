@@ -11,11 +11,12 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Constraint (Constraint)
-import Data.CFTA.Constraint.Equality (EqConstraints, Path, subsumptionOrderedEclasses, unPath, unPathEClass)
+import Data.CFTA.Constraint.Equality (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
+import Data.CFTA.Path (Path, unPath)
 import qualified Data.CFTA.Ranked.Internal as Ranked
 
 -- | A constructor context whose variables denote whole subtree languages.

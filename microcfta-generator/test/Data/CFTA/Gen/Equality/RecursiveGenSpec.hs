@@ -16,7 +16,7 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Constraint.Equality (EqConstraints, mkEqConstraints, path)
+import Data.CFTA.Constraint.Equality (EqConstraints, mkEqConstraints)
 import Data.CFTA.Equality (
     Edge (Edge),
     Node (Node),
@@ -31,6 +31,7 @@ import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Equality.TestSupport (aggregateRights)
+import Data.CFTA.Path (path)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Symbol (Symbol)
 

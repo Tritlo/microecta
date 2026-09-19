@@ -21,6 +21,7 @@ import qualified Data.CFTA.Gen.Equality as Core
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Interned
+import qualified Data.CFTA.Path as Paths
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 
 -- | Annotate the tuple constructor and leave its field datatypes unchanged.

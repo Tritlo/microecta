@@ -7,6 +7,7 @@ import Test.Hspec
 import Test.QuickCheck
 
 import Data.CFTA.Constraint.Equality
+import Data.CFTA.Path
 
 -----------------------------------------------------------------
 

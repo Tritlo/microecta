@@ -17,7 +17,8 @@ import Data.Maybe (isNothing)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Constraint.Equality (EqConstraints, Path, getPath)
+import Data.CFTA.Constraint.Equality (EqConstraints)
+import Data.CFTA.Path (Path, getPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Language.Fixpoint.Types as Fixpoint
 

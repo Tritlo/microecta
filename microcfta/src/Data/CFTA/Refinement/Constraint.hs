@@ -32,13 +32,13 @@ import GHC.Generics (Generic)
 import Data.CFTA.Constraint (Constraint (..))
 import Data.CFTA.Constraint.Equality (
     EqConstraints (EmptyConstraints),
-    Path,
     combineEqConstraints,
     constraintsAreContradictory,
     mkEqConstraints,
     subsumptionOrderedEclasses,
     unPathEClass,
  )
+import Data.CFTA.Path (Path)
 
 import Data.CFTA.Refinement.Types (Refinement)
 

@@ -6,13 +6,6 @@ constraints over paths, and algorithms for saturating these constraints.
 The 'Data.CFTA.Constraint.Constraint' instance lives with the class.
 -}
 module Data.CFTA.Constraint.Equality (
-    Path (..),
-    unPath,
-    path,
-    Pathable (..),
-    isSubpath,
-    isStrictSubpath,
-    substSubpath,
     getMaxNonemptyIndex,
     PathTrie (..),
     isEmptyPathTrie,
@@ -53,7 +46,7 @@ import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
 import Data.CFTA.Internal.Pretty
 import Data.CFTA.Interned.Memo (memo2)
-import Data.CFTA.Path (Path (..), Pathable (..), isStrictSubpath, isSubpath, path, substSubpath, unPath)
+import Data.CFTA.Path (Path (..), isStrictSubpath, substSubpath)
 
 -------------------------------------------------------
 

@@ -29,8 +29,6 @@ module Data.CFTA.Enumeration (
     -- * Pruning oracles
     termsPrune,
     termsPruneWith,
-    enumPrune,
-    enumPruneWith,
     ExpansionOrder,
     noExpansionPreference,
     expandPartialTermFrag,
@@ -772,33 +770,9 @@ termsPruneWith ::
     Node symbol constraint ->
     [Tree.Tree symbol]
 termsPruneWith recursionSymbol ost order oracle n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPruneWith recursionSymbol ost order oracle
-
-{- | Monadic form of 'termsPrune'.
-
-Use this when the caller is already composing lower-level enumeration actions
-in 'EnumerateM'. Most callers should prefer 'termsPrune'.
--}
-enumPrune ::
-    forall symbol constraint a.
-    (Hashable symbol, Typeable symbol, Constraint constraint, IsString symbol) =>
-    a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol constraint) -> EnumerateM symbol constraint (Bool, a)) ->
-    EnumerateM symbol constraint (Tree.Tree symbol)
-enumPrune a oracle = enumPruneWith "Mu" a noExpansionPreference oracle
-
--- | Monadic form of 'termsPruneWith', taking the recursion symbol first.
-enumPruneWith ::
-    forall symbol constraint a.
-    (Hashable symbol, Typeable symbol, Constraint constraint) =>
-    symbol ->
-    a ->
-    ExpansionOrder a ->
-    (a -> UVar -> Either (TermFragment symbol) (Node symbol constraint) -> EnumerateM symbol constraint (Bool, a)) ->
-    EnumerateM symbol constraint (Tree.Tree symbol)
-enumPruneWith recursionSymbol a order oracle = do
-    finished <- enumerateFully' a order oracle
-    if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
+    map fst $ flip runEnumerateM (initEnumerationState n) $ do
+        finished <- enumerateFully' ost order oracle
+        if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
 
 {- | The terms of the automaton's accepting runs, each once.
 
