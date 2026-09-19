@@ -75,10 +75,10 @@ import qualified Data.Tree as Tree
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, typeRep)
 
-import Data.CFTA.Equality.Constraints
-import Data.CFTA.Equality.Operations
+import Data.CFTA.Constraint.Equality
 import Data.CFTA.Internal.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.CFTA.Internal.UnionFind as UnionFind
+import Data.CFTA.Interned
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Interned.Memo (TypeableMemoCache, memoTypeableWith, newTypeableMemoCache)
 import Data.CFTA.Symbol

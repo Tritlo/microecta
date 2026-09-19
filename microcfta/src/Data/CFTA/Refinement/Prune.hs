@@ -23,8 +23,9 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Set as Set
 
+import Data.CFTA (statesAt)
 import qualified Data.CFTA as FTA
-import Data.CFTA.Equality.Constraints (
+import Data.CFTA.Constraint.Equality (
     EqConstraints (EmptyConstraints),
     Path,
     combineEqConstraints,
@@ -32,7 +33,6 @@ import Data.CFTA.Equality.Constraints (
     mkEqConstraints,
     unPath,
  )
-import Data.CFTA.Path (statesAt)
 
 import Data.CFTA.Refinement.Automaton (
     Automaton,

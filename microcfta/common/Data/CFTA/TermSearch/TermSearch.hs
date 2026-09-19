@@ -12,7 +12,6 @@ module Data.CFTA.TermSearch.TermSearch (
 ) where
 
 import Data.CFTA.Equality
-import Data.CFTA.Interned.Operations (fixUnbounded)
 import Data.CFTA.Symbol (Symbol)
 
 -- | Constrain a term-search node by equating its type child with a type node.

@@ -18,7 +18,7 @@ module Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
 
 import Data.Bifunctor (first)
 import qualified Data.CFTA as FTA
-import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRankedWith)
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
 import Data.CFTA.Gen.Internal.Shrink (automatonShrinkRanks)

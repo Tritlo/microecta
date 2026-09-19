@@ -24,8 +24,8 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (EqConstraints)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Refinement (
     EqualityAutomaton,

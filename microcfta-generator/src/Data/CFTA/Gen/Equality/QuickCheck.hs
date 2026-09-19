@@ -141,8 +141,8 @@ import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Node)
-import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Gen.Equality (
     Args (..),
     ECTAGenError (..),

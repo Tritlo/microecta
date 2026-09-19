@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 -- | Constraint-independent operations on shared interned automata.
 module Data.CFTA.Interned.Operations (
     nodeMapChildren,
@@ -22,6 +24,9 @@ module Data.CFTA.Interned.Operations (
     getSubnodeById,
     intersectEdge,
     fixUnbounded,
+    pathsMatching,
+    requirePath,
+    requirePathList,
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
@@ -31,7 +36,8 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.Maybe (fromMaybe)
+import Data.List (compareLength, (!?))
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid (First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -41,9 +47,11 @@ import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Internal.Tree (adjustAt)
 import Data.CFTA.Interned.Cache (Id)
 import Data.CFTA.Interned.Memo
 import Data.CFTA.Interned.Type
+import Data.CFTA.Path (Path (ConsPath, EmptyPath), Pathable (..))
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}
@@ -532,3 +540,75 @@ hashJoin key j l1 l2 =
     [j x y | x <- l1, y <- HashMap.findWithDefault [] (key x) right]
   where
     right = HashMap.fromListWith (++) [(key x, [x]) | x <- l2]
+
+-- Paths into graphs
+
+instance (Hashable symbol, Typeable symbol, Constraint constraint) => Pathable (Node symbol constraint) (Node symbol constraint) where
+    type Emptyable (Node symbol constraint) = Node symbol constraint
+
+    getPath _ EmptyNode = EmptyNode
+    getPath EmptyPath n = n
+    getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
+    getPath (ConsPath p ps) (Node es) = union (mapMaybe (\e -> getPath ps <$> edgeChildren e !? p) es)
+    getPath p _ = error $ "getPath: unexpected path " <> show p <> " for unresolved node"
+
+    getAllAtPath _ EmptyNode = []
+    getAllAtPath EmptyPath n = [n]
+    getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
+    getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe (\e -> edgeChildren e !? p) es)
+    getAllAtPath p _ = error $ "getAllAtPath: unexpected path " <> show p <> " for unresolved node"
+
+    modifyAtPath f EmptyPath n = f n
+    modifyAtPath _ _ EmptyNode = EmptyNode
+    modifyAtPath f p n@(Mu _) = modifyAtPath f p (unfoldOuterRec n)
+    modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
+      where
+        goEdge e = setChildren e (adjustAt p (modifyAtPath f ps) (edgeChildren e))
+    modifyAtPath _ p _ = error $ "modifyAtPath: unexpected path " <> show p <> " for unresolved node"
+
+instance (Hashable symbol, Typeable symbol, Constraint constraint) => Pathable [Node symbol constraint] (Node symbol constraint) where
+    type Emptyable (Node symbol constraint) = Node symbol constraint
+
+    getPath EmptyPath ns = union ns
+    getPath (ConsPath p ps) ns = maybe EmptyNode (getPath ps) (ns !? p)
+
+    getAllAtPath EmptyPath _ = []
+    getAllAtPath (ConsPath p ps) ns = maybe [] (getAllAtPath ps) (ns !? p)
+
+    modifyAtPath _ EmptyPath ns = ns
+    modifyAtPath f (ConsPath p ps) ns = adjustAt p (modifyAtPath f ps) ns
+
+{- | Paths to every reachable node that satisfies a predicate.
+
+Linear in the number of paths and exponential in the size of the graph, so
+use it on very small graphs only. A recursive node contributes no paths: the
+search does not unfold recursion, so a match below a 'Mu' is not reported.
+-}
+pathsMatching :: (Node symbol constraint -> Bool) -> Node symbol constraint -> [Path]
+pathsMatching _ EmptyNode = []
+pathsMatching _ (InternedMu _) = []
+pathsMatching f n@(InternedNode node) = concatMap pathsMatchingEdge (internedNodeEdges node) ++ [EmptyPath | f n]
+  where
+    pathsMatchingEdge e = concat $ zipWith (\i x -> map (ConsPath i) $ pathsMatching f x) [0 ..] (edgeChildren e)
+pathsMatching _ (Rec _) = error "pathsMatching: unexpected Rec"
+
+-- | Restrict a graph to the terms that contain the given path.
+requirePath ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) => Path -> Node symbol constraint -> Node symbol constraint
+requirePath EmptyPath n = n
+requirePath _ EmptyNode = EmptyNode
+requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
+requirePath (ConsPath p ps) (Node es) =
+    Node
+        [ setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))
+        | e <- es
+        , compareLength (edgeChildren e) p == GT
+        ]
+requirePath _ (Rec _) = error "requirePath: unexpected Rec"
+
+-- | Variant of 'requirePath' for a child list.
+requirePathList ::
+    (Hashable symbol, Typeable symbol, Constraint constraint) =>
+    Path -> [Node symbol constraint] -> [Node symbol constraint]
+requirePathList EmptyPath ns = ns
+requirePathList (ConsPath p ps) ns = adjustAt p (requirePath ps) ns

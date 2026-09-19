@@ -12,6 +12,7 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Random as QCRandom
 
+import Data.CFTA.Constraint.Equality (EqConstraints, unsafeGetEclasses)
 import Data.CFTA.Equality (
     Edge,
     Node,
@@ -24,7 +25,6 @@ import Data.CFTA.Equality (
     unfoldBounded,
  )
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (EqConstraints, unsafeGetEclasses)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage
 import Data.CFTA.Symbol (Symbol)

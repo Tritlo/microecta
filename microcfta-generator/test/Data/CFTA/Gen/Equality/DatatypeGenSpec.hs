@@ -14,9 +14,9 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
+import qualified Data.CFTA.Constraint.Equality as Paths
 import qualified Data.CFTA.Equality as Automaton
-import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
-import qualified Data.CFTA.Equality.Constraints as Paths
 import qualified Data.CFTA.Gen.Equality as Core
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import qualified Data.CFTA.Generic as Datatype

@@ -17,9 +17,9 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
 import Data.CFTA.Equality (Node (Node), edgeChildren, edgeConstraint, edgeSymbol, getAllTerms, nodeRepresents)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen

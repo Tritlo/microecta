@@ -20,7 +20,6 @@ import Test.QuickCheck
 
 import Data.CFTA.Equality
 import Data.CFTA.Internal.UnionFind (intToUVar)
-import Data.CFTA.Interned.Operations (fixUnbounded)
 import Data.CFTA.Symbol
 
 import Test.Generators.Equality ()
@@ -108,7 +107,7 @@ spec = do
             (createMu (\x -> Node [Edge "f" [x]]) :: Node Symbol EqConstraints) `shouldBe` createMu (\x -> Node [Edge "f" [x]])
 
         it "keeps identities from different symbol alphabets distinct" $ do
-            let typed = Node [Edge Zero []]
+            let typed = Node [Edge Zero []] :: Node ArithmeticSymbol EqConstraints
                 textual = Node [Edge "Zero" []] :: Node Symbol EqConstraints
             nodeIdentity typed `shouldNotBe` nodeIdentity textual
 
@@ -635,11 +634,11 @@ sharedFilterNode =
     Node
         [ mkEdge
             "filter"
-            [terms, terms]
+            [alternatives, alternatives]
             (mkEqConstraints [[path [0], path [1]]])
         ]
   where
-    terms = Node [Edge "f" [anyType], Edge "g" [anyType]]
+    alternatives = Node [Edge "f" [anyType], Edge "g" [anyType]]
 
 -- | The holes of a fragment.
 holesOf :: TermFragment Symbol -> [UVar]

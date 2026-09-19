@@ -13,8 +13,8 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Text.Read (readMaybe)
 
+import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (mkEqConstraints)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Refinement (

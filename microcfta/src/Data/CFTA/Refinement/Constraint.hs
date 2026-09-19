@@ -29,7 +29,7 @@ import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Constraint (Constraint (..))
-import Data.CFTA.Equality.Constraints (
+import Data.CFTA.Constraint.Equality (
     EqConstraints (EmptyConstraints),
     Path,
     combineEqConstraints,
@@ -85,6 +85,8 @@ instance Constraint LiquidConstraint where
     conjoinConstraints = combineConstraints
     contradictory LiquidConstraint{constraintEqualities, constraintGuard} =
         constraintsAreContradictory constraintEqualities || constraintGuard == Bottom
+    equalities = constraintEqualities
+    residual LiquidConstraint{constraintGuard} = constraintGuard /= Top
 
 -- | A transition with neither equality nor liquid obligations.
 unconstrainedConstraint :: LiquidConstraint
@@ -96,7 +98,7 @@ semanticConstraint = LiquidConstraint EmptyConstraints
 
 -- | Lift normalized positive equalities into an LTA transition constraint.
 equalityConstraint :: EqConstraints -> LiquidConstraint
-equalityConstraint equalities = LiquidConstraint equalities Top
+equalityConstraint eqs = LiquidConstraint eqs Top
 
 -- | Conjoin equality classes and semantic obligations.
 combineConstraints :: LiquidConstraint -> LiquidConstraint -> LiquidConstraint
@@ -132,8 +134,8 @@ equalityPathPairs = fmap (concatMap anchoredPairs) . equalityClasses
 
 -- | Reify normalized positive ECTA equalities as ordinary LTA atoms.
 equalitiesAsGuard :: EqConstraints -> Guard
-equalitiesAsGuard equalities =
-    maybe Bottom (conjoin . map (uncurry Same)) $ equalityPathPairs equalities
+equalitiesAsGuard eqs =
+    maybe Bottom (conjoin . map (uncurry Same)) $ equalityPathPairs eqs
 
 {- | Replace the name at the formal path with the name at the actual path while
 evaluating a guard. 'Same' compares renamed symbols and refinement annotations.

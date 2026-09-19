@@ -985,7 +985,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Symbol` | Interned text symbols that compare and hash by identity. |
 | `Data.CFTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 | `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
-| `Data.CFTA.Equality.Constraints` | Equality constraints over paths and their tries. |
+| `Data.CFTA.Constraint.Equality` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Equality.Operations`, `Data.CFTA.Equality.Enumeration` | The equality algorithms behind the facade; exposed for lower-level callers. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
 | `Data.CFTA.Refinement.Guard`, `Data.CFTA.Refinement.Syntax` | Guard syntax over named child positions and handwritten transition rows. |

@@ -11,12 +11,14 @@ import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
-import Data.CFTA (Transition (Transition))
+import Data.CFTA (Transition (Transition), statesAt)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Generic as Datatype
+import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
-import Data.CFTA.Path (getPath, path, pathsMatching, requirePath, statesAt)
+import Data.CFTA.Path (getPath, path)
 import Data.CFTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
@@ -285,6 +287,9 @@ instance Constraint Allowed where
         | otherwise = NothingAllowed
     contradictory NothingAllowed = True
     contradictory _ = False
+    equalities _ = EmptyConstraints
+    residual Anything = False
+    residual _ = True
 
 -- | Interpret the test constraint at one constructor.
 acceptsAllowed :: Allowed -> Tree.Tree String -> Bool

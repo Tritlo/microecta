@@ -96,7 +96,7 @@ module Data.CFTA.Refinement (
     denotationAtMost,
 ) where
 
-import Data.CFTA.Equality.Constraints (Path, path, unPath)
+import Data.CFTA.Constraint.Equality (Path, path, unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 import Data.CFTA.Refinement.Automaton

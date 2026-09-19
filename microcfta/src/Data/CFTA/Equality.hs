@@ -96,18 +96,14 @@ released, so a long-lived process that keeps constructing unrelated automata
 will grow without bound. The package README quantifies this.
 -}
 module Data.CFTA.Equality (
-    -- * Representation and operations
-    module Data.CFTA.Equality.Operations,
+    -- * Automata
+    module Data.CFTA.Interned,
 
     -- * Path equalities
-    module Data.CFTA.Equality.Constraints,
+    module Data.CFTA.Constraint.Equality,
 
-    -- * Views
-    FTAViewError (..),
-    ViewPath,
-    StateView (..),
-    toFTA,
-    toTree,
+    -- * Equality operations
+    module Data.CFTA.Equality.Operations,
 
     -- * Templates
     Template (..),
@@ -144,17 +140,17 @@ module Data.CFTA.Equality (
     noExpansionPreference,
 ) where
 
-import Data.CFTA.Equality.Constraints
+import Data.CFTA.Constraint.Equality
 import Data.CFTA.Equality.Enumeration
 import Data.CFTA.Equality.Operations
 import Data.CFTA.Internal.UnionFind (UVar, uvarToInt)
-import Data.CFTA.Interned (FTAViewError (..), StateView (..), ViewPath, toFTA, toTree)
+import Data.CFTA.Interned
 import Data.CFTA.Template (Template (..), matchesTemplate)
 
 {- $setup
 >>> :set -XDeriveGeneric -XOverloadedStrings
 >>> import Data.Hashable (Hashable)
->>> import Data.CFTA.Equality.Constraints
+>>> import Data.CFTA.Constraint.Equality
 >>> import Data.CFTA.Symbol
 >>> import GHC.Generics (Generic)
 -}

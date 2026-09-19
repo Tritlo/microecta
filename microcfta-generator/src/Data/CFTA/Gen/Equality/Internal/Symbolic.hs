@@ -11,8 +11,8 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Constraint.Equality (EqConstraints, Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraints (EqConstraints, Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)

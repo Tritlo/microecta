@@ -9,7 +9,7 @@ import Data.List (permutations)
 import qualified Data.Map.Strict as Map
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Equality.Constraints (mkEqConstraints)
+import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,

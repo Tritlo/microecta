@@ -1,4 +1,4 @@
-module Data.CFTA.Equality.ConstraintsSpec (spec) where
+module Data.CFTA.Constraint.EqualitySpec (spec) where
 
 import qualified Data.IntMap.Lazy as IntMap
 import Data.List (nub, sort, subsequences, (\\))
@@ -6,7 +6,7 @@ import Data.List (nub, sort, subsequences, (\\))
 import Test.Hspec
 import Test.QuickCheck
 
-import Data.CFTA.Equality.Constraints
+import Data.CFTA.Constraint.Equality
 
 -----------------------------------------------------------------
 
@@ -150,12 +150,16 @@ constraintsImplySpec :: Spec
 constraintsImplySpec = describe "constraintsImply" $ do
     xit "implies removed constraints" $
         property $ \cs1 cs2 ->
-            length (concat cs1) < 300 && length (concat cs2) < 300 ==>
-                constraintsImply (mkEqConstraints $ cs1 ++ cs2) (mkEqConstraints cs1)
+            length (concat cs1) < 300
+                && length (concat cs2)
+                    < 300
+                ==> constraintsImply (mkEqConstraints $ cs1 ++ cs2) (mkEqConstraints cs1)
 
     xit "does not imply added constraints" $
         property $ \cs1 cs2 ->
-            length (concat cs1) < 300 && length (concat cs2) < 300 ==>
-                let ecs1 = mkEqConstraints $ cs1 ++ cs2
-                    ecs2 = mkEqConstraints cs1
-                 in ecs1 /= ecs2 ==> not (constraintsImply ecs2 ecs1)
+            length (concat cs1) < 300
+                && length (concat cs2)
+                    < 300
+                ==> let ecs1 = mkEqConstraints $ cs1 ++ cs2
+                        ecs2 = mkEqConstraints cs1
+                     in ecs1 /= ecs2 ==> not (constraintsImply ecs2 ecs1)

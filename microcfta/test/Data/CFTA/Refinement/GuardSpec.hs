@@ -7,7 +7,7 @@ import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Data.CFTA.Equality.Constraints (mkEqConstraints)
+import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import Data.CFTA.Refinement (
     Guard (Bottom, Entails, Not, Or, Same, Satisfies, Substitute),
     LiquidSymbol (LiquidSymbol),

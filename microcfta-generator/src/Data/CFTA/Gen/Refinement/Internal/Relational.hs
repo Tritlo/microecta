@@ -25,7 +25,7 @@ import Data.List (mapAccumL, nub)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints))
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicGroupsWith)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (

@@ -10,7 +10,7 @@ module Data.CFTA.Gen.Refinement.Internal.Error (
     fromRankedError,
 ) where
 
-import Data.CFTA.Equality.Constraints (EqConstraints)
+import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Refinement

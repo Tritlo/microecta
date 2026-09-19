@@ -6,8 +6,8 @@ import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
 import qualified Data.CFTA as Automaton
+import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.CFTA.Equality as Core
-import Data.CFTA.Equality.Constraints (EqConstraints (EmptyConstraints), mkEqConstraints, path)
 import qualified Data.CFTA.Interned as Common
 
 data State = Expression | Atom

@@ -37,6 +37,7 @@ module Data.CFTA (
     intersectWith,
     accepts,
     acceptsM,
+    statesAt,
     terms,
     termsUpToM,
     ViewPath,
@@ -48,12 +49,15 @@ import Control.Monad (foldM_, void)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.Bifunctor as Bifunctor
 import Data.Graph (SCC (CyclicSCC), stronglyConnComp)
+import Data.List ((!?))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Internal.Tree (StateView (..), ViewPath, termsBy, termsUpToBy, toTreeBy, trimRows)
+import Data.CFTA.Path (Path (ConsPath, EmptyPath))
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition
@@ -438,3 +442,26 @@ acceptsM check automaton = acceptsFrom (initialState automaton)
 
     allM [] = pure True
     allM (action : actions) = action >>= \ok -> if ok then allM actions else pure False
+
+{- | The states at a child-index path below a transition of an explicit-state automaton.
+
+The function gives the alternatives of a state: pass @'FTA.transitionsFrom'
+automaton@ for an automaton, or a lookup in a bare transition table. The
+first index selects a child state of the transition; each further index
+selects that child of every alternative of the states reached so far. A
+state is listed once per alternative that reaches it. An empty path gives
+no states.
+-}
+statesAt :: (state -> [Transition state symbol guard]) -> Transition state symbol guard -> Path -> [state]
+statesAt _ _ EmptyPath = []
+statesAt alternatives transition (ConsPath index rest) = descend rest (maybeToList $ transitionChildren transition !? index)
+  where
+    descend EmptyPath current = current
+    descend (ConsPath next further) current =
+        descend
+            further
+            [ child
+            | state <- current
+            , outgoing <- alternatives state
+            , Just child <- [transitionChildren outgoing !? next]
+            ]

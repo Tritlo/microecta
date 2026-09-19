@@ -29,8 +29,8 @@ module Data.CFTA.Gen.Equality.Internal.Recursive (
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
+import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Equality.Constraints (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
 import Data.CFTA.Gen.Equality.Internal.Error (ECTAGenError (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection

@@ -3,10 +3,9 @@
 {- | Representations of paths in an FTA, data structures for equality
 constraints over paths, and algorithms for saturating these constraints.
 
-"Data.CFTA.Equality.Constraints" is the public subset. The extra exports here are not covered
-by the PVP contract of the package.
+The 'Data.CFTA.Constraint.Constraint' instance lives with the class.
 -}
-module Data.CFTA.Equality.Constraints (
+module Data.CFTA.Constraint.Equality (
     Path (..),
     unPath,
     path,
@@ -52,7 +51,6 @@ import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
-import Data.CFTA.Constraint (Constraint (..))
 import Data.CFTA.Internal.Pretty
 import Data.CFTA.Interned.Memo (memo2)
 import Data.CFTA.Path (Path (..), Pathable (..), isStrictSubpath, isSubpath, path, substSubpath, unPath)
@@ -493,12 +491,6 @@ combined constraints are satisfiable.
 unsafeSubsumptionOrderedEclasses :: EqConstraints -> [PathEClass]
 unsafeSubsumptionOrderedEclasses (EqConstraints pecs) = sortBy completedSubsumptionOrdering pecs
 unsafeSubsumptionOrderedEclasses EqContradiction = error "unsafeSubsumptionOrderedEclasses: unexpected EqContradiction"
-
--- | Pure conjunction used by the common automaton engine.
-instance Constraint EqConstraints where
-    noConstraint = EmptyConstraints
-    conjoinConstraints = combineEqConstraints
-    contradictory = constraintsAreContradictory
 
 -- | Iterate a partial step function until stable or failed.
 fixMaybe :: (Eq a) => (a -> Maybe a) -> a -> Maybe a

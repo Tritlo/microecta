@@ -1,7 +1,15 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 -- | Shared finite tree views of graph nodes and their outgoing alternatives.
-module Data.CFTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, trimRows, termsBy, termsUpToBy) where
+module Data.CFTA.Internal.Tree (
+    adjustAt,
+    ViewPath,
+    StateView (..),
+    toTreeBy,
+    trimRows,
+    termsBy,
+    termsUpToBy,
+) where
 
 import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
@@ -183,3 +191,11 @@ dedupUnless :: (Ord a) => Bool -> [a] -> [a]
 dedupUnless unambiguous
     | unambiguous = id
     | otherwise = Set.toList . Set.fromList
+
+-- | Apply a function to the element at an index, if it exists.
+adjustAt :: Int -> (a -> a) -> [a] -> [a]
+adjustAt i f xs
+    | i < 0 = xs
+    | otherwise = case splitAt i xs of
+        (prefix, x : suffix) -> prefix ++ f x : suffix
+        _ -> xs
