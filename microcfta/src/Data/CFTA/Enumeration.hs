@@ -38,35 +38,7 @@ module Data.CFTA.Enumeration (
     TermFragment (..),
     PartialSymbol (..),
     termFragToTruncatedTerm,
-
-    -- * Enumeration state
-    SuspendedConstraint (..),
-    scGetPathTrie,
-    scGetUVar,
-    descendScs,
-    UVarValue (..),
-    EnumerationState (..),
-    uvarCounter,
-    uvarRepresentative,
-    uvarValues,
-    initEnumerationState,
     EnumerateM,
-    runEnumerateM,
-    assimilateUvarVal,
-    mergeNodeIntoUVarVal,
-    getUVarValue,
-    rootTermFrag,
-    enumerateNode,
-    enumerateEdge,
-    ExpandableUVarResult (..),
-    firstExpandableUVar,
-    nextExpandableUVar,
-    enumerateOutUVar,
-    enumerateOutFirstExpandableUVar,
-    enumerateFully,
-    expandTermFrag,
-    expandTermFragWith,
-    expandUVar,
 ) where
 
 import Control.Monad (forM_, guard, mzero, void, when, zipWithM)
@@ -153,9 +125,6 @@ termFragToTruncatedTerm (TermFragmentUVar uv) = Tree.Node (UVarHole uv) []
 ------------------------------ Enumeration state --------------------------
 ---------------------------------------------------------------------------
 
-lens :: (Functor f) => (s -> a) -> (s -> a -> s) -> (a -> f a) -> s -> f s
-lens getter setter f s = setter s <$> f (getter s)
-
 -----------------------
 ------- Suspended constraints
 -----------------------
@@ -231,25 +200,6 @@ data EnumerationState symbol constraint = EnumerationState
     -- ^ Constraints with a 'residual', each with the fragment it guards.
     }
     deriving (Eq, Show)
-
--- | Lens-compatible accessor for the fresh UVar supply.
-uvarCounter ::
-    (Functor f) => (UVarGen -> f UVarGen) -> EnumerationState symbol constraint -> f (EnumerationState symbol constraint)
-uvarCounter = lens _uvarCounter (\s c -> s{_uvarCounter = c})
-
--- | Lens-compatible accessor for representative UVar tracking.
-uvarRepresentative ::
-    (Functor f) =>
-    (UnionFind -> f UnionFind) -> EnumerationState symbol constraint -> f (EnumerationState symbol constraint)
-uvarRepresentative = lens _uvarRepresentative (\s uf -> s{_uvarRepresentative = uf})
-
--- | Lens-compatible accessor for per-UVar enumeration values.
-uvarValues ::
-    (Functor f) =>
-    (Seq (UVarValue symbol constraint) -> f (Seq (UVarValue symbol constraint))) ->
-    EnumerationState symbol constraint ->
-    f (EnumerationState symbol constraint)
-uvarValues = lens _uvarValues (\s vals -> s{_uvarValues = vals})
 
 -- | Initial state whose root UVar contains the node being enumerated.
 initEnumerationState :: Node symbol constraint -> EnumerationState symbol constraint
@@ -522,10 +472,6 @@ noExpansionPreference :: ExpansionOrder state
 noExpansionPreference _ _ = Nothing
 
 -- | Find the next UVar that can be expanded without violating dependencies.
-firstExpandableUVar :: EnumerateM symbol constraint ExpandableUVarResult
-firstExpandableUVar = nextExpandableUVar (const Nothing)
-
--- | 'firstExpandableUVar', letting the caller steer among the candidates.
 nextExpandableUVar :: ([UVar] -> Maybe UVar) -> EnumerateM symbol constraint ExpandableUVarResult
 nextExpandableUVar choose = do
     mbCandidates <- findExpandableUVars
@@ -563,16 +509,6 @@ enumerateOutUVar uv =
 
         setUVarValue (uvarToInt uv') (UVarEnumerated t)
         return t
-
--- | Expand the next available UVar, failing when enumeration is done or stuck.
-enumerateOutFirstExpandableUVar ::
-    (Hashable symbol, Typeable symbol, Constraint constraint) => EnumerateM symbol constraint ()
-enumerateOutFirstExpandableUVar = do
-    muv <- firstExpandableUVar
-    case muv of
-        ExpansionNext uv -> void $ enumerateOutUVar uv
-        ExpansionDone -> mzero
-        ExpansionStuck -> mzero
 
 -- | Expand the root UVar until it represents a complete term.
 enumerateFully :: (Hashable symbol, Typeable symbol, Constraint constraint) => EnumerateM symbol constraint ()
@@ -650,11 +586,7 @@ expandPartialTermFrag (TermFragmentUVar uv) = do
         UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Tree.Node TruncatedRecursion []
         _ -> return $ Tree.Node (UVarHole uv) []
 
--- | Expand a complete term fragment into a concrete term.
-expandTermFrag :: (IsString symbol) => TermFragment symbol -> EnumerateM symbol constraint (Tree.Tree symbol)
-expandTermFrag = expandTermFragWith "Mu"
-
--- | 'expandTermFrag' with an explicit symbol for truncated recursion.
+-- | Expand a complete term fragment into a concrete term, with the symbol that stands for truncated recursion.
 expandTermFragWith :: symbol -> TermFragment symbol -> EnumerateM symbol constraint (Tree.Tree symbol)
 expandTermFragWith recursionSymbol = go
   where
@@ -670,13 +602,10 @@ expandTermFragWith recursionSymbol = go
 {- | Expand an enumerated UVar into a concrete term.
 
 A UVar holding an unconstrained 'Mu' was never expanded, and truncates to the
-same @Mu@ marker 'expandTermFrag' gives a nested one. Any other unenumerated
+same marker 'expandTermFragWith' gives a nested one. Any other unenumerated
 state is not reachable once enumeration reports itself finished, and drops the
 branch rather than guessing.
 -}
-expandUVar :: (IsString symbol) => UVar -> EnumerateM symbol constraint (Tree.Tree symbol)
-expandUVar = expandUVarWith "Mu"
-
 expandUVarWith :: symbol -> UVar -> EnumerateM symbol constraint (Tree.Tree symbol)
 expandUVarWith recursionSymbol uv = do
     value <- getUVarValue uv
