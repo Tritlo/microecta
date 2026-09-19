@@ -49,7 +49,7 @@ finite or recursive generator's support, ranks, and distribution unchanged.
 Use 'groupBy' when the key must be computed from each member. Opaque generators
 cannot be keyed because they have no inspectable support or rank index.
 -}
-keyed :: key -> ECTAGen gen a -> Grouped gen key a
+keyed :: key -> ECTAGen a -> Grouped key a
 keyed key (Transparent result) =
     Grouped $ fmap (Map.singleton key . KeyedBucket 1) result
 keyed key (Cyclic result) =
@@ -64,7 +64,7 @@ results. Building the groups enumerates the generator's outcomes once. Keys
 are ordered by their 'Ord' instance; outcomes within each key retain their
 rank order. Opaque generators cannot be grouped.
 -}
-groupBy :: (Ord key) => (a -> key) -> ECTAGen gen a -> Grouped gen key a
+groupBy :: (Ord key) => (a -> key) -> ECTAGen a -> Grouped key a
 groupBy _ (Transparent (Left err)) = Grouped $ Left err
 groupBy key (Transparent (Right static)) =
     Grouped $ do
@@ -83,7 +83,7 @@ When several old keys map to one new key, their compact supports are merged and
 their probability masses are preserved. Previous group names are cleared;
 use 'nameGroups' to name the new keys. Source descriptions remain available.
 -}
-regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped gen oldKey a -> Grouped gen newKey a
+regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped oldKey a -> Grouped newKey a
 regroupBy regroup (CyclicGrouped result) =
     CyclicGrouped $ do
         groups <- result
@@ -122,7 +122,7 @@ regroupBy regroup (Grouped (Right buckets)) =
             buckets
 
 -- | Map group values with access to their retained key.
-mapWithKey :: (key -> a -> b) -> Grouped gen key a -> Grouped gen key b
+mapWithKey :: (key -> a -> b) -> Grouped key a -> Grouped key b
 mapWithKey transform (CyclicGrouped result) =
     CyclicGrouped $ fmap (Map.mapWithKey mapGroup) result
   where
@@ -154,7 +154,7 @@ mapWithKey transform (Grouped result) =
 Names describe the retained keys. They do not affect key comparison, support,
 ranks, or generated values. Formatting runs only when inspection needs it.
 -}
-nameGroups :: (key -> Text) -> Grouped gen key a -> Grouped gen key a
+nameGroups :: (key -> Text) -> Grouped key a -> Grouped key a
 nameGroups render (Grouped result) = Grouped $ fmap (Map.mapWithKey nameBucket) result
   where
     nameBucket key bucket = bucket{keyedBucketStatic = named}
@@ -172,7 +172,7 @@ nameGroups render (CyclicGrouped result) = CyclicGrouped $ fmap (Map.mapWithKey 
 
 A missing key produces 'EmptyGenerator'.
 -}
-atKey :: (Ord key) => key -> Grouped gen key a -> ECTAGen gen a
+atKey :: (Ord key) => key -> Grouped key a -> ECTAGen a
 atKey key (CyclicGrouped result) =
     Cyclic $ do
         groups <- result
@@ -189,7 +189,7 @@ atKey key (Grouped (Right buckets)) =
             (Map.lookup key buckets)
 
 -- | Merge all retained groups while preserving their probability masses.
-ungroup :: Grouped gen key a -> ECTAGen gen a
+ungroup :: Grouped key a -> ECTAGen a
 ungroup = atKey () . regroupBy (const ())
 
 {- | Apply a generated operation of any arity to one argument family per
@@ -204,9 +204,9 @@ argument ranks left to right.
 -}
 apply ::
     (Ord resultKey) =>
-    Grouped gen (Sig argKeys resultKey) operation ->
-    Args gen argKeys operation result ->
-    Grouped gen resultKey result
+    Grouped (Sig argKeys resultKey) operation ->
+    Args argKeys operation result ->
+    Grouped resultKey result
 -- Which components an application has is decided by the operation signatures,
 -- so the operation family has to be finite; only arguments may recurse.
 apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
@@ -234,7 +234,7 @@ apply (Grouped (Right operations)) arguments
             (mapChain keyedBucketStatic argumentBuckets)
         )
 
-argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
+argsMaps :: Args argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
 argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
@@ -250,8 +250,8 @@ followed by its arguments. Ranks and sizes match the finite join.
 applyRecursive ::
     (Ord resultKey) =>
     Map.Map (Sig argKeys resultKey) (KeyedBucket operation) ->
-    Args gen argKeys operation result ->
-    Grouped gen resultKey result
+    Args argKeys operation result ->
+    Grouped resultKey result
 applyRecursive operationBuckets arguments =
     CyclicGrouped $ do
         argumentMaps <- argsRecursiveMaps arguments
@@ -269,14 +269,14 @@ applyRecursive operationBuckets arguments =
 
 -- | The recursive view of every argument family, in signature order.
 argsRecursiveMaps ::
-    Args gen argKeys operation result ->
+    Args argKeys operation result ->
     Either ECTAGenError (ArgMaps KeyedRecursive argKeys operation result)
 argsRecursiveMaps ANil = Right MapsNil
 argsRecursiveMaps (family :& rest) =
     MapsCons <$> recursiveGroups family <*> argsRecursiveMaps rest
 
 -- | Whether any argument family is recursive.
-anyRecursiveArgument :: Args gen argKeys operation result -> Bool
+anyRecursiveArgument :: Args argKeys operation result -> Bool
 anyRecursiveArgument ANil = False
 anyRecursiveArgument (family :& rest) =
     isRecursiveGrouped family || anyRecursiveArgument rest
@@ -300,8 +300,8 @@ merged group are ordered by alternative order, then by the inner rank.
 -}
 frequencies ::
     (Ord key) =>
-    [(Integer, Grouped gen key a)] ->
-    Grouped gen key a
+    [(Integer, Grouped key a)] ->
+    Grouped key a
 frequencies [] = Grouped $ Left EmptyGenerator
 frequencies alternatives
     | Just badWeight <- firstNonPositiveWeight alternatives =
@@ -354,7 +354,7 @@ frequencies alternatives
 'frequencies' with equal weights, which is the only shape a recursive
 family admits.
 -}
-oneofGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
+oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alternatives]
 
 {- | Choose among grouped generators so that every member of the combined
@@ -370,7 +370,7 @@ are combined with equal weights, as 'oneofGrouped' does.
 An alternative that is itself weighted keeps its own distribution, so members
 are equally likely exactly when each alternative is uniform.
 -}
-uniformlyGrouped :: (Ord key) => [Grouped gen key a] -> Grouped gen key a
+uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 uniformlyGrouped alternatives
     | any isRecursiveGrouped alternatives = oneofGrouped alternatives
     | otherwise = case traverse liveCardinality alternatives of
@@ -400,9 +400,9 @@ relateGroupsM ::
     (Ord resultKey) =>
     (leftKey -> rightKey -> IO (Either relationError Bool)) ->
     (leftKey -> rightKey -> resultKey) ->
-    Grouped gen leftKey left ->
-    Grouped gen rightKey right ->
-    IO (Either relationError (Grouped gen resultKey (left, right)))
+    Grouped leftKey left ->
+    Grouped rightKey right ->
+    IO (Either relationError (Grouped resultKey (left, right)))
 relateGroupsM relation resultKey left right =
     case (left, right) of
         (Grouped (Left err), _) -> pure $ Right $ Grouped $ Left err
@@ -457,8 +457,8 @@ caller can reclassify it without enumerating members.
 relateN ::
     (Ord key) =>
     ([key] -> IO (Either relationError Bool)) ->
-    [Grouped gen key a] ->
-    IO (Either relationError (Grouped gen [key] [a]))
+    [Grouped key a] ->
+    IO (Either relationError (Grouped [key] [a]))
 relateN _ [] = pure $ Right $ Grouped $ Left EmptyGenerator
 relateN relation (first : rest) = do
     combined <- combine (regroupBy pure $ mapWithKey (\_ value -> [value]) first) rest
@@ -485,8 +485,8 @@ relateN relation (first : rest) = do
 filterGroupsM ::
     (Ord key) =>
     (key -> IO (Either relationError Bool)) ->
-    Grouped gen key a ->
-    IO (Either relationError (Grouped gen key a))
+    Grouped key a ->
+    IO (Either relationError (Grouped key a))
 filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
 filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
 filterGroupsM predicate (Grouped (Right buckets)) = do
@@ -507,7 +507,7 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
                     rest
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
-sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)
+sizes :: Grouped key a -> Either ECTAGenError (Map.Map key Integer)
 sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
@@ -518,7 +518,7 @@ structural size.
 Counts describe the language, not the sampler. A declared atomic distribution
 can therefore give two keys equal counts and unequal probability masses.
 -}
-countsAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Integer)
+countsAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map.Map key Integer)
 countsAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1
@@ -558,7 +558,7 @@ requested size without enumerating members, then normalizes one mass per key.
 A finite family may enumerate group outcomes to condition their stored masses
 on size. A size with no members returns an empty map.
 -}
-massesAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Rational)
+massesAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map.Map key Rational)
 massesAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1

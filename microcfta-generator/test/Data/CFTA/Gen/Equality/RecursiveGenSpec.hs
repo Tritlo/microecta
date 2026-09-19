@@ -380,7 +380,7 @@ spec = do
 
     describe "recursive sampling" $ do
         it "preserves an atomic finite distribution and its stable ranks" $ do
-            let coin :: Core.ECTAGen Exact Bool
+            let coin :: Core.ECTAGen Bool
                 coin =
                     Core.atomic $
                         Core.frequency
@@ -394,7 +394,7 @@ spec = do
                             , (:) <$> coin <*> rest
                             ]
                 bounded = Core.upToSize 2 traces
-            let sampled = runExact $ Core.lowerWithRank bounded
+            let sampled = runExact $ Core.lowerWithRankVia bounded
             [() | (_, Left _) <- sampled] `shouldBe` []
             aggregateRights sampled
                 `shouldBe` [ (1 % 4, (0, [True]))
@@ -415,7 +415,7 @@ spec = do
                     ]
 
         it "keeps finite weights out of recursion without an atomic boundary" $ do
-            let coin :: Core.ECTAGen Exact Bool
+            let coin :: Core.ECTAGen Bool
                 coin =
                     Core.frequency
                         [ (3, Core.elements [True])
@@ -427,7 +427,7 @@ spec = do
                             [ (: []) <$> coin
                             , (:) <$> coin <*> rest
                             ]
-            map fst (runExact $ Core.lowerWithRank $ Core.upToSize 2 traces)
+            map fst (runExact $ Core.lowerWithRankVia $ Core.upToSize 2 traces)
                 `shouldBe` replicate 6 (1 % 6)
 
         it "preserves atomic distributions through recurGrouped and apply" $ do
@@ -447,9 +447,9 @@ spec = do
                             [ atoms
                             , Core.apply operators (self :& ANil)
                             ]
-                bounded :: Core.ECTAGen Exact String
+                bounded :: Core.ECTAGen String
                 bounded = Core.upToSize 2 $ Core.atKey () family
-            let sampled = runExact $ Core.lowerWithRank bounded
+            let sampled = runExact $ Core.lowerWithRankVia bounded
             [() | (_, Left _) <- sampled] `shouldBe` []
             aggregateRights sampled
                 `shouldBe` [ (3 % 8, (0, "H"))
@@ -469,7 +469,7 @@ spec = do
                                     , (1, pure (Initial :-> SawTails, (False :)))
                                     ]
                             )
-                family :: Core.Grouped Exact CoinPhase [Bool]
+                family :: Core.Grouped CoinPhase [Bool]
                 family =
                     Core.recurGrouped $ \self ->
                         Core.oneofGrouped

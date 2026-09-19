@@ -57,7 +57,6 @@ import qualified Prelude
 import Data.CFTA.Gen.Equality (
     Args (..),
     ECTAGen,
-    GenBackend,
     Grouped,
     Sig,
     apply,
@@ -72,11 +71,11 @@ fmap = Prelude.fmap
 Inside a qualified do-block the final statement must use this qualified name
 (or 'return') for the block to fuse applicatively.
 -}
-pure :: (GenBackend gen) => a -> ECTAGen gen a
+pure :: a -> ECTAGen a
 pure = Prelude.pure
 
 -- | Synonym for 'pure'.
-return :: (GenBackend gen) => a -> ECTAGen gen a
+return :: a -> ECTAGen a
 return = Prelude.pure
 
 {- | Sequence two flat generators, keeping only the second value.
@@ -84,7 +83,7 @@ return = Prelude.pure
 The discarded choice still occupies rank space: the sequence of an @m@-outcome
 and an @n@-outcome generator has cardinality @m * n@.
 -}
-(>>) :: (GenBackend gen) => ECTAGen gen a -> ECTAGen gen b -> ECTAGen gen b
+(>>) :: ECTAGen a -> ECTAGen b -> ECTAGen b
 (>>) = (Prelude.*>)
 
 {- | Applicative application for do-notation over both generator layers.
@@ -102,7 +101,7 @@ class GenApply f g h | f g -> h where
     -- | Apply one generated function layer to one generated argument layer.
     (<*>) :: f (a -> b) -> g a -> h b
 
-instance (GenBackend gen) => GenApply (ECTAGen gen) (ECTAGen gen) (ECTAGen gen) where
+instance GenApply ECTAGen ECTAGen ECTAGen where
     (<*>) = (Prelude.<*>)
 
 {- | An operation family that has absorbed a prefix of its argument families
@@ -111,11 +110,11 @@ and awaits the families for @pendingKeys@.
 A block result of this type means the do-block bound fewer arguments than the
 operation's signature arity.
 -}
-newtype Applying gen (pendingKeys :: [Type]) resultKey b
+newtype Applying (pendingKeys :: [Type]) resultKey b
     = Applying
         ( forall result.
-          Args gen pendingKeys b result ->
-          Grouped gen resultKey result
+          Args pendingKeys b result ->
+          Grouped resultKey result
         )
 
 -- The argument family's key is a fresh variable equated in the context rather
@@ -126,18 +125,18 @@ newtype Applying gen (pendingKeys :: [Type]) resultKey b
 instance
     (argKey ~ argKey', Ord argKey, Ord resultKey) =>
     GenApply
-        (Grouped gen (Sig '[argKey] resultKey))
-        (Grouped gen argKey')
-        (Grouped gen resultKey)
+        (Grouped (Sig '[argKey] resultKey))
+        (Grouped argKey')
+        (Grouped resultKey)
     where
     operations <*> argument = apply operations (argument :& ANil)
 
 instance
     (argKey ~ argKey', Ord argKey, Ord resultKey) =>
     GenApply
-        (Grouped gen (Sig (argKey ': nextKey ': pendingKeys) resultKey))
-        (Grouped gen argKey')
-        (Applying gen (nextKey ': pendingKeys) resultKey)
+        (Grouped (Sig (argKey ': nextKey ': pendingKeys) resultKey))
+        (Grouped argKey')
+        (Applying (nextKey ': pendingKeys) resultKey)
     where
     operations <*> argument =
         Applying (\rest -> apply operations (argument :& rest))
@@ -145,18 +144,18 @@ instance
 instance
     (argKey ~ argKey', Ord argKey) =>
     GenApply
-        (Applying gen '[argKey] resultKey)
-        (Grouped gen argKey')
-        (Grouped gen resultKey)
+        (Applying '[argKey] resultKey)
+        (Grouped argKey')
+        (Grouped resultKey)
     where
     Applying continue <*> argument = continue (argument :& ANil)
 
 instance
     (argKey ~ argKey', Ord argKey) =>
     GenApply
-        (Applying gen (argKey ': nextKey ': pendingKeys) resultKey)
-        (Grouped gen argKey')
-        (Applying gen (nextKey ': pendingKeys) resultKey)
+        (Applying (argKey ': nextKey ': pendingKeys) resultKey)
+        (Grouped argKey')
+        (Applying (nextKey ': pendingKeys) resultKey)
     where
     Applying continue <*> argument =
         Applying (\rest -> continue (argument :& rest))

@@ -68,7 +68,7 @@ spec = do
                         [ (3, Core.elements [1 :: Int])
                         , (1, Core.elements [2, 3])
                         ]
-                sampled = runExact $ Core.lowerWithRank generator
+                sampled = runExact $ Core.lowerWithRankVia generator
             [() | (_, Left _) <- sampled] `shouldBe` []
             [ Core.unrank generator rank == Right value
               | (_, Right (rank, value)) <- sampled
@@ -82,7 +82,7 @@ spec = do
                     Core.groupBy
                         (\(_, leftKey, rightKey, resultKey) -> leftKey :* rightKey :-> resultKey)
                         (Core.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
-                mixed :: Core.ECTAGen Exact String
+                mixed :: Core.ECTAGen String
                 mixed =
                     Core.ungroup $
                         Core.frequencies
@@ -114,7 +114,7 @@ spec = do
                         [] -> expectationFailure "expected an application member"
 
         it "produces exactly the structural shrink candidates of a product" $
-            let pairs :: Core.ECTAGen Exact (Int, Char)
+            let pairs :: Core.ECTAGen (Int, Char)
                 pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
              in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
 

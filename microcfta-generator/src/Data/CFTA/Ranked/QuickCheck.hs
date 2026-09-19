@@ -3,6 +3,7 @@
 
 -- | QuickCheck lowering for finite ranked generators.
 module Data.CFTA.Ranked.QuickCheck (
+    QuickCheckBackend (..),
     toGen,
     toGenWithRank,
     forAll,
@@ -14,6 +15,10 @@ import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA.Ranked as Tree
 
+{- | QuickCheck as the sampling backend.
+
+The wrapper exists to avoid an orphan 'Tree.GenBackend' instance for 'QC.Gen'.
+-}
 newtype QuickCheckBackend a = QuickCheckBackend (QC.Gen a)
     deriving newtype (Functor, Applicative)
 

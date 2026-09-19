@@ -11,7 +11,7 @@ one ranked layer and three generators, one per constraint theory:
 | `Data.CFTA.Gen` | Ordinary automaton compilation and constructor-based source recipes. |
 | `Data.CFTA.Gen.QuickCheck` | Ordinary sampling, properties, and qualified do-notation. |
 | `Data.CFTA.Gen.Equality` | Equality-constrained sources, equality and relational joins, retained key groups, and recursive generation. |
-| `Data.CFTA.Gen.Equality.QuickCheck` | The QuickCheck-facing equality API, including `fromGen`, `toGen`, `forAll`, and `sized`. |
+| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and its do-notation, and adds `pool`, `freeze`, `toGen`, `forAll`, and `sized`. |
 | `Data.CFTA.Gen.Refinement` | Refinement-constrained sources compiled once with a solver into pure sampling, replay, and shrinking. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | The QuickCheck-facing refinement API. |
 | `Data.CFTA.Ranked.Internal.*`, `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Gen.Equality.Internal.Symbolic` | The shared decoder, sampler, size, shrink, and symbolic-count implementation; exposed for integration, not covered by the PVP contract. |

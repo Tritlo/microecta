@@ -1,7 +1,7 @@
-{- | The generator types and how they lower into a backend.
+{- | The generator types and how they lower into QuickCheck.
 
 A generator is inspectable ECTA structure, finite or recursive, or an opaque
-backend action. A grouped generator is the same thing per retained key. The
+QuickCheck generator. A grouped generator is the same thing per retained key. The
 combinators over these types live in the other @Data.CFTA.Gen.Equality.Internal@
 modules and in "Data.CFTA.Gen.Equality"; this module also holds the two weight checks
 that the flat and the grouped choice combinators share.
@@ -28,6 +28,8 @@ module Data.CFTA.Gen.Equality.Internal.Types (
     lowerWithRank,
     lowerUniform,
     lowerUniformWithRank,
+    lowerVia,
+    lowerWithRankVia,
 
     -- * Alternative weights
     firstNonPositiveWeight,
@@ -36,6 +38,7 @@ module Data.CFTA.Gen.Equality.Internal.Types (
 
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
+import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Equality.Internal
@@ -43,23 +46,24 @@ import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Ranked.Internal.Decoder (RankDecoder (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (mapIndex, productIndex)
+import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 import Data.CFTA.Symbol (Symbol)
 
 {- | A generator is inspectable ECTA structure — finite or recursive — or an
-opaque backend action.
+opaque QuickCheck generator.
 -}
-data ECTAGen gen a
+data ECTAGen a
     = Transparent !(Either ECTAGenError (Static a))
     | Cyclic !(Either ECTAGenError (Recursive a))
-    | Opaque !(gen (Either ECTAGenError a))
+    | Opaque !(QC.Gen (Either ECTAGenError a))
 
 -- | Whether a generator stands for a recursive language.
-isRecursive :: ECTAGen gen a -> Bool
+isRecursive :: ECTAGen a -> Bool
 isRecursive (Cyclic _) = True
 isRecursive _ = False
 
 -- | Whether a generator is an opaque region, which cannot be inspected.
-isOpaque :: ECTAGen gen a -> Bool
+isOpaque :: ECTAGen a -> Bool
 isOpaque (Opaque _) = True
 isOpaque _ = False
 
@@ -68,7 +72,7 @@ isOpaque _ = False
 A finite generator is a recursive language that happens to stop: its plan
 already counts by size, and its support is already its automaton.
 -}
-recursiveView :: ECTAGen gen a -> Either ECTAGenError (Recursive a)
+recursiveView :: ECTAGen a -> Either ECTAGenError (Recursive a)
 recursiveView (Transparent result) = recursiveFromStatic <$> result
 recursiveView (Cyclic result) = result
 recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
@@ -80,13 +84,13 @@ during a join, matching key values determine which groups receive equal internal
 labels on constrained ECTA paths. Each key group retains compact ECTA support
 and indexed selection without storing all outcomes.
 -}
-data Grouped (gen :: Type -> Type) key a
+data Grouped key a
     = Grouped !(Either ECTAGenError (Map.Map key (KeyedBucket a)))
     | -- | A recursive family: one language per key, all sharing one @Mu@.
       CyclicGrouped !(Either ECTAGenError (Map.Map key (KeyedRecursive a)))
 
 -- | Whether a grouped generator stands for a recursive family.
-isRecursiveGrouped :: Grouped gen key a -> Bool
+isRecursiveGrouped :: Grouped key a -> Bool
 isRecursiveGrouped (CyclicGrouped _) = True
 isRecursiveGrouped _ = False
 
@@ -96,7 +100,7 @@ A finite family is a recursive one that happens to stop, so this is how the
 recursive builders accept either.
 -}
 recursiveGroups ::
-    Grouped gen key a ->
+    Grouped key a ->
     Either ECTAGenError (Map.Map key (KeyedRecursive a))
 recursiveGroups (CyclicGrouped result) = result
 recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
@@ -106,13 +110,13 @@ recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
 Each link requires the family key type named by the corresponding signature
 component and consumes the corresponding argument of the generated operation.
 -}
-data Args gen (argKeys :: [Type]) operation result where
-    ANil :: Args gen '[] result result
+data Args (argKeys :: [Type]) operation result where
+    ANil :: Args '[] result result
     (:&) ::
         (Ord argKey) =>
-        Grouped gen argKey arg ->
-        Args gen argKeys operation result ->
-        Args gen (argKey ': argKeys) (arg -> operation) result
+        Grouped argKey arg ->
+        Args argKeys operation result ->
+        Args (argKey ': argKeys) (arg -> operation) result
 
 infixr 5 :&
 
@@ -131,14 +135,14 @@ class NodeLayer layer where
 node :: (NodeLayer layer) => Symbol -> layer a -> layer a
 node = closeNode
 
-instance NodeLayer (ECTAGen gen) where
+instance NodeLayer ECTAGen where
     closeNode symbol (Transparent result) =
         Transparent $ fmap (labelStatic symbol) result
     closeNode symbol (Cyclic result) =
         Cyclic $ fmap (labelRecursive symbol) result
     closeNode _ opaque@(Opaque _) = opaque
 
-instance NodeLayer (Grouped gen key) where
+instance NodeLayer (Grouped key) where
     closeNode symbol (Grouped result) =
         Grouped $ fmap (fmap labelBucket) result
       where
@@ -156,7 +160,7 @@ instance NodeLayer (Grouped gen key) where
                     labelRecursive symbol $ keyedRecursiveLanguage group
                 }
 
-instance Functor (Grouped gen key) where
+instance Functor (Grouped key) where
     fmap transform (Grouped result) =
         Grouped $ fmap (fmap mapBucket) result
       where
@@ -183,7 +187,7 @@ instance Functor (Grouped gen key) where
           where
             recursive = keyedRecursiveLanguage group
 
-instance (Functor gen) => Functor (ECTAGen gen) where
+instance Functor ECTAGen where
     fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
     fmap transform (Cyclic result) = Cyclic $ fmap mapRecursive result
       where
@@ -198,7 +202,7 @@ instance (Functor gen) => Functor (ECTAGen gen) where
                 (recursiveInspection recursive)
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
-instance (GenBackend gen) => Applicative (ECTAGen gen) where
+instance Applicative ECTAGen where
     pure value = Transparent $ Right $ pureStatic value
 
     Transparent (Left err) <*> _ = Transparent $ Left err
@@ -236,47 +240,62 @@ instance (GenBackend gen) => Applicative (ECTAGen gen) where
     functions <*> values =
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
--- | Lower to the backend, preserving construction and decoding errors.
-lower :: (GenBackend gen) => ECTAGen gen a -> gen (Either ECTAGenError a)
-lower (Transparent (Left err)) = pure $ Left err
-lower (Transparent (Right static)) = sampleStatic static
-lower (Cyclic _) = pure $ Left UnboundedGenerator
+-- | Lower to QuickCheck, preserving construction and decoding errors.
+lower :: ECTAGen a -> QC.Gen (Either ECTAGenError a)
 lower (Opaque generated) = generated
+lower generator = quickCheck $ lowerVia generator
 
--- | Lower a transparent generator while retaining the sampled rank.
-lowerWithRank ::
-    (GenBackend gen) =>
-    ECTAGen gen a ->
-    gen (Either ECTAGenError (Integer, a))
-lowerWithRank (Transparent (Left err)) = pure $ Left err
-lowerWithRank (Transparent (Right static)) = sampleStaticWithRank static
-lowerWithRank (Cyclic _) = pure $ Left UnboundedGenerator
-lowerWithRank (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
+-- | Lower an inspectable generator while retaining the sampled rank.
+lowerWithRank :: ECTAGen a -> QC.Gen (Either ECTAGenError (Integer, a))
+lowerWithRank = quickCheck . lowerWithRankVia
 
-{- | Lower a transparent uniform generator to a direct backend action.
+{- | Lower an inspectable generator through any sampling backend.
 
-The action carries no per-sample error wrapping; construction errors and the
-non-uniform and opaque cases return 'Nothing' and must go through 'lower'.
+The exact backend of "Data.CFTA.Ranked.Internal.Sampler" gives the sampling
+distribution as a finite list. An opaque region is a QuickCheck generator and
+cannot be interpreted, so it reports 'CannotInspectOpaqueGenerator'.
 -}
-lowerUniform :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen a)
+lowerVia :: (GenBackend gen) => ECTAGen a -> gen (Either ECTAGenError a)
+lowerVia (Transparent (Left err)) = pure $ Left err
+lowerVia (Transparent (Right static)) = sampleStatic static
+lowerVia (Cyclic _) = pure $ Left UnboundedGenerator
+lowerVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
+
+-- | 'lowerVia' retaining the sampled replay rank.
+lowerWithRankVia :: (GenBackend gen) => ECTAGen a -> gen (Either ECTAGenError (Integer, a))
+lowerWithRankVia (Transparent (Left err)) = pure $ Left err
+lowerWithRankVia (Transparent (Right static)) = sampleStaticWithRank static
+lowerWithRankVia (Cyclic _) = pure $ Left UnboundedGenerator
+lowerWithRankVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
+
+-- | Run the QuickCheck backend.
+quickCheck :: QuickCheckBackend a -> QC.Gen a
+quickCheck (QuickCheckBackend generated) = generated
+
+{- | Lower a transparent uniform generator to a direct QuickCheck generator.
+
+The generator carries no per-sample error wrapping; construction errors and
+the non-uniform and opaque cases return 'Nothing' and must go through 'lower'.
+-}
+lowerUniform :: ECTAGen a -> Maybe (QC.Gen a)
 lowerUniform (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
         Just $ case compiledDecoder outcomes of
-            SmallDecoder bound decode -> decode <$> selectInt bound
-            LargeDecoder bound decode -> decode <$> selectInteger bound
+            SmallDecoder bound decode -> decode <$> QC.chooseInt (0, bound - 1)
+            LargeDecoder bound decode -> decode <$> QC.chooseInteger (0, bound - 1)
   where
     outcomes = staticOutcomes static
 lowerUniform _ = Nothing
 
 -- | Like 'lowerUniform', retaining the sampled replay rank.
-lowerUniformWithRank :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen (Integer, a))
+lowerUniformWithRank :: ECTAGen a -> Maybe (QC.Gen (Integer, a))
 lowerUniformWithRank (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
         Just $ case compiledDecoder outcomes of
             SmallDecoder bound decode ->
-                (\index -> (toInteger index, decode index)) <$> selectInt bound
+                (\index -> (toInteger index, decode index)) <$> QC.chooseInt (0, bound - 1)
             LargeDecoder bound decode ->
-                (\index -> (index, decode index)) <$> selectInteger bound
+                (\index -> (index, decode index)) <$> QC.chooseInteger (0, bound - 1)
   where
     outcomes = staticOutcomes static
 lowerUniformWithRank _ = Nothing

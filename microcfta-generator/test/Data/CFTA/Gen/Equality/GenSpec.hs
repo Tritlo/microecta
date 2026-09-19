@@ -310,20 +310,20 @@ spec = do
                     ]
 
         it "samples a non-uniform join with exactly its inspected PMF" $ do
-            let left :: Core.ECTAGen Exact UserId
+            let left :: Core.ECTAGen UserId
                 left =
                     Core.frequency
                         [ (4, Core.elements [Alice])
                         , (1, Core.elements [Bob, Carol])
                         ]
-                right :: Core.ECTAGen Exact UserId
+                right :: Core.ECTAGen UserId
                 right =
                     Core.frequency
                         [ (1, Core.elements [Alice])
                         , (3, Core.elements [Bob, Carol])
                         ]
                 generator = Core.match (id Core.:==: id) left right
-                sampled = runExact $ Core.lower generator
+                sampled = runExact $ Core.lowerVia generator
                 sampledErrors = [err | (_, Left err) <- sampled]
                 sampledPmf =
                     Map.toAscList $

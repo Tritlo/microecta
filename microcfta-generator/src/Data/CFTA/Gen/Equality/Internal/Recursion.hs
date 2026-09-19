@@ -49,7 +49,7 @@ cardinality depends on itself, and is rejected with
 'BoundedRecursiveOccurrence'. Opaque generators have no size structure to
 change.
 -}
-atomic :: ECTAGen gen a -> ECTAGen gen a
+atomic :: ECTAGen a -> ECTAGen a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
     Transparent $ do
@@ -116,7 +116,7 @@ already reads that way, and the size bound controls how large members get. A
 weighted finite choice closed with 'atomic' keeps its distribution inside
 each recursive size class without changing counts, sizes, or ranks.
 -}
-recur :: (ECTAGen gen a -> ECTAGen gen a) -> ECTAGen gen a
+recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
 recur build
     -- An opaque body cannot contain the occurrence, so it is not recursive.
     | Opaque _ <- probeBody = probeBody
@@ -233,8 +233,8 @@ what 'oneofGrouped' gives without asking for them.
 -}
 recurGrouped ::
     (Ord key) =>
-    (Grouped gen key a -> Grouped gen key a) ->
-    Grouped gen key a
+    (Grouped key a -> Grouped key a) ->
+    Grouped key a
 recurGrouped build
     -- As in 'recur': a body that failed to build reports its own error rather
     -- than being wrapped in a family every finite inspector calls unbounded.
@@ -463,7 +463,7 @@ that defines it is rejected with 'BoundedRecursiveOccurrence': the bound would
 need the size classes the definition is still computing. Bound the finished
 language instead, as in @upToSize n (recur ...)@.
 -}
-upToSize :: Int -> ECTAGen gen a -> ECTAGen gen a
+upToSize :: Int -> ECTAGen a -> ECTAGen a
 upToSize bound (Cyclic result) =
     Transparent $ do
         recursive <- result

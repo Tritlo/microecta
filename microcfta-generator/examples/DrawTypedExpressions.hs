@@ -32,7 +32,7 @@ main = do
     drawSupport "Recursive: TInt" $ Gen.atKey TInt recursiveExpressions
 
 -- | Read retained diagnostic metadata and draw its state and transition labels.
-drawSupport :: String -> Gen.ECTAGen gen value -> IO ()
+drawSupport :: String -> Gen.ECTAGen value -> IO ()
 drawSupport title generator = do
     inspection <- either (fail . show) pure $ Gen.inspect generator
     tree <- either (fail . show) pure $ ECTA.toTree $ Gen.inspectionGraph inspection

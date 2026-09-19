@@ -11,7 +11,6 @@ module Data.CFTA.Gen.Equality (
     Grouped,
     ECTAGenError (..),
     explain,
-    GenBackend (..),
 
     -- * Sources
     Indexed (..),
@@ -21,7 +20,7 @@ module Data.CFTA.Gen.Equality (
     fromECTA,
     fromFTAUpToDepth,
     fromDatatypeUpToDepth,
-    fromBackend,
+    fromGen,
 
     -- * Composing
     NodeLayer,
@@ -86,12 +85,15 @@ module Data.CFTA.Gen.Equality (
     lowerWithRank,
     lowerUniform,
     lowerUniformWithRank,
+    lowerVia,
+    lowerWithRankVia,
 ) where
 
 import qualified Data.Array as Array
 import Data.String (fromString)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
+import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint.Equality (EqConstraints)
@@ -107,8 +109,9 @@ import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import qualified Data.CFTA.Interned as Common
-import Data.CFTA.Ranked.Internal.Sampler
+import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
 import Data.CFTA.Ranked.Internal.Size (choiceIndex)
+import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 -- | Interpret a reified condition as one key projection per side.
@@ -125,14 +128,14 @@ withKeys (first :&&: second) continue =
                 (\right -> (rightKey right, otherRightKey right))
 
 -- | Lift one finite indexed source into transparent ECTA structure.
-fromIndexed :: Indexed a -> ECTAGen gen a
+fromIndexed :: Indexed a -> ECTAGen a
 fromIndexed indexed
     | indexedCardinality indexed <= 0 = Transparent $ Left EmptyGenerator
     | otherwise = Transparent $ Right $ indexedStatic indexed
 
--- | Embed an opaque backend generator.
-fromBackend :: (Functor gen) => gen a -> ECTAGen gen a
-fromBackend generated = Opaque $ Right <$> generated
+-- | Embed an ordinary QuickCheck generator as an opaque region.
+fromGen :: QC.Gen a -> ECTAGen a
+fromGen generated = Opaque $ Right <$> generated
 
 {- | Read an ECTA as a generator of the terms it accepts.
 
@@ -152,7 +155,7 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
+fromECTA :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
 fromECTA supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
@@ -167,12 +170,12 @@ shared states. Unranking constructs only the selected term. Shrinks remain
 in the accepted language.
 -}
 fromFTAUpToDepth ::
-    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen gen (Tree.Tree Symbol)
+    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
 fromFTAUpToDepth depth graph = Transparent $ do
     finiteAutomaton $ Common.fromFTA $ FTA.boundDepth depth graph
 
 -- | Generate typed values from a datatype grammar with equality annotations.
-fromDatatypeUpToDepth :: (Functor gen) => Int -> TypedFTA EqConstraints a -> ECTAGen gen a
+fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
 fromDatatypeUpToDepth depth datatype =
     case FTA.mapSymbols (fromString . constructorLabel) (datatypeFTA datatype) of
         Left err -> Transparent $ Left $ InvalidImportedAutomaton $ show err
@@ -186,7 +189,7 @@ fromDatatypeUpToDepth depth datatype =
                 \the derived codec rejected a term of its own grammar"
 
 -- | Choose uniformly from a finite non-empty list.
-elements :: [a] -> ECTAGen gen a
+elements :: [a] -> ECTAGen a
 elements values =
     fromIndexed $
         Indexed
@@ -202,7 +205,7 @@ Names are retained for inspection and may describe functions. They do not
 change the support symbols, rank order, weights, or values. Mapping a source
 preserves its source names; it does not claim to name the mapped results.
 -}
-namedElements :: [(Text.Text, a)] -> ECTAGen gen a
+namedElements :: [(Text.Text, a)] -> ECTAGen a
 namedElements values
     | total <= 0 = Transparent $ Left EmptyGenerator
     | otherwise =
@@ -217,10 +220,7 @@ namedElements values
     entry index = indexed Array.! fromInteger index
 
 -- | Choose one generator with the supplied positive relative weight.
-frequency ::
-    (GenBackend gen) =>
-    [(Integer, ECTAGen gen a)] ->
-    ECTAGen gen a
+frequency :: [(Integer, ECTAGen a)] -> ECTAGen a
 frequency [] = Transparent $ Left EmptyGenerator
 frequency alternatives
     | Just badWeight <- firstNonPositiveWeight alternatives =
@@ -252,9 +252,8 @@ frequency alternatives
                             (choiceInspection $ map recursiveInspection views)
                 else Left WeightedRecursiveAlternatives
     | otherwise =
-        Opaque $
-            frequencyGen
-                [(weight, lower generator) | (weight, generator) <- alternatives]
+        Opaque $ case frequencyGen [(weight, QuickCheckBackend $ lower generator) | (weight, generator) <- alternatives] of
+            QuickCheckBackend generated -> generated
   where
     firstError = go
       where
@@ -274,7 +273,7 @@ a language uses structural counts for global size selection and rank offsets.
 A finite choice closed with 'atomic' can still retain its own sampler mass
 within the selected size.
 -}
-oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
+oneof :: [ECTAGen a] -> ECTAGen a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
 
 {- | Choose among generators so that every member of the combined language is
@@ -290,7 +289,7 @@ size-class sampler already draws every member of a size class equally.
 An alternative that is itself weighted keeps its own distribution, so members
 are equally likely exactly when each alternative is uniform.
 -}
-uniformly :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
+uniformly :: [ECTAGen a] -> ECTAGen a
 uniformly alternatives
     | any isRecursive alternatives = oneof alternatives
     | otherwise = case traverse liveCardinality alternatives of
@@ -308,11 +307,10 @@ uniformly alternatives
 
 -- | Generate two values whose projected keys agree.
 match ::
-    (GenBackend gen) =>
     On left right ->
-    ECTAGen gen left ->
-    ECTAGen gen right ->
-    ECTAGen gen (left, right)
+    ECTAGen left ->
+    ECTAGen right ->
+    ECTAGen (left, right)
 match _ (Transparent (Left err)) _ = Transparent $ Left err
 match _ _ (Transparent (Left err)) = Transparent $ Left err
 match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
@@ -326,7 +324,7 @@ match condition left right =
             matches (Left _) = True
             matches (Right (leftValue, rightValue)) =
                 leftKey leftValue == rightKey rightValue
-         in Opaque $ filterGen matches generatedPairs
+         in Opaque $ generatedPairs `QC.suchThat` matches
 
 {- | Generate two values whose projected keys satisfy a relation.
 
@@ -337,13 +335,13 @@ The relation must be total for every live key pair. An opaque input uses
 backend rejection filtering instead.
 -}
 relate ::
-    (GenBackend gen, Ord leftKey, Ord rightKey) =>
+    (Ord leftKey, Ord rightKey) =>
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> Bool) ->
-    ECTAGen gen left ->
-    ECTAGen gen right ->
-    ECTAGen gen (left, right)
+    ECTAGen left ->
+    ECTAGen right ->
+    ECTAGen (left, right)
 relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
 relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
 relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
@@ -355,7 +353,7 @@ relate leftKey rightKey relation left right =
         related (Left _) = True
         related (Right (leftValue, rightValue)) =
             relation (leftKey leftValue) (rightKey rightValue)
-     in Opaque $ filterGen related generatedPairs
+     in Opaque $ generatedPairs `QC.suchThat` related
 
 {- | Compile an effectful relation between two finite inspectable languages.
 
@@ -372,9 +370,9 @@ relateM ::
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> IO (Either relationError Bool)) ->
-    ECTAGen gen left ->
-    ECTAGen gen right ->
-    IO (Either relationError (ECTAGen gen (left, right)))
+    ECTAGen left ->
+    ECTAGen right ->
+    IO (Either relationError (ECTAGen (left, right)))
 relateM leftKey rightKey relation left right =
     fmap (fmap ungroup) $
         relateGroupsM

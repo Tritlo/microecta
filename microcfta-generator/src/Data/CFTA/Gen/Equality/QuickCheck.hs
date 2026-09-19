@@ -1,6 +1,7 @@
-{-# LANGUAGE DerivingStrategies #-}
-
 {- | QuickCheck integration for indexed ECTA generators.
+
+This module re-exports "Data.CFTA.Gen.Equality" and its qualified
+do-notation, and adds sampling, pools, and properties over QuickCheck.
 
 A generator knows exactly how many values it has, and can be addressed by
 rank:
@@ -43,79 +44,11 @@ Right [0,0]
 -}
 module Data.CFTA.Gen.Equality.QuickCheck (
     -- * Generators
-    ECTAGen,
-    Grouped,
-    QuickCheckBackend,
-    ECTAGenError (..),
-    explain,
+    module Data.CFTA.Gen.Equality,
 
-    -- * Sources
-    Indexed (..),
-    fromIndexed,
-    elements,
-    namedElements,
+    -- * Pools
     pool,
     freeze,
-    fromECTA,
-    fromFTAUpToDepth,
-    fromDatatypeUpToDepth,
-    fromGen,
-
-    -- * Composing
-    NodeLayer,
-    node,
-    frequency,
-    oneof,
-    uniformly,
-    On (..),
-    match,
-    relate,
-    relateM,
-
-    -- * The grouped layer
-    Sig (..),
-    sigResult,
-    Args (..),
-    keyed,
-    groupBy,
-    regroupBy,
-    mapWithKey,
-    nameGroups,
-    atKey,
-    apply,
-    frequencies,
-    oneofGrouped,
-    uniformlyGrouped,
-    ungroup,
-    relateGroupsM,
-    relateN,
-    filterGroupsM,
-
-    -- * Recursion
-    atomic,
-    recur,
-    recurGrouped,
-    upToSize,
-
-    -- * Inspection
-    Inspection (..),
-    InspectionSymbol (..),
-    inspect,
-    support,
-    cardinality,
-    sizes,
-    countsAtSize,
-    massesAtSize,
-    countAtSize,
-    minimumSize,
-    countBy,
-    pmf,
-    pmfAtSize,
-    smallest,
-    unrank,
-    sizeOfRank,
-    smallerMembers,
-    shrinkRank,
 
     -- * Sampling and properties
     toGen,
@@ -131,134 +64,13 @@ module Data.CFTA.Gen.Equality.QuickCheck (
     module Data.CFTA.Gen.Equality.Do,
 ) where
 
-import Data.List (mapAccumL, sortOn)
-import Data.Map.Strict (Map)
-import Data.Ord (Down (..))
-import Data.Text (Text)
-import qualified Data.Tree as Tree
+import Data.Maybe (fromMaybe)
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
-import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints)
-import Data.CFTA.Equality (Node)
-import Data.CFTA.Gen.Equality (
-    Args (..),
-    ECTAGenError (..),
-    Indexed (..),
-    Inspection (..),
-    InspectionSymbol (..),
-    NodeLayer,
-    On (..),
-    Sig (..),
-    explain,
-    node,
-    sigResult,
- )
-import qualified Data.CFTA.Gen.Equality as ECTA
+import Data.CFTA.Gen.Equality
 import Data.CFTA.Gen.Equality.Do
-import Data.CFTA.Generic (TypedFTA)
-import Data.CFTA.Symbol (Symbol)
-import Data.Maybe (fromMaybe)
-
-{- | QuickCheck as the sampling backend.
-
-The wrapper exists to avoid an orphan 'ECTA.GenBackend' instance for 'QC.Gen'.
-It is abstract, but it is exported because it appears in the type of an 'Args'
-chain, which a caller may want to write a signature for.
--}
-newtype QuickCheckBackend a = QuickCheckBackend (QC.Gen a)
-    deriving newtype (Functor, Applicative)
-
-instance ECTA.GenBackend QuickCheckBackend where
-    selectInteger bound =
-        QuickCheckBackend $ QC.chooseInteger (0, bound - 1)
-
-    selectInt bound =
-        QuickCheckBackend $ QC.chooseInt (0, bound - 1)
-
-    frequencyGen alternatives =
-        -- Ranked branches already carry their offsets, so sampling can put
-        -- likely branches first without changing rank order.
-        let ordered = sortOn (Down . fst) alternatives
-            (total, cumulative) = mapAccumL accumulateWeight 0 ordered
-         in QuickCheckBackend $ do
-                selected <-
-                    if total <= toInteger (maxBound :: Int)
-                        then toInteger <$> QC.chooseInt (0, fromInteger total - 1)
-                        else QC.chooseInteger (0, total - 1)
-                pick selected cumulative
-      where
-        accumulateWeight total (weight, generated) =
-            let upperBound = total + weight
-             in (upperBound, (upperBound, generated))
-
-        pick _ [] =
-            error
-                "microcfta-generator bug in Data.CFTA.Gen.Equality.QuickCheck.frequencyGen: \
-                \no alternative to pick"
-        pick selected ((upperBound, QuickCheckBackend generated) : remaining)
-            | selected < upperBound = generated
-            | otherwise = pick selected remaining
-
-    filterGen predicate (QuickCheckBackend generated) =
-        QuickCheckBackend $ generated `QC.suchThat` predicate
-
--- | An indexed ECTA generator with QuickCheck as its opaque backend.
-type ECTAGen = ECTA.ECTAGen QuickCheckBackend
-
--- | An ECTA generator classified by a projected key used to match ECTA paths.
-type Grouped key = ECTA.Grouped QuickCheckBackend key
-
--- | Compile an effectful relation once per live projected key pair.
-relateM ::
-    (Ord leftKey, Ord rightKey) =>
-    (left -> leftKey) ->
-    (right -> rightKey) ->
-    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
-    ECTAGen left ->
-    ECTAGen right ->
-    IO (Either relationError (ECTAGen (left, right)))
-relateM = ECTA.relateM
-
--- | Compile an effectful relation over two already-grouped languages.
-relateGroupsM ::
-    (Ord resultKey) =>
-    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
-    (leftKey -> rightKey -> resultKey) ->
-    Grouped leftKey left ->
-    Grouped rightKey right ->
-    IO (Either relationError (Grouped resultKey (left, right)))
-relateGroupsM = ECTA.relateGroupsM
-
--- | Compile one relation over a homogeneous list of grouped arguments.
-relateN ::
-    (Ord key) =>
-    ([key] -> IO (Either relationError Bool)) ->
-    [Grouped key a] ->
-    IO (Either relationError (Grouped [key] [a]))
-relateN = ECTA.relateN
-
--- | Select already-grouped languages with one effectful decision per key.
-filterGroupsM ::
-    (Ord key) =>
-    (key -> IO (Either relationError Bool)) ->
-    Grouped key a ->
-    IO (Either relationError (Grouped key a))
-filterGroupsM = ECTA.filterGroupsM
-
--- | Lift one finite indexed source into transparent ECTA structure.
-fromIndexed :: Indexed a -> ECTAGen a
-fromIndexed = ECTA.fromIndexed
-
--- | Choose uniformly from a finite non-empty list.
-elements :: [a] -> ECTAGen a
-elements = ECTA.elements
-
--- | Choose named source values without changing their ranks or distribution.
-namedElements :: [(Text, a)] -> ECTAGen a
-namedElements = ECTA.namedElements
 
 {- | Sample a finite pool from an ordinary QuickCheck generator.
 
@@ -285,189 +97,13 @@ freeze :: Int -> Int -> QC.Gen a -> ECTAGen a
 freeze seed sampleCount native =
     unGen (pool sampleCount native) (mkQCGen seed) 30
 
--- | Read an ECTA as a generator of the terms it accepts. See 'ECTA.fromECTA'.
-fromECTA :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
-fromECTA = ECTA.fromECTA
-
--- | Compile a bounded annotated FTA with uniform accepted-term sampling.
-fromFTAUpToDepth :: (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
-fromFTAUpToDepth = ECTA.fromFTAUpToDepth
-
--- | Generate typed values from a datatype grammar with equality annotations.
-fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
-fromDatatypeUpToDepth = ECTA.fromDatatypeUpToDepth
-
--- | Treat every member of a finite generator as one atomic source choice. See 'ECTA.atomic'.
-atomic :: ECTAGen a -> ECTAGen a
-atomic = ECTA.atomic
-
--- | Build a recursive generator from its own language. See 'ECTA.recur'.
-recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
-recur = ECTA.recur
-
--- | Build a recursive grouped family from its own languages. See 'ECTA.recurGrouped'.
-recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
-recurGrouped = ECTA.recurGrouped
-
--- | Bound a generator to the members of size at most the given bound. See 'ECTA.upToSize'.
-upToSize :: Int -> ECTAGen a -> ECTAGen a
-upToSize = ECTA.upToSize
-
--- | Declare that every member of an inspectable generator has one key. See 'ECTA.keyed'.
-keyed :: key -> ECTAGen a -> Grouped key a
-keyed = ECTA.keyed
-
--- | Classify a transparent generator's outcomes by a projected key. See 'ECTA.groupBy'.
-groupBy :: (Ord key) => (a -> key) -> ECTAGen a -> Grouped key a
-groupBy = ECTA.groupBy
-
--- | Reclassify groups without enumerating their values.
-regroupBy :: (Ord newKey) => (oldKey -> newKey) -> Grouped oldKey a -> Grouped newKey a
-regroupBy = ECTA.regroupBy
-
--- | Map group values with access to their retained key.
-mapWithKey :: (key -> a -> b) -> Grouped key a -> Grouped key b
-mapWithKey = ECTA.mapWithKey
-
--- | Retain lazy display names for keys without inspecting group members.
-nameGroups :: (key -> Text) -> Grouped key a -> Grouped key a
-nameGroups = ECTA.nameGroups
-
--- | Return the exact cardinality of each retained group.
-sizes :: Grouped key a -> Either ECTAGenError (Map key Integer)
-sizes = ECTA.sizes
-
--- | Return exact retained-key counts at one structural size. See 'ECTA.countsAtSize'.
-countsAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map key Integer)
-countsAtSize = ECTA.countsAtSize
-
--- | Return the exact retained-key sampling distribution at one structural size.
-massesAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map key Rational)
-massesAtSize = ECTA.massesAtSize
-
--- | Select one retained group as an ordinary conditional generator.
-atKey :: (Ord key) => key -> Grouped key a -> ECTAGen a
-atKey = ECTA.atKey
-
--- | Apply a generated operation of any arity to one argument family per signature component. See 'ECTA.apply'.
-apply ::
-    (Ord resultKey) =>
-    Grouped (Sig argKeys resultKey) operation ->
-    Args QuickCheckBackend argKeys operation result ->
-    Grouped resultKey result
-apply = ECTA.apply
-
--- | Choose among grouped generators with positive relative weights, group by group. See 'ECTA.frequencies'.
-frequencies :: (Ord key) => [(Integer, Grouped key a)] -> Grouped key a
-frequencies = ECTA.frequencies
-
--- | Choose uniformly among grouped generators, group by group. See 'ECTA.oneofGrouped'.
-oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
-oneofGrouped = ECTA.oneofGrouped
-
--- | Choose among grouped generators so that every member of the combined language is equally likely: finite alternatives are combined in proportion to their exact cardinalities, and alternatives around a recursive family with equal weights. See 'ECTA.uniformlyGrouped'.
-uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
-uniformlyGrouped = ECTA.uniformlyGrouped
-
--- | Merge all retained groups while preserving their probability masses.
-ungroup :: Grouped key a -> ECTAGen a
-ungroup = ECTA.ungroup
-
--- | Choose one generator with the supplied positive relative weight.
-frequency :: [(Integer, ECTAGen a)] -> ECTAGen a
-frequency = ECTA.frequency
-
--- | Choose uniformly among generators. See 'ECTA.oneof'.
-oneof :: [ECTAGen a] -> ECTAGen a
-oneof = ECTA.oneof
-
--- | Choose among generators so that every member of the combined language is equally likely: finite alternatives are combined in proportion to their cardinalities, and alternatives around a recursive one with equal weights. See 'ECTA.uniformly'.
-uniformly :: [ECTAGen a] -> ECTAGen a
-uniformly = ECTA.uniformly
-
--- | Generate two values whose projected keys agree.
-match ::
-    On left right ->
-    ECTAGen left ->
-    ECTAGen right ->
-    ECTAGen (left, right)
-match = ECTA.match
-
--- | Generate two values whose projected keys satisfy a relation. See 'ECTA.relate'.
-relate ::
-    (Ord leftKey, Ord rightKey) =>
-    (left -> leftKey) ->
-    (right -> rightKey) ->
-    (leftKey -> rightKey -> Bool) ->
-    ECTAGen left ->
-    ECTAGen right ->
-    ECTAGen (left, right)
-relate = ECTA.relate
-
--- | Return the ECTA support of an inspectable generator.
-support :: ECTAGen a -> Either ECTAGenError (Node Symbol EqConstraints)
-support = ECTA.support
-
--- | Read source names and group names from the retained diagnostic graph.
-inspect :: ECTAGen a -> Either ECTAGenError Inspection
-inspect = ECTA.inspect
-
--- | Return the exact number of ranks in a transparent generator.
-cardinality :: ECTAGen a -> Either ECTAGenError Integer
-cardinality = ECTA.cardinality
-
--- | The number of members of one size, for any inspectable generator.
-countAtSize :: ECTAGen a -> Int -> Either ECTAGenError Integer
-countAtSize = ECTA.countAtSize
-
--- | The smallest structural size in an inspectable language.
-minimumSize :: ECTAGen a -> Either ECTAGenError (Maybe Int)
-minimumSize = ECTA.minimumSize
-
--- | Return the first member in structural size and rank order, or 'Nothing' if empty.
-smallest :: ECTAGen a -> Either ECTAGenError (Maybe a)
-smallest = ECTA.smallest
-
--- | Decode one stable rank from an inspectable generator.
-unrank :: ECTAGen a -> Integer -> Either ECTAGenError a
-unrank = ECTA.unrank
-
--- | Structural shrink candidates for one rank of a transparent generator.
-shrinkRank :: ECTAGen a -> Integer -> [Integer]
-shrinkRank = ECTA.shrinkRank
-
--- | Every member of strictly smaller size than the given rank's member, in size order, as replayable rank and value. See 'ECTA.smallerMembers'.
-smallerMembers :: ECTAGen a -> Integer -> [(Integer, a)]
-smallerMembers = ECTA.smallerMembers
-
--- | The number of source choices in the member a rank decodes to.
-sizeOfRank :: ECTAGen a -> Integer -> Maybe Int
-sizeOfRank = ECTA.sizeOfRank
-
--- | Count ranked outcomes by a projected key.
-countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either ECTAGenError (Map key Integer)
-countBy = ECTA.countBy
-
--- | Aggregate the exact PMF of a finite transparent generator.
-pmf :: (Ord a) => ECTAGen a -> Either ECTAGenError [(a, Rational)]
-pmf = ECTA.pmf
-
--- | Aggregate the exact result distribution conditional on one structural size. See 'ECTA.pmfAtSize'.
-pmfAtSize :: (Ord a) => ECTAGen a -> Int -> Either ECTAGenError [(a, Rational)]
-pmfAtSize = ECTA.pmfAtSize
-
--- | Embed an ordinary QuickCheck generator as an opaque region.
-fromGen :: QC.Gen a -> ECTAGen a
-fromGen = ECTA.fromBackend . QuickCheckBackend
-
 {- | Sample a non-recursive generator while retaining structured generator errors.
 
 Unlike 'toGen', this does not bound a recursive generator from QuickCheck's
 size parameter; apply 'upToSize' explicitly first.
 -}
 toGenEither :: ECTAGen a -> QC.Gen (Either ECTAGenError a)
-toGenEither generator = case ECTA.lower generator of
-    QuickCheckBackend generated -> generated
+toGenEither = lower
 
 {- | Sample a finite transparent generator while retaining its stable rank and
 errors.
@@ -476,8 +112,7 @@ Unlike 'toGenWithRank', this does not bound a recursive generator from
 QuickCheck's size parameter; apply 'upToSize' explicitly first.
 -}
 toGenWithRankEither :: ECTAGen a -> QC.Gen (Either ECTAGenError (Integer, a))
-toGenWithRankEither generator = case ECTA.lowerWithRank generator of
-    QuickCheckBackend generated -> generated
+toGenWithRankEither = lowerWithRank
 
 {- | Sample through the generator type expected by QuickCheck.
 
@@ -485,12 +120,12 @@ Recursive generators are bounded by QuickCheck's size parameter.
 -}
 toGen :: ECTAGen a -> QC.Gen a
 toGen generator
-    | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
-    | Just (QuickCheckBackend direct) <- ECTA.lowerUniform generator = direct
+    | isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
+    | Just direct <- lowerUniform generator = direct
     | otherwise = either (raise "toGen") id <$> toGenEither generator
   where
-    bounded = [toGen (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
-    firstSize = either (raise "toGen") (fromMaybe 1) $ ECTA.minimumSize generator
+    bounded = [toGen (upToSize (max firstSize size) generator) | size <- [0 ..]]
+    firstSize = either (raise "toGen") (fromMaybe 1) $ minimumSize generator
 
 {- | Sample an inspectable generator together with its stable replay rank.
 
@@ -498,12 +133,12 @@ Recursive generators are bounded by QuickCheck's size parameter.
 -}
 toGenWithRank :: ECTAGen a -> QC.Gen (Integer, a)
 toGenWithRank generator
-    | ECTA.isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
-    | Just (QuickCheckBackend direct) <- ECTA.lowerUniformWithRank generator = direct
+    | isRecursive generator = QC.sized $ \size -> bounded !! max 0 size
+    | Just direct <- lowerUniformWithRank generator = direct
     | otherwise = either (raise "toGenWithRank") id <$> toGenWithRankEither generator
   where
-    bounded = [toGenWithRank (ECTA.upToSize (max firstSize size) generator) | size <- [0 ..]]
-    firstSize = either (raise "toGenWithRank") (fromMaybe 1) $ ECTA.minimumSize generator
+    bounded = [toGenWithRank (upToSize (max firstSize size) generator) | size <- [0 ..]]
+    firstSize = either (raise "toGenWithRank") (fromMaybe 1) $ minimumSize generator
 
 {- | Fail a sample with the error's own guidance.
 
@@ -556,7 +191,7 @@ many members per shrink step.
 forAllWithLimit ::
     (QC.Testable prop, Show a) => Int -> ECTAGen a -> (a -> prop) -> QC.Property
 forAllWithLimit limit generator prop
-    | ECTA.isOpaque generator = QC.forAll (toGen generator) prop
+    | isOpaque generator = QC.forAll (toGen generator) prop
     | otherwise =
         QC.forAllShrinkShow
             (toGenWithRank generator)
@@ -572,7 +207,7 @@ forAllWithLimit limit generator prop
         -- size, whose shrinking is size-major halving. Bounding preserves
         -- ranks, and leaves a finite generator alone. Every candidate has a
         -- strictly smaller rank and a member no larger than the current one.
-        bounded = maybe generator (`ECTA.upToSize` generator) (sizeOfRank generator rank)
+        bounded = maybe generator (`upToSize` generator) (sizeOfRank generator rank)
         structural =
             [ (candidate, value)
             | candidate <- shrinkRank bounded rank

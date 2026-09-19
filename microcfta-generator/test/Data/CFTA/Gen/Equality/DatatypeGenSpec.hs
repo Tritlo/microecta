@@ -36,11 +36,11 @@ spec = do
         it "counts and samples equal fields without rebuilding their datatype" $ do
             datatype <- either (fail . show) pure $ Datatype.deriveFTA @(Bool, Bool)
             let annotated = Datatype.annotateDatatype (equalFields [[0], [1]]) datatype
-                generator = Core.fromDatatypeUpToDepth 1 annotated :: Core.ECTAGen Exact (Bool, Bool)
+                generator = Core.fromDatatypeUpToDepth 1 annotated :: Core.ECTAGen (Bool, Bool)
             Core.cardinality generator `shouldBe` Right 2
             fmap sort (traverse (Core.unrank generator) [0, 1])
                 `shouldBe` Right [(False, False), (True, True)]
-            runExact (Core.lowerWithRank generator)
+            runExact (Core.lowerWithRankVia generator)
                 `shouldBe` [(1 % 2, fmap (rank,) $ Core.unrank generator rank) | rank <- [0, 1]]
             map (Core.unrank generator) (Core.shrinkRank generator 1)
                 `shouldSatisfy` all (`elem` [Right (False, False), Right (True, True)])

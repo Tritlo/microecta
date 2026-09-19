@@ -29,12 +29,12 @@ aggregateRights outcomes =
 {- | Enumerate the compiled decoder through the exact backend and require,
 for every rank in order: uniform mass and agreement with 'Core.unrank'.
 -}
-decodesEveryRankExactly :: (Eq a, Show a) => Core.ECTAGen Exact a -> Expectation
+decodesEveryRankExactly :: (Eq a, Show a) => Core.ECTAGen a -> Expectation
 decodesEveryRankExactly generator =
     case Core.cardinality generator of
         Left err -> expectationFailure $ show err
         Right total ->
-            runExact (Core.lowerWithRank generator)
+            runExact (Core.lowerWithRankVia generator)
                 `shouldBe` [ (1 % total, fmap (rank,) (Core.unrank generator rank))
                            | rank <- [0 .. total - 1]
                            ]
