@@ -330,9 +330,8 @@ set of outgoing `Edge symbol EqConstraints`s. An edge
 has a symbol, child nodes, and optional equality constraints over paths into
 those children. `Symbol` is the supplied interned text alphabet; its `IsString`
 instance keeps the usual `OverloadedStrings` syntax. The `Node`, `Edge`, and
-`Mu` patterns exported by `Data.CFTA.Equality` fix the constraint to
-`EqConstraints`; the same-named patterns in `Data.CFTA.Interned` leave it
-open.
+`Mu` patterns are the ones every theory shares; a signature such as
+`Node Symbol EqConstraints` fixes the theory.
 
 ```haskell
 intType :: Node Symbol EqConstraints
