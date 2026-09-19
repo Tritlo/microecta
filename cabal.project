@@ -2,9 +2,7 @@ with-compiler: ghc-9.14.1
 
 packages:
   microcfta
-  microfta-generator
-  microecta-generator
-  microlta-generator
+  microcfta-generator
 
 package *
   optimization: False

@@ -38,9 +38,9 @@ Ordinary and equality-constrained automata are built with `Data.CFTA.mkFTA`.
 paper's complete Boolean LTA constraint language. Constraint theories remain
 in their own namespaces.
 
-`microfta-generator` owns `Data.Ranked`, which provides exact
+`microfta-generator` owns `Data.CFTA.Ranked`, which provides exact
 finite ranks, backend-independent sampling, and shrinking, while
-`Data.Tree.FTA.Gen` either compiles an acyclic ordinary FTA or builds one with
+`Data.CFTA.Gen` either compiles an acyclic ordinary FTA or builds one with
 the `FTA.node`/`FTA.do` syntax before lowering it into that representation.
 The two FTA packages do not depend on ECTA or LTA. `microecta` adds equality
 constraints over the shared trees. `microecta-generator` adds ECTA-specific
@@ -186,8 +186,8 @@ then `microfta-generator` and `microecta`, then `microecta-generator` and
 Code that imports `Data.CFTA` or `Data.CFTA.Interned`
 must declare `microfta`.
 Code that imports `Data.Tree` directly must declare `containers`.
-Code that imports `Data.Ranked` or `Data.Tree.FTA.Gen` must declare
-`microfta-generator`. The `Data.Ranked.Internal.*` modules live in that
+Code that imports `Data.CFTA.Ranked` or `Data.CFTA.Gen` must declare
+`microfta-generator`. The `Data.CFTA.Ranked.Internal.*` modules live in that
 package's public `internal` sublibrary; depend on
 `microfta-generator:{microfta-generator, internal}` to reach them. They are
 an integration interface for the constrained generators and are not covered

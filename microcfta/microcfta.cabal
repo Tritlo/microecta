@@ -191,3 +191,15 @@ benchmark micro-bench
     containers >=0.8 && <0.9,
     microcfta,
     text >=2.1 && <2.2,
+
+benchmark cross-layer-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: CrossLayerSpeed.hs
+  hs-source-dirs: benchmarks
+  ghc-options: -rtsopts
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,

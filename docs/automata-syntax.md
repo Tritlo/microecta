@@ -14,7 +14,7 @@ kind of information:
 `EqConstraints` for an ECTA, or `LiquidConstraint` for liquid construction.
 The constrained packages define and interpret their constraint fields.
 `microfta-generator` owns
-the ranked layer and `Data.Tree.FTA.Gen`. The ECTA modules belong to
+the ranked layer and `Data.CFTA.Gen`. The ECTA modules belong to
 `microecta` and `microecta-generator`; the LTA modules belong to `microlta`
 and `microlta-generator`. Each application must declare the package whose
 modules it imports. The FTA packages have no dependency on either constrained
@@ -25,12 +25,12 @@ layer.
 The repository uses one running progression rather than three unrelated toy
 examples:
 
-1. [`Data.Tree.FTA.UntypedExpressionLanguage`](../microfta-generator/common/Data/Tree/FTA/UntypedExpressionLanguage.hs)
+1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../microfta-generator/common/Data/Tree/FTA/UntypedExpressionLanguage.hs)
    generates integer syntax. Constructor shape is the only constraint.
-2. [`Data.ECTA.Gen.Example.TypedExpressionLanguage`](../microecta-generator/src/Data/ECTA/Gen/Example/TypedExpressionLanguage.hs)
+2. [`Data.CFTA.Gen.Example.TypedExpressionLanguage`](../microecta-generator/src/Data/ECTA/Gen/Example/TypedExpressionLanguage.hs)
    adds Boolean expressions. Equality constraints connect an operation's
    signature with the result types of its children.
-3. [`Data.LTA.StateMachineTraceLanguage`](../microlta-generator/common/Data/LTA/StateMachineTraceLanguage.hs)
+3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../microlta-generator/common/Data/LTA/StateMachineTraceLanguage.hs)
    turns those values and operations into a typed stack machine. The result
    refinement of a trace prefix is the next command's input state, so command
    admissibility and the next stack type are dependent on the whole prefix.
