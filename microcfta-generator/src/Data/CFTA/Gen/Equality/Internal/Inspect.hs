@@ -52,7 +52,7 @@ import Data.CFTA.Symbol (Symbol)
 A recursive generator's support is its @Mu@ node, which accepts members of
 every size: a size bound restricts the rank space, not the automaton.
 -}
-support :: ECTAGen a -> Either ECTAGenError (Node Symbol EqConstraints)
+support :: ECTAGen a -> Either GenError (Node Symbol EqConstraints)
 support (Transparent result) = staticSupport <$> result
 support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator
@@ -63,7 +63,7 @@ The graph preserves construction context and equality obligations. It does
 not reduce constraints or enumerate complete generated values. Use 'support'
 for semantic operations. An unnamed source retains its original symbols.
 -}
-inspect :: ECTAGen a -> Either ECTAGenError Inspection
+inspect :: ECTAGen a -> Either GenError Inspection
 inspect (Transparent result) = staticInspection <$> result
 inspect (Cyclic result) = recursiveInspection <$> result
 inspect (Opaque _) = Left CannotInspectOpaqueGenerator
@@ -73,7 +73,7 @@ inspect (Opaque _) = Left CannotInspectOpaqueGenerator
 A recursive generator has no cardinality; bound it with 'upToSize', or ask
 for one size class with 'countAtSize'.
 -}
-cardinality :: ECTAGen a -> Either ECTAGenError Integer
+cardinality :: ECTAGen a -> Either GenError Integer
 cardinality (Transparent result) =
     outcomeCardinality . staticOutcomes <$> result
 cardinality (Cyclic _) = Left UnboundedGenerator
@@ -85,7 +85,7 @@ Size is the number of source choices in a member. This is the counting a
 recursive generator supports in place of a cardinality: every class is
 finite even when the language is not.
 -}
-countAtSize :: ECTAGen a -> Int -> Either ECTAGenError Integer
+countAtSize :: ECTAGen a -> Int -> Either GenError Integer
 countAtSize generator size =
     flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
 
@@ -94,7 +94,7 @@ countAtSize generator size =
 Size is the number of source choices in a member. 'Nothing' means the language
 is empty. Opaque generators cannot be inspected.
 -}
-minimumSize :: ECTAGen a -> Either ECTAGenError (Maybe Int)
+minimumSize :: ECTAGen a -> Either GenError (Maybe Int)
 minimumSize generator = case recursiveView generator of
     Left EmptyGenerator -> Right Nothing
     Left err -> Left err
@@ -105,7 +105,7 @@ minimumSize generator = case recursiveView generator of
 Ranks are stable while the generator definition and the ordering of its finite
 sources remain unchanged.
 -}
-unrank :: ECTAGen a -> Integer -> Either ECTAGenError a
+unrank :: ECTAGen a -> Integer -> Either GenError a
 unrank _ index | index < 0 = Left $ NegativeRank index
 unrank (Transparent result) index = do
     static <- result
@@ -131,7 +131,7 @@ unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 For recursive generators this is a globally smallest member. 'Nothing' means
 the language is empty; other construction or inspection failures stay explicit.
 -}
-smallest :: ECTAGen a -> Either ECTAGenError (Maybe a)
+smallest :: ECTAGen a -> Either GenError (Maybe a)
 smallest (Transparent result) =
     case result of
         Left EmptyGenerator -> Right Nothing
@@ -211,7 +211,7 @@ smallerMembers (Cyclic (Right recursive)) rank
 smallerMembers _ _ = []
 
 -- | Count ranked outcomes by a projected key without aggregating equal values.
-countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either ECTAGenError (Map.Map key Integer)
+countBy :: (Ord key) => (a -> key) -> ECTAGen a -> Either GenError (Map.Map key Integer)
 countBy key (Transparent result) = do
     static <- result
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
@@ -223,7 +223,7 @@ countBy _ (Cyclic _) = Left UnboundedGenerator
 countBy _ (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Aggregate the exact probability mass of every finite transparent result.
-pmf :: (Ord a) => ECTAGen a -> Either ECTAGenError [(a, Rational)]
+pmf :: (Ord a) => ECTAGen a -> Either GenError [(a, Rational)]
 pmf (Transparent result) = do
     static <- result
     outcomes <- compileOutcomes static
@@ -246,7 +246,7 @@ are aggregated. A language can therefore be cheap to count and too large for
 this observer. Use 'countAtSize' for cardinality, or 'massesAtSize' when a
 retained-key distribution answers the question.
 -}
-pmfAtSize :: (Ord a) => ECTAGen a -> Int -> Either ECTAGenError [(a, Rational)]
+pmfAtSize :: (Ord a) => ECTAGen a -> Int -> Either GenError [(a, Rational)]
 pmfAtSize (Transparent result) size = do
     static <- result
     if size < 1

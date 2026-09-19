@@ -9,7 +9,7 @@ module Data.CFTA.Gen.Equality (
     -- * Generators
     ECTAGen,
     Grouped,
-    ECTAGenError (..),
+    GenError (..),
     explain,
 
     -- * Sources
@@ -17,8 +17,8 @@ module Data.CFTA.Gen.Equality (
     fromIndexed,
     elements,
     namedElements,
-    fromECTA,
-    fromFTAUpToDepth,
+    fromAutomaton,
+    fromAutomatonUpToDepth,
     fromDatatypeUpToDepth,
     fromGen,
 
@@ -112,6 +112,7 @@ import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
 import Data.CFTA.Ranked.Internal.Size (choiceIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
+import Data.CFTA.Refinement (AutomatonError (InconsistentArity))
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 -- | Interpret a reified condition as one key projection per side.
@@ -155,13 +156,13 @@ counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
-fromECTA :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
-fromECTA supportNode =
+fromAutomaton :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
+fromAutomaton supportNode =
     Cyclic $ do
         index <- automatonIndex supportNode
         pure $ Recursive supportNode index (uniformSampleIndex index) False False (Just id) (plainInspection supportNode)
 
-{- | Compile an annotated FTA up to a constructor-depth bound.
+{- | Compile an equality-constrained automaton up to a constructor-depth bound.
 
 A leaf has depth zero. Each distinct accepted term has one rank, and sampling
 is uniform over these ranks. Direct child equalities use shared rank plans.
@@ -169,17 +170,18 @@ Nested equality paths and overlapping alternatives use symbolic counts over
 shared states. Unranking constructs only the selected term. Shrinks remain
 in the accepted language.
 -}
-fromFTAUpToDepth ::
-    (Ord state) => Int -> FTA.FTA state Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
-fromFTAUpToDepth depth graph = Transparent $ do
-    finiteAutomaton $ Common.fromFTA $ FTA.boundDepth depth graph
+fromAutomatonUpToDepth :: Int -> Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
+fromAutomatonUpToDepth depth graph = Transparent $ finiteAutomaton $ Common.boundDepth depth graph
 
 -- | Generate typed values from a datatype grammar with equality annotations.
 fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
 fromDatatypeUpToDepth depth datatype =
     case FTA.mapSymbols (fromString . constructorLabel) (datatypeFTA datatype) of
-        Left err -> Transparent $ Left $ InvalidImportedAutomaton $ show err
-        Right graph -> decode <$> fromFTAUpToDepth depth graph
+        Left (FTA.InconsistentArity symbol expected actual) ->
+            Transparent $ Left $ InvalidSupport $ InconsistentArity symbol expected actual
+        Left err ->
+            error $ "microcfta-generator bug in Data.CFTA.Gen.Equality.fromDatatypeUpToDepth: " <> show err
+        Right graph -> decode <$> fromAutomatonUpToDepth depth (Common.fromFTA graph)
   where
     decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
         Just value -> value

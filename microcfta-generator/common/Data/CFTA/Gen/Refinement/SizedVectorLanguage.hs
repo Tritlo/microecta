@@ -33,7 +33,7 @@ module Data.CFTA.Gen.Refinement.SizedVectorLanguage (
 import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative, oneofOrDie)
+import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import Data.CFTA.Refinement (Refinement)
 import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.<=.), (.==.), (.>=.))
@@ -80,8 +80,7 @@ solverDeclarationsAtDepth requestedDepth =
 -- | Three ordinary vector inputs with distinct lengths.
 sourceVectors :: LTA.LTAGen SizedVector
 sourceVectors =
-    oneofOrDie
-        "source vectors"
+    LTA.oneof
         [ sized "empty" []
         , sized "pair" [10, 11]
         , sized "triple" [20, 21, 22]
@@ -109,8 +108,7 @@ vectorsAtDepth requestedDepth
 -- | Add one dependent vector-operation layer.
 vectorLayer :: Int -> LTA.LTAGen SizedVector -> LTA.LTAGen SizedVector
 vectorLayer depth children =
-    oneofOrDie
-        "sized vector layer"
+    LTA.oneof
         [ appendedVectors maximumLength children
         , takenVectors maximumLength children
         , zippedVectors maximumLength children

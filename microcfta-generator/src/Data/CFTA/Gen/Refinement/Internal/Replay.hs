@@ -20,7 +20,7 @@ import Data.Bifunctor (first)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError, fromRankedError)
+import Data.CFTA.Gen.Error (GenError, fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.ShrinkSearch (acceptedShrinks)
 import Data.CFTA.Gen.Refinement.Internal.Types
 import Data.CFTA.Gen.Refinement.Internal.Witness (termWitness)
@@ -32,7 +32,7 @@ cardinality :: Compiled a -> Integer
 cardinality = Tree.cardinality . compiledRanked
 
 -- | Decode one accepted zero-based rank into its value and witness.
-unrank :: Compiled a -> Integer -> Either GeneratorError (Generated a)
+unrank :: Compiled a -> Integer -> Either GenError (Generated a)
 unrank compiled rank = first fromRankedError $ Tree.unrank (compiledRanked compiled) rank
 
 -- | Direct valid shrinks of one accepted rank.

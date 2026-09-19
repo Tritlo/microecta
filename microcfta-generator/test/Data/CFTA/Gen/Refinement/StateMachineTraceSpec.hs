@@ -103,11 +103,7 @@ spec =
                     )
 
         it "shrinks only to shorter traces whose stack preconditions still hold" $ do
-            generator <-
-                case tracesUpTo 3 of
-                    Left err -> expectationFailure (show err) >> fail "unreachable"
-                    Right traces -> pure traces
-            compiled <- compileOrFail generator
+            compiled <- compileOrFail $ tracesUpTo 3
             let ranked =
                     [ (rank, LTA.generatedValue member)
                     | rank <- [0 .. LTA.cardinality compiled - 1]
@@ -130,11 +126,7 @@ spec =
                 [] -> expectationFailure "no accepted three-step trace"
 
         it "gives QuickCheck a precondition-free property over valid traces" $ do
-            generator <-
-                case tracesUpTo 3 of
-                    Left err -> expectationFailure (show err) >> fail "unreachable"
-                    Right traces -> pure traces
-            compiled <- compileOrFail generator
+            compiled <- compileOrFail $ tracesUpTo 3
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 200} $
                     LTA.forAll compiled $ \trace ->

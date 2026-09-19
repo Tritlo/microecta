@@ -522,7 +522,7 @@ grouped generator.
 
 The generator's own 'ECTAGen.support' cannot serve here. It is built over
 namespaced @$ecta-gen/...@ symbols and carries the joins' equality
-constraints, so a template cannot name its symbols and @fromECTA@ rejects it.
+constraints, so a template cannot name its symbols and @fromAutomaton@ rejects it.
 -}
 surfaceExpressionNode :: Int -> Labeled -> Node Symbol EqConstraints
 surfaceExpressionNode depth key =

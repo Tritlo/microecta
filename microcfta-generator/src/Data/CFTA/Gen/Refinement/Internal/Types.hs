@@ -56,7 +56,7 @@ import qualified Data.Tree as Tree
 
 import Data.CFTA.Constraint.Equality (EqConstraints)
 import qualified Data.CFTA.Equality as ECTA.Core
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), fromRankedError)
+import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Witness (Witness)
 import qualified Data.CFTA.Ranked as Ranked
 import Data.CFTA.Refinement
@@ -101,7 +101,7 @@ finiteCardinality EmptyFinite = 0
 finiteCardinality (RankedFinite ranked) = Ranked.cardinality ranked
 
 -- | Decode one valid rank.
-finiteSelect :: Integer -> Finite a -> Either GeneratorError a
+finiteSelect :: Integer -> Finite a -> Either GenError a
 finiteSelect rank EmptyFinite = Left $ SelectionOutOfRange rank 0
 finiteSelect rank (RankedFinite ranked) =
     first fromRankedError $ Ranked.unrank ranked rank
@@ -111,7 +111,7 @@ finiteRanks :: Finite a -> [Integer]
 finiteRanks finite = [0 .. finiteCardinality finite - 1]
 
 -- | Materialize a finite language only for an explicit support observer.
-enumerateFinite :: Finite a -> Either GeneratorError [a]
+enumerateFinite :: Finite a -> Either GenError [a]
 enumerateFinite finite = traverse (`finiteSelect` finite) $ finiteRanks finite
 
 -- | One source member with its relative weight and complete witness.
@@ -145,7 +145,7 @@ one outcome record for every element of its Cartesian product.
 -}
 data LTAGen a = LTAGen
     { generatorPrepared :: !(Maybe (Prepared a))
-    , generatorRecipe :: !(Either GeneratorError (Recipe a))
+    , generatorRecipe :: !(Either GenError (Recipe a))
     }
 
 -- | Finite source operations available after deferred imports are compiled.
@@ -212,7 +212,7 @@ fmapChildRecipe function recipe =
 -- | A generated child forest awaiting one root constructor.
 data Children a = Children
     { childrenPrepared :: !(Maybe (PreparedChildren a))
-    , childrenRecipe :: !(Either GeneratorError (ChildRecipe a))
+    , childrenRecipe :: !(Either GenError (ChildRecipe a))
     }
 
 -- | A finite child product and its source shrink plan.

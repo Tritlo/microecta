@@ -10,7 +10,7 @@ generator types and combinators live in "Data.CFTA.Gen.Equality".
 module Data.CFTA.Gen.Equality.Internal (
     -- * Sources and failures
     Indexed (..),
-    ECTAGenError (..),
+    GenError (..),
     explain,
 
     -- * Languages
@@ -78,10 +78,10 @@ module Data.CFTA.Gen.Equality.Internal (
 
 import Data.CFTA.Gen.Equality.Internal.Bucket
 import Data.CFTA.Gen.Equality.Internal.Chain
-import Data.CFTA.Gen.Equality.Internal.Error
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Join
 import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support
+import Data.CFTA.Gen.Error
 import Data.CFTA.Ranked.Internal (Indexed (..))

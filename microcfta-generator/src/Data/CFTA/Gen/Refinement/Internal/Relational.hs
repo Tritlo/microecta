@@ -30,6 +30,7 @@ import Data.CFTA.Constraint.Equality (EqConstraints (EmptyConstraints))
 import Data.CFTA.Enumeration (unconstrained)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicGroupsWith)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
+import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     automatonView,
     constraintTerms,
@@ -37,7 +38,6 @@ import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     symbolicGraph,
  )
 import qualified Data.CFTA.Gen.Refinement.Internal.AutomatonSource as AutomatonSource
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.IndexedGroup (indexedGroup)
 import Data.CFTA.Gen.Refinement.Internal.Recipe (
     childRecipeArity,
@@ -105,7 +105,7 @@ acceptedSources groups =
         (Map.elems $ acceptedGroups groups)
 
 -- | Reject inconsistent symbol arities without decoding group members.
-ensureConsistentArities :: Map.Map Symbol (Set.Set Int) -> Either GeneratorError ()
+ensureConsistentArities :: Map.Map Symbol (Set.Set Int) -> Either GenError ()
 ensureConsistentArities arities =
     case [(symbol, expected, actual) | (symbol, sizes) <- Map.toAscList arities, expected : actual : _ <- [Set.toAscList sizes]] of
         (symbol, expected, actual) : _ -> Left $ InvalidSupport $ InconsistentArity symbol expected actual
@@ -116,7 +116,7 @@ compileRecipe ::
     Entailment ->
     [Path] ->
     Recipe a ->
-    IO (Either GeneratorError (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups))
+    IO (Either GenError (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups))
 compileRecipe _ _ recipe
     | knownEmptyRecipe recipe = pure $ Right (ECTA.frequencies [], RecipeGroups (rawRecipeCount recipe) Map.empty)
 compileRecipe _ requested (PoolRecipe entries) =
@@ -259,7 +259,7 @@ compileRecipe entailment requested (NodeRecipe symbol nodeRefinement constraint 
 compileSourceGroups ::
     [Path] ->
     Compiled a ->
-    Either GeneratorError (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups)
+    Either GenError (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups)
 compileSourceGroups requested compiled = do
     groups <- case compiledSupport compiled of
         AutomatonSupport automaton -> do
@@ -344,7 +344,7 @@ compileChildRecipe ::
     Entailment ->
     [[Path]] ->
     ChildRecipe a ->
-    IO (Either GeneratorError (ECTA.Grouped [ObservationKey] (RelationalForest a), [RecipeGroups]))
+    IO (Either GenError (ECTA.Grouped [ObservationKey] (RelationalForest a), [RecipeGroups]))
 compileChildRecipe _ _ recipe
     | knownEmptyChild recipe = pure $ Right (ECTA.frequencies [], emptyChildGroups recipe)
 compileChildRecipe _ _ (PureChildRecipe value) =
@@ -415,7 +415,7 @@ constraintDecision ::
     Refinement ->
     LiquidConstraint ->
     [ObservationKey] ->
-    IO (Either GeneratorError Bool)
+    IO (Either GenError Bool)
 constraintDecision entailment symbol refinement constraint childKeys = do
     verdict <-
         evaluateGuardWithShape
@@ -509,7 +509,7 @@ observation tuple, and lowers accepted tuples through
 'refinedNodeBy' remains on the general witness compiler because an arbitrary
 Haskell projection may vary inside one relational group.
 -}
-compileRelational :: Entailment -> LTAGen a -> IO (Either GeneratorError (Compiled a))
+compileRelational :: Entailment -> LTAGen a -> IO (Either GenError (Compiled a))
 compileRelational uncachedEntailment generator = do
     entailment <- cacheEntailment uncachedEntailment
     prepared <- prepareGenerator entailment generator
@@ -522,8 +522,8 @@ compileRelational uncachedEntailment generator = do
                 pure $ do
                     (grouped, groups) <- compiled
                     let flattened = ECTA.ungroup grouped
-                    total <- first InvalidECTAGenerator $ ECTA.cardinality flattened
+                    total <- ECTA.cardinality flattened
                     ensureConsistentArities $ acceptedAlphabet groups
-                    ectaSupport <- first InvalidECTAGenerator $ ECTA.support flattened
+                    ectaSupport <- ECTA.support flattened
                     ranked <- first fromRankedError $ Tree.fromIndexedOnDemand $ Tree.Indexed total (relationalGeneratedAt flattened)
                     pure $ Compiled (RelationalSupport ectaSupport) ranked (ECTA.shrinkRank flattened)

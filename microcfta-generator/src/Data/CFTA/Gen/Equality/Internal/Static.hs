@@ -48,7 +48,6 @@ import qualified Data.Tree as Tree
 
 import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Error (ECTAGenError (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Support (
     applySymbol,
@@ -59,6 +58,7 @@ import Data.CFTA.Gen.Equality.Internal.Support (
     labelTermWith,
     pureSymbol,
  )
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Decoder (
@@ -83,7 +83,7 @@ data Outcome a = Outcome
 data OutcomeIndex a = OutcomeIndex
     { outcomeCardinality :: !Integer
     , outcomeUniformMass :: !(Maybe Rational)
-    , outcomeSelect :: Integer -> Either ECTAGenError (Outcome a)
+    , outcomeSelect :: Integer -> Either GenError (Outcome a)
     , outcomeValueAt :: Integer -> a
     , outcomeSampler :: Sampler a
     {- ^ The compositional sampler is demand-driven. Uniform lowering uses the
@@ -101,7 +101,7 @@ data OutcomeIndex a = OutcomeIndex
 mkOutcomeIndex ::
     Integer ->
     Maybe Rational ->
-    (Integer -> Either ECTAGenError (Outcome a)) ->
+    (Integer -> Either GenError (Outcome a)) ->
     (Integer -> a) ->
     Sampler a ->
     Plan a ->
@@ -421,7 +421,7 @@ labelOutcome symbol outcome =
         }
 
 -- | Sample one outcome sequence by its masses.
-sequenceSampler :: Seq (Outcome a) -> Either ECTAGenError (Sampler a)
+sequenceSampler :: Seq (Outcome a) -> Either GenError (Sampler a)
 sequenceSampler outcomes
     | Just _ <- commonValue $ Just . outcomeMass <$> toList outcomes =
         pure $ uniformSampler totalOutcomes selectValue
@@ -500,7 +500,7 @@ compiledDecoder outcomes =
 sampleStatic ::
     (GenBackend gen) =>
     Static a ->
-    gen (Either ECTAGenError a)
+    gen (Either GenError a)
 sampleStatic static
     | Just _ <- outcomeUniformMass outcomes =
         case compiledDecoder outcomes of
@@ -515,7 +515,7 @@ sampleStatic static
 sampleStaticWithRank ::
     (GenBackend gen) =>
     Static a ->
-    gen (Either ECTAGenError (Integer, a))
+    gen (Either GenError (Integer, a))
 sampleStaticWithRank static
     | Just _ <- outcomeUniformMass outcomes =
         case compiledDecoder outcomes of
@@ -529,14 +529,14 @@ sampleStaticWithRank static
     outcomes = staticOutcomes static
 
 -- | Select every outcome in rank order.
-enumerateOutcomeIndex :: OutcomeIndex a -> Either ECTAGenError [Outcome a]
+enumerateOutcomeIndex :: OutcomeIndex a -> Either GenError [Outcome a]
 enumerateOutcomeIndex outcomes =
     traverse
         (outcomeSelect outcomes)
         [0 .. outcomeCardinality outcomes - 1]
 
 -- | Enumerate a language as normalized mass and value pairs.
-compileOutcomes :: Static a -> Either ECTAGenError [(Rational, a)]
+compileOutcomes :: Static a -> Either GenError [(Rational, a)]
 compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]
@@ -549,7 +549,7 @@ commonValue (Just value : remaining)
 commonValue _ = Nothing
 
 -- | Reject a rank outside the language.
-checkIndex :: Integer -> Integer -> Either ECTAGenError ()
+checkIndex :: Integer -> Integer -> Either GenError ()
 checkIndex totalOutcomes index
     | index < 0 = Left $ NegativeRank index
     | index >= totalOutcomes =
@@ -557,7 +557,7 @@ checkIndex totalOutcomes index
     | otherwise = Right ()
 
 -- | Scale masses so they sum to one.
-normalize :: [(Rational, a)] -> Either ECTAGenError [(Rational, a)]
+normalize :: [(Rational, a)] -> Either GenError [(Rational, a)]
 normalize [] = Left EmptyGenerator
 normalize outcomes =
     let total = sum $ map fst outcomes
@@ -574,7 +574,7 @@ sample.
 -}
 integerOutcomes ::
     [(Rational, a)] ->
-    Either ECTAGenError [(Integer, a)]
+    Either GenError [(Integer, a)]
 integerOutcomes [] = Left EmptyGenerator
 integerOutcomes outcomes
     | any ((<= 0) . fst) outcomes = Left EmptyGenerator

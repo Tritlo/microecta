@@ -175,7 +175,7 @@ spec = do
 
         it "keeps the term ranks of a small shared automaton" $ do
             let automaton = sharedSubtreeAutomaton 3 "b"
-            complete <- LTA.compile unusedEntailment $ LTA.fromLTA 5 automaton
+            complete <- LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth 5 automaton
             counted <- LTA.compileAutomaton unusedEntailment automaton
             fmap LTA.cardinality counted `shouldBe` Right 2
             fmap values counted `shouldBe` fmap values complete

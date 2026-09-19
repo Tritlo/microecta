@@ -234,7 +234,7 @@ apply (Grouped (Right operations)) arguments
             (mapChain keyedBucketStatic argumentBuckets)
         )
 
-argsMaps :: Args argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
+argsMaps :: Args argKeys operation result -> Either GenError (ArgMaps KeyedBucket argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
 argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
@@ -270,7 +270,7 @@ applyRecursive operationBuckets arguments =
 -- | The recursive view of every argument family, in signature order.
 argsRecursiveMaps ::
     Args argKeys operation result ->
-    Either ECTAGenError (ArgMaps KeyedRecursive argKeys operation result)
+    Either GenError (ArgMaps KeyedRecursive argKeys operation result)
 argsRecursiveMaps ANil = Right MapsNil
 argsRecursiveMaps (family :& rest) =
     MapsCons <$> recursiveGroups family <*> argsRecursiveMaps rest
@@ -507,7 +507,7 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
                     rest
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
-sizes :: Grouped key a -> Either ECTAGenError (Map.Map key Integer)
+sizes :: Grouped key a -> Either GenError (Map.Map key Integer)
 sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
@@ -518,7 +518,7 @@ structural size.
 Counts describe the language, not the sampler. A declared atomic distribution
 can therefore give two keys equal counts and unequal probability masses.
 -}
-countsAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map.Map key Integer)
+countsAtSize :: Grouped key a -> Int -> Either GenError (Map.Map key Integer)
 countsAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1
@@ -558,7 +558,7 @@ requested size without enumerating members, then normalizes one mass per key.
 A finite family may enumerate group outcomes to condition their stored masses
 on size. A size with no members returns an empty map.
 -}
-massesAtSize :: Grouped key a -> Int -> Either ECTAGenError (Map.Map key Rational)
+massesAtSize :: Grouped key a -> Int -> Either GenError (Map.Map key Rational)
 massesAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1

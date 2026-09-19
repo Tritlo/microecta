@@ -220,17 +220,11 @@ hasElement buffer = buffer `requires` positive
 
 -- | Source and solver-checked appended buffers available to later operations.
 allBuffers :: LTA.LTAGen RefinedBuffer
-allBuffers =
-    case LTA.oneof [sourceBuffers, appendedBuffers] of
-        Left err -> error $ "safe buffer example is unexpectedly empty: " <> show err
-        Right buffers -> buffers
+allBuffers = LTA.oneof [sourceBuffers, appendedBuffers]
 
 -- | The complete safe program language used by the QuickCheck example.
 safePrograms :: LTA.LTAGen Program
-safePrograms =
-    case LTA.oneof [safeReads, safeHeads] of
-        Left err -> error $ "safe program example is unexpectedly empty: " <> show err
-        Right programs -> programs
+safePrograms = LTA.oneof [safeReads, safeHeads]
 
 -- | Interpret a buffer expression.
 evaluateBuffer :: BufferExpression -> [Int]

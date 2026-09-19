@@ -45,12 +45,13 @@ import Data.CFTA.Path (unPath)
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Gen.Equality.Internal (ECTAGenError (..), Static, termStatic)
+import Data.CFTA.Gen.Equality.Internal (GenError (..), Static, termStatic)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked)
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
 import qualified Data.CFTA.Interned as Interned
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Size (SizeIndex)
+import Data.CFTA.Refinement (AutomatonError (OpenAutomaton))
 
 {- | Count and index the terms an automaton accepts, by size.
 
@@ -58,9 +59,9 @@ Fails on an automaton with free recursive variables, which is not a closed
 language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
-automatonIndex :: Node Symbol EqConstraints -> Either ECTAGenError (SizeIndex (Tree.Tree Symbol))
+automatonIndex :: Node Symbol EqConstraints -> Either GenError (SizeIndex (Tree.Tree Symbol))
 automatonIndex root
-    | not $ Set.null $ freeVars root = Left OpenAutomaton
+    | not $ Set.null $ freeVars root = Left $ InvalidSupport OpenAutomaton
     | any (any constrained . nodeEdges) reachable = Left CannotCountConstrainedEdges
     | any ambiguous reachable = Left AmbiguousAutomaton
     | otherwise = Right $ Ordinary.tableIndex (stateOf root) (ordinaryRows reachable)
@@ -138,7 +139,7 @@ plans. Equal child positions select one term from the intersection of their
 languages. Nested equality paths and overlapping alternatives use symbolic
 equality contexts and intersection counts. Only a selected term is constructed.
 -}
-finiteAutomaton :: Node Symbol EqConstraints -> Either ECTAGenError (Static (Tree.Tree Symbol))
+finiteAutomaton :: Node Symbol EqConstraints -> Either GenError (Static (Tree.Tree Symbol))
 finiteAutomaton root =
     case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator

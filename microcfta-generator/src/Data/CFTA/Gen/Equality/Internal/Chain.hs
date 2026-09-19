@@ -42,12 +42,12 @@ import qualified Data.Tree as Tree
 import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Node)
 import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
-import Data.CFTA.Gen.Equality.Internal.Error (ECTAGenError (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support (argKeyedSymbol)
 import Data.CFTA.Gen.Equality.Sig (Sig (..))
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, productIndex)
@@ -187,7 +187,7 @@ selectChain ::
     ArgStatics operation result ->
     [Tree.Tree Symbol] ->
     Integer ->
-    Either ECTAGenError ([Tree.Tree Symbol], [Tree.Tree InspectionSymbol], Rational, result)
+    Either GenError ([Tree.Tree Symbol], [Tree.Tree InspectionSymbol], Rational, result)
 selectChain value ChainNil _ _ = Right ([], [], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest

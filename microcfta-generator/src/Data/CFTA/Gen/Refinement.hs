@@ -9,7 +9,7 @@ module Data.CFTA.Gen.Refinement (
     LTAGen,
     Compiled,
     CompiledSupport (..),
-    GeneratorError (..),
+    GenError (..),
     explain,
     Generated (..),
 
@@ -30,7 +30,7 @@ module Data.CFTA.Gen.Refinement (
     binary,
     frequency,
     oneof,
-    fromLTA,
+    fromAutomatonUpToDepth,
     fromDatatypeUpToDepth,
 
     -- * Compilation
@@ -62,6 +62,7 @@ module Data.CFTA.Gen.Refinement (
     applyChildren,
 ) where
 
+import Data.CFTA.Gen.Error (GenError (..), explain)
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     compileAutomaton,
     compileAutomatonUpToDepth,
@@ -69,14 +70,13 @@ import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (
     compileAutomatonWith,
  )
 import Data.CFTA.Gen.Refinement.Internal.Compile (compile, validOutcomes)
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), explain)
 import Data.CFTA.Gen.Refinement.Internal.Relational (compileRelational)
 import Data.CFTA.Gen.Refinement.Internal.Replay (cardinality, mapCompiled, shrinkRank, smallerMembers, unrank)
 import Data.CFTA.Gen.Refinement.Internal.Surface (
     binary,
     frequency,
+    fromAutomatonUpToDepth,
     fromDatatypeUpToDepth,
-    fromLTA,
     leaf,
     minimizePoolBy,
     node,
@@ -112,5 +112,5 @@ the native grouped ECTA rank order and structural shrinking of a generator
 whose guards only inspect roots; its ranks and shrinks differ from
 'compile'. 'compileAutomaton' and 'compileAutomatonUpToDepth' start from an
 'Automaton' rather than a generator; prefer
-'fromLTA' with 'compile' when the automaton can be one source among others.
+'fromAutomatonUpToDepth' with 'compile' when the automaton can be one source among others.
 -}

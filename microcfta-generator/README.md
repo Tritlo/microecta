@@ -10,6 +10,7 @@ one ranked layer and three generators, one per constraint theory:
 | `Data.CFTA.Ranked.QuickCheck` | QuickCheck sampling and properties over a ranked language. |
 | `Data.CFTA.Gen` | Ordinary automaton compilation and constructor-based source recipes. |
 | `Data.CFTA.Gen.QuickCheck` | Ordinary sampling, properties, and qualified do-notation. |
+| `Data.CFTA.Gen.Error` | The one failure vocabulary of every layer, and `explain`. |
 | `Data.CFTA.Gen.Equality` | Equality-constrained sources, equality and relational joins, retained key groups, and recursive generation. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` and its do-notation, and adds `pool`, `freeze`, `toGen`, `forAll`, and `sized`. |
 | `Data.CFTA.Gen.Refinement` | Refinement-constrained sources compiled once with a solver into pure sampling, replay, and shrinking. |
@@ -39,18 +40,18 @@ the shared graph with `Common.toFTA`, and checks the imported generator.
 direct child. Enable `ApplicativeDo` and `QualifiedDo`, and finish the block
 with `FTA.pure`. Child generators must be independent.
 
-`fromFTA` compiles an ordinary acyclic FTA. Its ranks identify accepting
-derivations. An ambiguous automaton can assign several ranks to the same term.
-Transition alternatives have equal branch weights; this does not guarantee
-equal probability for every complete term.
-Use `Data.CFTA.Interned.toFTA` first when the source is an interned graph.
-That view retains shared states. It does not enumerate the term language.
+`fromAutomaton` compiles an acyclic interned automaton. Its ranks identify
+accepting derivations. An ambiguous automaton can assign several ranks to the
+same term. Alternatives have equal branch weights; this does not guarantee
+equal probability for every complete term. Use `Data.CFTA.Interned.fromFTA`
+first when the source is an explicit-state automaton; the import is total and
+retains shared states.
 
-`fromFTAUpToDepth` also accepts recursive automata. A leaf has depth zero.
+`fromAutomatonUpToDepth` also accepts recursive automata. A leaf has depth zero.
 The compiler bounds the shared graph and preserves transition and child order.
-`fromFTAUpToSize` bounds the total number of tree nodes. Its ranks are ordered
+`fromAutomatonUpToSize` bounds the total number of tree nodes. Its ranks are ordered
 by size, and it samples uniformly over those ranks. Both imports count accepting
-runs. An empty bounded language returns `EmptyFTALanguage`.
+runs. An empty bounded language returns `EmptyGenerator`.
 
 Recursive size indexing and finite automaton rank shrinking belong to
 `Data.CFTA.Gen.Internal.*`. ECTA retains its constraint and ambiguity
@@ -100,8 +101,9 @@ data Expr = Lit Int | Add Expr Expr
 main :: IO ()
 main = do
     datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
-    language <- either (fail . show) pure $ Gen.fromDatatypeUpToDepth 3 datatype
-    mapM_ (either (fail . show) print . Gen.unrank language) [0 .. Gen.cardinality language - 1]
+    let language = Gen.fromDatatypeUpToDepth 3 datatype
+    total <- either (fail . Gen.explain) pure $ Gen.cardinality language
+    mapM_ (either (fail . Gen.explain) print . Gen.unrank language) [0 .. total - 1]
 ```
 
 Add both `microcfta` and `microcfta-generator` to your component's
@@ -203,8 +205,10 @@ import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 
 ### Generator API
 
-`fromFTAUpToDepth` compiles a handwritten FTA annotated with `EqConstraints`.
-Use `Data.CFTA.annotate` to add constraints to its existing transitions.
+`fromAutomatonUpToDepth` compiles an equality-constrained automaton, a
+`Node Symbol EqConstraints`, up to a depth. Build it with `mkEdge`, or
+annotate an explicit-state automaton with `Data.CFTA.annotate` and intern it
+with `Data.CFTA.Interned.fromFTA`.
 `fromDatatypeUpToDepth` accepts a derived `TypedFTA EqConstraints a` and returns
 typed values. Both functions are available from the QuickCheck API.
 
@@ -222,7 +226,7 @@ equal children contribute one selected child. Shrinks remain accepted.
 Nested equality paths and overlapping alternatives use symbolic counts over
 shared automaton states. Equality unifies selected subtrees, and overlapping
 alternatives count each accepted term once. Unranking constructs only the
-selected term. Existing `fromECTA` behavior is unchanged.
+selected term. Existing `fromAutomaton` behavior is unchanged.
 
 `Data.CFTA.Gen.Equality` turns a finite indexed source into an ECTA whose leaves contain
 stable indices, not generated values. `Functor` and `Applicative` composition
@@ -457,10 +461,10 @@ authorized =
 ```
 
 ```haskell
-replay :: Either ECTAGenError Authentication
+replay :: Either GenError Authentication
 replay = ECTAGen.unrank authentication 42
 
-coverage :: Either ECTAGenError (Map UserId Integer)
+coverage :: Either GenError (Map UserId Integer)
 coverage = ECTAGen.countBy authenticatedUser authentication
 ```
 
@@ -621,7 +625,7 @@ complete command, rather than each node in its term, contributes one unit to a
 trace's size:
 
 ```haskell
-command = decodeCommand <$> ECTAGen.atomic (ECTAGen.fromECTA commandFTA)
+command = decodeCommand <$> ECTAGen.atomic (ECTAGen.fromAutomaton commandFTA)
 
 nonEmptyTrace = ECTAGen.recur $ \rest ->
   ECTAGen.oneof
@@ -671,7 +675,7 @@ not: a recursive generator retains its automaton rather than a term per member,
 and `upToSize` bounds the rank space without recovering those terms. Use the
 exact-size observers (`countAtSize`, `pmfAtSize`, `countsAtSize`,
 `massesAtSize`), keep that layer finite, or read the language from an automaton
-with `fromECTA`, whose members *are* terms and which therefore does keep full
+with `fromAutomaton`, whose members *are* terms and which therefore does keep full
 inspection once bounded.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
@@ -702,7 +706,7 @@ unary `Not`, the binary functions, and ternary `IfExpression`. `ungroup` and
 sampling, replay, and shrinking all work as above. `sizes` has no cardinality
 to report for a recursive family; use `countAtSize` on `atKey`.
 
-`fromECTA` goes the other way: it reads an existing automaton as a generator
+`fromAutomaton` goes the other way: it reads an existing automaton as a generator
 of the terms it accepts, counting them by size — the number of term nodes —
 with the automaton itself as the support.
 
@@ -717,14 +721,14 @@ types = createMu $ \recursive -> Node
     ]
 
 typeGen :: ECTAGen (Tree.Tree Symbol)
-typeGen = ECTAGen.fromECTA types
+typeGen = ECTAGen.fromAutomaton types
 ```
 
 `countAtSize typeGen` reports 1, 1, 2, 4, 9 for sizes one to five, `unrank`
 walks the terms in size order, and sampling draws uniformly from the terms
 of at most the current size. Because the generated values *are* the accepted
 terms, bounding one of these keeps full inspection: `pmf`, `countBy`, and
-`groupBy` all work on `upToSize n (fromECTA node)`.
+`groupBy` all work on `upToSize n (fromAutomaton node)`.
 
 Equality constraints are not counted. They correlate an edge's children, so
 the edge's count is the size of an intersection rather than a product of the
@@ -761,7 +765,7 @@ by `uniformly`, keyed, joined, replayed, and shrunk, and its ranks are the same
 in every run under the same seed. The native generator runs at QuickCheck size
 30, the default of `generate`; use `resize` on it for another size.
 
-Every failure is an `ECTAGenError`. The derived `Show` names the case, and
+Every failure is a `GenError`. The derived `Show` names the case, and
 `explain` says what it means and which combinator resolves it; sampling a
 generator that could not be built raises both together.
 
@@ -861,7 +865,7 @@ The caller must still justify the refinements assigned to each constructor.
 The natural-number example in `examples/AutomatonInterop.hs` derives its
 recursive grammar, annotates zero and successor, and uses the generated
 datatype in safe divisions. A handwritten graph is an LTA already: build it
-with `Node`, `Transition`, and `Mu`, and pass it to `fromLTA`.
+with `Node`, `Transition`, and `Mu`, and pass it to `fromAutomatonUpToDepth`.
 
 Finite counting, structural ambiguity checks, direct value decoding, depth
 bounds, and ordinary automaton shrinking use the shared FTA implementation.
@@ -922,12 +926,12 @@ solver calls.
 
 ### Import an LTA
 
-`fromLTA` is the escape hatch for an existing automaton. It takes an explicit
+`fromAutomatonUpToDepth` is the escape hatch for an existing automaton. It takes an explicit
 maximum tree height; leaves have height zero. It preserves the shared graph
 until compilation and composes with ordinary sources:
 
 ```haskell
-boundedTerms = LTA.fromLTA 6 automaton
+boundedTerms = LTA.fromAutomatonUpToDepth 6 automaton
 
 wrapped = LTA.node "wrap" (\child -> child `requires` desiredRefinement) $ LTA.do
   term <- boundedTerms
@@ -952,7 +956,7 @@ and composes it with a refined pool:
 nix-shell --run 'cabal run cfta-automaton-interop'
 ```
 
-`support` explicitly enumerates an ordinary source. An unresolved `fromLTA`
+`support` explicitly enumerates an ordinary source. An unresolved `fromAutomatonUpToDepth`
 source instead returns `SourceRequiresCompilation`; inspect `compiledSupport`
 after compilation. `validOutcomes` explicitly enumerates checked candidates and
 has no materialization limit. These observers are for small diagnostic inputs.
@@ -968,7 +972,7 @@ source order and semantic shrinking.
 bounds recursive automata. Both retain symbolic counts for Boolean subtree
 equality after semantic pruning. Their `With` variants fold each selected
 transition directly into a domain value and leave the term witness lazy.
-Use `compile` with `fromLTA` for a bounded source that composes with other sources.
+Use `compile` with `fromAutomatonUpToDepth` for a bounded source that composes with other sources.
 
 The authoritative representation remains an LTA. Pruning returns an LTA. A
 pruned automaton without constraints is counted as an ordinary FTA; residual

@@ -211,8 +211,7 @@ spec = do
 
         it "samples exact source weights across unequal and rejected branches" $
             withZ3 declarations $ \solver -> do
-                atoms <-
-                    rightOrFail $
+                let atoms =
                         LTA.frequency
                             [
                                 ( 3
@@ -384,7 +383,7 @@ homogeneousBits width = foldr (\_ rest -> prepend rest) ((: []) <$> bit) [2 .. w
     equivalent left right = allOf [left `isSubtypeOf` right, right `isSubtypeOf` left]
 
 -- | Read every accepted rank without dropping decoder errors.
-selectedMembers :: LTA.Compiled a -> Either LTA.GeneratorError [LTA.Generated a]
+selectedMembers :: LTA.Compiled a -> Either LTA.GenError [LTA.Generated a]
 selectedMembers compiled = traverse (LTA.unrank compiled) [0 .. LTA.cardinality compiled - 1]
 
 -- | Liquid Fixpoint declarations needed by the exact integer refinements.

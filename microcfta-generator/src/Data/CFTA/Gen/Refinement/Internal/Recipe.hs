@@ -20,13 +20,13 @@ module Data.CFTA.Gen.Refinement.Internal.Recipe (
 import Control.Monad (void)
 import Data.List (nub)
 
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError)
+import Data.CFTA.Gen.Error (GenError)
 import Data.CFTA.Gen.Refinement.Internal.Replay (cardinality, mapCompiled)
 import Data.CFTA.Gen.Refinement.Internal.Types
 import Data.CFTA.Refinement
 
 -- | Report construction errors before enumerating candidates or using a solver.
-validateGenerator :: LTAGen a -> Either GeneratorError ()
+validateGenerator :: LTAGen a -> Either GenError ()
 validateGenerator generator = void (generatorRecipe generator)
 
 -- | Number of generated child positions in one free applicative spine.

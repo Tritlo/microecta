@@ -32,10 +32,10 @@ import qualified Data.Tree as Tree
 import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
-import Data.CFTA.Gen.Equality.Internal.Error (ECTAGenError (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support (frequencySymbol, labelSupport, labelTerm)
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
@@ -117,12 +117,12 @@ stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
 Members carry a retained t'Tree.Tree' only when the values are the accepted terms
-themselves, as they are for an automaton read with @fromECTA@; otherwise
+themselves, as they are for an automaton read with @fromAutomaton@; otherwise
 inspection through 'outcomeSelect' reports
 'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
 go through the value decoder and the plan.
 -}
-boundedStatic :: Int -> Recursive a -> Either ECTAGenError (Static a)
+boundedStatic :: Int -> Recursive a -> Either GenError (Static a)
 boundedStatic bound recursive
     | totalOutcomes <= 0 = Left EmptyGenerator
     | otherwise =

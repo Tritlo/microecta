@@ -20,7 +20,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..))
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Refinement
 
 -- | One complete generated node with its refinement, guard, and children.
@@ -48,7 +48,7 @@ termWitness (Tree.Node (LiquidSymbol symbol refinement) childTerms) =
 All states allocated from a finite witness are present and acyclic, leaving
 inconsistent reuse of one ranked symbol as the only possible structural error.
 -}
-validateWitness :: Witness -> Either GeneratorError ()
+validateWitness :: Witness -> Either GenError ()
 validateWitness rootWitness = go Map.empty [rootWitness]
   where
     go _ [] = Right ()
@@ -94,7 +94,7 @@ checkWitness entailment witness = do
     andVerdicts Yes Yes = Yes
 
 -- | Build the LTA support that accepts exactly the given witnesses.
-compileWitnesses :: [Witness] -> Either GeneratorError Automaton
+compileWitnesses :: [Witness] -> Either GenError Automaton
 compileWitnesses [] = Left EmptyGenerator
 compileWitnesses witnesses = do
     let root = Node $ map witnessTransition witnesses

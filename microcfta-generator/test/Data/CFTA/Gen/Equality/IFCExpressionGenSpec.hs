@@ -201,7 +201,7 @@ spec =
             -- nodes and whose branches hold four each: 13 nodes.
             let branchy =
                     ECTAGen.upToSize 13
-                        $ ECTAGen.fromECTA
+                        $ ECTAGen.fromAutomaton
                         $ termsMatching branchesOnSecret (surfaceProgramNode 2 Private)
             ECTAGen.cardinality branchy `shouldBe` Right 24896
 

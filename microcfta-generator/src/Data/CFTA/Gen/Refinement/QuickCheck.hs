@@ -178,7 +178,7 @@ The snapshot remains fixed for the lifetime of the returned 'Compiled' value,
 so replay ranks and shrink edges stay stable. A single generator may sample
 several independent pools before assembling the final 'LTAGen'.
 -}
-compileSampled :: Entailment -> QC.Gen (LTAGen a) -> IO (Either GeneratorError (Compiled a))
+compileSampled :: Entailment -> QC.Gen (LTAGen a) -> IO (Either GenError (Compiled a))
 compileSampled entailment generated =
     QC.generate generated Prelude.>>= compile entailment
 

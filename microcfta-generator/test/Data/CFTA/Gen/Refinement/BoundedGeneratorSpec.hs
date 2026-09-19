@@ -162,7 +162,7 @@ spec = do
         it "defers support inspection and preserves the bounded term language" $ do
             let boolean = pairsWith $ semanticConstraint $ Not same
             forM_ [(2, recursiveLists), (1, ambiguousTerms), (2, boolean)] $ \(depth, automaton) -> do
-                let source = LTA.fromLTA depth automaton
+                let source = LTA.fromAutomatonUpToDepth depth automaton
                 void (LTA.support source) `shouldBe` Left LTA.SourceRequiresCompilation
                 compiled <- LTA.compile unusedEntailment source >>= either (fail . show) pure
                 baseline <- compileBounded unusedEntailment depth automaton
@@ -175,13 +175,12 @@ spec = do
 
         it "keeps unique imported terms and repeated pool draws with their weights" $ do
             imported <- compileBounded unusedEntailment 1 ambiguousTerms
-            weighted <-
-                either (fail . show) pure $
+            let weighted =
                     LTA.frequency
                         [ (2, LTA.pool [LTA.refined (7 :: Int) "draw" true, LTA.refined 7 "draw" true])
                         , (5, LTA.leaf 7 "other" true)
                         ]
-            let source = fmap (const (7 :: Int)) $ LTA.fromLTA 1 ambiguousTerms
+            let source = fmap (const (7 :: Int)) $ LTA.fromAutomatonUpToDepth 1 ambiguousTerms
                 generator =
                     LTA.node "combined" unconstrainedConstraint $
                         (,) <$> LTA.children source <*> LTA.children weighted
@@ -198,11 +197,10 @@ spec = do
             length (nub $ termsOf compiled) `shouldBe` 6
 
         it "retains an ordinary alternative when an imported bound is empty" $
-            forM_ [LTA.fromLTA 0 EmptyNode, LTA.fromLTA (-1) recursiveLists] $ \source -> do
+            forM_ [LTA.fromAutomatonUpToDepth 0 EmptyNode, LTA.fromAutomatonUpToDepth (-1) recursiveLists] $ \source -> do
                 emptyResult <- LTA.compile unusedEntailment source
                 fmap LTA.cardinality emptyResult `shouldBe` Left LTA.EmptyGenerator
-                alternatives <-
-                    either (fail . show) pure $
+                let alternatives =
                         LTA.oneof [fmap (const (7 :: Int)) source, LTA.leaf 9 "ordinary" true]
                 compiled <- LTA.compile unusedEntailment alternatives >>= either (fail . show) pure
                 LTA.cardinality compiled `shouldBe` 1
@@ -212,9 +210,8 @@ spec = do
             let rejected =
                     LTA.node "dead" Bottom
                         $ fmap (const (7 :: Int))
-                        $ LTA.fromLTA 1 ambiguousTerms
-            alternatives <-
-                either (fail . show) pure $
+                        $ LTA.fromAutomatonUpToDepth 1 ambiguousTerms
+            let alternatives =
                     LTA.frequency
                         [ (3, LTA.leaf 9 "ordinary" true)
                         , (11, rejected)
@@ -229,8 +226,8 @@ spec = do
             map LTA.generatedWeight members `shouldBe` [3, 5]
 
         it "skips deferred imports beside a known-empty child in either position" $ do
-            let deferred = LTA.fromLTA 1 ambiguousTerms
-            forM_ [LTA.pool [], LTA.fromLTA (-1) ambiguousTerms] $ \emptySource ->
+            let deferred = LTA.fromAutomatonUpToDepth 1 ambiguousTerms
+            forM_ [LTA.pool [], LTA.fromAutomatonUpToDepth (-1) ambiguousTerms] $ \emptySource ->
                 forM_ [(deferred, emptySource), (emptySource, deferred)] $ \(left, right) -> do
                     let generator =
                             LTA.node "empty-pair" Top $
@@ -255,7 +252,7 @@ spec = do
                         , (Or [Top, absent], 3)
                         ]
                 forM_ guards $ \(guard, count) -> do
-                    let generator = LTA.node "host" (semanticConstraint guard) $ LTA.fromLTA 1 imported
+                    let generator = LTA.node "host" (semanticConstraint guard) $ LTA.fromAutomatonUpToDepth 1 imported
                         oracle = Node [Transition "host" true [imported] $ semanticConstraint guard]
                     compiled <- LTA.compile solver generator >>= either (fail . show) pure
                     LTA.cardinality compiled `shouldBe` count
@@ -272,7 +269,7 @@ spec = do
                 let scoped = Substitute [Substitution (path [0]) (path [1])] guard
                     expected = [Tree.Node (LiquidSymbol "pair" true) [left, right] | (left, right) <- pairs]
                     automaton = pairsWith $ semanticConstraint scoped
-                    source = LTA.fromLTA 2 automaton
+                    source = LTA.fromAutomatonUpToDepth 2 automaton
                 denotationAtMost unusedEntailment 2 automaton `shouldDenote` expected
                 result <- LTA.compile unusedEntailment source
                 case result of
@@ -282,7 +279,7 @@ spec = do
 
         it "keeps a large imported language compact without forcing source values" $ do
             result <- timeout 60000000 $ do
-                let source = fmap (const $ error "imported value was forced") $ LTA.fromLTA 70 recursiveLists
+                let source = fmap (const $ error "imported value was forced") $ LTA.fromAutomatonUpToDepth 70 recursiveLists
                     ordinary = fmap (const $ error "ordinary value was forced") $ LTA.leaf () "ordinary" true
                     generator =
                         LTA.node "combined" unconstrainedConstraint $
@@ -299,7 +296,7 @@ spec = do
             result <- timeout 60000000 $ do
                 let automaton = sharedBinaryTerm unconstrainedConstraint
                     rootSymbol (Tree.Node (LiquidSymbol symbol _) _) = symbol
-                    source = fmap rootSymbol $ LTA.fromLTA 71 automaton
+                    source = fmap rootSymbol $ LTA.fromAutomatonUpToDepth 71 automaton
                     generator =
                         LTA.node "combined" unconstrainedConstraint $
                             (,) <$> LTA.children source <*> LTA.children (LTA.leaf (7 :: Int) "ordinary" true)
@@ -315,7 +312,7 @@ spec = do
                 , (semanticConstraint $ Not same, Left LTA.EmptyGenerator)
                 ]
                 $ \(constraint, expected) -> do
-                    result <- timeout 60000000 $ LTA.compile unusedEntailment $ LTA.fromLTA 71 $ sharedBinaryTerm constraint
+                    result <- timeout 60000000 $ LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth 71 $ sharedBinaryTerm constraint
                     fmap (fmap LTA.cardinality) result `shouldBe` Just expected
 
     describe "bounded symbolic automaton compilation" $ do
@@ -335,7 +332,7 @@ spec = do
         it "groups nested observations of an exponential equality import without decoding values" $ do
             completed <- timeout 20000000 $ do
                 let automaton = largeBoxedLists $ equalityConstraint $ mkEqConstraints [[path [0, 0], path [1, 0]]]
-                    source = fmap (const $ error "symbolic grouping decoded a source value") $ LTA.fromLTA 71 automaton
+                    source = fmap (const $ error "symbolic grouping decoded a source value") $ LTA.fromAutomatonUpToDepth 71 automaton
                     generator = LTA.node "host" (semanticConstraint $ Satisfies (path [0, 0, 0, 0]) true) $ fmap (const (42 :: Int)) source
                     solver = Entailment $ \_ _ -> pure Yes
                 compiled <- LTA.compile solver generator >>= either (fail . show) pure

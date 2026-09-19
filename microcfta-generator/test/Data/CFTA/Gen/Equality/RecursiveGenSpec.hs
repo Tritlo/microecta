@@ -28,7 +28,7 @@ import Data.CFTA.Equality (
     terms,
  )
 import qualified Data.CFTA.Gen.Equality as Core
-import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
+import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, GenError (..), Sig (..))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Equality.TestSupport (aggregateRights)
 import Data.CFTA.Path (path)
@@ -295,7 +295,7 @@ spec = do
 
     describe "generators read from an automaton" $ do
         it "accepts exactly the language of a finite automaton" $
-            let generator = ECTAGen.fromECTA finiteAutomaton
+            let generator = ECTAGen.fromAutomaton finiteAutomaton
              in case ECTAGen.cardinality (ECTAGen.upToSize 2 generator) of
                     Right total ->
                         sort [term | rank <- [0 .. total - 1], Right term <- [ECTAGen.unrank generator rank]]
@@ -303,7 +303,7 @@ spec = do
                     Left err -> expectationFailure $ show err
 
         it "treats every term of a finite automaton as one atomic choice" $ do
-            let structured = ECTAGen.fromECTA finiteAutomaton
+            let structured = ECTAGen.fromAutomaton finiteAutomaton
                 atomic = ECTAGen.atomic structured
                 ranks = [0 .. 3]
             ECTAGen.cardinality atomic `shouldBe` Right 4
@@ -319,14 +319,14 @@ spec = do
         it "keeps a large atomic automaton compact" $ do
             let bit = Node [Edge "zero" [], Edge "one" []]
                 compact = Node [Edge "command" (replicate 40 bit)]
-                atomic = ECTAGen.atomic $ ECTAGen.fromECTA compact
+                atomic = ECTAGen.atomic $ ECTAGen.fromAutomaton compact
             ECTAGen.cardinality atomic `shouldBe` Right (2 ^ (40 :: Int))
             ECTAGen.sizeOfRank atomic (2 ^ (40 :: Int) - 1)
                 `shouldBe` Just 1
             fmap nodeCount (ECTAGen.support atomic) `shouldBe` Right 2
 
         it "makes recursive size count complete atomic commands" $ do
-            let commands = ECTAGen.atomic $ ECTAGen.fromECTA finiteAutomaton
+            let commands = ECTAGen.atomic $ ECTAGen.fromAutomaton finiteAutomaton
                 traces = ECTAGen.recur $ \rest ->
                     ECTAGen.oneof
                         [ (: []) <$> commands
@@ -336,7 +336,7 @@ spec = do
                 `shouldBe` Right [4, 16, 64]
 
         it "requires a recursive or opaque language to cross a finite boundary" $ do
-            let recursive = ECTAGen.fromECTA typeAutomaton
+            let recursive = ECTAGen.fromAutomaton typeAutomaton
                 bounded = ECTAGen.atomic $ ECTAGen.upToSize 2 recursive
                 opaque = ECTAGen.atomic $ ECTAGen.fromGen (pure True)
             ECTAGen.cardinality (ECTAGen.atomic recursive)
@@ -348,16 +348,16 @@ spec = do
                 `shouldBe` Left CannotInspectOpaqueGenerator
 
         it "counts the size classes of a recursive automaton" $
-            traverse (ECTAGen.countAtSize $ ECTAGen.fromECTA typeAutomaton) [1 .. 5]
+            traverse (ECTAGen.countAtSize $ ECTAGen.fromAutomaton typeAutomaton) [1 .. 5]
                 `shouldBe` Right [1, 1, 2, 4, 9]
 
         modifyMaxSuccess (const 200) $
             it "samples only terms the automaton accepts" $
-                QC.forAll (QC.resize 6 $ ECTAGen.toGen $ ECTAGen.fromECTA typeAutomaton) $
+                QC.forAll (QC.resize 6 $ ECTAGen.toGen $ ECTAGen.fromAutomaton typeAutomaton) $
                     \term -> QC.counterexample (show term) $ QC.property $ nodeRepresents typeAutomaton term
 
         it "retains the term of every member, so a bounded language is inspectable" $ do
-            let bounded = ECTAGen.upToSize 2 $ ECTAGen.fromECTA typeAutomaton
+            let bounded = ECTAGen.upToSize 2 $ ECTAGen.fromAutomaton typeAutomaton
             fmap (map fst) (ECTAGen.pmf bounded)
                 `shouldSatisfy` either (const False) ((== 2) . length)
             fmap sum (ECTAGen.countBy termSymbol bounded) `shouldBe` Right 2
@@ -367,7 +367,7 @@ spec = do
 
         it "reports a recursive automaton without finite terms as empty" $ do
             let emptyAutomaton = createMu $ \self -> Node [Edge "loop" [self]]
-                generator = ECTAGen.fromECTA emptyAutomaton
+                generator = ECTAGen.fromAutomaton emptyAutomaton
             smallestResult <- timeout 60000000 $ evaluateFully $ ECTAGen.smallest generator
             unrankResult <- timeout 60000000 $ evaluateFully $ ECTAGen.unrank generator 0
             ECTAGen.minimumSize generator `shouldBe` Right Nothing
@@ -375,7 +375,7 @@ spec = do
             unrankResult `shouldBe` Just (Left $ SelectionOutOfRange 0 0)
 
         it "rejects an automaton whose edges carry equality constraints" $
-            ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromECTA constrainedAutomaton)
+            ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromAutomaton constrainedAutomaton)
                 `shouldBe` Left CannotCountConstrainedEdges
 
     describe "recursive sampling" $ do

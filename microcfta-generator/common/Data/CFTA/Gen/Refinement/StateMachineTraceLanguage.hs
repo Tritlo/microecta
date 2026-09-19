@@ -66,7 +66,6 @@ import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Gen.Refinement.ExampleSupport (oneofOrDie)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import Data.CFTA.Refinement (
     Automaton,
@@ -285,7 +284,7 @@ traces are not visited during compilation.
 compileTracesOfLength ::
     Entailment ->
     Int ->
-    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+    IO (Either LTA.GenError (LTA.Compiled Trace))
 compileTracesOfLength entailment traceLength =
     LTA.compileRelational entailment $ tracesOfLength traceLength
 
@@ -293,7 +292,7 @@ compileTracesOfLength entailment traceLength =
 compileTraceAutomatonMaterialized ::
     Entailment ->
     Int ->
-    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+    IO (Either LTA.GenError (LTA.Compiled Trace))
 compileTraceAutomatonMaterialized entailment traceLength =
     case traceAutomaton traceLength of
         Left err -> pure $ Left $ LTA.InvalidSupport err
@@ -310,7 +309,7 @@ compileTraceAutomatonMaterialized entailment traceLength =
 compileTraceAutomatonFused ::
     Entailment ->
     Int ->
-    IO (Either LTA.GeneratorError (LTA.Compiled Trace))
+    IO (Either LTA.GenError (LTA.Compiled Trace))
 compileTraceAutomatonFused entailment traceLength =
     case traceAutomaton traceLength of
         Left err -> pure $ Left $ LTA.InvalidSupport err
@@ -356,7 +355,7 @@ decodedTrace (DecodedTrace events finalState) = Trace (events []) finalState
 decodedTrace _ = error "compileTraceAutomatonFused: initial state did not decode to a trace"
 
 -- | Generate every trace up to a maximum length, shortest first for shrinking.
-tracesUpTo :: Int -> Either LTA.GeneratorError (LTA.LTAGen Trace)
+tracesUpTo :: Int -> LTA.LTAGen Trace
 tracesUpTo maximumLength =
     LTA.oneof [tracesOfLength length_ | length_ <- [0 .. maximumLength]]
 
@@ -686,9 +685,7 @@ are schemas, not one transition per concrete pair of stack states.
 -}
 commandContracts :: LTA.LTAGen Command
 commandContracts =
-    oneofOrDie
-        "typed stack-machine command contracts"
-        (map contractGenerator commandContractValues)
+    LTA.oneof (map contractGenerator commandContractValues)
 
 -- | One reusable liquid input/output schema for a stack-machine command.
 data CommandContract = CommandContract

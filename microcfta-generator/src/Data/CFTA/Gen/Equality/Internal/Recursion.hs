@@ -40,7 +40,7 @@ and distribution. Only size changes: every complete member has size one when
 it is used inside 'recur'. Its finite distribution is also used when sampling
 that recursive language. Put 'atomic' around the complete finite choice that
 enters recursion; a finite composition outside the boundary is a new choice
-and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
+and needs its own boundary. An acyclic automaton read with 'fromAutomaton' closes
 its whole finite language without enumerating its terms, rather than taking
 an inner prefix from the QuickCheck size. Bound a recursive language with
 'upToSize' before making it atomic, /outside/ the recursive definition:

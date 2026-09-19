@@ -18,7 +18,7 @@ pairGrammar = either (error . show) id $ deriveFTAWith @(Int, Int) $ domain @Int
 
 -- | All four pairs in the derived datatype grammar.
 pairs :: FTA.FTAGen Constructor (Int, Int)
-pairs = either (error . show) id $ FTA.fromDatatypeUpToDepth 1 pairGrammar
+pairs = FTA.fromDatatypeUpToDepth 1 pairGrammar
 
 -- | Add equality at the tuple constructor while retaining its structure.
 equalPairs :: ECTA.ECTAGen (Int, Int)
@@ -39,7 +39,7 @@ sameParity =
 -- | Check all ranks, then use each compiled language in a property.
 main :: IO ()
 main = do
-    unless (FTA.cardinality pairs == 4) $ fail "wrong FTA count"
+    unless (FTA.cardinality pairs == Right 4) $ fail "wrong FTA count"
     let replayed = traverse (FTA.unrank pairs) [0 .. 3]
     unless (replayed == Right [(0, 0), (0, 1), (1, 0), (1, 1)]) $
         fail "wrong FTA replay order"

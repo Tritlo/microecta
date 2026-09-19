@@ -76,7 +76,7 @@ equalityExpressionAutomaton requestedDepth = validate root >> pure root
 compileEqualityExpressionsAtDepth ::
     Entailment ->
     Int ->
-    IO (Either LTA.GeneratorError (LTA.Compiled TypedExpression))
+    IO (Either LTA.GenError (LTA.Compiled TypedExpression))
 compileEqualityExpressionsAtDepth entailment depth =
     case equalityExpressionAutomaton depth of
         Left err -> pure $ Left $ LTA.InvalidSupport err

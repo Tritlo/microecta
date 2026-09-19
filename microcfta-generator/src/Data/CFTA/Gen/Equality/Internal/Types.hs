@@ -53,9 +53,9 @@ import Data.CFTA.Symbol (Symbol)
 opaque QuickCheck generator.
 -}
 data ECTAGen a
-    = Transparent !(Either ECTAGenError (Static a))
-    | Cyclic !(Either ECTAGenError (Recursive a))
-    | Opaque !(QC.Gen (Either ECTAGenError a))
+    = Transparent !(Either GenError (Static a))
+    | Cyclic !(Either GenError (Recursive a))
+    | Opaque !(QC.Gen (Either GenError a))
 
 -- | Whether a generator stands for a recursive language.
 isRecursive :: ECTAGen a -> Bool
@@ -72,7 +72,7 @@ isOpaque _ = False
 A finite generator is a recursive language that happens to stop: its plan
 already counts by size, and its support is already its automaton.
 -}
-recursiveView :: ECTAGen a -> Either ECTAGenError (Recursive a)
+recursiveView :: ECTAGen a -> Either GenError (Recursive a)
 recursiveView (Transparent result) = recursiveFromStatic <$> result
 recursiveView (Cyclic result) = result
 recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
@@ -85,9 +85,9 @@ labels on constrained ECTA paths. Each key group retains compact ECTA support
 and indexed selection without storing all outcomes.
 -}
 data Grouped key a
-    = Grouped !(Either ECTAGenError (Map.Map key (KeyedBucket a)))
+    = Grouped !(Either GenError (Map.Map key (KeyedBucket a)))
     | -- | A recursive family: one language per key, all sharing one @Mu@.
-      CyclicGrouped !(Either ECTAGenError (Map.Map key (KeyedRecursive a)))
+      CyclicGrouped !(Either GenError (Map.Map key (KeyedRecursive a)))
 
 -- | Whether a grouped generator stands for a recursive family.
 isRecursiveGrouped :: Grouped key a -> Bool
@@ -101,7 +101,7 @@ recursive builders accept either.
 -}
 recursiveGroups ::
     Grouped key a ->
-    Either ECTAGenError (Map.Map key (KeyedRecursive a))
+    Either GenError (Map.Map key (KeyedRecursive a))
 recursiveGroups (CyclicGrouped result) = result
 recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
 
@@ -241,12 +241,12 @@ instance Applicative ECTAGen where
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
 -- | Lower to QuickCheck, preserving construction and decoding errors.
-lower :: ECTAGen a -> QC.Gen (Either ECTAGenError a)
+lower :: ECTAGen a -> QC.Gen (Either GenError a)
 lower (Opaque generated) = generated
 lower generator = quickCheck $ lowerVia generator
 
 -- | Lower an inspectable generator while retaining the sampled rank.
-lowerWithRank :: ECTAGen a -> QC.Gen (Either ECTAGenError (Integer, a))
+lowerWithRank :: ECTAGen a -> QC.Gen (Either GenError (Integer, a))
 lowerWithRank = quickCheck . lowerWithRankVia
 
 {- | Lower an inspectable generator through any sampling backend.
@@ -255,14 +255,14 @@ The exact backend of "Data.CFTA.Ranked.Internal.Sampler" gives the sampling
 distribution as a finite list. An opaque region is a QuickCheck generator and
 cannot be interpreted, so it reports 'CannotInspectOpaqueGenerator'.
 -}
-lowerVia :: (GenBackend gen) => ECTAGen a -> gen (Either ECTAGenError a)
+lowerVia :: (GenBackend gen) => ECTAGen a -> gen (Either GenError a)
 lowerVia (Transparent (Left err)) = pure $ Left err
 lowerVia (Transparent (Right static)) = sampleStatic static
 lowerVia (Cyclic _) = pure $ Left UnboundedGenerator
 lowerVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
 -- | 'lowerVia' retaining the sampled replay rank.
-lowerWithRankVia :: (GenBackend gen) => ECTAGen a -> gen (Either ECTAGenError (Integer, a))
+lowerWithRankVia :: (GenBackend gen) => ECTAGen a -> gen (Either GenError (Integer, a))
 lowerWithRankVia (Transparent (Left err)) = pure $ Left err
 lowerWithRankVia (Transparent (Right static)) = sampleStaticWithRank static
 lowerWithRankVia (Cyclic _) = pure $ Left UnboundedGenerator

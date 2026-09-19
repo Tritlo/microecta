@@ -24,9 +24,9 @@ import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint.Equality (subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Enumeration (unconstrained)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRankedWith)
+import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
 import Data.CFTA.Gen.Internal.Shrink (automatonShrinkRanks)
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Types
 import Data.CFTA.Gen.Refinement.Internal.Witness (cacheEntailment)
 import qualified Data.CFTA.Ranked as Ranked
@@ -45,7 +45,7 @@ compiled through the shared symbolic equality ranker. Use
 'compileAutomatonUpToDepth' for recursive automata or general constraints.
 Shrinks reduce the tree node count and remain in the accepted language.
 -}
-compileAutomaton :: Entailment -> Automaton -> IO (Either GeneratorError (Compiled (Tree.Tree LiquidSymbol)))
+compileAutomaton :: Entailment -> Automaton -> IO (Either GenError (Compiled (Tree.Tree LiquidSymbol)))
 compileAutomaton entailment =
     compileAutomatonWith entailment (\symbol refinement -> Tree.Node (LiquidSymbol symbol refinement))
 
@@ -59,7 +59,7 @@ compileAutomatonWith ::
     Entailment ->
     (Symbol -> Refinement -> [a] -> a) ->
     Automaton ->
-    IO (Either GeneratorError (Compiled a))
+    IO (Either GenError (Compiled a))
 compileAutomatonWith uncachedEntailment buildValue automaton = do
     entailment <- cacheEntailment uncachedEntailment
     compilePrunedAutomaton entailment buildValue automaton
@@ -74,7 +74,7 @@ multiple runs accept it. Ranks are deterministic for a fixed automaton and bound
 Shrinks stay in the accepted language and strictly reduce the tree node count.
 -}
 compileAutomatonUpToDepth ::
-    Entailment -> Int -> Automaton -> IO (Either GeneratorError (Compiled (Tree.Tree LiquidSymbol)))
+    Entailment -> Int -> Automaton -> IO (Either GenError (Compiled (Tree.Tree LiquidSymbol)))
 compileAutomatonUpToDepth entailment =
     compileAutomatonUpToDepthWith entailment (\symbol refinement -> Tree.Node (LiquidSymbol symbol refinement))
 
@@ -88,7 +88,7 @@ compileAutomatonUpToDepthWith ::
     (Symbol -> Refinement -> [a] -> a) ->
     Int ->
     Automaton ->
-    IO (Either GeneratorError (Compiled a))
+    IO (Either GenError (Compiled a))
 compileAutomatonUpToDepthWith uncachedEntailment buildValue maximumHeight automaton =
     do
         entailment <- cacheEntailment uncachedEntailment
@@ -100,7 +100,7 @@ compileBoundedAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
     Int ->
     Automaton ->
-    IO (Either GeneratorError (Compiled a))
+    IO (Either GenError (Compiled a))
 compileBoundedAutomaton entailment buildValue maximumHeight automaton
     | maximumHeight < 0 = pure $ Left EmptyGenerator
     | otherwise = compilePrunedAutomaton entailment buildValue (boundDepth maximumHeight automaton)
@@ -110,7 +110,7 @@ compilePrunedAutomaton ::
     Entailment ->
     (Symbol -> Refinement -> [a] -> a) ->
     Automaton ->
-    IO (Either GeneratorError (Compiled a))
+    IO (Either GenError (Compiled a))
 compilePrunedAutomaton entailment buildValue automaton = do
     reduced <- prune entailment automaton
     pure $ do
@@ -130,7 +130,7 @@ compilePrunedAutomaton entailment buildValue automaton = do
 type View = FTA.FTA InternedState LiquidSymbol LiquidConstraint
 
 -- | Expose an LTA as an explicit-state automaton, or report why it is not one.
-automatonView :: Automaton -> Either GeneratorError View
+automatonView :: Automaton -> Either GenError View
 automatonView = first InvalidSupport . explicitView
 
 -- | Count and unrank a constraint-free, unambiguous pruned LTA as an ordinary FTA.
@@ -138,7 +138,7 @@ compileUnconstrainedAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
     View ->
     Map.Map InternedState Integer ->
-    Either GeneratorError (Ranked.Ranked (Generated a), Integer -> [Integer])
+    Either GenError (Ranked.Ranked (Generated a), Integer -> [Integer])
 compileUnconstrainedAutomaton buildValue view counts = do
     let total = Map.findWithDefault 0 (FTA.initialState view) counts
     ranked <-
@@ -154,7 +154,7 @@ compileSymbolicAutomaton ::
     (Symbol -> Refinement -> [a] -> a) ->
     Automaton ->
     View ->
-    Either GeneratorError (Compiled a)
+    Either GenError (Compiled a)
 compileSymbolicAutomaton buildValue pruned view = do
     mapM_ (first ResidualGuard . constraintTerms . FTA.transitionConstraint) (viewTransitions view)
     (root, alphabet) <- symbolicGraph view
@@ -178,12 +178,12 @@ viewTransitions :: View -> [FTA.Transition InternedState LiquidSymbol LiquidCons
 viewTransitions = concat . Map.elems . FTA.transitionTable
 
 -- | Give symbolic ranks a textual alphabet order independent of interning order.
-symbolicGraph :: View -> Either GeneratorError (Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
+symbolicGraph :: View -> Either GenError (Node Int LiquidConstraint, IntMap.IntMap LiquidSymbol)
 symbolicGraph view = do
     case FTA.cycleState view of
-        Just _ -> Left RecursiveAutomaton
+        Just _ -> Left UnboundedGenerator
         Nothing -> Right ()
-    renamed <- first (const RecursiveAutomaton) $ FTA.mapSymbols (identifiers Map.!) view
+    renamed <- first (const UnboundedGenerator) $ FTA.mapSymbols (identifiers Map.!) view
     pure (fromFTA renamed, IntMap.fromList $ zip [0 ..] alphabet)
   where
     alphabet =
@@ -217,15 +217,15 @@ constraintTerms constraint = do
         ]
 
 -- | Count ordinary candidate runs through the common automaton compiler.
-countAutomaton :: View -> Either GeneratorError (Map.Map InternedState Integer)
-countAutomaton = first (const RecursiveAutomaton) . Ordinary.countRuns
+countAutomaton :: View -> Either GenError (Map.Map InternedState Integer)
+countAutomaton = first (const UnboundedGenerator) . Ordinary.countRuns
 
 {- | Exact accepting-run counts of a view whose runs are distinct terms.
 
 The result is 'Nothing' when several runs accept one term, because then run
 counts do not count terms and the symbolic ranker must be used instead.
 -}
-distinctCounts :: View -> Either GeneratorError (Maybe (Map.Map InternedState Integer))
+distinctCounts :: View -> Either GenError (Maybe (Map.Map InternedState Integer))
 distinctCounts view = do
     counts <- countAutomaton view
     pure $ case Ordinary.ambiguousState view (Map.keys counts) of

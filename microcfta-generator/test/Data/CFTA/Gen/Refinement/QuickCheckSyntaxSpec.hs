@@ -77,7 +77,7 @@ spec = do
                 `shouldBe` Left (LTA.InvalidSupport $ InconsistentArity "x" 0 1)
 
         it "rejects incompatible arities across accepted alternatives" $ do
-            generator <- either (fail . show) pure $ LTA.oneof [atom, nested Top]
+            let generator = LTA.oneof [atom, nested Top]
             complete <- LTA.compile unusedEntailment generator
             relational <- LTA.compileRelational unusedEntailment generator
             fmap LTA.cardinality complete
@@ -85,15 +85,14 @@ spec = do
             fmap LTA.cardinality relational `shouldBe` fmap LTA.cardinality complete
 
         it "ignores the alphabet of a rejected alternative" $ do
-            generator <- either (fail . show) pure $ LTA.oneof [atom, nested Bottom]
+            let generator = LTA.oneof [atom, nested Bottom]
             complete <- LTA.compile unusedEntailment generator
             relational <- LTA.compileRelational unusedEntailment generator
             fmap LTA.cardinality complete `shouldBe` Right 1
             fmap selectedValues relational `shouldBe` fmap selectedValues complete
 
         it "retains arities only for the groups accepted by a parent guard" $ do
-            choices <-
-                either (fail . show) pure $
+            let choices =
                     LTA.oneof [LTA.leaf (1 :: Int) "x" false, nested Top]
             let generator = LTA.node "parent" (Satisfies (path [0]) false) choices
                 entailment = Entailment $ \antecedent consequent ->
@@ -180,8 +179,7 @@ spec = do
                 LTA.unrank compiled rank `shouldBe` Right member
 
         it "keeps tree shape when scoped equality occurs inside negation and disjunction" $ do
-            actuals <-
-                either (fail . show) pure $
+            let actuals =
                     LTA.oneof
                         [ LTA.leaf (1 :: Int) "atom" true
                         , LTA.node "box" Top $ LTA.leaf 2 "payload" true
@@ -224,7 +222,7 @@ spec = do
 compileActualEquality ::
     LTA.LTAGen Int ->
     LTA.LTAGen Int ->
-    IO (Either LTA.GeneratorError Integer, Either LTA.GeneratorError Integer)
+    IO (Either LTA.GenError Integer, Either LTA.GenError Integer)
 compileActualEquality left right =
     withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "shared", "app", "x", "y"] :: [String]] $ \solver -> do
         let variable :: String -> Fixpoint.Expr
@@ -238,8 +236,7 @@ compileActualEquality left right =
             constraint =
                 withActualsFor [(argument 0, argument 2), (argument 1, argument 3)] $
                     root `requires` (variable "x" .==. variable "y")
-        generator <-
-            either (fail . show) pure $
+        let generator =
                 LTA.oneof [LTA.node "pair" constraint forest, LTA.leaf (-1, -1) "sentinel" true]
         complete <- LTA.compile solver generator
         relational <- LTA.compileRelational solver generator

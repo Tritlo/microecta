@@ -88,6 +88,7 @@ library
     Data.CFTA.Gen.Equality.Internal.Symbolic
     Data.CFTA.Gen.Equality.QuickCheck
     Data.CFTA.Gen.Equality.Sig
+    Data.CFTA.Gen.Error
     Data.CFTA.Gen.Internal.Automaton
     Data.CFTA.Gen.Internal.Shrink
     Data.CFTA.Gen.QuickCheck
@@ -107,7 +108,6 @@ library
     Data.CFTA.Gen.Equality.Internal.Automaton
     Data.CFTA.Gen.Equality.Internal.Bucket
     Data.CFTA.Gen.Equality.Internal.Chain
-    Data.CFTA.Gen.Equality.Internal.Error
     Data.CFTA.Gen.Equality.Internal.Grouped
     Data.CFTA.Gen.Equality.Internal.Inspect
     Data.CFTA.Gen.Equality.Internal.Inspection
@@ -120,7 +120,6 @@ library
     Data.CFTA.Gen.Refinement.Internal.AutomatonCompile
     Data.CFTA.Gen.Refinement.Internal.AutomatonSource
     Data.CFTA.Gen.Refinement.Internal.Compile
-    Data.CFTA.Gen.Refinement.Internal.Error
     Data.CFTA.Gen.Refinement.Internal.IndexedGroup
     Data.CFTA.Gen.Refinement.Internal.Recipe
     Data.CFTA.Gen.Refinement.Internal.Relational

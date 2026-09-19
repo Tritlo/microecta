@@ -4,7 +4,7 @@
 {- | The source constructors and the preparation of deferred imports.
 
 These functions build a generator without a solver. 'prepareGenerator'
-completes a source that still holds a deferred 'fromLTA' import, and rebuilds
+completes a source that still holds a deferred 'fromAutomatonUpToDepth' import, and rebuilds
 it with the same constructors.
 -}
 module Data.CFTA.Gen.Refinement.Internal.Surface (
@@ -23,7 +23,7 @@ module Data.CFTA.Gen.Refinement.Internal.Surface (
     binary,
     frequency,
     oneof,
-    fromLTA,
+    fromAutomatonUpToDepth,
     fromDatatypeUpToDepth,
 
     -- * Inspection and preparation
@@ -39,8 +39,8 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Refinement.Internal.AutomatonCompile (compileBoundedAutomaton)
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..))
 import Data.CFTA.Gen.Refinement.Internal.Recipe (childRecipeArity, knownEmptyRecipe, validateGenerator)
 import Data.CFTA.Gen.Refinement.Internal.Replay (compiledSource)
 import Data.CFTA.Gen.Refinement.Internal.Types
@@ -104,7 +104,7 @@ minimizePoolBy ::
     Entailment ->
     (a -> key) ->
     [Refined a] ->
-    IO (Either GeneratorError (LTAGen a))
+    IO (Either GenError (LTAGen a))
 minimizePoolBy _ _ [] = pure $ Left EmptyGenerator
 minimizePoolBy entailment similarityKey entries = do
     inferred <- similarity (refinementSubtypingBy entailment classify) poolAutomaton
@@ -247,12 +247,12 @@ binary function symbol refinement guard left right =
             (children $ function <$> left)
             (children right)
 
--- | Combine alternatives with positive relative weights.
-frequency :: [(Integer, LTAGen a)] -> Either GeneratorError (LTAGen a)
-frequency [] = Left EmptyGenerator
-frequency alternatives = do
-    mapM_ ensurePositive alternatives
-    pure $
+-- | Combine alternatives with positive relative weights. A failed alternative fails the choice.
+frequency :: [(Integer, LTAGen a)] -> LTAGen a
+frequency [] = LTAGen Nothing $ Left EmptyGenerator
+frequency alternatives = case mapM_ ensurePositive alternatives of
+    Left err -> LTAGen Nothing $ Left err
+    Right () ->
         LTAGen
             (compilePrepared <$> traverse preparedAlternative alternatives)
             (ChoiceRecipe <$> traverse recipeAlternative alternatives)
@@ -297,7 +297,7 @@ shrinkChoice branches index = case break (\(offset, _, _, count) -> index < offs
                ]
 
 -- | Combine equally weighted alternatives.
-oneof :: [LTAGen a] -> Either GeneratorError (LTAGen a)
+oneof :: [LTAGen a] -> LTAGen a
 oneof = frequency . map (1,)
 
 {- | Use a core LTA as a generator source with an explicit tree-height bound.
@@ -307,8 +307,8 @@ accept it. The graph remains shared until 'compile' prepares the source.
 The source composes with ordinary pools and constructors. A leaf has height
 zero. Map the resulting terms to domain values with 'fmap'.
 -}
-fromLTA :: Int -> Automaton -> LTAGen (Tree.Tree LiquidSymbol)
-fromLTA maximumHeight automaton =
+fromAutomatonUpToDepth :: Int -> Automaton -> LTAGen (Tree.Tree LiquidSymbol)
+fromAutomatonUpToDepth maximumHeight automaton =
     LTAGen Nothing $ Right $ AutomatonRecipe maximumHeight automaton
 
 {- | Import a derived datatype with constructor refinements and liquid guards.
@@ -321,7 +321,7 @@ fromDatatypeUpToDepth :: Int -> TypedFTA (Refinement, LiquidConstraint) a -> LTA
 fromDatatypeUpToDepth depth datatype =
     case validate graph of
         Left err -> LTAGen Nothing $ Left $ InvalidSupport err
-        Right () -> decode <$> fromLTA depth graph
+        Right () -> decode <$> fromAutomatonUpToDepth depth graph
   where
     bounded = FTA.boundDepth depth $ datatypeFTA datatype
     graph = nodes Map.! FTA.initialState bounded
@@ -344,7 +344,7 @@ fromDatatypeUpToDepth depth datatype =
                     \the derived codec rejected a term of its own grammar"
 
 -- | Compile all candidates into one inspectable LTA support.
-support :: LTAGen a -> Either GeneratorError Automaton
+support :: LTAGen a -> Either GenError Automaton
 support generator = do
     validateGenerator generator
     case generatorPrepared generator of
@@ -354,7 +354,7 @@ support generator = do
     compileWitnesses $ map outcomeWitness outcomes
 
 -- | Prepare deferred imports once while preserving pure source construction.
-prepareGenerator :: Entailment -> LTAGen a -> IO (Either GeneratorError (LTAGen a))
+prepareGenerator :: Entailment -> LTAGen a -> IO (Either GenError (LTAGen a))
 prepareGenerator entailment generator =
     case generatorRecipe generator of
         Left err -> pure $ Left err
@@ -363,7 +363,7 @@ prepareGenerator entailment generator =
             Nothing -> prepareRecipe entailment recipe
 
 -- | Rebuild only a recipe that contains an unresolved automaton source.
-prepareRecipe :: Entailment -> Recipe a -> IO (Either GeneratorError (LTAGen a))
+prepareRecipe :: Entailment -> Recipe a -> IO (Either GenError (LTAGen a))
 prepareRecipe _ recipe
     | knownEmptyRecipe recipe = pure $ Right $ pool []
 prepareRecipe _ (PoolRecipe entries) = pure $ Right $ pool entries
@@ -373,7 +373,7 @@ prepareRecipe entailment (NodeRecipe symbol refinement constraint childRecipe) =
     fmap (fmap $ closeNode symbol refinement constraint) $ prepareChildRecipe entailment childRecipe
 prepareRecipe entailment (ChoiceRecipe alternatives) = do
     prepared <- traverse prepareAlternative alternatives
-    pure $ sequence prepared >>= frequency
+    pure $ frequency <$> sequence prepared
   where
     prepareAlternative (weight, recipe) =
         fmap (fmap $ (,) weight) $ prepareRecipe entailment recipe
@@ -391,7 +391,7 @@ prepareRecipe entailment (AutomatonRecipe maximumHeight automaton) = do
 prepareRecipe _ (CompiledRecipe compiled) = pure $ Right $ compiledSource compiled
 
 -- | Prepare each direct child without evaluating the constructor's value.
-prepareChildRecipe :: Entailment -> ChildRecipe a -> IO (Either GeneratorError (Children a))
+prepareChildRecipe :: Entailment -> ChildRecipe a -> IO (Either GenError (Children a))
 prepareChildRecipe _ (PureChildRecipe value) = pure $ Right $ pure value
 prepareChildRecipe entailment (OneChildRecipe recipe) =
     fmap (fmap children) $ prepareRecipe entailment recipe

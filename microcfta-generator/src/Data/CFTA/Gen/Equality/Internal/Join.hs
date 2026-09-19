@@ -21,11 +21,11 @@ import Data.CFTA.Constraint.Equality (mkEqConstraints)
 import Data.CFTA.Equality (Edge (Edge), Node (Node), mkEdge, reducePartially)
 import Data.CFTA.Gen.Equality.Internal.Bucket
 import Data.CFTA.Gen.Equality.Internal.Chain
-import Data.CFTA.Gen.Equality.Internal.Error (ECTAGenError (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support
+import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Path (path)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
@@ -44,7 +44,7 @@ joinStatic ::
     (right -> key) ->
     Static left ->
     Static right ->
-    Either ECTAGenError (Static (left, right))
+    Either GenError (Static (left, right))
 joinStatic leftKey rightKey left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -63,7 +63,7 @@ relateStatic ::
     (leftKey -> rightKey -> Bool) ->
     Static left ->
     Static right ->
-    Either ECTAGenError (Static (left, right))
+    Either GenError (Static (left, right))
 relateStatic leftKey rightKey relation left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -82,7 +82,7 @@ joinGroupedStatic ::
     Static left ->
     Static right ->
     [([Outcome left], [Outcome right])] ->
-    Either ECTAGenError (Static (left, right))
+    Either GenError (Static (left, right))
 joinGroupedStatic left right related =
     if null related
         then Left EmptyGenerator
@@ -155,7 +155,7 @@ joinGroupedStatic left right related =
 keyedOutcomes ::
     (value -> key) ->
     Static value ->
-    Either ECTAGenError [(key, Outcome value)]
+    Either GenError [(key, Outcome value)]
 keyedOutcomes key static =
     map (\outcome -> (key $ outcomeValue outcome, outcome))
         <$> enumerateOutcomeIndex (staticOutcomes static)
@@ -165,7 +165,7 @@ joinOutcomeIndex ::
     Static left ->
     Static right ->
     [JoinGroup left right] ->
-    Either ECTAGenError (OutcomeIndex (left, right))
+    Either GenError (OutcomeIndex (left, right))
 joinOutcomeIndex left right groups = do
     rankSampler <- case uniformMass of
         Just _ -> pure $ uniformSampler totalOutcomes selectValue
@@ -259,7 +259,7 @@ selectJoinGroup index (group : remaining)
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
     [JoinGroup left right] ->
-    Either ECTAGenError (Sampler (left, right))
+    Either GenError (Sampler (left, right))
 joinSampler groups = do
     weightedGroups <-
         integerOutcomes

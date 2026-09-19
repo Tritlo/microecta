@@ -102,7 +102,7 @@ freeze seed sampleCount native =
 Unlike 'toGen', this does not bound a recursive generator from QuickCheck's
 size parameter; apply 'upToSize' explicitly first.
 -}
-toGenEither :: ECTAGen a -> QC.Gen (Either ECTAGenError a)
+toGenEither :: ECTAGen a -> QC.Gen (Either GenError a)
 toGenEither = lower
 
 {- | Sample a finite transparent generator while retaining its stable rank and
@@ -111,7 +111,7 @@ errors.
 Unlike 'toGenWithRank', this does not bound a recursive generator from
 QuickCheck's size parameter; apply 'upToSize' explicitly first.
 -}
-toGenWithRankEither :: ECTAGen a -> QC.Gen (Either ECTAGenError (Integer, a))
+toGenWithRankEither :: ECTAGen a -> QC.Gen (Either GenError (Integer, a))
 toGenWithRankEither = lowerWithRank
 
 {- | Sample through the generator type expected by QuickCheck.
@@ -146,7 +146,7 @@ Sampling cannot return a failure, so a generator that could not be built
 raises one here. The name is kept alongside the guidance so it can be
 looked up or grepped for.
 -}
-raise :: String -> ECTAGenError -> a
+raise :: String -> GenError -> a
 raise called err =
     error $
         "Data.CFTA.Gen.Equality.QuickCheck."

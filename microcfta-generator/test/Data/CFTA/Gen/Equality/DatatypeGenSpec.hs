@@ -99,7 +99,7 @@ spec = do
                         , (3, [transition "a" [], transition "b" []])
                         , (4, [transition "b" [], transition "c" []])
                         ]
-            let generator = ECTAGen.fromFTAUpToDepth 70 graph
+            let generator = ECTAGen.fromAutomatonUpToDepth 70 (Interned.fromFTA graph)
                 count = 2 * (2 ^ (70 :: Int) - 1) - 70
             completed <- timeout 10000000 $ evaluate $ ECTAGen.cardinality generator == Right count
             completed `shouldBe` Just True
@@ -135,7 +135,7 @@ spec = do
                             , (1, [plain "a" [], plain "b" [], plain "fork" [2, 2], transition "fork" [2, 2] $ equal [[[0], [1]]]])
                             , (2, [plain "a" [], plain "b" []])
                             ]
-                let generator = ECTAGen.fromFTAUpToDepth 2 graph
+                let generator = ECTAGen.fromAutomatonUpToDepth 2 (Interned.fromFTA graph)
                 let support = Interned.fromFTA graph
                 let expected = Set.toAscList $ Set.fromList $ Automaton.terms support
                 case expected of
@@ -155,7 +155,7 @@ spec = do
                       , (2, [transition "leaf" []])
                       ]
                         <> [(level, [transition "fork" [level - 1, level - 1]]) | level <- [3 .. 72]]
-            let generator = ECTAGen.fromFTAUpToDepth 72 graph
+            let generator = ECTAGen.fromAutomatonUpToDepth 72 (Interned.fromFTA graph)
             completed <-
                 timeout 10000000 $
                     evaluate $
@@ -175,7 +175,7 @@ spec = do
                       , (1, [transition "a" [], transition "b" []])
                       ]
                         <> [(level, [transition "f" [level - 1], transition "g" [level - 1]]) | level <- [2 .. 71]]
-            let generator = ECTAGen.fromFTAUpToDepth 71 graph
+            let generator = ECTAGen.fromAutomatonUpToDepth 71 (Interned.fromFTA graph)
             completed <- timeout 10000000 $ evaluate $ ECTAGen.cardinality generator == Right (2 ^ (141 :: Int))
             completed `shouldBe` Just True
 
@@ -189,7 +189,7 @@ spec = do
                         , (1, [transition "a" []])
                         , (2, [transition "a" [], transition "b" []])
                         ]
-            ECTAGen.cardinality (ECTAGen.fromFTAUpToDepth 1 graph) `shouldBe` Right 2
+            ECTAGen.cardinality (ECTAGen.fromAutomatonUpToDepth 1 (Interned.fromFTA graph)) `shouldBe` Right 2
             let equal = Paths.mkEqConstraints [map Paths.path [[0], [1]]]
             intersection <-
                 either (fail . show) pure $
@@ -199,7 +199,7 @@ spec = do
                         , (1, [transition "a" [], transition "b" []])
                         , (2, [transition "b" [], transition "c" []])
                         ]
-            let generator = ECTAGen.fromFTAUpToDepth 1 intersection
+            let generator = ECTAGen.fromAutomatonUpToDepth 1 (Interned.fromFTA intersection)
             ECTAGen.cardinality generator `shouldBe` Right 1
             ECTAGen.unrank generator 0
                 `shouldBe` Right (Tree.Node (fromString "pair") [Tree.Node (fromString "b") [], Tree.Node (fromString "b") []])

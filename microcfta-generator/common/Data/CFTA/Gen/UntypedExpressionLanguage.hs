@@ -36,8 +36,7 @@ data Expression
 -- | The two ground terms shared with the later examples.
 literals :: FTA.FTAGen String Expression
 literals =
-    oneofOrDie
-        "integer literals"
+    FTA.oneof
         [ FTA.leaf "zero" $ Literal 0
         , FTA.leaf "one" $ Literal 1
         ]
@@ -45,8 +44,7 @@ literals =
 -- | Add one ordinary binary-constructor layer.
 binaryLayer :: FTA.FTAGen String Expression -> FTA.FTAGen String Expression
 binaryLayer children =
-    oneofOrDie
-        "integer operations"
+    FTA.oneof
         [ FTA.node "add" $ FTA.do
             left <- children
             right <- children
@@ -140,10 +138,3 @@ expressionFromTerm (Tree.Node "add" [left, right]) =
 expressionFromTerm (Tree.Node "multiply" [left, right]) =
     Multiply <$> expressionFromTerm left <*> expressionFromTerm right
 expressionFromTerm _ = Nothing
-
--- | Select one known non-empty alternative set.
-oneofOrDie :: String -> [FTA.FTAGen String a] -> FTA.FTAGen String a
-oneofOrDie context alternatives =
-    case FTA.oneof alternatives of
-        Left err -> error $ context <> " is unexpectedly empty: " <> show err
-        Right generator -> generator

@@ -12,7 +12,7 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 import Data.Bifunctor (first)
 
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
-import Data.CFTA.Gen.Refinement.Internal.Error (GeneratorError (..), fromRankedError)
+import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
 import Data.CFTA.Gen.Refinement.Internal.Recipe (requiredImplications, transparentCompiled, validateGenerator)
 import Data.CFTA.Gen.Refinement.Internal.Relational (
     ObservationKey,
@@ -39,7 +39,7 @@ returns an error. Compilation preserves source order and the weight of repeated
 draws. All solver work finishes
 before sampling, replay, or shrinking.
 -}
-compile :: Entailment -> LTAGen a -> IO (Either GeneratorError (Compiled a))
+compile :: Entailment -> LTAGen a -> IO (Either GenError (Compiled a))
 compile uncachedEntailment generator
     | Left err <- validateGenerator generator = pure $ Left err
     | otherwise = do
@@ -50,7 +50,7 @@ compile uncachedEntailment generator
             Right source -> compilePreparedGenerator entailment source
 
 -- | Compile a prepared source whose imports have fixed accepted rank domains.
-compilePreparedGenerator :: Entailment -> LTAGen a -> IO (Either GeneratorError (Compiled a))
+compilePreparedGenerator :: Entailment -> LTAGen a -> IO (Either GenError (Compiled a))
 compilePreparedGenerator entailment generator =
     case generatorRecipe generator of
         Left err -> pure $ Left err
@@ -66,14 +66,14 @@ compileIndexedRecipe ::
     Entailment ->
     LTAGen a ->
     (ECTA.Grouped ObservationKey (RelationalValue a), RecipeGroups) ->
-    IO (Either GeneratorError (Compiled a))
+    IO (Either GenError (Compiled a))
 compileIndexedRecipe entailment generator (grouped, groups)
     | Source.cardinality sources == 0 = pure $ Left EmptyGenerator
     | otherwise = do
         table <- evaluateImplications entailment $ requiredImplications generator
         pure $ do
             ensureConsistentArities $ acceptedAlphabet groups
-            acceptedSupport <- first InvalidECTAGenerator $ ECTA.support $ ECTA.ungroup grouped
+            acceptedSupport <- ECTA.support $ ECTA.ungroup grouped
             ranked <-
                 first fromRankedError
                     $ Tree.fromWeightedIndexedOnDemand
@@ -106,7 +106,7 @@ compileIndexedRecipe entailment generator (grouped, groups)
 checkedOutcomes ::
     Entailment ->
     Finite (Outcome a) ->
-    IO (Either GeneratorError [Accepted a])
+    IO (Either GenError [Accepted a])
 checkedOutcomes entailment outcomes = go 0 []
   where
     total = finiteCardinality outcomes
@@ -138,7 +138,7 @@ checkedOutcomes entailment outcomes = go 0 []
                                 Unknown -> pure (Left SolverUnknown)
 
 -- | Check every candidate, preserving weights for the accepted members.
-validOutcomes :: Entailment -> LTAGen a -> IO (Either GeneratorError [Generated a])
+validOutcomes :: Entailment -> LTAGen a -> IO (Either GenError [Generated a])
 validOutcomes uncachedEntailment generator
     | Left err <- validateGenerator generator = pure $ Left err
     | otherwise = do

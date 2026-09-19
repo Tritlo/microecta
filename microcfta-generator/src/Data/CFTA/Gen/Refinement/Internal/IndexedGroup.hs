@@ -19,7 +19,7 @@ follow term size and edge order. They do not follow decoded integer order.
 indexedGroup :: Integer -> (Integer -> a) -> ECTA.ECTAGen a
 indexedGroup bound valueAt
     | bound <= 0 = ECTA.elements []
-    | otherwise = valueAt . decode <$> ECTA.atomic (ECTA.fromECTA support)
+    | otherwise = valueAt . decode <$> ECTA.atomic (ECTA.fromAutomaton support)
   where
     support = fst $ build bound Map.empty
 

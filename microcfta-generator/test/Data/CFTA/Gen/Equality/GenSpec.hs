@@ -158,7 +158,7 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right original -> do
                     let label = ECTAGen.node $ fromString "closed"
-                        fromAutomaton = ECTAGen.fromECTA original
+                        fromAutomaton = ECTAGen.fromAutomaton original
                         check labelled =
                             case ( ECTAGen.support labelled
                                  , ECTAGen.support $ ECTAGen.ungroup $ ECTAGen.groupBy (const ()) labelled
