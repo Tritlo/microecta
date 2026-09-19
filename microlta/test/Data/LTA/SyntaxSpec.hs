@@ -6,13 +6,13 @@ import qualified Data.Tree as Tree
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
+import qualified Data.CFTA.Interned as Common
 import Data.LTA (AutomatonError (GuardArityMismatch), LiquidSymbol (LiquidSymbol), State (State), Verdict (..), accepts)
 import qualified Data.LTA as LTA
 import Data.LTA.Guard (isSubtypeOf, requires, unconstrained)
 import Data.LTA.Refinement (true, value, (.>=.))
 import qualified Data.LTA.Syntax as Syntax
 import Data.LTA.TestSupport (tableEntailment)
-import qualified Data.Tree.FTA.Interned as Common
 
 spec :: Spec
 spec =

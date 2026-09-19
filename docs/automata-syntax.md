@@ -62,7 +62,7 @@ ECTA.transition "pair" [atom, atom]
   (mkEqConstraints [[path [0], path [1]]])
 ```
 
-The underlying graph remains `Data.Tree.FTA.FTA`, but `EqConstraints` and its
+The underlying graph remains `Data.CFTA.FTA`, but `EqConstraints` and its
 construction syntax belong to ECTA rather than to the ordinary FTA API.
 
 An LTA adds its refinement label and lets the guard name child positions:

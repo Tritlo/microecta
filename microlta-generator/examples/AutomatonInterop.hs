@@ -11,12 +11,12 @@ import Control.Monad (unless)
 import GHC.Generics (Generic)
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Generic (HasFTA, TypedFTA, annotateDatatype, constructorName, deriveFTA)
 import Data.LTA (Refinement, unconstrainedConstraint)
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Guard (requires)
 import Data.LTA.LiquidFixpoint (integerDeclarations, withZ3)
 import Data.LTA.Refinement (integer, value, (.==.), (.>.))
-import Data.Tree.FTA.Generic (HasFTA, TypedFTA, annotateDatatype, constructorName, deriveFTA)
 
 -- | A successor term denotes a positive integer.
 positive :: Refinement

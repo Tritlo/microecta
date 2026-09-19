@@ -3,4 +3,4 @@ module Data.ECTA.Term (
     Symbol (Symbol),
 ) where
 
-import Data.Tree.FTA.Symbol
+import Data.CFTA.Symbol

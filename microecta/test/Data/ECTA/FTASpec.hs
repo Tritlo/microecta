@@ -5,10 +5,10 @@ import qualified Data.Tree as Tree
 
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
+import qualified Data.CFTA as Automaton
+import qualified Data.CFTA.Interned as Common
 import qualified Data.ECTA as Core
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), mkEqConstraints, path)
-import qualified Data.Tree.FTA as Automaton
-import qualified Data.Tree.FTA.Interned as Common
 
 data State = Expression | Atom
     deriving (Eq, Ord, Show)

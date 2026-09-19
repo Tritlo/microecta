@@ -18,13 +18,13 @@ import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
 import Test.QuickCheck
 
+import Data.CFTA.Interned.Operations (fixUnbounded)
 import Data.ECTA
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (intToUVar)
-import Data.Tree.FTA.Interned.Operations (fixUnbounded)
 
 import Test.Generators.ECTA ()
 

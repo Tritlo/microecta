@@ -59,7 +59,7 @@ library
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    microfta >=0.1.0.0 && <0.2,
+    microcfta >=0.1.0.0 && <0.2,
     microfta-generator:internal,
     QuickCheck >=2.14 && <2.19,
 
@@ -83,7 +83,7 @@ library internal
     array >=0.5 && <0.6,
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    microfta >=0.1.0.0 && <0.2,
+    microcfta >=0.1.0.0 && <0.2,
 
 executable fta-pairs
   import: warnings
@@ -92,7 +92,7 @@ executable fta-pairs
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    microfta >=0.1.0.0 && <0.2,
+    microcfta >=0.1.0.0 && <0.2,
     microfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -113,7 +113,7 @@ test-suite unit-tests
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     hspec >=2.11 && <2.12,
-    microfta >=0.1.0.0 && <0.2,
+    microcfta >=0.1.0.0 && <0.2,
     microfta-generator:{internal, microfta-generator},
     QuickCheck >=2.14 && <2.19,
 
@@ -136,7 +136,7 @@ benchmark untyped-expression-speed
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    microfta >=0.1.0.0 && <0.2,
+    microcfta >=0.1.0.0 && <0.2,
     microfta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,

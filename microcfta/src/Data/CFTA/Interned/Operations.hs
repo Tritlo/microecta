@@ -1,5 +1,5 @@
 -- | Constraint-independent operations on shared interned automata.
-module Data.Tree.FTA.Interned.Operations (
+module Data.CFTA.Interned.Operations (
     nodeMapChildren,
     mapNodes,
     crush,
@@ -40,10 +40,10 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Tree.FTA.Constraint (Constraint (..))
-import Data.Tree.FTA.Interned.Cache (Id)
-import Data.Tree.FTA.Interned.Memo
-import Data.Tree.FTA.Interned.Type
+import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Interned.Cache (Id)
+import Data.CFTA.Interned.Memo
+import Data.CFTA.Interned.Type
 
 -- | Transform the immediate alternatives of one node.
 {-# INLINEABLE nodeMapChildren #-}

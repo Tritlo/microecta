@@ -35,13 +35,13 @@ import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPath, unPathEClass)
 import Data.ECTA.Term (Symbol (Symbol))
 
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Interned
 import Data.ECTA.Gen.Internal (ECTAGenError (..), Static, termStatic)
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRanked)
 import qualified Data.Ranked.Internal as Ranked
 import Data.Ranked.Internal.Size (SizeIndex)
-import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
-import qualified Data.Tree.FTA.Interned as Interned
 
 {- | Count and index the terms an automaton accepts, by size.
 

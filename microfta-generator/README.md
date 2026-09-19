@@ -31,7 +31,7 @@ with `FTA.pure`. Child generators must be independent.
 derivations. An ambiguous automaton can assign several ranks to the same term.
 Transition alternatives have equal branch weights; this does not guarantee
 equal probability for every complete term.
-Use `Data.Tree.FTA.Interned.toFTA` first when the source is an interned graph.
+Use `Data.CFTA.Interned.toFTA` first when the source is an interned graph.
 That view retains shared states. It does not enumerate the term language.
 
 `fromFTAUpToDepth` also accepts recursive automata. A leaf has depth zero.
@@ -90,7 +90,7 @@ module Main (main) where
 import GHC.Generics (Generic)
 
 import qualified Data.Tree.FTA.Gen as Gen
-import Data.Tree.FTA.Generic (HasFTA, deriveFTAWith, domain)
+import Data.CFTA.Generic (HasFTA, deriveFTAWith, domain)
 
 -- | Arithmetic expressions with integer literals.
 data Expr = Lit Int | Add Expr Expr

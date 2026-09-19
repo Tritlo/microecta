@@ -19,7 +19,7 @@ with @deriving via@, or with 'atomic' and handwritten codecs:
 deriving via (Atomic Double) instance HasFTA Double
 @
 -}
-module Data.Tree.FTA.Generic (
+module Data.CFTA.Generic (
     HasFTA (..),
     Description,
     atomic,
@@ -55,7 +55,7 @@ import GHC.Generics hiding (Constructor)
 import qualified GHC.Generics as Generic
 import Text.Read (readMaybe)
 
-import qualified Data.Tree.FTA as FTA
+import qualified Data.CFTA as FTA
 
 -- | One constructor field, including its zero-based child position.
 data Field = Field

@@ -11,10 +11,10 @@ module Application.TermSearch.TermSearch (
     reduceFully,
 ) where
 
+import Data.CFTA.Interned.Operations (fixUnbounded)
 import Data.ECTA
 import Data.ECTA.Paths
 import Data.ECTA.Term (Symbol)
-import Data.Tree.FTA.Interned.Operations (fixUnbounded)
 
 -- | Constrain a term-search node by equating its type child with a type node.
 filterType :: Node Symbol -> Node Symbol -> Node Symbol

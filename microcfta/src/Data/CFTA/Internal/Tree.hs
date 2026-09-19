@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 -- | Shared finite tree views of graph nodes and their outgoing alternatives.
-module Data.Tree.FTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, trimRows, termsBy, termsUpToBy) where
+module Data.CFTA.Internal.Tree (ViewPath, StateView (..), toTreeBy, trimRows, termsBy, termsUpToBy) where
 
 import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State

@@ -4,7 +4,7 @@ The constraint parameter determines the transition theory. Use @()@ for an
 ordinary automaton. Constraint layers supply their own 'Constraint' instance
 and concrete-term interpreter. Nodes and edges retain canonical identities.
 -}
-module Data.Tree.FTA.Interned (
+module Data.CFTA.Interned (
     PlainNode,
     InternedState,
     FTAViewError (..),
@@ -15,9 +15,9 @@ module Data.Tree.FTA.Interned (
     StateView (..),
     toTree,
     terms,
-    module Data.Tree.FTA.Constraint,
-    module Data.Tree.FTA.Interned.Type,
-    module Data.Tree.FTA.Interned.Operations,
+    module Data.CFTA.Constraint,
+    module Data.CFTA.Interned.Type,
+    module Data.CFTA.Interned.Operations,
 ) where
 
 import Data.Bifunctor (first)
@@ -29,12 +29,12 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.Tree.FTA (StateView (..), ViewPath)
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Constraint
-import Data.Tree.FTA.Internal.Tree (termsBy, toTreeBy)
-import Data.Tree.FTA.Interned.Operations
-import Data.Tree.FTA.Interned.Type
+import Data.CFTA (StateView (..), ViewPath)
+import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint
+import Data.CFTA.Internal.Tree (termsBy, toTreeBy)
+import Data.CFTA.Interned.Operations
+import Data.CFTA.Interned.Type
 
 -- | An interned ordinary automaton.
 type PlainNode symbol = Node symbol ()

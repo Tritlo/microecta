@@ -140,6 +140,8 @@ import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 
+import qualified Data.CFTA as FTA
+import Data.CFTA.Generic (TypedFTA)
 import Data.ECTA (Node)
 import Data.ECTA.Gen (
     Args (..),
@@ -159,8 +161,6 @@ import Data.ECTA.Gen.Do
 import Data.ECTA.Paths (EqConstraints)
 import Data.ECTA.Term (Symbol)
 import Data.Maybe (fromMaybe)
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Generic (TypedFTA)
 
 {- | QuickCheck as the sampling backend.
 

@@ -55,11 +55,11 @@ import Data.Type.Equality ((:~~:) (HRefl))
 import Data.Typeable (Typeable)
 import Type.Reflection (eqTypeRep, typeRep)
 
+import qualified Data.CFTA.Constraint as CommonConstraint
+import Data.CFTA.Interned.Type (IntersectId, RecNodeId (..), pattern IntersectId)
+import qualified Data.CFTA.Interned.Type as Common
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Internal.Paths (EqConstraints)
-import qualified Data.Tree.FTA.Constraint as CommonConstraint
-import Data.Tree.FTA.Interned.Type (IntersectId, RecNodeId (..), pattern IntersectId)
-import qualified Data.Tree.FTA.Interned.Type as Common
-import Data.Tree.FTA.Symbol (Symbol)
 
 -- | Equality-constrained specialization. The wrapper has no runtime cost.
 newtype Node symbol = ECTANode (Common.Node symbol EqConstraints)

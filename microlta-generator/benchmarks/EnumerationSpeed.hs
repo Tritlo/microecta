@@ -18,6 +18,7 @@ import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
 import Text.Printf (printf)
 
+import qualified Data.CFTA as FTA
 import Data.ECTA
 import qualified Data.ECTA.FTA as ECTAFTA
 import Data.ECTA.Term (Symbol (Symbol))
@@ -32,7 +33,6 @@ import Data.LTA (
     unconstrainedConstraint,
  )
 import Data.LTA.Refinement (true)
-import qualified Data.Tree.FTA as FTA
 
 -- | One row: every repeat prepares its own language before timing starts.
 data Bench = forall language. Bench

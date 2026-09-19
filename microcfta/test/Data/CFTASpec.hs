@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Data.Tree.FTASpec (spec) where
+module Data.CFTASpec (spec) where
 
 import Data.Functor.Identity (runIdentity)
 import Data.Hashable (Hashable (..))
@@ -11,13 +11,13 @@ import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
-import Data.Tree.FTA (Transition (Transition))
-import qualified Data.Tree.FTA as Automaton
-import Data.Tree.FTA.Constraint (Constraint (..))
-import qualified Data.Tree.FTA.Generic as Datatype
-import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.FTA.Path (getPath, path, pathsMatching, requirePath, statesAt)
-import Data.Tree.FTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
+import Data.CFTA (Transition (Transition))
+import qualified Data.CFTA as Automaton
+import Data.CFTA.Constraint (Constraint (..))
+import qualified Data.CFTA.Generic as Datatype
+import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Path (getPath, path, pathsMatching, requirePath, statesAt)
+import Data.CFTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
     deriving (Eq, Ord, Show)

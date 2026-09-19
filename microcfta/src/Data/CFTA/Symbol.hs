@@ -4,7 +4,7 @@ A 'Symbol' is interned text: equality, ordering, and hashing use the interned
 identity, so comparing two symbols costs the same whatever their length.
 Construct and match symbols with the 'Symbol' pattern or a string literal.
 -}
-module Data.Tree.FTA.Symbol (Symbol (.., Symbol)) where
+module Data.CFTA.Symbol (Symbol (.., Symbol)) where
 
 import Data.Hashable (Hashable (..))
 import qualified Data.Interned as Interned

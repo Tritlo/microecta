@@ -12,9 +12,9 @@ module Data.LTA.Denotation (
 
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
+import qualified Data.CFTA as FTA
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Tree as Tree
-import qualified Data.Tree.FTA as FTA
 
 import Data.LTA.Automaton (Automaton, Transition, transitionConstraint)
 import Data.LTA.Constraint (unconstrainedConstraint)

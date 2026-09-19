@@ -18,11 +18,11 @@ import Data.Typeable (Typeable)
 import Data.Bifunctor (bimap)
 import Data.Hashable (Hashable)
 
+import Data.CFTA (StateView (..), ViewPath)
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Common
 import Data.ECTA.Internal.ECTA.Type (Edge (ECTAEdge), Node, fromInterned, toInterned)
 import Data.ECTA.Paths (EqConstraints)
-import Data.Tree.FTA (StateView (..), ViewPath)
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Interned as Common
 
 -- | Stable state identity in the FTA view of an ECTA.
 type ECTAState = Common.InternedState

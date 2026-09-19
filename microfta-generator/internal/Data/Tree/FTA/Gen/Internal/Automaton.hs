@@ -16,6 +16,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
+import qualified Data.CFTA as FTA
 import Data.Ranked.Internal.Size (
     SizeIndex,
     choiceIndex,
@@ -24,7 +25,6 @@ import Data.Ranked.Internal.Size (
     productIndex,
     withMinimumMemberSize,
  )
-import qualified Data.Tree.FTA as FTA
 
 {- | Count accepting runs by their number of tree nodes.
 

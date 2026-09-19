@@ -52,10 +52,10 @@ import qualified Data.Text as Text
 
 import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
+import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Interned.Memo (memo2)
+import Data.CFTA.Path (Path (..), Pathable (..), isStrictSubpath, isSubpath, path, substSubpath, unPath)
 import Data.Text.Extended.Pretty
-import Data.Tree.FTA.Constraint (Constraint (..))
-import Data.Tree.FTA.Interned.Memo (memo2)
-import Data.Tree.FTA.Path (Path (..), Pathable (..), isStrictSubpath, isSubpath, path, substSubpath, unPath)
 
 -------------------------------------------------------
 

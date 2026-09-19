@@ -28,6 +28,7 @@ module Data.LTA.Constraint (
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 
+import Data.CFTA.Constraint (Constraint (..))
 import Data.ECTA.Paths (
     EqConstraints (EmptyConstraints),
     Path,
@@ -36,7 +37,6 @@ import Data.ECTA.Paths (
     subsumptionOrderedEclasses,
     unPathEClass,
  )
-import Data.Tree.FTA.Constraint (Constraint (..))
 
 import Data.LTA.Types (Refinement)
 

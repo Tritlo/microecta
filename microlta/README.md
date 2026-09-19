@@ -1,6 +1,6 @@
 # microlta
 
-`microlta` is the Liquid Tree Automata layer over `microfta`'s `Data.Tree.FTA`.
+`microlta` is the Liquid Tree Automata layer over `microfta`'s `Data.CFTA`.
 It also uses `microecta` for equality constraints and the optional ECTA bridge.
 Concrete annotated terms use `Data.Tree.Tree LiquidSymbol`. Construct a node
 with `Tree.Node (LiquidSymbol symbol refinement) children`. The label retains
@@ -16,7 +16,7 @@ boundary; `Data.LTA.LiquidFixpoint.withZ3` supplies the reusable Z3
 implementation.
 
 `LiquidConstraint` implements the common engine's pure `Constraint` interface.
-You can construct `Data.Tree.FTA.Interned.Node LiquidSymbol LiquidConstraint`
+You can construct `Data.CFTA.Interned.Node LiquidSymbol LiquidConstraint`
 with the same interned nodes and edges used by FTA and ECTA. `fromInterned`
 retains its refinements and guards, assigns explicit state names, and runs the
 normal LTA validation. It rejects open graphs and guards that inspect recursive
@@ -271,7 +271,7 @@ directional, not a symmetric logical meet.
 
 `prune solver automaton` implements both rules behind the paper's pruning pass
 and returns another LTA.
-For `P-Syn-Eq`, it uses the ordinary `Data.Tree.FTA.intersectWith` product to
+For `P-Syn-Eq`, it uses the ordinary `Data.CFTA.intersectWith` product to
 narrow the first position to the structural language also admitted at the
 second. For `P-Sem-Ent`, it partitions transition sets at the observed positions
 by refinement; actual/formal positions are partitioned by both refinement and

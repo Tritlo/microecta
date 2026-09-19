@@ -8,6 +8,7 @@ import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldReturn)
 
+import qualified Data.CFTA.Generic as Datatype
 import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
     Automaton,
@@ -26,7 +27,6 @@ import Data.LTA (
  )
 import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.Refinement (true)
-import qualified Data.Tree.FTA.Generic as Datatype
 
 -- | Two compact shared subtrees with equal languages and distinct state names.
 sharedSubtreeAutomaton :: Int -> Symbol -> Either AutomatonError Automaton

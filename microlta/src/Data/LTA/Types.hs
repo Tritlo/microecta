@@ -16,7 +16,7 @@ import Data.Hashable (Hashable)
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
-import Data.Tree.FTA.Symbol (Symbol)
+import Data.CFTA.Symbol (Symbol)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A logical refinement understood by Liquid Fixpoint.

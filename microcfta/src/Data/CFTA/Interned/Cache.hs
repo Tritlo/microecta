@@ -21,7 +21,7 @@ The cache never evicts and holds every distinct value ever interned, so it
 grows with the size of that set and is never released. See the memory section
 of the package README.
 -}
-module Data.Tree.FTA.Interned.Cache (
+module Data.CFTA.Interned.Cache (
     Id,
     Cache,
     freshCacheWith,

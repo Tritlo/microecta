@@ -42,12 +42,12 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Tree (Tree)
 
+import Data.CFTA (StateView (..), ViewPath)
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Interned
+import Data.CFTA.Path (statesAt)
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Paths (EqConstraints, Path, unPath)
-import Data.Tree.FTA (StateView (..), ViewPath)
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Interned as Interned
-import Data.Tree.FTA.Path (statesAt)
-import Data.Tree.FTA.Symbol (Symbol)
 
 import Data.LTA.Constraint (
     LiquidConstraint (constraintEqualities),

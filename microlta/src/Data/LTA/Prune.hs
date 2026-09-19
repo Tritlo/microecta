@@ -23,6 +23,8 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Set as Set
 
+import qualified Data.CFTA as FTA
+import Data.CFTA.Path (statesAt)
 import Data.ECTA.Paths (
     EqConstraints (EmptyConstraints),
     Path,
@@ -31,8 +33,6 @@ import Data.ECTA.Paths (
     mkEqConstraints,
     unPath,
  )
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Path (statesAt)
 
 import Data.LTA.Automaton (
     Automaton,

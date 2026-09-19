@@ -10,13 +10,13 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
+import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Interned (Node (Node))
+import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
+import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
 import qualified Data.ECTA as ECTA
 import Data.ECTA.Paths (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import qualified Data.Ranked.Internal as Ranked
-import Data.Tree.FTA.Constraint (Constraint)
-import Data.Tree.FTA.Interned (Node (Node))
-import Data.Tree.FTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
-import Data.Tree.FTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
 
 -- | A constructor context whose variables denote whole subtree languages.
 data Fragment symbol = Variable Int | Constructor symbol [Fragment symbol]

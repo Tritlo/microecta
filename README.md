@@ -25,15 +25,15 @@ flowchart BT
 ```
 
 Concrete terms use `Data.Tree.Tree` from `containers`.
-`microfta` owns the shared `Data.Tree.FTA.Interned` engine,
-and the named-state `Data.Tree.FTA` graph. The interned engine has the types
+`microfta` owns the shared `Data.CFTA.Interned` engine,
+and the named-state `Data.CFTA` graph. The interned engine has the types
 `Node symbol constraint` and `Edge symbol constraint`. Ordinary automata use
 `()`, ECTAs use `EqConstraints`, and LTAs can use `LiquidConstraint`.
 Interning, recursive substitution, traversal, union, and structural intersection
 use the same implementation. Constraint interpretation stays in its own layer.
 `Data.LTA.fromInterned` validates an interned liquid graph for LTA operations.
 
-Ordinary and equality-constrained automata are built with `Data.Tree.FTA.mkFTA`.
+Ordinary and equality-constrained automata are built with `Data.CFTA.mkFTA`.
 `Data.LTA.Syntax` owns refinement-labelled transitions whose guards use the
 paper's complete Boolean LTA constraint language. Constraint theories remain
 in their own namespaces.
@@ -183,7 +183,7 @@ source archives of its workspace dependencies. Publish `microfta` first,
 then `microfta-generator` and `microecta`, then `microecta-generator` and
 `microlta`, and finally `microlta-generator`.
 
-Code that imports `Data.Tree.FTA` or `Data.Tree.FTA.Interned`
+Code that imports `Data.CFTA` or `Data.CFTA.Interned`
 must declare `microfta`.
 Code that imports `Data.Tree` directly must declare `containers`.
 Code that imports `Data.Ranked` or `Data.Tree.FTA.Gen` must declare

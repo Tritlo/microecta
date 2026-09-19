@@ -7,10 +7,10 @@ import Control.Monad (unless)
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Generic (Constructor, deriveFTAWith, domain)
+import qualified Data.CFTA.Interned as Common
 import qualified Data.Ranked as Ranked
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
-import Data.Tree.FTA.Generic (Constructor, deriveFTAWith, domain)
-import qualified Data.Tree.FTA.Interned as Common
 
 -- | All four ordered pairs of the leaf choices.
 pairs :: FTA.FTAGen Constructor (Int, Int)

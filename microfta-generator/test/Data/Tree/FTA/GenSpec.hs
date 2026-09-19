@@ -18,12 +18,12 @@ import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
 import Control.Monad (void)
+import qualified Data.CFTA as Automaton
+import qualified Data.CFTA.Generic as Datatype
+import qualified Data.CFTA.Interned as Common
 import qualified Data.Ranked as Ranked
 import qualified Data.Tree as Tree
-import qualified Data.Tree.FTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
-import qualified Data.Tree.FTA.Generic as Datatype
-import qualified Data.Tree.FTA.Interned as Common
 import qualified Data.Tree.FTA.UntypedExpressionLanguage as Expressions
 
 -- | A derived recursive fixture with named child positions.

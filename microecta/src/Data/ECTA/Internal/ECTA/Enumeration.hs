@@ -75,14 +75,14 @@ import qualified Data.Tree as Tree
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, typeRep)
 
+import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Interned.Memo (TypeableMemoCache, memoTypeableWith, newTypeableMemoCache)
 import Data.ECTA.Internal.ECTA.Operations
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (UVar, UVarGen, UnionFind, intToUVar, uvarToInt)
 import qualified Data.Persistent.UnionFind as UnionFind
-import qualified Data.Tree.FTA.Interned as Common
-import Data.Tree.FTA.Interned.Memo (TypeableMemoCache, memoTypeableWith, newTypeableMemoCache)
 
 -------------------------------------------------------------------------------
 

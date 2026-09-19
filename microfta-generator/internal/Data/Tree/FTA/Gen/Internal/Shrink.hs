@@ -9,7 +9,7 @@ import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 
-import Data.Tree.FTA (
+import Data.CFTA (
     PlainFTA,
     initialState,
     transitionChildren,

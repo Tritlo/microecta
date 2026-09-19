@@ -16,7 +16,7 @@ belong to `microfta-generator`. This package adds ECTA sources, equality and
 relational joins, retained key groups, and recursive generation above that
 foundation. Applications that directly import the shared or FTA modules must
 also declare `microfta-generator` in `build-depends`, and `microfta` for the
-`Data.Tree.FTA` and `Data.Tree.FTA.Generic` modules used below.
+`Data.CFTA` and `Data.CFTA.Generic` modules used below.
 
 Add the package to `build-depends` and import the QuickCheck-facing API:
 
@@ -32,7 +32,7 @@ import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 ## Generator API
 
 `fromFTAUpToDepth` compiles a handwritten FTA annotated with `EqConstraints`.
-Use `Data.Tree.FTA.annotate` to add constraints to its existing transitions.
+Use `Data.CFTA.annotate` to add constraints to its existing transitions.
 `fromDatatypeUpToDepth` accepts a derived `TypedFTA EqConstraints a` and returns
 typed values. Both functions are available from the QuickCheck API.
 

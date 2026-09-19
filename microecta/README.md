@@ -33,7 +33,7 @@ terms. ECTA-specific path operations and pretty-printing remain in this package.
 `Data.ECTA.FTA.toFTA` exposes an ECTA through the shared graph and retains its
 `EqConstraints` annotations. These operations do not solve or discard
 equality constraints.
-Applications that directly import `Data.Tree.FTA` must declare `microfta`
+Applications that directly import `Data.CFTA` must declare `microfta`
 in `build-depends`. Direct `Data.Tree` imports require `containers`.
 
 ## Core API
@@ -361,7 +361,7 @@ the pieces that downstream projects still use:
   facade. These modules are exposed for downstream code that already relies on
   lower-level operations, but new code should start with `Data.ECTA`.
 - The interning and memo tables live in `microfta`, under
-  `Data.Tree.FTA.Interned`. `Data.Persistent.UnionFind` and the remaining
+  `Data.CFTA.Interned`. `Data.Persistent.UnionFind` and the remaining
   utilities belong to ECTA. Import these support modules directly only when
   extending the internals.
 

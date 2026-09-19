@@ -1,12 +1,12 @@
 cabal-version: 3.0
-name: microfta
+name: microcfta
 version: 0.1.0.0
 synopsis: Shared interned tree automata and finite-state graphs
 description:
   Constraint-parameterized interned tree automata with shared recursive
   operations, ordinary first-order trees, and checked finite-state graphs.
 
-homepage: https://github.com/Tritlo/microecta/tree/main/microfta#readme
+homepage: https://github.com/Tritlo/microecta/tree/main/microcfta#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
 category: Data
 author: Jimmy Koppel, Matthias Pall Gissurarson
@@ -23,7 +23,7 @@ extra-doc-files:
 source-repository head
   type: git
   location: https://github.com/Tritlo/microecta.git
-  subdir: microfta
+  subdir: microcfta
 
 common warnings
   default-language: Haskell2010
@@ -58,19 +58,19 @@ library
     TypeOperators
     ViewPatterns
 
-  other-modules: Data.Tree.FTA.Internal.Tree
+  other-modules: Data.CFTA.Internal.Tree
   exposed-modules:
-    Data.Tree.FTA
-    Data.Tree.FTA.Constraint
-    Data.Tree.FTA.Generic
-    Data.Tree.FTA.Interned
-    Data.Tree.FTA.Interned.Cache
-    Data.Tree.FTA.Interned.Memo
-    Data.Tree.FTA.Interned.Operations
-    Data.Tree.FTA.Interned.Type
-    Data.Tree.FTA.Path
-    Data.Tree.FTA.Symbol
-    Data.Tree.FTA.Template
+    Data.CFTA
+    Data.CFTA.Constraint
+    Data.CFTA.Generic
+    Data.CFTA.Interned
+    Data.CFTA.Interned.Cache
+    Data.CFTA.Interned.Memo
+    Data.CFTA.Interned.Operations
+    Data.CFTA.Interned.Type
+    Data.CFTA.Path
+    Data.CFTA.Symbol
+    Data.CFTA.Template
 
   build-depends:
     base >=4.22 && <4.23,
@@ -86,13 +86,13 @@ test-suite unit-tests
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  other-modules: Data.Tree.FTASpec
+  other-modules: Data.CFTASpec
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
-    microfta,
+    microcfta,
 
 benchmark enumeration-speed
   import: warnings
@@ -106,5 +106,5 @@ benchmark enumeration-speed
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    microfta,
+    microcfta,
     text >=2.1 && <2.2,

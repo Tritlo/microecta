@@ -66,15 +66,15 @@ import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
 
+import qualified Data.CFTA.Interned.Operations as Common
+import qualified Data.CFTA.Path as Path
+import Data.CFTA.Symbol (Symbol)
 import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
-import qualified Data.Tree.FTA.Interned.Operations as Common
-import qualified Data.Tree.FTA.Path as Path
-import Data.Tree.FTA.Symbol (Symbol)
 
-import Data.Tree.FTA.Interned.Cache (Id)
+import Data.CFTA.Interned.Cache (Id)
 
-import Data.Tree.FTA.Interned.Memo (
+import Data.CFTA.Interned.Memo (
     MemoCache,
     TypeableMemoCache,
     memo2TypeableWith,

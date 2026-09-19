@@ -5,6 +5,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import qualified Data.Map.Strict as Map
 
+import qualified Data.CFTA as FTA
 import Data.LTA (
     Automaton,
     AutomatonError,
@@ -35,7 +36,6 @@ import Data.LTA (
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (value, (.==.), (.>=.))
 import Data.LTA.TestSupport (declarations)
-import qualified Data.Tree.FTA as FTA
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec

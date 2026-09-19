@@ -22,8 +22,8 @@ import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
 import Text.Printf (printf)
 
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Interned as Common
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Common
 
 data Bench = Bench
     { benchName :: String

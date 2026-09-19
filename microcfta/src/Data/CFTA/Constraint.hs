@@ -1,5 +1,5 @@
 -- | Pure operations used by the interned automaton engine.
-module Data.Tree.FTA.Constraint (Constraint (..)) where
+module Data.CFTA.Constraint (Constraint (..)) where
 
 import Data.Hashable (Hashable)
 import Data.Typeable (Typeable)

@@ -10,8 +10,8 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
-import Data.Tree.FTA.Path (Path (Path))
-import Data.Tree.FTA.Symbol (Symbol (Symbol))
+import Data.CFTA.Path (Path (Path))
+import Data.CFTA.Symbol (Symbol (Symbol))
 
 ----------------------------------------------------------------------
 

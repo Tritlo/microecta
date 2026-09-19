@@ -23,6 +23,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Common
 import qualified Data.ECTA as ECTA
 import Data.LTA (
     EqualityAutomaton,
@@ -30,8 +32,6 @@ import Data.LTA (
     State,
     automatonTransitions,
  )
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Interned as Common
 
 -- | A MicroECTA root plus the finite alphabet needed to decode its terms.
 data EqualityView = EqualityView

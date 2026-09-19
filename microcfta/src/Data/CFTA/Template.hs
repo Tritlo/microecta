@@ -7,7 +7,7 @@ the matching terms of an interned graph, and 'restrictFTA' those of an
 explicit-state automaton. Neither interprets transition annotations; a
 constraint theory reduces its constraints afterwards.
 -}
-module Data.Tree.FTA.Template (
+module Data.CFTA.Template (
     Template (..),
     matchesTemplate,
     childTemplates,
@@ -22,11 +22,11 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.Tree.FTA (FTA, Transition (..))
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Constraint (Constraint)
-import Data.Tree.FTA.Interned.Operations (unfoldOuterRec)
-import Data.Tree.FTA.Interned.Type
+import Data.CFTA (FTA, Transition (..))
+import qualified Data.CFTA as FTA
+import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Interned.Operations (unfoldOuterRec)
+import Data.CFTA.Interned.Type
 
 -- | Pattern over first-order terms.
 data Template symbol

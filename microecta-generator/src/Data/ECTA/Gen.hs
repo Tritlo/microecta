@@ -93,6 +93,9 @@ import Data.String (fromString)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
+import qualified Data.CFTA as FTA
+import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
+import qualified Data.CFTA.Interned as Common
 import Data.ECTA (Edge (Edge), Node (Node))
 import qualified Data.ECTA as Core
 import Data.ECTA.Gen.Internal
@@ -108,9 +111,6 @@ import Data.ECTA.Paths (EqConstraints)
 import Data.ECTA.Term (Symbol (Symbol))
 import Data.Ranked.Internal.Sampler
 import Data.Ranked.Internal.Size (choiceIndex)
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
-import qualified Data.Tree.FTA.Interned as Common
 
 -- | Interpret a reified condition as one key projection per side.
 withKeys ::

@@ -11,7 +11,7 @@ a finite language can inspect 'cycleState'. 'intersect' constructs the standard
 reachable product; 'intersectWith' lets a constraint layer decide how matching
 symbols and transition annotations combine.
 -}
-module Data.Tree.FTA (
+module Data.CFTA (
     FTA,
     PlainFTA,
     ProductState (..),
@@ -53,7 +53,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.Tree.FTA.Internal.Tree (StateView (..), ViewPath, termsBy, termsUpToBy, toTreeBy, trimRows)
+import Data.CFTA.Internal.Tree (StateView (..), ViewPath, termsBy, termsUpToBy, toTreeBy, trimRows)
 
 -- | One ranked transition from a parent state to child states.
 data Transition state symbol guard = Transition

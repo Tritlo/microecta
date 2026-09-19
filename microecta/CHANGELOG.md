@@ -12,7 +12,7 @@ or reduces them needs no migration.
   enumeration in this package. Remove the independent graph implementation.
 * Re-export the moved interning, memoization, fixpoint, and hash-join modules
   from `microfta`. Their existing module names remain available.
-* `Symbol` now lives in `microfta` as `Data.Tree.FTA.Symbol`. `Data.ECTA.Term`
+* `Symbol` now lives in `microfta` as `Data.CFTA.Symbol`. `Data.ECTA.Term`
   re-exports it, and `Data.ECTA.Internal.Term` is gone. The `Pretty` instance
   stays in this package.
 * Breaking: use `Data.Tree.Tree` from `containers` for concrete terms.
@@ -20,7 +20,7 @@ or reduces them needs no migration.
   `Data.ECTA.Term` exports only `Symbol`. The ECTA-specific path and pretty
   instances retain their behavior. `Show` and `Read` use the standard `Node`
   record format. Add `containers` for direct `Data.Tree` imports.
-  The ordinary FTA graph remains in `microfta`; direct `Data.Tree.FTA` imports
+  The ordinary FTA graph remains in `microfta`; direct `Data.CFTA` imports
   require a `microfta` dependency.
 * Add `Data.ECTA.FTA` to expose equality-constrained transitions through the
   ordinary graph without discarding their constraints.

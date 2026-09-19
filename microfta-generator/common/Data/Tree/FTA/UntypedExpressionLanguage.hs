@@ -23,7 +23,7 @@ module Data.Tree.FTA.UntypedExpressionLanguage (
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
-import qualified Data.Tree.FTA as Automaton
+import qualified Data.CFTA as Automaton
 import qualified Data.Tree.FTA.Gen.QuickCheck as FTA
 
 -- | Integer expressions with no explicit type annotation.

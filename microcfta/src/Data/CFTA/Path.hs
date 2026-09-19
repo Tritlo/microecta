@@ -8,7 +8,7 @@ alternative, so reading a path from a node gives the union of the languages
 at that position. Constraint theories build their constraints over these
 paths.
 -}
-module Data.Tree.FTA.Path (
+module Data.CFTA.Path (
     Path (.., EmptyPath, ConsPath),
     unPath,
     path,
@@ -28,10 +28,10 @@ import Data.Maybe (mapMaybe, maybeToList)
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.Tree.FTA (Transition (..))
-import Data.Tree.FTA.Constraint (Constraint)
-import Data.Tree.FTA.Interned.Operations (unfoldOuterRec, union)
-import Data.Tree.FTA.Interned.Type
+import Data.CFTA (Transition (..))
+import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Interned.Operations (unfoldOuterRec, union)
+import Data.CFTA.Interned.Type
 
 -- | Path into an edge's children, represented as child indexes.
 newtype Path = Path [Int]

@@ -38,6 +38,8 @@ import Data.String (fromString)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
+import qualified Data.CFTA as FTA
+import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import Data.LTA
 import Data.LTA.Gen.Internal.AutomatonCompile (compileBoundedAutomaton)
 import Data.LTA.Gen.Internal.Error (GeneratorError (..))
@@ -47,8 +49,6 @@ import Data.LTA.Gen.Internal.Types
 import Data.LTA.Gen.Internal.Witness (Witness (..), compileWitnesses)
 import Data.LTA.Guard (GuardBuilder, buildGuard, guardArgumentCount)
 import Data.LTA.Refinement (true)
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 
 -- | Build one refined pool entry.
 refined :: a -> Symbol -> Refinement -> Refined a

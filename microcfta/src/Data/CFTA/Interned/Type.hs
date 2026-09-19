@@ -1,5 +1,5 @@
 -- | Interned nodes and edges with a constraint parameter.
-module Data.Tree.FTA.Interned.Type (
+module Data.CFTA.Interned.Type (
     RecNodeId (..),
     Edge (.., Edge),
     UninternedEdge (..),
@@ -39,10 +39,10 @@ import Type.Reflection (Typeable)
 
 import System.IO.Unsafe (unsafePerformIO)
 
-import Data.Tree.FTA.Interned.Cache
+import Data.CFTA.Interned.Cache
 
-import Data.Tree.FTA.Constraint (Constraint (..))
-import Data.Tree.FTA.Interned.Memo
+import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Interned.Memo
 
 -- Mu node table
 

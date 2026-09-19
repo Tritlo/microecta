@@ -17,6 +17,8 @@ module Data.LTA.Gen.Internal.AutomatonCompile (
 ) where
 
 import Data.Bifunctor (first)
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Interned as Interned
 import Data.ECTA.Gen.Internal.Symbolic (symbolicRankedWith)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import qualified Data.IntMap.Strict as IntMap
@@ -29,10 +31,8 @@ import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Ranked as Ranked
 import qualified Data.Tree as Tree
-import qualified Data.Tree.FTA as FTA
 import qualified Data.Tree.FTA.Gen.Internal.Automaton as Ordinary
 import Data.Tree.FTA.Gen.Internal.Shrink (automatonShrinkRanks)
-import qualified Data.Tree.FTA.Interned as Interned
 
 {- | Prune and rank a finite acyclic LTA.
 

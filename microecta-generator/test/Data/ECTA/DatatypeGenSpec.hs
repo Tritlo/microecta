@@ -13,15 +13,15 @@ import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Generic as Datatype
+import qualified Data.CFTA.Interned as Interned
 import qualified Data.ECTA as Automaton
 import qualified Data.ECTA.Gen as Core
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
 import qualified Data.ECTA.Paths as Paths
 import Data.Ranked.Internal.Sampler (Exact (..))
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Generic as Datatype
-import qualified Data.Tree.FTA.Interned as Interned
 
 -- | Annotate the tuple constructor and leave its field datatypes unchanged.
 equalFields :: [[Int]] -> Datatype.Constructor -> EqConstraints

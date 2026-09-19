@@ -13,6 +13,7 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Text.Read (readMaybe)
 
+import qualified Data.CFTA.Generic as Datatype
 import qualified Data.ECTA as ECTA
 import Data.ECTA.Paths (mkEqConstraints)
 import Data.LTA (
@@ -41,7 +42,6 @@ import qualified Data.LTA.Gen.QuickCheck as LTA
 import Data.LTA.LiquidFixpoint (withZ3)
 import Data.LTA.Refinement (integer, true, (.==.), (.>.))
 import qualified Data.LTA.Refinement as Refinement
-import qualified Data.Tree.FTA.Generic as Datatype
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | Fail if an unconstrained fixture unexpectedly calls the solver.

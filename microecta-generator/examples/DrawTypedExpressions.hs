@@ -8,6 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Data.Tree (Tree, drawTree, flatten)
 
+import qualified Data.CFTA as FTA
 import qualified Data.ECTA as ECTA
 import qualified Data.ECTA.Gen as Gen
 import Data.ECTA.Gen.Example.TypedExpressionLanguage (
@@ -18,7 +19,6 @@ import Data.ECTA.Gen.Example.TypedExpressionLanguage (
  )
 import Data.ECTA.Paths (Path, subsumptionOrderedEclasses, unPath, unPathEClass)
 import Data.ECTA.Term (Symbol (Symbol))
-import qualified Data.Tree.FTA as FTA
 
 -- | Print finite and recursive diagnostic graphs.
 main :: IO ()

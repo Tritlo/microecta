@@ -27,10 +27,10 @@ sampling, and shrinking belong to the separate `microfta-generator` package.
 The table uses these module aliases:
 
 ```haskell
-import qualified Data.Tree.FTA as FTA
-import qualified Data.Tree.FTA.Generic as Generic
-import qualified Data.Tree.FTA.Interned as Common
-import qualified Data.Tree.FTA.Template as Template
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Generic as Generic
+import qualified Data.CFTA.Interned as Common
+import qualified Data.CFTA.Template as Template
 ```
 
 | Operation | API | Result |
@@ -77,8 +77,8 @@ module Main (main) where
 
 import GHC.Generics (Generic)
 
-import qualified Data.Tree.FTA as FTA
-import Data.Tree.FTA.Generic (HasFTA, datatypeDecode, datatypeFTA, deriveFTAWith, domain, encodeTerm)
+import qualified Data.CFTA as FTA
+import Data.CFTA.Generic (HasFTA, datatypeDecode, datatypeFTA, deriveFTAWith, domain, encodeTerm)
 
 -- | Arithmetic expressions with integer literals.
 data Expr = Lit Int | Add Expr Expr
@@ -166,7 +166,7 @@ You can construct a language directly when no Haskell datatype describes it.
 Here is a binary tree whose leaves can each be `"zero"` or `"one"`:
 
 ```haskell
-import qualified Data.Tree.FTA.Interned as Common
+import qualified Data.CFTA.Interned as Common
 
 choices :: Common.PlainNode String
 choices = Common.Node [Common.Edge "zero" [], Common.Edge "one" []]
@@ -202,7 +202,7 @@ state names are part of your application:
 
 ```haskell
 import qualified Data.Tree as Tree
-import Data.Tree.FTA (FTAError, PlainFTA, Transition (Transition), accepts, mkFTA)
+import Data.CFTA (FTAError, PlainFTA, Transition (Transition), accepts, mkFTA)
 
 naturals :: Either (FTAError Int String) (PlainFTA Int String)
 naturals = mkFTA 0 [(0, [Transition "zero" [] (), Transition "successor" [0] ()])]
@@ -216,7 +216,7 @@ oneAccepted = fmap (`accepts` Tree.Node "successor" [Tree.Node "zero" []]) natur
 An automaton checks symbol arities and child-state references at construction.
 Cycles are valid. `PlainFTA` uses `()` for transition annotations.
 
-`Data.Tree.FTA.intersect` constructs reachable product states and pairs the
+`Data.CFTA.intersect` constructs reachable product states and pairs the
 input annotations. Apply `stripGuards` to the result of two plain FTAs before
 calling `accepts`. Use `intersectWith` when you need a different annotation
 combination. `stripGuards` removes annotations; it does not solve constraints.
@@ -239,7 +239,7 @@ the strings for `drawTree`. For the recursive `naturals` grammar above:
 ```haskell
 import Data.List (intercalate)
 import Data.Tree (drawTree)
-import qualified Data.Tree.FTA as FTA
+import qualified Data.CFTA as FTA
 
 -- | Show state names, reference markers, and occurrence locations.
 renderNode :: FTA.StateView Int -> String
@@ -310,14 +310,14 @@ expression of a bounded depth.
 
 | Module | Use it for |
 | --- | --- |
-| `Data.Tree.FTA.Generic` | Datatype derivation, finite domains, metadata, and typed codecs. |
-| `Data.Tree.FTA` | Checked transition graphs, recognition, depth bounds, and product intersection. |
-| `Data.Tree.FTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
-| `Data.Tree.FTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
-| `Data.Tree.FTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
-| `Data.Tree.FTA.Symbol` | Interned text symbols that compare and hash by identity. |
+| `Data.CFTA.Generic` | Datatype derivation, finite domains, metadata, and typed codecs. |
+| `Data.CFTA` | Checked transition graphs, recognition, depth bounds, and product intersection. |
+| `Data.CFTA.Interned` | Shared nodes and edges, recursive languages, union, and intersection. |
+| `Data.CFTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
+| `Data.CFTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
+| `Data.CFTA.Symbol` | Interned text symbols that compare and hash by identity. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
-| `Data.Tree.FTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
+| `Data.CFTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
 
 The interned engine has a symbol type and a constraint type. Ordinary
 languages use `()` as the constraint. A `Constraint` instance supplies
@@ -327,7 +327,7 @@ the graph implementation.
 
 ## Memory and cache lifetime
 
-The explicit-state graphs in `Data.Tree.FTA`, including the datatype tutorial
+The explicit-state graphs in `Data.CFTA`, including the datatype tutorial
 above, are ordinary Haskell values. The garbage collector can reclaim them
 when no references remain.
 
