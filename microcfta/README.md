@@ -387,10 +387,9 @@ Useful operations:
   an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
   `unfoldBounded` first to see past the recursion.
 
-Enumeration lists accepting *runs*, not distinct terms. An ambiguous node --
-two edges that accept a common term -- yields that term once per edge, so run
-`withoutRedundantEdges` first or deduplicate the result if you need each term
-once. And a constraint whose paths descend into a truncated `Mu` is dropped
+`terms` lists each term once even when several runs accept it; `runs` lists
+one entry per accepting run together with the obligations that run must
+satisfy. A constraint whose paths descend into a truncated `Mu` is dropped
 rather than checked, so a term containing the `Mu` marker is not evidence that
 the language below it is non-empty.
 

@@ -97,15 +97,15 @@ constructorLabel constructor = encodeName (typeLabel $ constructorType construct
                 <> concatMap (encodeName . typeLabel) arguments
 
 -- | A checked datatype grammar with the matching typed decoder.
-data TypedFTA guard a = TypedFTA
-    { datatypeFTA :: !(FTA.FTA TypeRep Constructor guard)
+data TypedFTA constraint a = TypedFTA
+    { datatypeFTA :: !(FTA.FTA TypeRep Constructor constraint)
     -- ^ The finite grammar, including any caller-supplied annotations.
     , datatypeDecode :: Tree.Tree Constructor -> Maybe a
     -- ^ Decode a value. The codec does not interpret transition annotations.
     }
 
 -- | Annotate constructors while retaining the grammar and its typed codecs.
-annotateDatatype :: (Constructor -> guard) -> TypedFTA old a -> TypedFTA guard a
+annotateDatatype :: (Constructor -> constraint) -> TypedFTA old a -> TypedFTA constraint a
 annotateDatatype annotate datatype =
     datatype{datatypeFTA = FTA.annotate (\_ -> annotate . FTA.transitionSymbol) $ datatypeFTA datatype}
 
@@ -114,7 +114,7 @@ annotateDatatype annotate datatype =
 Constraint layers can use their own interned string alphabet. The lookup table
 is shared by all calls through one partially applied decoder.
 -}
-decodeLabelledTerm :: TypedFTA guard a -> Tree.Tree String -> Maybe a
+decodeLabelledTerm :: TypedFTA constraint a -> Tree.Tree String -> Maybe a
 decodeLabelledTerm datatype = datatypeDecode datatype <=< restore
   where
     constructors =

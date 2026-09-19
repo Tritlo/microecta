@@ -5,7 +5,6 @@ module Data.CFTA.Interned.Operations (
     nodeMapChildren,
     mapNodes,
     crush,
-    onNormalNodes,
     unfoldOuterRec,
     refold,
     nodeEdges,
@@ -13,7 +12,6 @@ module Data.CFTA.Interned.Operations (
     boundDepth,
     nodeCount,
     edgeCount,
-    maxIndegree,
     union,
     nodeRepresentsWith,
     edgeRepresentsWith,
@@ -22,12 +20,10 @@ module Data.CFTA.Interned.Operations (
     intersect,
     dropRedundantEdges,
     withoutRedundantEdges,
-    getSubnodeById,
     intersectEdge,
     fixUnbounded,
     pathsMatching,
     requirePath,
-    requirePathList,
     onCommon,
 ) where
 
@@ -41,8 +37,7 @@ import qualified Data.IntSet as IntSet
 import Data.List (compareLength, (!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
-import Data.Monoid (First (..), Sum (..))
-import Data.Semigroup (Max (..))
+import Data.Monoid (Sum (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
@@ -268,18 +263,6 @@ edgeCount :: Node symbol constraint -> Int
 edgeCount = getSum . crush (onNormalNodes go)
   where
     go (InternedNode node) = Sum (length (internedNodeEdges node))
-    go _ = mempty
-
-{- | Maximum number of outgoing alternatives on any reachable normal node.
-
-Zero when there is no normal node to count, as for 'EmptyNode': the @Max@
-monoid's identity is @minBound@, which is not an answer anyone can use.
--}
-{-# INLINEABLE maxIndegree #-}
-maxIndegree :: Node symbol constraint -> Int
-maxIndegree = max 0 . getMax . crush (onNormalNodes go)
-  where
-    go (InternedNode node) = Max (length (internedNodeEdges node))
     go _ = mempty
 
 -- | Replace the edge constraint with the unconstrained value.
@@ -591,13 +574,6 @@ withoutRedundantEdges node = memoTypeableWith genericWithoutRedundantEdgesCache 
 
     dropReds (Node es) = Node (dropRedundantEdges es)
     dropReds x = x
-
--- | Find a reachable non-recursive node by its canonical identity.
-{-# INLINEABLE getSubnodeById #-}
-getSubnodeById :: Node symbol constraint -> Id -> Maybe (Node symbol constraint)
-getSubnodeById node ident =
-    getFirst $
-        crush (onNormalNodes $ \current -> if nodeIdentity current == ident then First (Just current) else First Nothing) node
 
 -- | Iterate until stable with no iteration bound.
 fixUnbounded :: (Eq a) => (a -> a) -> a -> a

@@ -29,7 +29,6 @@ module Data.CFTA (
     mapSymbols,
     mapStates,
     trim,
-    trimTable,
     annotate,
     dropConstraints,
     boundDepth,
@@ -56,7 +55,7 @@ import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
-import Data.CFTA.Internal.Tree (StateView (..), ViewPath, termsBy, termsUpToBy, toTreeBy, trimRows)
+import Data.CFTA.Internal.Tree (StateView (..), ViewPath, allM, anyM, termsBy, termsUpToBy, toTreeBy, trimRows)
 import Data.CFTA.Path (Path (ConsPath, EmptyPath))
 
 -- | One ranked transition from a parent state to child states.
@@ -437,12 +436,6 @@ acceptsM check automaton = acceptsFrom (initialState automaton)
             , transitionSymbol transition == symbol
             , length (transitionChildren transition) == length children
             ]
-
-    anyM [] = pure False
-    anyM (action : actions) = action >>= \ok -> if ok then pure True else anyM actions
-
-    allM [] = pure True
-    allM (action : actions) = action >>= \ok -> if ok then allM actions else pure False
 
 {- | The states at a child-index path below a transition of an explicit-state automaton.
 

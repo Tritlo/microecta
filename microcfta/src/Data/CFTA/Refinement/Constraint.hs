@@ -20,7 +20,6 @@ module Data.CFTA.Refinement.Constraint (
     guardPaths,
     symbolSensitivePaths,
     constraintPaths,
-    combineGuards,
     splitGuard,
     conjoin,
 ) where
@@ -69,8 +68,8 @@ instance Hashable Guard
 {- | A complete LTA constraint with an optional normalized equality cache.
 
 The authoritative semantics is the full Boolean 'Guard', including 'Same'. The
-equality field is a compiled positive-conjunction form used by the MicroECTA
-optimization. 'constraintAsGuard' always recovers the complete paper-level
+equality field is a compiled positive-conjunction form that the equality
+reduction and the enumerator use. 'constraintAsGuard' always recovers the complete paper-level
 constraint, so the split representation cannot erase Boolean equality.
 -}
 data LiquidConstraint = LiquidConstraint

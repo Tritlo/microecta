@@ -10,7 +10,6 @@ constraint theory reduces its constraints afterwards.
 module Data.CFTA.Template (
     Template (..),
     matchesTemplate,
-    childTemplates,
     restrict,
     restrictFTA,
 ) where

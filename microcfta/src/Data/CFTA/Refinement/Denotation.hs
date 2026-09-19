@@ -21,6 +21,7 @@ import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Enumeration (plainTermsAtMost, runs, unconstrained)
+import Data.CFTA.Internal.Tree (allM, anyM)
 import Data.CFTA.Interned (boundDepth, edgeChildren, edgeConstraint, edgeSymbol, nodeEdges)
 import Data.CFTA.Refinement.Automaton (Automaton)
 import Data.CFTA.Refinement.Constraint (LiquidConstraint)
@@ -64,9 +65,6 @@ accepts entailment automaton term = do
             No -> pure False
             Unknown -> writeIORef undecided True >> pure False
 
-    anyM [] = pure False
-    anyM (action : actions) = action >>= \ok -> if ok then pure True else anyM actions
-
 {- | Materialize the Figure 6 denotation up to a tree-height bound.
 
 A leaf has height zero. The bound makes this reference interpreter total for
@@ -96,7 +94,3 @@ denotationAtMost entailment bound automaton
             Yes -> pure True
             No -> pure False
             Unknown -> throwError (EnumerationUnknown constraint term)
-
-allM :: (Monad m) => [m Bool] -> m Bool
-allM [] = pure True
-allM (action : actions) = action >>= \ok -> if ok then allM actions else pure False

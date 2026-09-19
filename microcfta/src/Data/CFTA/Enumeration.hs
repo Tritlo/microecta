@@ -38,7 +38,6 @@ module Data.CFTA.Enumeration (
     -- * Fragments
     TermFragment (..),
     PartialSymbol (..),
-    termFragToTruncatedTerm,
     EnumerateM,
 ) where
 
@@ -100,7 +99,7 @@ constraints, which is where enumeration stops. A recursive node that still has
 constraints pending is a 'UVarHole', because it may still be expanded.
 -}
 data PartialSymbol symbol
-    = -- | A symbol from the ECTA's alphabet.
+    = -- | A symbol from the automaton's alphabet.
       ConcreteSymbol !symbol
     | -- | An unexpanded enumeration variable.
       UVarHole !UVar
@@ -115,12 +114,6 @@ instance (Hashable symbol) => Hashable (PartialSymbol symbol) where
         salt `hashWithSalt` (1 :: Int) `hashWithSalt` (uvarToInt uv)
     hashWithSalt salt TruncatedRecursion =
         salt `hashWithSalt` (2 :: Int)
-
--- | Convert a fragment to a term while retaining holes outside the alphabet.
-termFragToTruncatedTerm :: TermFragment symbol -> Tree.Tree (PartialSymbol symbol)
-termFragToTruncatedTerm (TermFragmentNode symbol children) =
-    Tree.Node (ConcreteSymbol symbol) (map termFragToTruncatedTerm children)
-termFragToTruncatedTerm (TermFragmentUVar uv) = Tree.Node (UVarHole uv) []
 
 ---------------------------------------------------------------------------
 ------------------------------ Enumeration state --------------------------
@@ -156,9 +149,9 @@ descendScs i scs =
 
 -- | Enumeration status for one UVar.
 data UVarValue symbol constraint
-    = -- | UVar still has an ECTA node to expand.
+    = -- | UVar still has a node to expand.
       UVarUnenumerated
-        -- | ECTA node still to enumerate, or 'Nothing' for pure constraint variables.
+        -- | Node still to enumerate, or 'Nothing' for pure constraint variables.
         !(Maybe (Node symbol constraint))
         -- | Constraints that should be carried while enumerating this value.
         !(Seq SuspendedConstraint)
@@ -521,7 +514,7 @@ enumerateFully =
 The oracle is called twice around each UVar it expands:
 
 * @Right node@ is passed before expanding the node, so callers can drop a
-  whole branch early when the ECTA about to be expanded is already known to
+  whole branch early when the node about to be expanded is already known to
   be uninteresting.
 * @Left fragment@ is passed after expansion, together with the UVar it came
   from, so callers can reject the fragment or update their state before
@@ -708,8 +701,9 @@ termsPruneWith recursionSymbol ost order oracle n =
 
 Path equalities are solved by unification. Enumeration stops at a recursive
 binder and reports it as the marker term @Mu@ rather than unfolding it;
-unfold first with 'unfoldBounded' to see past it, or use 'plainTerms' for
-the lazy, depth-ordered listing of an automaton without constraints. An
+bound the depth first with 'boundDepth' to see past it, or use 'plainTerms'
+and 'plainTermsAtMost' for the depth-ordered listing of an automaton without
+constraints. An
 acyclic automaton with no constraint anywhere is listed level by level
 without the enumeration state. A constraint's residual beyond its equalities
 is not decided here: use 'runs' to see it with the subterm it guards.
@@ -761,7 +755,7 @@ runsWith recursionSymbol n =
         pending <- mapM (\(constraint, fragment) -> (constraint,) <$> expandTermFragWith recursionSymbol fragment) obligations
         return (term, pending)
 
--- | Each term once, in the enumeration order of its first run.
+-- | Each term once, in the enumeration order of its first run. The order is kept, unlike a set.
 dedup :: (Ord symbol) => [Tree.Tree symbol] -> [Tree.Tree symbol]
 dedup = go Set.empty
   where

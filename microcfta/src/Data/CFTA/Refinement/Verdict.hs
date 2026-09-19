@@ -17,8 +17,6 @@ module Data.CFTA.Refinement.Verdict (
     SemanticIntersection (..),
     semanticIntersection,
     negateVerdict,
-    andVerdict,
-    orVerdict,
     andM,
     orM,
 ) where

@@ -9,7 +9,6 @@ theory; the interned 'Symbol' alphabet with 'EqConstraints' has its own table.
 -}
 module Data.CFTA.Equality.Operations (
     nodeRepresents,
-    edgeRepresents,
     reducePartially,
     reduceEdgeIntersection,
     reduceEqConstraints,
@@ -66,10 +65,6 @@ equalitiesSatisfied constraints t = all eclassSatisfied (unsafeGetEclasses const
 -- | Recognize through the common traversal and the equality interpreter.
 nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Tree.Tree symbol -> Bool
 nodeRepresents = nodeRepresentsWith equalitiesSatisfied
-
--- | Recognize one edge through the common traversal.
-edgeRepresents :: (Hashable symbol, Typeable symbol) => Edge symbol EqConstraints -> Tree.Tree symbol -> Bool
-edgeRepresents = edgeRepresentsWith equalitiesSatisfied
 
 ------------------------------------
 ------ Reduction

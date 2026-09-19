@@ -17,7 +17,6 @@ module Data.CFTA.Refinement.Automaton (
     transitionRefinement,
     transitionChildren,
     transitionConstraint,
-    transitionEqualities,
     AutomatonError (..),
     validate,
     explicitView,
@@ -35,7 +34,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Constraint.Equality (EqConstraints)
 import Data.CFTA.Interned (
     Edge (InternedEdge),
     FTAViewError (..),
@@ -53,7 +51,7 @@ import Data.CFTA.Interned (
 import Data.CFTA.Path (Path, unPath)
 import Data.CFTA.Symbol (Symbol)
 
-import Data.CFTA.Refinement.Constraint (LiquidConstraint (constraintEqualities), constraintPaths)
+import Data.CFTA.Refinement.Constraint (LiquidConstraint, constraintPaths)
 import Data.CFTA.Refinement.Types (LiquidSymbol (LiquidSymbol), Refinement)
 
 -- | A liquid tree automaton: an interned graph with refined symbols and liquid constraints.
@@ -87,10 +85,6 @@ transitionChildren = edgeChildren
 -- | Complete equality and semantic constraint attached to a transition.
 transitionConstraint :: Transition -> LiquidConstraint
 transitionConstraint = edgeConstraint
-
--- | ECTA equality classes attached to a transition.
-transitionEqualities :: Transition -> EqConstraints
-transitionEqualities = constraintEqualities . transitionConstraint
 
 -- | A structural error found while validating an automaton.
 data AutomatonError
@@ -139,7 +133,7 @@ validate root = do
                 | expected == length children -> consistentArity known rest
                 | otherwise -> Left $ InconsistentArity symbol expected (length children)
 
--- | The explicit-state view of an LTA, with one state per reachable node.
+-- | 'toFTA' with the LTA error vocabulary: one state per reachable node.
 explicitView :: Automaton -> Either AutomatonError (FTA.FTA InternedState LiquidSymbol LiquidConstraint)
 explicitView = first viewError . toFTA
   where

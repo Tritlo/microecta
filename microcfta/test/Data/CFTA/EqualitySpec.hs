@@ -329,11 +329,6 @@ spec = do
                     \(n :: Node Symbol EqConstraints) -> HashSet.fromList (terms n) `shouldBe` HashSet.fromList (terms $ reducePartially n)
 
     describe "degenerate inputs" $ do
-        it "maxIndegree of a node with nothing to count is zero" $ do
-            maxIndegree EmptyNode `shouldBe` 0
-            maxIndegree (Node [Edge "a" []] :: Node Symbol EqConstraints) `shouldBe` 1
-            maxIndegree ex3 `shouldBe` 2
-
         it "a non-positive unfold bound terminates" $ do
             terms (unfoldBounded 0 intTest7) `shouldBe` []
             terms (unfoldBounded (-1) intTest7) `shouldBe` []

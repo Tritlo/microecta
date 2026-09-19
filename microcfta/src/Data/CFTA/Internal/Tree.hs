@@ -10,6 +10,8 @@ module Data.CFTA.Internal.Tree (
     termsBy,
     termLevelsBy,
     termsUpToBy,
+    allM,
+    anyM,
 ) where
 
 import Control.Monad (filterM, zipWithM)
@@ -207,3 +209,13 @@ adjustAt i f xs
     | otherwise = case splitAt i xs of
         (prefix, x : suffix) -> prefix ++ f x : suffix
         _ -> xs
+
+-- | Whether every action succeeds, stopping at the first failure.
+allM :: (Monad m) => [m Bool] -> m Bool
+allM [] = pure True
+allM (action : actions) = action >>= \ok -> if ok then allM actions else pure False
+
+-- | Whether some action succeeds, stopping at the first success.
+anyM :: (Monad m) => [m Bool] -> m Bool
+anyM [] = pure False
+anyM (action : actions) = action >>= \ok -> if ok then pure True else anyM actions

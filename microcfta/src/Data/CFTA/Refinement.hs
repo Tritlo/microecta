@@ -61,7 +61,6 @@ module Data.CFTA.Refinement (
     transitionRefinement,
     transitionChildren,
     transitionConstraint,
-    transitionEqualities,
     AutomatonError (..),
     validate,
     explicitView,
