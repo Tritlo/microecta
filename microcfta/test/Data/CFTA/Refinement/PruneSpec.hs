@@ -15,6 +15,7 @@ import Data.CFTA.Refinement (
     AutomatonError,
     Entailment (Entailment),
     EnumerationError,
+    EqualityAutomaton,
     Guard (And, Entails, Not, Or, Same, Satisfies, Substitute, Top),
     LiquidConstraint,
     LiquidSymbol (LiquidSymbol),
@@ -31,7 +32,6 @@ import Data.CFTA.Refinement (
     mkAutomaton,
     path,
     prune,
-    pruneToECTA,
     semanticConstraint,
     transitionChildren,
     transitionSymbol,
@@ -44,6 +44,10 @@ import qualified Data.CFTA.Refinement.Guard as Guard
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Refinement.TestSupport (declarations)
 import qualified Language.Fixpoint.Types as Fixpoint
+
+-- | Prune, then lower the survivors to an equality automaton.
+pruneLowered :: Entailment -> Automaton -> IO (Either PruneError EqualityAutomaton)
+pruneLowered solver automaton = fmap (>>= lowerToEqualityAutomaton) (prune solver automaton)
 
 spec :: Spec
 spec =
@@ -92,7 +96,7 @@ spec =
                     traverse (accepts solver original) optionalDescendantTerms >>= (`shouldBe` [No, Yes])
                     checkPrunedLanguage solver (Right original :: Either AutomatonError Automaton) optionalDescendantTerms 1
                     lowerToEqualityAutomaton original `shouldBe` Left (ResidualLTAConstraint (State 0) guard)
-                    pruneToECTA solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
+                    pruneLowered solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
 
         it "lowers reflexive equality when every transition has the observed path" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
@@ -191,7 +195,7 @@ spec =
                             Right reduced -> do
                                 denotationAtMost solver 1 reduced >>= either (expectationFailure . show) (`shouldMatchList` map term acceptedPairs)
                                 lowerToEqualityAutomaton reduced `shouldBe` Left (ResidualLTAConstraint (State 0) guard)
-                        pruneToECTA solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
+                        pruneLowered solver original >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) guard))
             mapM_
                 check
                 [ (scope same, equalPairs)
@@ -228,7 +232,7 @@ spec =
                 case syntacticPairs of
                     Left err -> expectationFailure $ show err
                     Right original -> do
-                        result <- pruneToECTA solver original
+                        result <- pruneLowered solver original
                         case result of
                             Left err -> expectationFailure $ show err
                             Right reduced ->
@@ -285,7 +289,7 @@ spec =
                             Right lta ->
                                 traverse (accepts solver lta) syntacticPairTerms
                                     >>= (`shouldBe` [No, Yes, Yes])
-                        pruneToECTA solver original
+                        pruneLowered solver original
                             >>= (`shouldBe` Left (ResidualLTAConstraint (State 0) negativeEquality))
 
         it "lowers nested positive conjunctions in every requirement order" $
@@ -300,7 +304,7 @@ spec =
                             Left err -> expectationFailure $ show err
                             Right original -> do
                                 before <- denotationAtMost solver 1 original
-                                result <- pruneToECTA solver original
+                                result <- pruneLowered solver original
                                 case result of
                                     Left err -> expectationFailure $ show err
                                     Right reduced -> do

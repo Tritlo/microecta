@@ -970,7 +970,8 @@ transition directly into a domain value and leave the term witness lazy.
 Use `compile` with `fromLTA` for a bounded source that composes with other sources.
 
 The authoritative representation remains an LTA. Pruning returns an LTA;
-`pruneToECTA` is an optional lowering for positive conjunctive equality. Negated
+`lowerToEqualityAutomaton` is an optional lowering for positive conjunctive
+equality. Negated
 or disjunctive equality stays in the LTA and uses the symbolic counter. Core
 `denotationAtMost` remains an explicit bounded reference evaluator.
 

@@ -908,9 +908,9 @@ the LTA: sparse root observations cannot always determine whether two actuals
 share a value. In that case pruning retains the original transition and guard.
 `accepts` and `denotationAtMost` continue to evaluate the complete terms.
 
-`pruneToECTA solver automaton` is a separate optimization. After ordinary LTA
-pruning, it lowers residual `Top`, positive `Same`, and conjunctions of those
-atoms to `EqConstraints`. Product intersection can remove disjoint
+`lowerToEqualityAutomaton` is a separate optimization. After `prune`, it
+lowers residual `Top`, positive `Same`, and conjunctions of those atoms to
+`EqConstraints`. Product intersection can remove disjoint
 choices, but equality between independently selected arbitrary subtrees is not
 in general a regular tree language. A negated, disjunctive, or still-semantic
 constraint remains an LTA and makes this optional lowering fail explicitly.

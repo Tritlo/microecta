@@ -10,7 +10,6 @@ that fail, and the states they strand, are removed to a fixed point.
 module Data.CFTA.Refinement.Prune (
     PruneError (..),
     prune,
-    pruneToECTA,
     lowerToEqualityAutomaton,
     ReductionError (..),
     reduce,
@@ -85,29 +84,6 @@ data PruneError
     | -- | Pruning exposed an invalid automaton structure.
       InvalidPrunedAutomaton !AutomatonError
     deriving (Eq, Show)
-
-{- | Remove semantically impossible transitions and lower the result to ECTA.
-
-This is the transition-level boundary used by generated LTAs. A guard is
-discharged by partitioning the transition sets at every finite position it
-observes. A partition is homogeneous in the refinement needed by ordinary
-entailment, or in both symbol and refinement where substitution names a value.
-Successful combinations become specialized states; failed combinations and
-newly dead states are removed to a fixed point. The returned automaton retains
-only normalized ECTA equality classes. This is the paper's semantic-intersection
-rule, expressed as explicit state splitting without materializing an accepted
-tree.
-
-For a required syntactic equality, the paper's ordinary FTA product intersection
-narrows the first position to terms also admitted at the second. The equality
-class remains on the returned ECTA: intersection can discard disjoint
-sub-languages, but equality between two independently chosen arbitrary subtrees
-is not in general a regular tree language.
--}
-pruneToECTA :: Entailment -> Automaton -> IO (Either PruneError EqualityAutomaton)
-pruneToECTA entailment automaton = do
-    reduced <- prune entailment automaton
-    pure $ reduced >>= lowerToEqualityAutomaton
 
 {- | Lower a reduced LTA to ECTA when every residual guard is positive equality.
 

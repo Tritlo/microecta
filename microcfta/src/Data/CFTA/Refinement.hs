@@ -90,7 +90,6 @@ module Data.CFTA.Refinement (
     mkAutomaton,
     mkAutomatonWithFinals,
     lowerToEqualityAutomaton,
-    pruneToECTA,
     prune,
     accepts,
     denotationAtMost,
