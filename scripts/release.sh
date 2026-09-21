@@ -5,7 +5,7 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microecta or microecta-generator.
+PACKAGE must be microcfta or microcfta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -22,7 +22,8 @@ package="$1"
 shift
 
 case "$package" in
-  microecta|microecta-generator) ;;
+  microcfta) dependencies=() ;;
+  microcfta-generator) dependencies=(microcfta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
 
@@ -63,17 +64,24 @@ fi
 
 shopt -s nullglob
 release_build_dir="dist-newstyle/release/$package"
+cabal clean --builddir="$release_build_dir"
 mkdir -p "$release_build_dir/sdist"
-rm -f "$release_build_dir"/"$package"-[0-9]*-docs.tar.gz
-rm -f "$release_build_dir"/sdist/"$package"-[0-9]*.tar.gz
 
 echo "=== Checking $package-$version ==="
 (
   cd "$package"
   cabal check
 )
-cabal test --builddir="$release_build_dir" "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
-cabal haddock --builddir="$release_build_dir" --haddock-for-hackage "lib:$package" --ghc-options=-Werror
+cabal test --builddir="$release_build_dir" "$package" -O2 --ghc-options=-Werror --test-show-details=direct
+if [[ ${#dependencies[@]} -gt 0 ]]; then
+  documentation_dependencies=()
+  for dependency in "${dependencies[@]}"; do
+    documentation_dependencies+=("lib:$dependency")
+  done
+  # Build interfaces at their registered paths before creating upload archives.
+  cabal haddock --builddir="$release_build_dir" "${documentation_dependencies[@]}" -O2 --ghc-options=-Werror
+fi
+cabal haddock --builddir="$release_build_dir" --haddock-for-hackage "lib:$package" -O2 --ghc-options=-Werror
 cabal sdist --builddir="$release_build_dir" "$package"
 
 sdists=("$release_build_dir"/sdist/"$package"-[0-9]*.tar.gz)
@@ -83,37 +91,47 @@ if [[ ${#sdists[@]} -ne 1 || ${#docs[@]} -ne 1 ]]; then
   exit 1
 fi
 
-release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microecta-release.XXXXXX")"
+release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microcfta-release.XXXXXX")"
 trap 'rm -rf "$release_tmp"' EXIT
 tar -xzf "${sdists[0]}" -C "$release_tmp"
 
-if [[ "$package" == microecta-generator ]]; then
-  dependency_build_dir="$release_build_dir/dependencies/microecta"
-  mkdir -p "$dependency_build_dir/sdist"
-  rm -f "$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz
-  cabal sdist --builddir="$dependency_build_dir" microecta
+if [[ ${#dependencies[@]} -gt 0 ]]; then
+  project_packages=("$release_tmp/$package-$version")
+  for dependency in "${dependencies[@]}"; do
+    dependency_build_dir="$release_build_dir/dependencies/$dependency"
+    mkdir -p "$dependency_build_dir/sdist"
+    rm -f "$dependency_build_dir"/sdist/"$dependency"-[0-9]*.tar.gz
+    cabal sdist --builddir="$dependency_build_dir" "$dependency"
 
-  dependency_sdists=("$dependency_build_dir"/sdist/microecta-[0-9]*.tar.gz)
-  if [[ ${#dependency_sdists[@]} -ne 1 ]]; then
-    echo "Error: expected exactly one microecta source archive." >&2
-    exit 1
-  fi
+    dependency_sdists=("$dependency_build_dir"/sdist/"$dependency"-[0-9]*.tar.gz)
+    if [[ ${#dependency_sdists[@]} -ne 1 ]]; then
+      echo "Error: expected exactly one $dependency source archive." >&2
+      exit 1
+    fi
 
-  dependency_version="$(awk '/^version:/ {print $2; exit}' microecta/microecta.cabal)"
-  tar -xzf "${dependency_sdists[0]}" -C "$release_tmp"
-  printf 'packages: %s\n          %s\n' \
-    "$release_tmp/microecta-$dependency_version" \
-    "$release_tmp/$package-$version" \
-    > "$release_tmp/cabal.project"
+    dependency_version="$(awk '/^version:/ {print $2; exit}' "$dependency/$dependency.cabal")"
+    tar -xzf "${dependency_sdists[0]}" -C "$release_tmp"
+    project_packages+=("$release_tmp/$dependency-$dependency_version")
+  done
+
+  {
+    echo "with-compiler: ghc-9.14.1"
+    echo
+    echo "packages:"
+    printf '  %s\n' "${project_packages[@]}"
+    echo
+    echo "package *"
+    echo "  optimization: False"
+  } > "$release_tmp/cabal.project"
 
   (
     cd "$release_tmp"
-    cabal test "$package":unit-tests -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test "$package" -O2 --ghc-options=-Werror --test-show-details=direct
   )
 else
   (
     cd "$release_tmp/$package-$version"
-    cabal test all -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test all --with-compiler=ghc-9.14.1 -O2 --ghc-options=-Werror --test-show-details=direct
   )
 fi
 

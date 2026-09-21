@@ -1,20 +1,46 @@
 name: CI
 
+# The microcfta stack merges in order. CI runs only for its penultimate
+# branch, where the code is complete. The last pull request removes the
+# microecta packages and restores the push and pull_request triggers.
 on:
   push:
-  pull_request:
+    branches:
+      - cfta-09-refinement-generation
 
 permissions:
   contents: read
 
 jobs:
-  build-test-bench:
-    name: GHC ${{ matrix.ghc }}
+  lint:
+    name: Format and lint
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ghc: ["9.12.2", "9.14.1"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check formatting
+        uses: haskell-actions/run-fourmolu@v13
+        with:
+          version: "0.20.1.0"
+          pattern: |
+            microcfta/**/*.hs
+            microcfta-generator/**/*.hs
+
+      - name: Set up hlint
+        uses: haskell-actions/hlint-setup@v2
+        with:
+          version: "3.10"
+
+      - name: Run hlint
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: '["microcfta", "microcfta-generator"]'
+          fail-on: warning
+
+  build-test-bench:
+    name: GHC 9.14.1
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -24,9 +50,14 @@ jobs:
         uses: haskell-actions/setup@v2
         id: setup
         with:
-          ghc-version: ${{ matrix.ghc }}
+          ghc-version: "9.14.1"
           cabal-version: "3.16.1.0"
           cabal-update: true
+
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
 
       - name: Configure build plan
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
@@ -54,8 +85,8 @@ jobs:
 
       - name: Check package metadata
         run: |
-          (cd microecta && cabal check)
-          (cd microecta-generator && cabal check)
+          (cd microcfta && cabal check)
+          (cd microcfta-generator && cabal check)
 
       - name: Build with strict warnings
         run: cabal v2-build all --enable-tests --enable-benchmarks --ghc-options=-Werror
@@ -66,26 +97,33 @@ jobs:
       # cap is not baked into the library's ghc-options.
       - name: Guard compile-time memory of the optimized core
         run: |
-          cabal v2-build lib:microecta \
+          cabal v2-build lib:microcfta \
             --enable-optimization=2 \
             --ghc-options='-Werror +RTS -K512M -M512M -RTS'
 
       - name: Test
         run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
 
-      # The examples are run on every compiler in the matrix.
+      # Run the library examples with the supported compiler.
       - name: Doctest
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta-generator
+
+      - name: Test the generator examples
+        run: |
+          cabal v2-run cfta-pairs
+          cabal v2-run cfta-liquid-pairs
+          cabal v2-run cfta-finite-languages
+          cabal v2-run cfta-safe-division
+          cabal v2-run cfta-automaton-interop
 
       - name: Validate release artifacts
         run: |
-          scripts/release.sh microecta --check-only
-          scripts/release.sh microecta-generator --check-only
+          scripts/release.sh microcfta --check-only
+          scripts/release.sh microcfta-generator --check-only
 
       - name: Benchmark
-        if: matrix.ghc == '9.14.1'
         run: cabal v2-bench all --enable-optimization=2
