@@ -75,7 +75,9 @@ library
     Data.CFTA
     Data.CFTA.Constraint
     Data.CFTA.Enumeration
+    Data.CFTA.Equality
     Data.CFTA.Equality.Constraint
+    Data.CFTA.Equality.Operations
     Data.CFTA.Generic
     Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned
@@ -106,6 +108,7 @@ test-suite unit-tests
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs:
+    common
     test
 
   ghc-options:
@@ -116,8 +119,16 @@ test-suite unit-tests
 
   other-modules:
     Data.CFTA.Equality.ConstraintSpec
+    Data.CFTA.Equality.FTASpec
+    Data.CFTA.EqualitySpec
     Data.CFTA.Internal.UnionFindSpec
+    Data.CFTA.TermSearch.Dataset
+    Data.CFTA.TermSearch.TermSearch
+    Data.CFTA.TermSearch.Type
+    Data.CFTA.TermSearch.Utils
+    Data.CFTA.TermSearchSpec
     Data.CFTASpec
+    Test.Generators.Equality
 
   build-depends:
     base >=4.22 && <4.23,
@@ -128,6 +139,8 @@ test-suite unit-tests
     microcfta,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
 
 benchmark enumeration-speed
   import: warnings, extensions
@@ -137,5 +150,30 @@ benchmark enumeration-speed
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
+
+benchmark micro-bench
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Benchmarks.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-M512M
+
+  other-modules:
+    Data.CFTA.TermSearch.Dataset
+    Data.CFTA.TermSearch.TermSearch
+    Data.CFTA.TermSearch.Type
+    Data.CFTA.TermSearch.Utils
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
     microcfta,
     text >=2.1 && <2.2,
