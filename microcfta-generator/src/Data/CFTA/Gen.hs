@@ -8,6 +8,10 @@ paths, and 'Data.CFTA.Refinement.Constraint.LiquidConstraint' for refinements
 decided by a solver. Every value stands for a term the automaton accepts, so
 the language is counted, replayed by rank, sampled, and shrunk exactly.
 
+An ordinary generator, one over a plain tree automaton, is 'FTAGen';
+"Data.CFTA.Gen.Equality" and "Data.CFTA.Gen.Refinement" fix the other two
+theories the same way.
+
 A finite generator has a 'cardinality' and one rank per distinct member. It
 comes from a source ('elements', 'leaf', 'fromIndexed'), from applicative
 composition closed by 'node', from a choice ('frequency', 'oneof'), from a
@@ -23,6 +27,7 @@ stays inside the generator, and every inspector reports it.
 module Data.CFTA.Gen (
     -- * Generators
     Gen,
+    FTAGen,
     Grouped,
     Label (..),
     surface,
@@ -137,6 +142,9 @@ import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Refinement (AutomatonError (InconsistentArity))
 import Data.CFTA.Symbol (Symbol (Symbol))
+
+-- | A generator over ordinary tree automata: the theory without constraints.
+type FTAGen symbol = Gen symbol ()
 
 -- | Build one nullary constructor.
 leaf :: (Constraint constraint, Hashable symbol, Typeable symbol) => a -> symbol -> Gen symbol constraint a

@@ -18,8 +18,9 @@ theory:
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
 
-An ordinary generator is `Gen symbol ()`. The equality facade fixes the
-theory in `ECTAGen a`, the refinement facade in `LTAGen a`; both re-export
+An ordinary generator is `FTAGen symbol a`, that is `Gen symbol ()`. The
+equality facade fixes the theory in `ECTAGen a`, the refinement facade in
+`LTAGen a`; both re-export
 `Data.CFTA.Gen`, so `node`, `oneof`, `cardinality`, `unrank`, and `forAll`
 are the same functions in every theory. See
 [`docs/automata-syntax.md`](../docs/automata-syntax.md) for the side-by-side

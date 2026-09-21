@@ -63,10 +63,10 @@ data Growing a = GrowEnd | Grow (Growing [a])
 
 instance (Datatype.HasFTA a) => Datatype.HasFTA (Growing a)
 
-atoms :: FTA.Gen String () Int
+atoms :: FTA.FTAGen String Int
 atoms = FTA.oneof [FTA.leaf 0 "zero", FTA.leaf 1 "one"]
 
-pairs :: FTA.Gen String () (Int, Int)
+pairs :: FTA.FTAGen String (Int, Int)
 pairs = FTA.node "pair" $ FTA.do
     left <- atoms
     right <- atoms

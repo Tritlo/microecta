@@ -18,7 +18,7 @@ pairGrammar :: TypedFTA () (Int, Int)
 pairGrammar = either (error . show) id $ deriveFTAWith @(Int, Int) $ domain @Int [0, 1]
 
 -- | All four pairs in the derived datatype grammar.
-pairs :: FTA.Gen Symbol () (Int, Int)
+pairs :: FTA.FTAGen Symbol (Int, Int)
 pairs = FTA.fromDatatypeUpToDepth 1 pairGrammar
 
 -- | Add equality at the tuple constructor while retaining its structure.

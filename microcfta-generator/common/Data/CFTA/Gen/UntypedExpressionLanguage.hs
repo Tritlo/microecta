@@ -34,7 +34,7 @@ data Expression
     deriving (Eq, Ord, Show)
 
 -- | The two ground terms shared with the later examples.
-literals :: FTA.Gen String () Expression
+literals :: FTA.FTAGen String Expression
 literals =
     FTA.oneof
         [ FTA.leaf (Literal 0) "zero"
@@ -42,7 +42,7 @@ literals =
         ]
 
 -- | Add one ordinary binary-constructor layer.
-binaryLayer :: FTA.Gen String () Expression -> FTA.Gen String () Expression
+binaryLayer :: FTA.FTAGen String Expression -> FTA.FTAGen String Expression
 binaryLayer children =
     FTA.oneof
         [ FTA.node "add" $ FTA.do
@@ -56,7 +56,7 @@ binaryLayer children =
         ]
 
 -- | Full expression trees with exactly the requested constructor depth.
-expressionsAtDepth :: Int -> FTA.Gen String () Expression
+expressionsAtDepth :: Int -> FTA.FTAGen String Expression
 expressionsAtDepth depth
     | depth <= 0 = literals
     | otherwise = binaryLayer $ expressionsAtDepth (depth - 1)

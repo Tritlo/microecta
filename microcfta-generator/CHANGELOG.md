@@ -6,8 +6,9 @@ Initial release. `microcfta-generator` is one generator over the constrained
 tree automata of `microcfta`, with QuickCheck integration.
 
 - `Data.CFTA.Gen`: one generator type, `Gen symbol constraint a`, for every
-  constraint theory. An ordinary generator is `Gen symbol ()`; the equality
-  and refinement facades fix the theory. Sources (`elements`, `leaf`,
+  constraint theory. An ordinary generator is `FTAGen symbol a`, that is
+  `Gen symbol ()`; the equality and refinement facades fix the theory in
+  `ECTAGen` and `LTAGen`. Sources (`elements`, `leaf`,
   `namedElements`, `fromIndexed`, `fromGen`), constructors closed with
   `node`, `frequency` and `oneof`, `match` and `relate` joins, the grouped
   layer with `Sig` signatures and `apply`, recursion with `recur`, `atomic`,

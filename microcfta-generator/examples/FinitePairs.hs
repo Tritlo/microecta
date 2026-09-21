@@ -13,7 +13,7 @@ import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Symbol (Symbol)
 
 -- | All four ordered pairs of the leaf choices.
-pairs :: FTA.Gen Symbol () (Int, Int)
+pairs :: FTA.FTAGen Symbol (Int, Int)
 pairs =
     case deriveFTAWith @(Int, Int) $ domain @Int [0, 1] of
         Left err -> error $ show err
