@@ -26,6 +26,11 @@ tree automata of `microcfta`, with QuickCheck integration.
   cyclic automaton as a recursive generator counted by size.
   `fromAutomatonUpToDepth` bounds first. `fromDatatype` and
   `fromDatatypeUpToDepth` read derived grammars of any theory.
+- `Data.CFTA.Gen.Equality`: `ECTAGen`, symbol-text rank order for imports,
+  and the `EqConstraints` theory of `Data.CFTA.Equality`. The engine's
+  `support` and `termAt` return graphs and terms over `Data.CFTA.Gen.Label`,
+  which wraps user symbols in `Label` and types the private labels;
+  `surface` reads the user's term back.
 - `Data.CFTA.Ranked`: finite ranks, weighted sampling, replay, and structural
   shrinking, independent of automata, with `Data.CFTA.Ranked.QuickCheck`.
 - The engine modules `Data.CFTA.Gen.Internal.*` and the ranked internals
