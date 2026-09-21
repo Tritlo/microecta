@@ -9,15 +9,16 @@ import qualified Test.QuickCheck as QC
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
 import qualified Data.CFTA.Gen.QuickCheck as FTA
-import Data.CFTA.Generic (Constructor, TypedFTA, annotateDatatype, constructorFields, deriveFTAWith, domain)
+import Data.CFTA.Generic (TypedFTA, annotateDatatype, constructorFields, deriveFTAWith, domain)
 import Data.CFTA.Path (path)
+import Data.CFTA.Symbol (Symbol)
 
 -- | One structural definition shared by ordinary and equality generation.
 pairGrammar :: TypedFTA () (Int, Int)
 pairGrammar = either (error . show) id $ deriveFTAWith @(Int, Int) $ domain @Int [0, 1]
 
 -- | All four pairs in the derived datatype grammar.
-pairs :: FTA.FTAGen Constructor (Int, Int)
+pairs :: FTA.Gen Symbol () (Int, Int)
 pairs = FTA.fromDatatypeUpToDepth 1 pairGrammar
 
 -- | Add equality at the tuple constructor while retaining its structure.

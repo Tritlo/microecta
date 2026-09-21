@@ -29,12 +29,14 @@ import Data.CFTA.Gen.Error
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
+    SizeIndex (sizeClassSelect),
     choiceIndex,
     fixIndex,
     isUnguarded,
     minimumMemberSize,
     probeIndex,
     probeIndexWithMinimum,
+    sizeClassOf,
     usesOccurrence,
     withMinimumMemberSize,
  )
@@ -351,7 +353,12 @@ recurGrouped build
                 , Map.member key minimumSizes
                 ]
 
--- | Bound a generator to the members of size at most the given bound.
+{- | Bound a generator to the members of size at most the given bound.
+
+The result is finite, with size-major ranks. A recursive language keeps the
+ranks it gives its members. A finite language is re-ranked by size and keeps
+its terms. An opaque generator has no sizes and is unchanged.
+-}
 upToSize :: Int -> Gen symbol constraint a -> Gen symbol constraint a
 upToSize bound (Cyclic result) =
     Transparent $ do
@@ -359,4 +366,25 @@ upToSize bound (Cyclic result) =
         if recursiveOccurrence recursive
             then Left BoundedRecursiveOccurrence
             else boundedStatic bound recursive
-upToSize _ generator = generator
+upToSize bound (Transparent result) = Transparent $ result >>= boundedFinite bound
+upToSize _ opaque = opaque
+
+-- | Restrict a finite language to its members of size at most the bound.
+boundedFinite :: Int -> Static symbol constraint a -> Either GenError (Static symbol constraint a)
+boundedFinite bound static = do
+    bounded <- boundedStatic bound $ recursiveFromStatic static
+    let outcomes = staticOutcomes bounded
+        total = outcomeCardinality outcomes
+        -- Size-major ranks are a prefix of the unbounded size-major order, so
+        -- the original size index maps a bounded rank to its original rank.
+        select rank = do
+            checkIndex total rank
+            case sizeClassOf index rank of
+                Nothing -> Left $ SelectionOutOfRange rank total
+                Just (size, position) -> do
+                    outcome <- outcomeSelect original $ fst $ sizeClassSelect index size position
+                    pure outcome{outcomeMass = 1 / fromInteger total}
+    pure bounded{staticOutcomes = outcomes{outcomeSelect = select}}
+  where
+    original = staticOutcomes static
+    index = outcomeSizeIndex original

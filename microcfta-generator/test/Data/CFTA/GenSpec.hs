@@ -11,6 +11,7 @@ import Control.Exception (evaluate)
 import Data.Either (fromRight)
 import Data.List (nub)
 import Data.Proxy (Proxy (Proxy))
+import Data.String (fromString)
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
 import System.Timeout (timeout)
@@ -25,6 +26,7 @@ import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Common
 import qualified Data.CFTA.Ranked as Ranked
+import Data.CFTA.Symbol (Symbol)
 import qualified Data.Tree as Tree
 
 -- | A derived recursive fixture with named child positions.
@@ -61,10 +63,10 @@ data Growing a = GrowEnd | Grow (Growing [a])
 
 instance (Datatype.HasFTA a) => Datatype.HasFTA (Growing a)
 
-atoms :: FTA.FTAGen String Int
+atoms :: FTA.Gen String () Int
 atoms = FTA.oneof [FTA.leaf 0 "zero", FTA.leaf 1 "one"]
 
-pairs :: FTA.FTAGen String (Int, Int)
+pairs :: FTA.Gen String () (Int, Int)
 pairs = FTA.node "pair" $ FTA.do
     left <- atoms
     right <- atoms
@@ -82,7 +84,7 @@ spec = do
                             FTA.cardinality generator `shouldBe` Right 6
                             traverse (FTA.unrank generator) [0 .. 5] `shouldBe` Right expected
                             traverse (FTA.termAt generator) [0 .. 5]
-                                `shouldBe` Right (map Datatype.encodeTerm expected)
+                                `shouldBe` Right (map (fmap constructorSymbol . Datatype.encodeTerm) expected)
                             map (Datatype.decodeTerm . Datatype.encodeTerm) expected
                                 `shouldBe` map Just expected
                             FTA.shrinkRank generator 5 `shouldSatisfy` (not . null)
@@ -90,7 +92,7 @@ spec = do
                                 `shouldSatisfy` all (`elem` map Right (take 5 expected))
                     length (Automaton.states $ Datatype.datatypeFTA datatype) `shouldBe` 2
                     check $ FTA.fromDatatypeUpToDepth 2 datatype
-                    check $ FTA.fromDatatypeUpToSize 5 datatype
+                    check $ FTA.upToSize 5 $ FTA.fromDatatype datatype
 
         it "retains record names, positions, and fully applied field types" $ do
             let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
@@ -141,21 +143,29 @@ spec = do
             FTA.cardinality boxed `shouldBe` Right 2
             FTA.unrank boxed 1 `shouldBe` Right 2
             FTA.termAt boxed 1
-                `shouldBe` Right (Tree.Node "box" [Tree.Node "one" []])
+                `shouldBe` Right (Tree.Node (FTA.Label "box") [Tree.Node (FTA.Label "one") []])
 
         it "uses each do binding as one direct constructor child" $ do
+            -- A child that is a choice keeps its alternative label, so equal
+            -- values from different alternatives stay distinct terms.
             FTA.cardinality pairs `shouldBe` Right 4
             FTA.termAt pairs 2
-                `shouldBe` Right (Tree.Node "pair" [Tree.Node "one" [], Tree.Node "zero" []])
+                `shouldBe` Right
+                    ( Tree.Node
+                        (FTA.Label "pair")
+                        [ Tree.Node (FTA.Choice 1) [Tree.Node (FTA.Label "one") []]
+                        , Tree.Node (FTA.Choice 0) [Tree.Node (FTA.Label "zero") []]
+                        ]
+                    )
 
-        it "builds exact support carrying the public node labels" $
-            case FTA.support pairs of
-                Left err -> expectationFailure $ show err
-                Right support -> do
-                    acceptsPlain support (Tree.Node "pair" [Tree.Node "zero" [], Tree.Node "one" []])
-                        `shouldBe` True
-                    acceptsPlain support (Tree.Node "pair" [Tree.Node "zero" []])
+        it "builds exact support accepting the term of every rank" $
+            case (FTA.support pairs, traverse (FTA.termAt pairs) [0 .. 3]) of
+                (Right support, Right terms) -> do
+                    terms `shouldSatisfy` all (acceptsPlain support)
+                    acceptsPlain support (Tree.Node (FTA.Label "pair") [Tree.Node (FTA.Label "zero") []])
                         `shouldBe` False
+                (Left err, _) -> expectationFailure $ show err
+                (_, Left err) -> expectationFailure $ show err
 
     describe "ordinary FTA compilation" $ do
         it "indexes recursive runs by size and bounds them by depth" $ do
@@ -165,21 +175,19 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
                     let node = Common.fromFTA automaton
-                        check generator = case FTA.toRanked generator of
-                            Left err -> expectationFailure $ show err
-                            Right ranked -> do
-                                Ranked.cardinality ranked `shouldBe` 5
-                                traverse (Ranked.unrank ranked) [0 .. 4] `shouldBe` Right terms
-                                map (Ranked.sizeOfRank ranked) [0 .. 4] `shouldBe` map Just [1 .. 5]
-                                Ranked.shrinkRank ranked 4 `shouldSatisfy` (not . null)
-                                map (Ranked.unrank ranked) (Ranked.shrinkRank ranked 4)
-                                    `shouldSatisfy` all (`elem` map Right (take 4 terms))
-                    check $ FTA.fromAutomatonUpToSize 5 node
+                        check generator = do
+                            FTA.cardinality generator `shouldBe` Right 5
+                            traverse (FTA.unrank generator) [0 .. 4] `shouldBe` Right terms
+                            map (FTA.sizeOfRank generator) [0 .. 4] `shouldBe` map Just [1 .. 5]
+                            FTA.shrinkRank generator 4 `shouldSatisfy` (not . null)
+                            map (FTA.unrank generator) (FTA.shrinkRank generator 4)
+                                `shouldSatisfy` all (`elem` map Right (take 4 terms))
+                    check $ FTA.upToSize 5 $ FTA.fromAutomaton node
                     check $ FTA.fromAutomatonUpToDepth 4 node
-                    FTA.cardinality (FTA.fromAutomatonUpToSize 0 node)
+                    FTA.cardinality (FTA.upToSize 0 $ FTA.fromAutomaton node)
                         `shouldBe` Left FTA.EmptyGenerator
 
-        it "keeps mutually recursive empty languages and accepting-run ambiguity distinct" $ do
+        it "keeps empty recursion distinct from ambiguity and counts distinct finite terms" $ do
             let rows =
                     [ (0 :: Int, [Automaton.Transition "step" [1] ()])
                     , (1, [Automaton.Transition "again" [0] ()])
@@ -187,7 +195,7 @@ spec = do
             case Automaton.mkFTA 0 rows of
                 Left err -> expectationFailure $ show err
                 Right empty ->
-                    FTA.cardinality (FTA.fromAutomatonUpToSize 10 $ Common.fromFTA empty)
+                    FTA.cardinality (FTA.upToSize 10 $ FTA.fromAutomaton $ Common.fromFTA empty)
                         `shouldBe` Left FTA.EmptyGenerator
             let productive =
                     [ (0 :: Int, [Automaton.Transition "z" [] (), Automaton.Transition "step" [1] (), Automaton.Transition "step" [2] ()])
@@ -196,14 +204,17 @@ spec = do
                     ]
             case Automaton.mkFTA 0 productive of
                 Left err -> expectationFailure $ show err
-                Right automaton -> case FTA.toRanked $ FTA.fromAutomatonUpToSize 5 $ Common.fromFTA automaton of
-                    Left err -> expectationFailure $ show err
-                    Right ranked -> do
-                        Ranked.cardinality ranked `shouldBe` 10
-                        let members = map (Ranked.unrank ranked) [0 .. 9]
-                        length (nub members) `shouldBe` 5
-                        map (Ranked.sizeOfRank ranked) [0 .. 9]
-                            `shouldBe` map Just [1, 2, 3, 3, 4, 4, 5, 5, 5, 5]
+                Right automaton -> do
+                    -- Size counting sums over accepting runs, so it rejects
+                    -- the ambiguous recursion; the finite bound counts each
+                    -- distinct term once.
+                    let node = Common.fromFTA automaton
+                        bounded = FTA.fromAutomatonUpToDepth 4 node
+                    FTA.cardinality (FTA.upToSize 5 $ FTA.fromAutomaton node)
+                        `shouldBe` Left FTA.AmbiguousAutomaton
+                    FTA.cardinality bounded `shouldBe` Right 5
+                    fmap (length . nub) (traverse (FTA.unrank bounded) [0 .. 4])
+                        `shouldBe` Right 5
 
         it "compiles the common interned unit-constraint graph without ECTA" $ do
             let leaves = Common.Node [Common.Edge "zero" [], Common.Edge "one" []] :: Common.PlainNode String
@@ -213,13 +224,13 @@ spec = do
                     | left <- ["zero", "one"]
                     , right <- ["zero", "one"]
                     ]
-            case (FTA.toRanked $ FTA.fromAutomaton root, Common.toFTA root) of
-                (Right ranked, Right automaton) -> do
-                    Ranked.cardinality ranked `shouldBe` 4
-                    traverse (Ranked.unrank ranked) [0 .. 3] `shouldBe` Right expected
+                generator = FTA.fromAutomaton root
+            case Common.toFTA root of
+                Left err -> expectationFailure $ show err
+                Right automaton -> do
+                    FTA.cardinality generator `shouldBe` Right 4
+                    traverse (FTA.unrank generator) [0 .. 3] `shouldBe` Right expected
                     all (Automaton.accepts automaton) expected `shouldBe` True
-                (Left err, _) -> expectationFailure $ show err
-                (_, Left err) -> expectationFailure $ show err
 
         it "shares state compilation and decoding across a large finite DAG" $ do
             let depth = 64 :: Int
@@ -232,14 +243,13 @@ spec = do
             case Automaton.mkFTA depth rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    completed <- timeout 60000000 $
-                        evaluate $
-                            case FTA.toRanked $ FTA.fromAutomaton $ Common.fromFTA automaton of
-                                Left _ -> False
-                                Right ranked ->
-                                    Ranked.cardinality ranked == 2 ^ depth
-                                        && Ranked.unrank ranked 0 == Right (chain "a")
-                                        && Ranked.unrank (ranked) (2 ^ depth - 1) == Right (chain "b")
+                    let generator = FTA.fromAutomaton $ Common.fromFTA automaton
+                    completed <-
+                        timeout 60000000
+                            $ evaluate
+                            $ FTA.cardinality generator == Right (2 ^ depth)
+                                && FTA.unrank generator 0 == Right (chain "a")
+                                && FTA.unrank generator (2 ^ depth - 1) == Right (chain "b")
                     completed `shouldBe` Just True
 
         it "preserves ranks and structural shrinking through shared states" $ do
@@ -258,16 +268,17 @@ spec = do
                     pure $ pure (\left right -> Tree.Node "pair" [left, right]) <*> alternatives <*> alternatives
             case Automaton.mkFTA (2 :: Int) rows of
                 Left err -> expectationFailure $ show err
-                Right automaton -> case (FTA.toRanked $ FTA.fromAutomaton $ Common.fromFTA automaton, reference) of
-                    (Right actual, Right expected) -> do
-                        let ranks = [0 .. Ranked.cardinality expected - 1]
-                        Ranked.cardinality actual `shouldBe` Ranked.cardinality expected
-                        map (Ranked.unrank actual) ranks `shouldBe` map (Ranked.unrank expected) ranks
-                        map (Ranked.sizeOfRank actual) ranks `shouldBe` map (Ranked.sizeOfRank expected) ranks
-                        map (Ranked.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
-                        map (Ranked.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
-                    (Left err, _) -> expectationFailure $ show err
-                    (_, Left err) -> expectationFailure $ show err
+                Right automaton -> case reference of
+                    Left err -> expectationFailure $ show err
+                    Right expected -> do
+                        let actual = FTA.fromAutomaton $ Common.fromFTA automaton
+                            ranks = [0 .. Ranked.cardinality expected - 1]
+                            members = either (const Nothing) Just
+                        FTA.cardinality actual `shouldBe` Right (Ranked.cardinality expected)
+                        members (traverse (FTA.unrank actual) ranks) `shouldBe` members (traverse (Ranked.unrank expected) ranks)
+                        map (FTA.sizeOfRank actual) ranks `shouldBe` map (Ranked.sizeOfRank expected) ranks
+                        map (FTA.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
+                        map (FTA.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
 
     describe "ordinary FTA integer expressions" $ do
         it "has the exact structural cardinality at every bounded depth" $
@@ -306,5 +317,9 @@ expressionDepth (Expressions.Multiply left right) =
     1 + max (expressionDepth left) (expressionDepth right)
 
 -- | Membership in a plain interned support.
-acceptsPlain :: Common.PlainNode String -> Tree.Tree String -> Bool
+acceptsPlain :: Common.PlainNode (FTA.Label String) -> Tree.Tree (FTA.Label String) -> Bool
 acceptsPlain = Common.acceptsWith (\() _ -> True)
+
+-- | The generator symbol of a derived constructor.
+constructorSymbol :: Datatype.Constructor -> FTA.Label Symbol
+constructorSymbol = FTA.Label . fromString . Datatype.constructorLabel

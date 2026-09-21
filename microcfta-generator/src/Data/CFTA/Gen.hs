@@ -1,316 +1,213 @@
-{-# LANGUAGE TupleSections #-}
+{- | Generators over constrained tree automata.
 
-{- | Ordinary finite-language generators over plain automata.
+A generator is a language of values whose support is an interned automaton
+with edges of type @symbol@ and constraints of type @constraint@. The theory
+of the automaton is the constraint type: @()@ for an ordinary tree automaton,
+'Data.CFTA.Equality.Constraint.EqConstraints' for equalities between child
+paths, and 'Data.CFTA.Refinement.Constraint.LiquidConstraint' for refinements
+decided by a solver. Every value stands for a term the automaton accepts, so
+the language is counted, replayed by rank, sampled, and shrunk exactly.
 
-The interned node remains the inspectable support. This module adds exact
-cardinality, stable replay ranks, backend-independent sampling, and
-structural shrinking. Ranks identify accepting derivations; an ambiguous
-automaton may therefore produce the same concrete term at more than one rank.
-A construction failure stays inside the generator; 'cardinality' and
-'Data.CFTA.Gen.QuickCheck.toGen' report it.
+A finite generator has a 'cardinality' and one rank per distinct member. It
+comes from a source ('elements', 'leaf', 'fromIndexed'), from applicative
+composition closed by 'node', from a choice ('frequency', 'oneof'), from a
+join ('match', 'relate', 'apply'), or from an acyclic automaton
+('fromAutomaton'). A recursive generator ('recur', or 'fromAutomaton' on a
+cyclic automaton) is counted by size; 'upToSize' bounds it to a finite one.
+An opaque generator ('fromGen') can only be sampled. A construction failure
+stays inside the generator, and every inspector reports it.
+
+"Data.CFTA.Gen.QuickCheck" adds sampling and properties, and
+"Data.CFTA.Gen.Do" adds qualified applicative do-notation.
 -}
 module Data.CFTA.Gen (
-    FTAGen,
-    Children,
-    NodeLayer,
+    -- * Generators
+    Gen,
+    Grouped,
+    Label (..),
     GenError (..),
     explain,
+
+    -- * Sources
+    Indexed (..),
+    fromIndexed,
+    elements,
+    namedElements,
     leaf,
+    fromGen,
+
+    -- * Imported automata and datatypes
+    fromAutomaton,
+    fromAutomatonUpToDepth,
+    fromDatatype,
+    fromDatatypeUpToDepth,
+
+    -- * Composing
+    NodeLayer,
     node,
     frequency,
     oneof,
-    children,
-    applyChildren,
-    toRanked,
+    uniformly,
+    On (..),
+    match,
+    relate,
+    relateM,
+
+    -- * The grouped layer
+    Sig (..),
+    sigResult,
+    Args (..),
+    keyed,
+    groupBy,
+    regroupBy,
+    mapWithKey,
+    nameGroups,
+    atKey,
+    apply,
+    frequencies,
+    oneofGrouped,
+    uniformlyGrouped,
+    ungroup,
+    relateGroupsM,
+    relateN,
+    filterGroupsM,
+
+    -- * Recursion
+    atomic,
+    recur,
+    recurGrouped,
+    upToSize,
+    isRecursive,
+    isOpaque,
+
+    -- * Inspection
+    Inspection (..),
+    InspectionSymbol (..),
+    inspect,
+    support,
     cardinality,
+    sizes,
+    countsAtSize,
+    massesAtSize,
+    countAtSize,
+    minimumSize,
+    countBy,
+    pmf,
+    pmfAtSize,
+    smallest,
     unrank,
     termAt,
-    shrinkRank,
+    sizeOfRank,
     smallerMembers,
-    support,
-    fromAutomaton,
-    fromAutomatonUpToSize,
-    fromAutomatonUpToDepth,
-    fromDatatypeUpToDepth,
-    fromDatatypeUpToSize,
+    shrinkRank,
+
+    -- * Lowering
+    lower,
+    lowerWithRank,
+    lowerUniform,
+    lowerUniformWithRank,
+    lowerVia,
+    lowerWithRankVia,
 ) where
 
-import Data.Bifunctor (first)
 import Data.Hashable (Hashable)
-import qualified Data.Map.Lazy as Map
-import Data.Maybe (mapMaybe)
-import qualified Data.Set as Set
+import Data.String (fromString)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Gen.Error (GenError (..), explain, fromRankedError)
-import qualified Data.CFTA.Gen.Internal.Automaton as Automaton
-import Data.CFTA.Generic (Constructor, TypedFTA, datatypeDecode, datatypeFTA)
-import Data.CFTA.Interned (
-    Edge (Edge),
-    Node (EmptyNode, Node),
-    PlainNode,
-    boundDepth,
-    freeVars,
-    nodeIdentity,
-    numNestedMu,
-    union,
- )
-import Data.CFTA.Ranked (Ranked)
-import qualified Data.CFTA.Ranked as Ranked
-import qualified Data.CFTA.Ranked.Internal as Internal
-import Data.CFTA.Ranked.Internal.Size (SizeIndex)
-import Data.CFTA.Refinement (AutomatonError (OpenAutomaton))
-
--- | A finite ranked language whose members retain their terms, or the failure that left it empty.
-newtype FTAGen symbol a = FTAGen (Either GenError (Ranked (Generated symbol a)))
-
--- | One generated value paired with its tree witness.
-data Generated symbol a = Generated
-    { generatedValue :: a
-    , generatedWitness :: !(Tree.Tree symbol)
-    }
-
--- | Applicatively assembled child positions awaiting one constructor label.
-newtype Children symbol a = Children (Either GenError (Ranked (Forest symbol a)))
-
--- | An applicative result and its direct constructor-child witnesses.
-data Forest symbol a = Forest
-    { forestValue :: a
-    , forestWitnesses :: ![Tree.Tree symbol]
-    }
-
--- | A child language or forest that one constructor can contain.
-class NodeLayer layer where
-    -- | Read the direct children of one constructor.
-    asChildren :: layer symbol a -> Children symbol a
-
-instance NodeLayer FTAGen where
-    asChildren = children
-
-instance NodeLayer Children where
-    asChildren = id
-
-instance Functor (FTAGen symbol) where
-    fmap transform (FTAGen ranked) =
-        FTAGen $ fmap (mapGenerated transform) <$> ranked
-      where
-        mapGenerated function generated =
-            generated{generatedValue = function $ generatedValue generated}
-
-instance Functor (Children symbol) where
-    fmap transform (Children ranked) =
-        Children $ fmap (mapForest transform) <$> ranked
-      where
-        mapForest function forest =
-            forest{forestValue = function $ forestValue forest}
-
-instance Applicative (Children symbol) where
-    pure value = Children $ Right $ pure $ Forest value []
-
-    Children functions <*> Children arguments =
-        Children $ (\fs as -> applyForest <$> fs <*> as) <$> functions <*> arguments
-      where
-        applyForest function argument =
-            Forest
-                (forestValue function $ forestValue argument)
-                (forestWitnesses function <> forestWitnesses argument)
-
--- | A generator that failed to construct.
-failed :: GenError -> FTAGen symbol a
-failed = FTAGen . Left
+import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Gen.Equality.Internal.Flat hiding (fromAutomaton, fromAutomatonUpToDepth)
+import qualified Data.CFTA.Gen.Equality.Internal.Flat as Flat
+import Data.CFTA.Gen.Equality.Internal.Grouped
+import Data.CFTA.Gen.Equality.Internal.Inspect
+import Data.CFTA.Gen.Equality.Internal.Inspection (Inspection (..), InspectionSymbol (..))
+import Data.CFTA.Gen.Equality.Internal.Recursion
+import Data.CFTA.Gen.Equality.Internal.Types
+import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
+import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
+import Data.CFTA.Interned (Node)
+import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Ranked.Internal (Indexed (..))
+import Data.CFTA.Refinement (AutomatonError (InconsistentArity))
+import Data.CFTA.Symbol (Symbol (Symbol))
 
 -- | Build one nullary constructor.
-leaf :: a -> symbol -> FTAGen symbol a
-leaf value symbol =
-    FTAGen $ Right $ pure $ Generated value (Tree.Node symbol [])
+leaf :: (Constraint constraint, Hashable symbol, Typeable symbol) => a -> symbol -> Gen symbol constraint a
+leaf value symbol = node symbol $ pure value
 
-{- | Close an applicative child forest with one constructor label.
+{- | Read an automaton as a generator of the terms it accepts.
 
-With @QualifiedDo@ and @ApplicativeDo@:
-
-@node "pair" $ FTA.do ...@
+The automaton is the support, unchanged. An acyclic automaton gives a finite
+generator with one rank per distinct term; where alternatives overlap or an
+equality reaches below direct children, the count is symbolic and ranks order
+constructors by the symbol's 'Ord'. A cyclic automaton gives a recursive
+generator counted by size, the number of term nodes, so 'upToSize' draws
+uniformly from the terms of at most a given size. Its count sums over
+accepting runs, so an ambiguous automaton is rejected with
+'AmbiguousAutomaton' and one with equality constraints with
+'CannotCountConstrainedEdges'. Because the values are the accepted terms, a
+bounded generator keeps full inspection.
 -}
-node :: (NodeLayer layer) => symbol -> layer symbol a -> FTAGen symbol a
-node symbol layer =
-    FTAGen $ fmap close <$> ranked
-  where
-    Children ranked = asChildren layer
+fromAutomaton ::
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol) =>
+    Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
+fromAutomaton = Flat.fromAutomaton id
 
-    close forest =
-        Generated
-            (forestValue forest)
-            (Tree.Node symbol $ forestWitnesses forest)
+{- | Read the terms an automaton accepts up to a constructor-depth bound.
 
-{- | Choose among languages with positive relative weights.
-
-The weights decide sampling only; ranks list the alternatives in order. A
-failed alternative or a non-positive weight fails the choice.
--}
-frequency :: [(Integer, FTAGen symbol a)] -> FTAGen symbol a
-frequency alternatives = FTAGen $ do
-    weighted <- traverse (\(weight, FTAGen ranked) -> (,) weight <$> ranked) alternatives
-    first fromRankedError $ Ranked.frequency weighted
-
--- | Choose equally among languages.
-oneof :: [FTAGen symbol a] -> FTAGen symbol a
-oneof = frequency . map (1,)
-
--- | Treat one language as one child position.
-children :: FTAGen symbol a -> Children symbol a
-children (FTAGen ranked) =
-    Children $ fmap toForest <$> ranked
-  where
-    toForest generated =
-        Forest (generatedValue generated) [generatedWitness generated]
-
--- | Apply one child-forest function to another child forest.
-applyChildren :: Children symbol (a -> b) -> Children symbol a -> Children symbol b
-applyChildren = (<*>)
-
--- | Forget retained witness terms and expose the ranked value language.
-toRanked :: FTAGen symbol a -> Either GenError (Ranked a)
-toRanked (FTAGen ranked) = fmap generatedValue <$> ranked
-
--- | Number of stable ranks in a finite generator.
-cardinality :: FTAGen symbol a -> Either GenError Integer
-cardinality = fmap Ranked.cardinality . toRanked
-
--- | Replay one generated value by rank.
-unrank :: FTAGen symbol a -> Integer -> Either GenError a
-unrank generator rank = do
-    ranked <- toRanked generator
-    first fromRankedError $ Ranked.unrank ranked rank
-
--- | Inspect the concrete witness retained at one rank.
-termAt :: FTAGen symbol a -> Integer -> Either GenError (Tree.Tree symbol)
-termAt (FTAGen ranked) rank = do
-    language <- ranked
-    generatedWitness <$> first fromRankedError (Ranked.unrank language rank)
-
--- | Structurally smaller ranks of a rank, as 'Ranked.shrinkRank' orders them. A failed generator has none.
-shrinkRank :: FTAGen symbol a -> Integer -> [Integer]
-shrinkRank generator rank = either (const []) (`Ranked.shrinkRank` rank) (toRanked generator)
-
--- | Every structurally smaller member of a rank, with its rank.
-smallerMembers :: FTAGen symbol a -> Integer -> [(Integer, a)]
-smallerMembers generator rank = either (const []) (`Ranked.smallerMembers` rank) (toRanked generator)
-
-{- | Build the exact support of a finite generator as an interned automaton.
-
-Equal subterms share one node. This decodes every rank, so use it on small
-languages only.
--}
-support :: (Hashable symbol, Typeable symbol) => FTAGen symbol a -> Either GenError (PlainNode symbol)
-support generator = do
-    total <- cardinality generator
-    terms <- traverse (termAt generator) [0 .. total - 1]
-    pure $ union $ map termNode terms
-  where
-    termNode (Tree.Node symbol subterms) = Node [Edge symbol $ map termNode subterms]
-
-{- | Compile an acyclic automaton into its finite accepting derivations.
-
-Each node shares its compiled decoder across all incoming edges. Ranks and
-structural shrinking retain the alternative and child order. A recursive
-automaton fails with 'UnboundedGenerator'; bound it with
-'fromAutomatonUpToDepth' or 'fromAutomatonUpToSize'.
--}
-fromAutomaton :: (Hashable symbol, Typeable symbol) => PlainNode symbol -> FTAGen symbol (Tree.Tree symbol)
-fromAutomaton EmptyNode = failed EmptyGenerator
-fromAutomaton root
-    | not $ Set.null $ freeVars root = failed $ InvalidSupport OpenAutomaton
-    | numNestedMu root > 0 = failed UnboundedGenerator
-    | otherwise = fromTable (nodeIdentity root) (Automaton.rowsOf root)
-
-{- | Compile all accepting runs with at most the given number of tree nodes.
-
-Cycles are valid. Ranks use size-major order, including for acyclic automata.
-Ambiguous terms retain one rank per accepting run. A non-positive bound or an
-empty bounded language gives 'EmptyGenerator'.
--}
-fromAutomatonUpToSize ::
-    (Hashable symbol, Typeable symbol) => Int -> PlainNode symbol -> FTAGen symbol (Tree.Tree symbol)
-fromAutomatonUpToSize _ EmptyNode = failed EmptyGenerator
-fromAutomatonUpToSize bound root
-    | not $ Set.null $ freeVars root = failed $ InvalidSupport OpenAutomaton
-    | otherwise = fromSizeIndex bound $ Automaton.tableIndex (nodeIdentity root) (Automaton.rowsOf root)
-
-{- | Compile every accepting run up to the given constructor depth.
-
-A leaf has depth zero. Ranks retain alternative and child order in the bounded
-graph. This is a depth bound, whereas 'fromAutomatonUpToSize' bounds all tree
-nodes. The only possible failure is 'EmptyGenerator'.
+A leaf has depth zero. The result is the finite generator 'fromAutomaton'
+gives for an acyclic automaton: each distinct term has one rank, unranking
+constructs only the selected term, and shrinks remain in the language.
 -}
 fromAutomatonUpToDepth ::
-    (Hashable symbol, Typeable symbol) => Int -> PlainNode symbol -> FTAGen symbol (Tree.Tree symbol)
-fromAutomatonUpToDepth bound = fromAutomaton . boundDepth bound
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol) =>
+    Int -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
+fromAutomatonUpToDepth = Flat.fromAutomatonUpToDepth id
 
-{- | Generate datatype values from the derived grammar up to constructor depth.
+{- | Read a datatype grammar as a generator of its values.
 
-The value and its original constructor term share one rank. Codecs are applied
-only when a selected value is demanded. A leaf has depth zero.
+The generator is recursive when the datatype is, and finite otherwise. The
+value and its constructor term share one rank, and the codec runs only when a
+selected value is demanded. Constructor symbols carry the type and constructor
+name, and symbolic ranks order them by that text.
 -}
-fromDatatypeUpToDepth :: Int -> TypedFTA () a -> FTAGen Constructor a
-fromDatatypeUpToDepth bound datatype =
-    fromDatatypeTerms datatype $ fromTable (FTA.initialState bounded) (FTA.transitionTable bounded)
-  where
-    bounded = FTA.boundDepth bound $ datatypeFTA datatype
+fromDatatype :: (Constraint constraint) => TypedFTA constraint a -> Gen Symbol constraint a
+fromDatatype datatype = importDatatype datatype $ Flat.fromAutomaton symbolText
 
--- | Generate datatype values in size-major order with uniform rank sampling.
-fromDatatypeUpToSize :: Int -> TypedFTA () a -> FTAGen Constructor a
-fromDatatypeUpToSize bound datatype =
-    fromDatatypeTerms datatype $ fromSizeIndex bound $ Automaton.automatonIndex $ datatypeFTA datatype
+{- | Generate datatype values up to a constructor depth. A leaf has depth zero.
 
--- | Retain the witness while decoding a term from its own datatype grammar.
-fromDatatypeTerms :: TypedFTA () a -> FTAGen Constructor (Tree.Tree Constructor) -> FTAGen Constructor a
-fromDatatypeTerms datatype (FTAGen ranked) = FTAGen $ fmap generated <$> ranked
+An annotated constructor generates only the values whose equal fields agree.
+-}
+fromDatatypeUpToDepth :: (Constraint constraint) => Int -> TypedFTA constraint a -> Gen Symbol constraint a
+fromDatatypeUpToDepth depth datatype =
+    importDatatype datatype $ Flat.fromAutomatonUpToDepth symbolText depth
+
+-- | The text of a symbol, the order in which symbolic counts rank constructors.
+symbolText :: Symbol -> Text
+symbolText (Symbol name) = name
+
+-- | Import the grammar of a datatype and decode its terms as values.
+importDatatype ::
+    (Constraint constraint) =>
+    TypedFTA constraint a ->
+    (Node Symbol constraint -> Gen Symbol constraint (Tree.Tree Symbol)) ->
+    Gen Symbol constraint a
+importDatatype datatype readAutomaton =
+    case FTA.mapSymbols (fromString . constructorLabel) (datatypeFTA datatype) of
+        Left (FTA.InconsistentArity symbol expected actual) ->
+            Transparent $ Left $ InvalidSupport $ InconsistentArity symbol expected actual
+        Left err ->
+            error $ "microcfta-generator bug in Data.CFTA.Gen.importDatatype: " <> show err
+        Right graph -> decode <$> readAutomaton (Common.fromFTA graph)
   where
-    generated term = Generated (decode $ generatedWitness term) (generatedWitness term)
-    decode term = case datatypeDecode datatype term of
+    decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
         Just value -> value
         Nothing ->
             error
-                "microcfta-generator bug in Data.CFTA.Gen.fromDatatypeTerms: \
+                "microcfta-generator bug in Data.CFTA.Gen.importDatatype: \
                 \the derived codec rejected a term of its own grammar"
-
--- | A size-major language, or 'EmptyGenerator' when the bound admits no term.
-fromSizeIndex :: Int -> SizeIndex (Tree.Tree symbol) -> FTAGen symbol (Tree.Tree symbol)
-fromSizeIndex bound index =
-    FTAGen $ first (const EmptyGenerator) $ fmap witness <$> Internal.fromSizeIndex bound index
-
--- | Compile the accepting derivations of an acyclic table from its initial state.
-fromTable :: (Ord state) => state -> Map.Map state [FTA.Transition state symbol ()] -> FTAGen symbol (Tree.Tree symbol)
-fromTable initial rows =
-    FTAGen $ maybe (Left EmptyGenerator) (Right . fmap witness) (compileState initial)
-  where
-    -- The lazy table permits references to states compiled from the same table.
-    compiled = Map.map compileTransitions rows
-
-    compileState state = Map.findWithDefault Nothing state compiled
-
-    compileTransitions = fmap Internal.share . combine . mapMaybe compileTransition
-
-    compileTransition transition = do
-        childLanguages <- traverse compileState (FTA.transitionChildren transition)
-        pure $ buildTerm (FTA.transitionSymbol transition) childLanguages
-
-    combine [] = Nothing
-    combine alternatives = either (const Nothing) Just $ Ranked.oneof alternatives
-
--- | A term as its own witness.
-witness :: Tree.Tree symbol -> Generated symbol (Tree.Tree symbol)
-witness term = Generated term term
-
--- | Apply a constructor to its independently ranked children.
-buildTerm :: symbol -> [Ranked (Tree.Tree symbol)] -> Ranked (Tree.Tree symbol)
-buildTerm symbol childLanguages =
-    ($ [])
-        <$> foldl'
-            applyChild
-            (pure $ Tree.Node symbol)
-            childLanguages
-  where
-    applyChild partial child =
-        (\finish value rest -> finish (value : rest)) <$> partial <*> child

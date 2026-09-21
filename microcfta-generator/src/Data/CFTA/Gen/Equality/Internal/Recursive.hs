@@ -42,8 +42,10 @@ import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
-    SizeIndex (sizeClassCounts),
+    SizeIndex (sizeClassCounts, sizeClassSelect),
     choiceIndex,
+    mapIndex,
+    sizeClassOf,
     sizeClasses,
  )
 
@@ -76,11 +78,11 @@ data Recursive symbol constraint a = Recursive
     set on the placeholders and cleared on the finished result, and is
     therefore not the Boolean knot @usedOccurrence@ is.
     -}
-    , recursiveTerm :: Maybe (a -> Tree.Tree (Label symbol))
-    {- ^ How to read a member's ECTA term off its value, when the values are
-    the accepted terms themselves. Every combinator drops it, because a
-    mapped or combined value no longer stands for one term of the
-    support.
+    , recursiveTerm :: Maybe (SizeIndex (Tree.Tree (Label symbol)))
+    {- ^ The ECTA term of every member, indexed by the same size-major ranks
+    as the values, when the language was read from an automaton. Mapping keeps
+    it; combining languages drops it, because a combined member no longer
+    stands for one term of the support.
     -}
     , recursiveInspection :: Inspection symbol constraint
     -- ^ A lazy diagnostic graph with occurrence labels and source values.
@@ -118,11 +120,10 @@ classes retain their count-based probability. Finite choices closed with
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
-Members carry a retained t'Tree.Tree' only when the values are the accepted terms
-themselves, as they are for an automaton read with @fromAutomaton@; otherwise
-inspection through 'outcomeSelect' reports
-'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
-go through the value decoder and the plan.
+Members carry a retained t'Tree.Tree' only when the language was read from an
+automaton with @fromAutomaton@, possibly mapped; otherwise inspection through
+'outcomeSelect' reports 'CannotInspectRecursiveGenerator', while sampling,
+unranking, and shrinking go through the value decoder and the plan.
 -}
 boundedStatic :: Int -> Recursive symbol constraint a -> Either GenError (Static symbol constraint a)
 boundedStatic bound recursive
@@ -144,15 +145,20 @@ boundedStatic bound recursive
   where
     select index = case recursiveTerm recursive of
         Nothing -> Left CannotInspectRecursiveGenerator
-        Just readTerm -> do
+        Just terms -> do
             checkIndex totalOutcomes index
-            let value = selectValue index
+            let term = case sizeClassOf terms index of
+                    Just (size, position) -> snd $ sizeClassSelect terms size position
+                    Nothing ->
+                        error
+                            "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Recursive.boundedStatic: \
+                            \a member without a term"
             pure $
                 Outcome
-                    (readTerm value)
+                    term
                     (1 / fromInteger totalOutcomes)
-                    value
-                    (fmap plainSymbol $ readTerm value)
+                    (selectValue index)
+                    (fmap plainSymbol term)
 
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
@@ -182,7 +188,7 @@ labelRecursive ::
 labelRecursive symbol recursive =
     recursive
         { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
-        , recursiveTerm = fmap (labelTerm symbol .) $ recursiveTerm recursive
+        , recursiveTerm = mapIndex (labelTerm symbol) <$> recursiveTerm recursive
         , recursiveInspection = labelInspection symbol $ recursiveInspection recursive
         }
 

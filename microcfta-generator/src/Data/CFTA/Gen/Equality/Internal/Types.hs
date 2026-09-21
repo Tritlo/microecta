@@ -190,14 +190,10 @@ instance Functor (Gen symbol constraint) where
     fmap transform (Cyclic result) = Cyclic $ fmap mapRecursive result
       where
         mapRecursive recursive =
-            Recursive
-                (recursiveSupport recursive)
-                (mapIndex transform $ recursiveIndex recursive)
-                (mapSampleIndex transform $ recursiveSampling recursive)
-                (recursiveWeighted recursive)
-                (recursiveOccurrence recursive)
-                Nothing
-                (recursiveInspection recursive)
+            recursive
+                { recursiveIndex = mapIndex transform $ recursiveIndex recursive
+                , recursiveSampling = mapSampleIndex transform $ recursiveSampling recursive
+                }
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (Constraint constraint, Hashable symbol, Typeable symbol) => Applicative (Gen symbol constraint) where

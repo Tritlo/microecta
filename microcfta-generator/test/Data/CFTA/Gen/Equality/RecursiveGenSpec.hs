@@ -374,8 +374,15 @@ spec = do
             smallestResult `shouldBe` Just (Right Nothing)
             unrankResult `shouldBe` Just (Left $ SelectionOutOfRange 0 0)
 
-        it "rejects an automaton whose edges carry equality constraints" $
-            ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromAutomaton constrainedAutomaton)
+        it "counts a finite constrained automaton and rejects a recursive one" $ do
+            ECTAGen.cardinality (ECTAGen.fromAutomaton constrainedAutomaton)
+                `shouldBe` Right 4
+            let recursivePairs = createMu $ \self ->
+                    Node
+                        [ Edge "a" []
+                        , mkEdge "pair" [self, self] (mkEqConstraints [[path [0], path [1]]])
+                        ]
+            ECTAGen.cardinality (ECTAGen.upToSize 3 $ ECTAGen.fromAutomaton recursivePairs)
                 `shouldBe` Left CannotCountConstrainedEdges
 
     describe "recursive sampling" $ do

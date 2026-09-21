@@ -99,30 +99,26 @@ module Data.CFTA.Gen.Equality (
 ) where
 
 import qualified Data.Map.Strict as Map
-import Data.String (fromString)
 import Data.Text (Text)
-import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Node)
 import Data.CFTA.Equality.Constraint (EqConstraints)
+import qualified Data.CFTA.Gen as Gen
 import qualified Data.CFTA.Gen.Equality.Internal.Flat as Engine
 import qualified Data.CFTA.Gen.Equality.Internal.Grouped as Engine
 import qualified Data.CFTA.Gen.Equality.Internal.Inspect as Engine
 import Data.CFTA.Gen.Equality.Internal.Inspection (Inspection (..), InspectionSymbol (..))
 import qualified Data.CFTA.Gen.Equality.Internal.Recursion as Engine
-import Data.CFTA.Gen.Equality.Internal.Types (Args (..), Gen (Transparent), NodeLayer)
+import Data.CFTA.Gen.Equality.Internal.Types (Args (..), Gen, NodeLayer)
 import qualified Data.CFTA.Gen.Equality.Internal.Types as Engine
 import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
 import Data.CFTA.Gen.Error
 import Data.CFTA.Gen.Label (Label (..))
-import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
-import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Generic (TypedFTA)
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend)
-import Data.CFTA.Refinement (AutomatonError (InconsistentArity))
 import Data.CFTA.Symbol (Symbol (Symbol))
 
 {- | A generator is inspectable ECTA structure — finite or recursive — or an
@@ -170,7 +166,7 @@ count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
 -}
 fromAutomaton :: Node Symbol EqConstraints -> ECTAGen (Tree.Tree Symbol)
-fromAutomaton = Engine.fromAutomaton
+fromAutomaton = Engine.fromAutomaton symbolText
 
 {- | Compile an equality-constrained automaton up to a constructor-depth bound.
 
@@ -185,20 +181,7 @@ fromAutomatonUpToDepth = Engine.fromAutomatonUpToDepth symbolText
 
 -- | Generate typed values from a datatype grammar with equality annotations.
 fromDatatypeUpToDepth :: Int -> TypedFTA EqConstraints a -> ECTAGen a
-fromDatatypeUpToDepth depth datatype =
-    case FTA.mapSymbols (fromString . constructorLabel) (datatypeFTA datatype) of
-        Left (FTA.InconsistentArity symbol expected actual) ->
-            Transparent $ Left $ InvalidSupport $ InconsistentArity symbol expected actual
-        Left err ->
-            error $ "microcfta-generator bug in Data.CFTA.Gen.Equality.fromDatatypeUpToDepth: " <> show err
-        Right graph -> decode <$> fromAutomatonUpToDepth depth (Common.fromFTA graph)
-  where
-    decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
-        Just value -> value
-        Nothing ->
-            error
-                "microcfta-generator bug in Data.CFTA.Gen.Equality.fromDatatypeUpToDepth: \
-                \the derived codec rejected a term of its own grammar"
+fromDatatypeUpToDepth = Gen.fromDatatypeUpToDepth
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: [a] -> ECTAGen a

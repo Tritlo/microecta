@@ -50,7 +50,7 @@ import Data.CFTA.Gen.Label (Label (..))
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
-import Data.CFTA.Ranked.Internal.Size (choiceIndex)
+import Data.CFTA.Ranked.Internal.Size (choiceIndex, mapIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
 -- | Interpret a reified condition as one key projection per side.
@@ -76,23 +76,38 @@ fromIndexed indexed
 fromGen :: QC.Gen a -> Gen symbol constraint a
 fromGen generated = Opaque $ Right <$> generated
 
--- | Read an automaton as a recursive generator of the terms it accepts.
+{- | Read an automaton as a generator of the terms it accepts.
+
+An acyclic automaton gives a finite generator with one rank per distinct
+term. Symbolic counts, used where alternatives overlap or an equality reaches
+below direct children, order constructors by the key. A cyclic automaton
+gives a recursive generator counted by size; it must be unambiguous and carry
+no equality constraints, because its count sums over accepting runs.
+-}
 fromAutomaton ::
-    (Constraint constraint, Hashable symbol, Typeable symbol) =>
-    Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
-fromAutomaton root =
-    Cyclic $ do
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
+fromAutomaton order root
+    | Common.numNestedMu root == 0 = Transparent $ finiteAutomaton order root
+    | otherwise = Cyclic $ do
         index <- automatonIndex root
         pure $
-            Recursive supportNode index (uniformSampleIndex index) False False (Just $ fmap Label) (plainInspection supportNode)
+            Recursive
+                supportNode
+                index
+                (uniformSampleIndex index)
+                False
+                False
+                (Just $ mapIndex (fmap Label) index)
+                (plainInspection supportNode)
   where
     supportNode = relabel Label root
 
--- | Compile an equality-constrained automaton up to a constructor-depth bound, ranking symbolic counts by the key.
+-- | Read the terms an automaton accepts up to a constructor-depth bound. A leaf has depth zero.
 fromAutomatonUpToDepth ::
     (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
     (symbol -> key) -> Int -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
-fromAutomatonUpToDepth order depth graph = Transparent $ finiteAutomaton order $ Common.boundDepth depth graph
+fromAutomatonUpToDepth order depth = fromAutomaton order . Common.boundDepth depth
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: (Constraint constraint, Hashable symbol, Typeable symbol) => [a] -> Gen symbol constraint a

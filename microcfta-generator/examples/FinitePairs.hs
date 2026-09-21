@@ -8,11 +8,12 @@ import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA.Gen.QuickCheck as FTA
-import Data.CFTA.Generic (Constructor, deriveFTAWith, domain)
+import Data.CFTA.Generic (deriveFTAWith, domain)
 import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Symbol (Symbol)
 
 -- | All four ordered pairs of the leaf choices.
-pairs :: FTA.FTAGen Constructor (Int, Int)
+pairs :: FTA.Gen Symbol () (Int, Int)
 pairs =
     case deriveFTAWith @(Int, Int) $ domain @Int [0, 1] of
         Left err -> error $ show err

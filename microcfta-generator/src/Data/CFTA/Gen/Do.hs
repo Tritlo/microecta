@@ -1,39 +1,38 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-{- | Qualified applicative do-notation for every generator layer.
+{- | Qualified applicative do-notation for generators.
 
 Enable @ApplicativeDo@ and @QualifiedDo@ and qualify the block with a module
 that exports these operators: this module, or one of the @QuickCheck@
-facades, which re-export it. A block over the ordinary or the refinement
-layer builds a child forest and is closed with that layer's @node@:
+facades, which re-export it. A block builds the applicative product of its
+statements, and 'Data.CFTA.Gen.node' closes it with one constructor:
 
 @
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.QuickCheck as Gen
 
-pairs = LTA.node "pair" subtypePair $ LTA.do
+pairs = Gen.node "pair" $ Gen.do
     left <- choices
     right <- choices
-    LTA.pure (left, right)
+    Gen.pure (left, right)
 @
 
-A block over the equality layer builds a flat generator, or one operation
-application of any arity when the first bind chooses an operation family
-keyed by 'Data.CFTA.Gen.Equality.Sig':
+When the first bind chooses an operation family keyed by
+'Data.CFTA.Gen.Sig', the block is one operation application of any arity:
 
 @
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-
-binaryLayer children = ECTAGen.node "binary-application" $ ECTAGen.do
+binaryLayer children = Gen.node "binary-application" $ Gen.do
     operation <- binaryFunctionsBySignature
     left <- children
     right <- children
-    ECTAGen.pure (compileBinary operation left right)
+    Gen.pure (compileBinary operation left right)
 @
 
-Statements are independent: the block builds the same applicative product as
-@<*>@ composition, so a later generator cannot use an earlier bound value.
-The final statement must use the /qualified/ 'pure' or 'return'; GHC does not
-recognize the unqualified names inside a qualified block.
+A block over the refinement layer builds a child forest and is closed with
+that layer's @node@. Statements are independent: the block builds the same
+applicative product as @<*>@ composition, so a later generator cannot use an
+earlier bound value. The final statement must use the /qualified/ 'pure' or
+'return'; GHC does not recognize the unqualified names inside a qualified
+block.
 -}
 module Data.CFTA.Gen.Do (
     GenApply (..),
@@ -52,17 +51,11 @@ import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import Prelude (Ord, type (~))
 import qualified Prelude
 
-import Data.CFTA.Equality.Constraint (EqConstraints)
-import qualified Data.CFTA.Gen as FTA
-import Data.CFTA.Gen.Equality (
-    Args (..),
-    ECTAGen,
-    Grouped,
-    Sig,
-    apply,
- )
+import Data.CFTA.Constraint (Constraint, HasEqualities)
+import Data.CFTA.Gen (Args (..), Gen, Grouped, Sig, apply)
 import qualified Data.CFTA.Gen.Refinement as LTA
-import Data.CFTA.Symbol (Symbol)
+import Data.Hashable (Hashable)
+import Data.Typeable (Typeable)
 
 -- | Map a generator or an accumulated child forest of any layer.
 fmap :: (Prelude.Functor f) => (a -> b) -> f a -> f b
@@ -70,20 +63,17 @@ fmap = Prelude.fmap
 
 {- | The result of a block with no more binds.
 
-For the ordinary and the refinement layer this is a constructor result with
-no children; for the equality layer it is a flat generator with one value.
+For a generator this is the language of one value; for the refinement layer
+it is a constructor result with no children.
 -}
 class GenPure f where
     -- | Lift one value into the layer's block result.
     pure :: a -> f a
 
-instance GenPure (FTA.Children symbol) where
+instance (Constraint constraint, Hashable symbol, Typeable symbol) => GenPure (Gen symbol constraint) where
     pure = Prelude.pure
 
 instance GenPure LTA.Children where
-    pure = Prelude.pure
-
-instance GenPure ECTAGen where
     pure = Prelude.pure
 
 -- | Synonym for 'pure'.
@@ -98,36 +88,27 @@ The discarded choice still occupies its position: the sequence of an
 (>>) :: (Prelude.Functor f, GenApply f g h) => f a -> g b -> h b
 first >> second = fmap (\_ value -> value) first <*> second
 
-{- | Applicative application for do-notation over every layer.
+{- | Applicative application for do-notation.
 
-The ordinary and the refinement layer combine independently generated child
-positions into a child forest. A flat equality generator applies directly
-through its 'Prelude.Applicative' instance. A grouped operation family absorbs
-its argument families one at a time and builds a single 'apply' join once the
-last argument arrives; the staging never constructs an intermediate join.
-Instance selection distinguishes an operation family from an argument family
-by the 'Sig' in its key, the signature's key list tracks how many arguments
-remain, and unification enforces that each argument family's key matches the
-corresponding signature component.
+A generator applies directly through its 'Prelude.Applicative' instance. A
+grouped operation family absorbs its argument families one at a time and
+builds a single 'apply' join once the last argument arrives; the staging never
+constructs an intermediate join. Instance selection distinguishes an operation
+family from an argument family by the 'Sig' in its key, the signature's key
+list tracks how many arguments remain, and unification enforces that each
+argument family's key matches the corresponding signature component. The
+refinement layer combines independently generated child positions into a
+child forest.
 -}
 class GenApply f g h | f g -> h where
     -- | Apply one generated function layer to one generated argument layer.
     (<*>) :: f (a -> b) -> g a -> h b
 
-instance GenApply (FTA.FTAGen symbol) (FTA.FTAGen symbol) (FTA.Children symbol) where
-    functions <*> arguments =
-        FTA.applyChildren (FTA.children functions) (FTA.children arguments)
-
-instance GenApply (FTA.FTAGen symbol) (FTA.Children symbol) (FTA.Children symbol) where
-    functions <*> arguments =
-        FTA.applyChildren (FTA.children functions) arguments
-
-instance GenApply (FTA.Children symbol) (FTA.FTAGen symbol) (FTA.Children symbol) where
-    functions <*> arguments =
-        FTA.applyChildren functions (FTA.children arguments)
-
-instance GenApply (FTA.Children symbol) (FTA.Children symbol) (FTA.Children symbol) where
-    (<*>) = FTA.applyChildren
+instance
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    GenApply (Gen symbol constraint) (Gen symbol constraint) (Gen symbol constraint)
+    where
+    (<*>) = (Prelude.<*>)
 
 instance GenApply LTA.LTAGen LTA.LTAGen LTA.Children where
     functions <*> arguments =
@@ -144,20 +125,17 @@ instance GenApply LTA.Children LTA.LTAGen LTA.Children where
 instance GenApply LTA.Children LTA.Children LTA.Children where
     (<*>) = LTA.applyChildren
 
-instance GenApply ECTAGen ECTAGen ECTAGen where
-    (<*>) = (Prelude.<*>)
-
 {- | An operation family that has absorbed a prefix of its argument families
 and awaits the families for @pendingKeys@.
 
 A block result of this type means the do-block bound fewer arguments than the
 operation's signature arity.
 -}
-newtype Applying (pendingKeys :: [Type]) resultKey b
+newtype Applying symbol constraint (pendingKeys :: [Type]) resultKey b
     = Applying
         ( forall result.
-          Args Symbol EqConstraints pendingKeys b result ->
-          Grouped resultKey result
+          Args symbol constraint pendingKeys b result ->
+          Grouped symbol constraint resultKey result
         )
 
 -- The argument family's key is a fresh variable equated in the context rather
@@ -166,20 +144,20 @@ newtype Applying (pendingKeys :: [Type]) resultKey b
 -- and would default to Integer, then resolves against the operation's
 -- signature the way it does when @apply@ is written out.
 instance
-    (argKey ~ argKey', Ord argKey, Ord resultKey) =>
+    (argKey ~ argKey', Ord argKey, Ord resultKey, HasEqualities constraint, Hashable symbol, Typeable symbol) =>
     GenApply
-        (Grouped (Sig '[argKey] resultKey))
-        (Grouped argKey')
-        (Grouped resultKey)
+        (Grouped symbol constraint (Sig '[argKey] resultKey))
+        (Grouped symbol constraint argKey')
+        (Grouped symbol constraint resultKey)
     where
     operations <*> argument = apply operations (argument :& ANil)
 
 instance
-    (argKey ~ argKey', Ord argKey, Ord resultKey) =>
+    (argKey ~ argKey', Ord argKey, Ord resultKey, HasEqualities constraint, Hashable symbol, Typeable symbol) =>
     GenApply
-        (Grouped (Sig (argKey ': nextKey ': pendingKeys) resultKey))
-        (Grouped argKey')
-        (Applying (nextKey ': pendingKeys) resultKey)
+        (Grouped symbol constraint (Sig (argKey ': nextKey ': pendingKeys) resultKey))
+        (Grouped symbol constraint argKey')
+        (Applying symbol constraint (nextKey ': pendingKeys) resultKey)
     where
     operations <*> argument =
         Applying (\rest -> apply operations (argument :& rest))
@@ -187,18 +165,18 @@ instance
 instance
     (argKey ~ argKey', Ord argKey) =>
     GenApply
-        (Applying '[argKey] resultKey)
-        (Grouped argKey')
-        (Grouped resultKey)
+        (Applying symbol constraint '[argKey] resultKey)
+        (Grouped symbol constraint argKey')
+        (Grouped symbol constraint resultKey)
     where
     Applying continue <*> argument = continue (argument :& ANil)
 
 instance
     (argKey ~ argKey', Ord argKey) =>
     GenApply
-        (Applying (argKey ': nextKey ': pendingKeys) resultKey)
-        (Grouped argKey')
-        (Applying (nextKey ': pendingKeys) resultKey)
+        (Applying symbol constraint (argKey ': nextKey ': pendingKeys) resultKey)
+        (Grouped symbol constraint argKey')
+        (Applying symbol constraint (nextKey ': pendingKeys) resultKey)
     where
     Applying continue <*> argument =
         Applying (\rest -> continue (argument :& rest))
