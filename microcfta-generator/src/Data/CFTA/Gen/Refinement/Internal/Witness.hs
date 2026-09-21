@@ -6,7 +6,6 @@ entailment cache that every check of one compilation shares.
 -}
 module Data.CFTA.Gen.Refinement.Internal.Witness (
     Witness (..),
-    witnessTerm,
     termWitness,
     checkWitness,
     cacheEntailment,

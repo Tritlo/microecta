@@ -15,7 +15,6 @@ module Data.CFTA.Ranked.Internal (
     fromIndexed,
     fromIndexedOnDemand,
     fromWeightedIndexedOnDemand,
-    fromSizeIndex,
     share,
     fromWeighted,
     frequency,
@@ -52,7 +51,7 @@ import Data.CFTA.Ranked.Internal.Shrink (
     smallerPlanMembers,
     withOffsets,
  )
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeClasses, sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeIndex)
 
 -- | A finite source addressed by a stable zero-based integer index.
 data Indexed a = Indexed
@@ -194,21 +193,6 @@ fromWeightedIndexedOnDemand
                     )
       where
         tickets = uniformSampler weightedIndexedTotalWeight weightedIndexedRankAtTicket
-
-{- | Compile a finite prefix of a size-major index.
-
-Each rank keeps its position in the unbounded index. Sampling is uniform over
-the retained ranks. A non-positive bound or empty prefix gives 'EmptyRanked'.
--}
-fromSizeIndex :: Int -> SizeIndex a -> Either RankedError (Ranked a)
-fromSizeIndex bound index
-    | total <= 0 = Left EmptyRanked
-    | otherwise = Right $ Ranked plan (uniformSampler total select) decoder (sizeIndex plan)
-  where
-    plan = PlanSized $ sizeClasses bound index
-    total = planCardinality plan
-    decoder = compilePlan total plan
-    select = decode decoder
 
 {- | Reuse a compiled subplan without expanding it at each parent occurrence.
 
