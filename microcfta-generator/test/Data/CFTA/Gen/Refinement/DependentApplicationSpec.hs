@@ -3,6 +3,7 @@ module Data.CFTA.Gen.Refinement.DependentApplicationSpec (spec) where
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import Data.CFTA.Gen.Refinement.TestSupport (values)
 import Data.CFTA.Gen.Refinement.TypedExpressionLanguage
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 
@@ -15,12 +16,7 @@ spec =
                 case result of
                     Left err -> expectationFailure $ show err
                     Right compiled -> do
-                        let expressions =
-                                [ expression $ LTA.generatedValue generated
-                                | rank <- [0 .. LTA.cardinality compiled - 1]
-                                , Right generated <- [LTA.unrank compiled rank]
-                                ]
-                        expressions
+                        map expression (values compiled)
                             `shouldBe` [ ApplyIncrement (Variable "x")
                                        , ApplyIncrement (Variable "p")
                                        ]
@@ -31,9 +27,4 @@ spec =
                 case result of
                     Left err -> expectationFailure $ show err
                     Right compiled -> do
-                        let expressions =
-                                [ expression $ LTA.generatedValue generated
-                                | rank <- [0 .. LTA.cardinality compiled - 1]
-                                , Right generated <- [LTA.unrank compiled rank]
-                                ]
-                        ApplyIncrement (Variable "y") `elem` expressions `shouldBe` False
+                        ApplyIncrement (Variable "y") `elem` map expression (values compiled) `shouldBe` False

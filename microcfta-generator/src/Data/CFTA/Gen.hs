@@ -25,6 +25,7 @@ module Data.CFTA.Gen (
     Gen,
     Grouped,
     Label (..),
+    surface,
     GenError (..),
     explain,
 
@@ -63,6 +64,7 @@ module Data.CFTA.Gen (
     mapWithKey,
     nameGroups,
     atKey,
+    nodeWithKey,
     apply,
     frequencies,
     oneofGrouped,
@@ -128,7 +130,7 @@ import Data.CFTA.Gen.Equality.Internal.Recursion
 import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
 import Data.CFTA.Gen.Error
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (Label (..), surface)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import Data.CFTA.Interned (Node)
 import qualified Data.CFTA.Interned as Common

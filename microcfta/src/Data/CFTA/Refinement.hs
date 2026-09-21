@@ -36,6 +36,7 @@ module Data.CFTA.Refinement (
     equalityConstraint,
     combineConstraints,
     constraintAsGuard,
+    constraintIndicators,
     guardPaths,
     constraintPaths,
     Verdict (..),

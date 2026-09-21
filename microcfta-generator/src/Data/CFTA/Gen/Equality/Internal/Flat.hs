@@ -87,7 +87,20 @@ no equality constraints, because its count sums over accepting runs.
 fromAutomaton ::
     (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
     (symbol -> key) -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
-fromAutomaton order root
+fromAutomaton order root = withRecipe (Imported Nothing root) $ readAutomaton order root
+
+-- | Read the terms an automaton accepts up to a constructor-depth bound. A leaf has depth zero.
+fromAutomatonUpToDepth ::
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Int -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
+fromAutomatonUpToDepth order depth graph =
+    withRecipe (Imported (Just depth) graph) $ readAutomaton order $ Common.boundDepth depth graph
+
+-- | The language of an automaton: finite when acyclic, counted by size otherwise.
+readAutomaton ::
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
+readAutomaton order root
     | Common.numNestedMu root == 0 = Transparent $ finiteAutomaton order root
     | otherwise = Cyclic $ do
         index <- automatonIndex root
@@ -102,12 +115,6 @@ fromAutomaton order root
                 (plainInspection supportNode)
   where
     supportNode = relabel Label root
-
--- | Read the terms an automaton accepts up to a constructor-depth bound. A leaf has depth zero.
-fromAutomatonUpToDepth ::
-    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Int -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
-fromAutomatonUpToDepth order depth = fromAutomaton order . Common.boundDepth depth
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: (Constraint constraint, Hashable symbol, Typeable symbol) => [a] -> Gen symbol constraint a
@@ -140,11 +147,17 @@ namedElements values
 frequency ::
     (Constraint constraint, Hashable symbol, Typeable symbol) =>
     [(Integer, Gen symbol constraint a)] -> Gen symbol constraint a
-frequency [] = Transparent $ Left EmptyGenerator
-frequency alternatives
-    | Just badWeight <- firstNonPositiveWeight alternatives =
+frequency alternatives = withRecipe (Chosen alternatives) $ chooseLanguage alternatives
+
+-- | The language of a weighted choice.
+chooseLanguage ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    [(Integer, Gen symbol constraint a)] -> Gen symbol constraint a
+chooseLanguage weighted
+    | Just badWeight <- firstNonPositiveWeight weighted =
         Transparent $ Left $ NonPositiveWeight badWeight
-    | Just err <- firstError alternatives = Transparent $ Left err
+    | Just err <- firstError weighted = Transparent $ Left err
+    | null alternatives = Transparent $ Left EmptyGenerator
     | Just staticAlternatives <- traverse getStatic alternatives =
         Transparent $ Right $ frequencyStatic staticAlternatives
     | any (isRecursive . snd) alternatives =
@@ -174,9 +187,15 @@ frequency alternatives
         Opaque $ case frequencyGen [(weight, QuickCheckBackend $ lower generator) | (weight, generator) <- alternatives] of
             QuickCheckBackend generated -> generated
   where
+    -- An empty alternative has no member to choose; it is not a failure.
+    alternatives = filter (not . emptyAlternative . snd) weighted
+    emptyAlternative (Transparent (Left EmptyGenerator)) = True
+    emptyAlternative _ = False
+
     firstError = go
       where
         go [] = Nothing
+        go ((_, Transparent (Left EmptyGenerator)) : rest) = go rest
         go ((_, Transparent (Left err)) : _) = Just err
         go (_ : rest) = go rest
 

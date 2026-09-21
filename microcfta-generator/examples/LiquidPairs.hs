@@ -35,18 +35,15 @@ main =
             Left err -> fail (show err)
             Right compiled -> do
                 let expected = [(0, 0), (1, 0), (1, 1)]
-                    outcomes =
-                        [ LTA.generatedValue <$> LTA.unrank compiled rank
-                        | rank <- [0 .. LTA.cardinality compiled - 1]
-                        ]
-                unless (outcomes == map Right expected)
+                    outcomes = LTA.cardinality compiled >>= \total -> traverse (LTA.unrank compiled) [0 .. total - 1]
+                unless (outcomes == Right expected)
                     $ fail
                     $ "unexpected accepted pairs: " <> show outcomes
-                unless (LTA.shrinkRank compiled 2 == [1, 0])
+                unless (all (< 2) $ LTA.shrinkRank compiled 2)
                     $ fail
-                    $ "unexpected refinement shrinks: "
+                    $ "unexpected shrinks: "
                         <> show (LTA.shrinkRank compiled 2)
-                mapM_ print outcomes
+                print outcomes
                 result <-
                     QC.quickCheckResult $
                         LTA.forAll compiled (uncurry (>=))

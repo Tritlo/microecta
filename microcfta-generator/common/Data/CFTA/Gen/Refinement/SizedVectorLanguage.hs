@@ -35,7 +35,7 @@ import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
-import Data.CFTA.Refinement (Refinement)
+import Data.CFTA.Refinement (LiquidSymbol (LiquidSymbol), Refinement)
 import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.<=.), (.==.), (.>=.))
 import Data.CFTA.Refinement.Guard (
     Position,
@@ -199,8 +199,8 @@ zippedVectors maximumLength children =
                 ]
 
 -- | Retain the selected result annotation without inspecting a vector value.
-resultRefinement :: [LTA.RootObservation] -> Refinement
-resultRefinement (result : _) = LTA.observedRefinement result
+resultRefinement :: [LiquidSymbol] -> Refinement
+resultRefinement (LiquidSymbol _ refinement : _) = refinement
 resultRefinement [] = error "resultRefinement: missing result annotation"
 
 -- | A function requiring a second vector of length @n@ and returning @n@.

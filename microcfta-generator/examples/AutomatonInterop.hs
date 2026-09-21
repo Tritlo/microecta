@@ -60,10 +60,7 @@ main = do
     withZ3 (integerDeclarations ["v"]) $ \solver -> do
         compiled <- LTA.compile solver divisions >>= either (fail . LTA.explain) pure
         let expected = [(12, 1, 12), (12, 2, 6), (24, 1, 24), (24, 2, 12)]
-            replayed =
-                traverse
-                    (fmap LTA.generatedValue . (LTA.unrank compiled))
-                    [0 .. LTA.cardinality compiled - 1]
+            replayed = LTA.cardinality compiled >>= \total -> traverse (LTA.unrank compiled) [0 .. total - 1]
         unless (replayed == Right expected)
             $ fail
             $ "unexpected replayed divisions: " <> show replayed
@@ -74,7 +71,7 @@ main = do
                     [ LTA.forAll compiled $ \(numerator, denominator, quotient) ->
                         denominator > 0 && quotient == numerator `div` denominator
                     , QC.forAll (LTA.toGenWithRank compiled) $ \(rank, division) ->
-                        fmap LTA.generatedValue (LTA.unrank compiled rank) == Right division
+                        LTA.unrank compiled rank == Right division
                     ]
         unless (QC.isSuccess result) $
             fail "imported automaton generation or replay failed"

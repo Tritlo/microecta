@@ -27,12 +27,10 @@ binaryLayer children = Gen.node "binary-application" $ Gen.do
     Gen.pure (compileBinary operation left right)
 @
 
-A block over the refinement layer builds a child forest and is closed with
-that layer's @node@. Statements are independent: the block builds the same
-applicative product as @<*>@ composition, so a later generator cannot use an
-earlier bound value. The final statement must use the /qualified/ 'pure' or
-'return'; GHC does not recognize the unqualified names inside a qualified
-block.
+Statements are independent: the block builds the same applicative product
+as @<*>@ composition, so a later generator cannot use an earlier bound value.
+The final statement must use the /qualified/ 'pure' or 'return'; GHC does not
+recognize the unqualified names inside a qualified block.
 -}
 module Data.CFTA.Gen.Do (
     GenApply (..),
@@ -53,27 +51,19 @@ import qualified Prelude
 
 import Data.CFTA.Constraint (Constraint, HasEqualities)
 import Data.CFTA.Gen (Args (..), Gen, Grouped, Sig, apply)
-import qualified Data.CFTA.Gen.Refinement as LTA
 import Data.Hashable (Hashable)
 import Data.Typeable (Typeable)
 
--- | Map a generator or an accumulated child forest of any layer.
+-- | Map a generator.
 fmap :: (Prelude.Functor f) => (a -> b) -> f a -> f b
 fmap = Prelude.fmap
 
-{- | The result of a block with no more binds.
-
-For a generator this is the language of one value; for the refinement layer
-it is a constructor result with no children.
--}
+-- | The result of a block with no more binds: the language of one value.
 class GenPure f where
-    -- | Lift one value into the layer's block result.
+    -- | Lift one value into the block result.
     pure :: a -> f a
 
 instance (Constraint constraint, Hashable symbol, Typeable symbol) => GenPure (Gen symbol constraint) where
-    pure = Prelude.pure
-
-instance GenPure LTA.Children where
     pure = Prelude.pure
 
 -- | Synonym for 'pure'.
@@ -96,9 +86,7 @@ builds a single 'apply' join once the last argument arrives; the staging never
 constructs an intermediate join. Instance selection distinguishes an operation
 family from an argument family by the 'Sig' in its key, the signature's key
 list tracks how many arguments remain, and unification enforces that each
-argument family's key matches the corresponding signature component. The
-refinement layer combines independently generated child positions into a
-child forest.
+argument family's key matches the corresponding signature component.
 -}
 class GenApply f g h | f g -> h where
     -- | Apply one generated function layer to one generated argument layer.
@@ -109,21 +97,6 @@ instance
     GenApply (Gen symbol constraint) (Gen symbol constraint) (Gen symbol constraint)
     where
     (<*>) = (Prelude.<*>)
-
-instance GenApply LTA.LTAGen LTA.LTAGen LTA.Children where
-    functions <*> arguments =
-        LTA.applyChildren (LTA.children functions) (LTA.children arguments)
-
-instance GenApply LTA.LTAGen LTA.Children LTA.Children where
-    functions <*> arguments =
-        LTA.applyChildren (LTA.children functions) arguments
-
-instance GenApply LTA.Children LTA.LTAGen LTA.Children where
-    functions <*> arguments =
-        LTA.applyChildren functions (LTA.children arguments)
-
-instance GenApply LTA.Children LTA.Children LTA.Children where
-    (<*>) = LTA.applyChildren
 
 {- | An operation family that has absorbed a prefix of its argument families
 and awaits the families for @pendingKeys@.

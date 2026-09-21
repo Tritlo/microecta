@@ -28,7 +28,7 @@ import Data.Hashable (Hashable)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isNothing)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
@@ -114,16 +114,17 @@ constrained = not . unconstrainedEdge
 
 Distinct constructor alternatives and direct-child equalities have compact
 plans. Equal child positions select one term from the intersection of their
-languages. Nested equality paths and overlapping alternatives use symbolic
-equality contexts and intersection counts, whose ranks order the
-constructors by the given key. Only a selected term is constructed.
+languages. Nested equality paths, residual Boolean equalities, and
+alternatives that share a symbol use symbolic equality contexts and
+intersection counts, whose ranks order the constructors by the given key.
+Only a selected term is constructed.
 -}
 finiteAutomaton ::
     (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
     (symbol -> key) -> Node symbol constraint -> Either GenError (Static symbol constraint (Tree.Tree symbol))
 finiteAutomaton order root
     | null (nodeEdges root) = Left EmptyGenerator
-    | any (any (residual . edgeConstraint)) (reachable root) = Left CannotCountConstrainedEdges
+    | any (any (isNothing . indicators . edgeConstraint)) (reachable root) = Left CannotCountConstrainedEdges
     | otherwise = case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
         Just ranked -> Right $ termStatic root ranked
@@ -141,6 +142,7 @@ finiteAutomaton order root
 
     buildAlternatives node
         | Set.size (Set.fromList $ map edgeSymbol edges) /= length edges = pure $ symbolic node
+        | any (residual . edgeConstraint) edges = pure $ symbolic node
         | any (needsPathExpansion . equalities . edgeConstraint) edges = pure $ symbolic node
         | otherwise = do
             alternatives <- traverse buildEdge edges

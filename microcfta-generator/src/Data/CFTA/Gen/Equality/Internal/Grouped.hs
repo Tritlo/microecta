@@ -281,11 +281,11 @@ frequencies ::
     (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
     [(Integer, Grouped symbol constraint key a)] ->
     Grouped symbol constraint key a
-frequencies [] = Grouped $ Left EmptyGenerator
-frequencies alternatives
-    | Just badWeight <- firstNonPositiveWeight alternatives =
+frequencies weighted
+    | Just badWeight <- firstNonPositiveWeight weighted =
         Grouped $ Left $ NonPositiveWeight badWeight
-    | Just err <- firstError alternatives = Grouped $ Left err
+    | Just err <- firstError weighted = Grouped $ Left err
+    | null alternatives = Grouped $ Left EmptyGenerator
     | any (isRecursiveGrouped . snd) alternatives =
         CyclicGrouped $
             if allWeightsEqual alternatives
@@ -296,11 +296,19 @@ frequencies alternatives
                 else Left WeightedRecursiveAlternatives
     | otherwise = Grouped $ traverse mergeBucketGroup grouped
   where
+    -- An empty alternative has no member to choose; it is not a failure.
+    alternatives = filter (not . emptyAlternative . snd) weighted
+    emptyAlternative (Grouped (Left EmptyGenerator)) = True
+    emptyAlternative (CyclicGrouped (Left EmptyGenerator)) = True
+    emptyAlternative _ = False
+
     totalWeight = sum $ map fst alternatives
 
     firstError = go
       where
         go [] = Nothing
+        go ((_, Grouped (Left EmptyGenerator)) : rest) = go rest
+        go ((_, CyclicGrouped (Left EmptyGenerator)) : rest) = go rest
         go ((_, Grouped (Left err)) : _) = Just err
         go ((_, CyclicGrouped (Left err)) : _) = Just err
         go (_ : rest) = go rest

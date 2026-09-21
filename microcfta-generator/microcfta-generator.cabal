@@ -89,7 +89,6 @@ library
     Data.CFTA.Gen.Equality.Sig
     Data.CFTA.Gen.Error
     Data.CFTA.Gen.Internal.Automaton
-    Data.CFTA.Gen.Internal.Shrink
     Data.CFTA.Gen.Label
     Data.CFTA.Gen.QuickCheck
     Data.CFTA.Gen.Refinement
@@ -116,17 +115,7 @@ library
     Data.CFTA.Gen.Equality.Internal.Static
     Data.CFTA.Gen.Equality.Internal.Support
     Data.CFTA.Gen.Equality.Internal.Types
-    Data.CFTA.Gen.Refinement.Internal.AutomatonCompile
-    Data.CFTA.Gen.Refinement.Internal.AutomatonSource
     Data.CFTA.Gen.Refinement.Internal.Compile
-    Data.CFTA.Gen.Refinement.Internal.IndexedGroup
-    Data.CFTA.Gen.Refinement.Internal.Recipe
-    Data.CFTA.Gen.Refinement.Internal.Relational
-    Data.CFTA.Gen.Refinement.Internal.Replay
-    Data.CFTA.Gen.Refinement.Internal.ShrinkSearch
-    Data.CFTA.Gen.Refinement.Internal.SourceIndex
-    Data.CFTA.Gen.Refinement.Internal.Surface
-    Data.CFTA.Gen.Refinement.Internal.Types
     Data.CFTA.Gen.Refinement.Internal.Witness
 
   build-depends:
@@ -291,9 +280,9 @@ test-suite refinement-tests
 
   other-modules:
     Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
+    Data.CFTA.Gen.Refinement.CompileSpec
     Data.CFTA.Gen.Refinement.DependentApplicationSpec
     Data.CFTA.Gen.Refinement.ExampleSupport
-    Data.CFTA.Gen.Refinement.OpaquePoolSpec
     Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
     Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
     Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec

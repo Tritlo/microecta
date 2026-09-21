@@ -4,6 +4,7 @@ import Data.String (fromString)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import Data.CFTA.Gen.Refinement.TestSupport (values)
 import Data.CFTA.Gen.Refinement.TypedExpressionLanguage (nonNegative, solverDeclarations, value)
 import Data.CFTA.Refinement.Expression (true, (./=.), (.>=.))
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
@@ -24,12 +25,7 @@ compileMinimized entries =
                 compiled <- LTA.compile solver generator
                 case compiled of
                     Left err -> expectationFailure (show err) >> pure []
-                    Right language ->
-                        pure
-                            [ LTA.generatedValue generated
-                            | rank <- [0 .. LTA.cardinality language - 1]
-                            , Right generated <- [LTA.unrank language rank]
-                            ]
+                    Right language -> pure $ values language
 
 spec :: Spec
 spec =

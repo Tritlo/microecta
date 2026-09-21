@@ -9,7 +9,7 @@ import Data.CFTA.Gen.Refinement.TestSupport (values)
 import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
-compileOrFail :: LTA.LTAGen a -> IO (LTA.Compiled a)
+compileOrFail :: LTA.LTAGen a -> IO (LTA.LTAGen a)
 compileOrFail generator =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver ->
         Support.compileOrFail solver generator
@@ -28,17 +28,17 @@ spec =
 
         it "uses two substitutions to retain one exact append result per pair" $ do
             compiled <- compileOrFail appendedBuffers
-            LTA.cardinality compiled `shouldBe` 9
+            LTA.cardinality compiled `shouldBe` Right 9
             values compiled `shouldSatisfy` all appendLengthIsCorrect
 
         it "carries append refinements into a later non-empty precondition" $ do
             compiled <- compileOrFail safeHeads
-            LTA.cardinality compiled `shouldBe` 10
+            LTA.cardinality compiled `shouldBe` Right 10
             values compiled `shouldSatisfy` all programIsSafe
 
         it "gives QuickCheck a total property over an otherwise partial interpreter" $ do
             compiled <- compileOrFail safePrograms
-            LTA.cardinality compiled `shouldBe` 14
+            LTA.cardinality compiled `shouldBe` Right 14
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 200} $
                     LTA.forAll compiled $ \program ->

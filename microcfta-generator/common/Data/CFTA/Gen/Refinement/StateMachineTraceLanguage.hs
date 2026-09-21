@@ -42,8 +42,7 @@ module Data.CFTA.Gen.Refinement.StateMachineTraceLanguage (
     tracesOfLength,
     traceAutomaton,
     compileTracesOfLength,
-    compileTraceAutomatonMaterialized,
-    compileTraceAutomatonFused,
+    compileTraceAutomaton,
     tracesUpTo,
     naiveTraceGen,
     qsmTraceGen,
@@ -184,7 +183,7 @@ initialTracePrefix :: LTA.LTAGen TracePrefix
 initialTracePrefix =
     LTA.refinedNode "start" (stateRefinement emptyState) unconstrained start
   where
-    start = LTA.pure (TracePrefix id emptyState) :: LTA.Children TracePrefix
+    start = LTA.pure (TracePrefix id emptyState) :: LTA.LTAGen TracePrefix
 
 {- | Generate traces with exactly the requested number of commands through
 the compositional surface DSL.
@@ -285,63 +284,25 @@ traces are not visited during compilation.
 compileTracesOfLength ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.Compiled Trace))
+    IO (Either LTA.GenError (LTA.LTAGen Trace))
 compileTracesOfLength entailment traceLength =
-    LTA.compileRelational entailment $ tracesOfLength traceLength
+    LTA.compile entailment $ tracesOfLength traceLength
 
--- | Compile the finite-state trace LTA through an intermediate 'Tree.Tree' 'LiquidSymbol'.
-compileTraceAutomatonMaterialized ::
+-- | Compile the finite-state trace LTA and decode its accepted terms.
+compileTraceAutomaton ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.Compiled Trace))
-compileTraceAutomatonMaterialized entailment traceLength =
+    IO (Either LTA.GenError (LTA.LTAGen Trace))
+compileTraceAutomaton entailment traceLength =
     case traceAutomaton traceLength of
         Left err -> pure $ Left $ LTA.InvalidSupport err
         Right automaton ->
-            fmap (fmap $ LTA.mapCompiled decodeTrace) $
-                LTA.compileAutomaton entailment automaton
+            LTA.compile entailment $ decodeTrace <$> LTA.fromAutomaton automaton
   where
     decodeTrace term =
         case traceFromLiquidTerm term of
             Just trace -> trace
-            Nothing -> error "compileTraceAutomatonMaterialized: invalid trace term"
-
--- | Compile the finite-state trace LTA directly into domain values.
-compileTraceAutomatonFused ::
-    Entailment ->
-    Int ->
-    IO (Either LTA.GenError (LTA.Compiled Trace))
-compileTraceAutomatonFused entailment traceLength =
-    case traceAutomaton traceLength of
-        Left err -> pure $ Left $ LTA.InvalidSupport err
-        Right automaton ->
-            fmap (fmap $ LTA.mapCompiled decodedTrace) $
-                LTA.compileAutomatonWith entailment decodeTraceNode automaton
-
--- | Values carried by the homogeneous bottom-up automaton fold.
-data DecodedTraceNode
-    = DecodedTrace ([Event] -> [Event]) !StackState
-    | DecodedCommand !Command
-    | DecodedScaffolding
-
--- | Fold one pruned trace transition without constructing a 'Tree.Tree' 'LiquidSymbol'.
-decodeTraceNode :: Symbol -> Refinement -> [DecodedTraceNode] -> DecodedTraceNode
-decodeTraceNode "start" refinement []
-    | refinement == stateRefinement emptyState = DecodedTrace id emptyState
-decodeTraceNode "step" refinement [DecodedTrace events before, DecodedCommand command] =
-    case modelStep before command of
-        Just (response, after)
-            | refinement == stateRefinement after ->
-                DecodedTrace
-                    (events . (Event before command response after :))
-                    after
-        _ -> error "decodeTraceNode: pruned step has an invalid state transition"
-decodeTraceNode symbol _ [_, _] =
-    maybe
-        DecodedScaffolding
-        DecodedCommand
-        (lookup symbol commandSymbols)
-decodeTraceNode _ _ _ = DecodedScaffolding
+            Nothing -> error "compileTraceAutomaton: invalid trace term"
 
 -- | Constructor labels for the reusable command schemas.
 commandSymbols :: [(Symbol, Command)]
@@ -349,11 +310,6 @@ commandSymbols =
     [ (contractSymbol contract, contractCommand contract)
     | contract <- commandContractValues
     ]
-
--- | Extract the trace promised by the automaton's initial state.
-decodedTrace :: DecodedTraceNode -> Trace
-decodedTrace (DecodedTrace events finalState) = Trace (events []) finalState
-decodedTrace _ = error "compileTraceAutomatonFused: initial state did not decode to a trace"
 
 -- | Generate every trace up to a maximum length, shortest first for shrinking.
 tracesUpTo :: Int -> LTA.LTAGen Trace
@@ -638,9 +594,9 @@ extendTrace previousTraces =
             LTA.pure $ predictPrefixStep previous command
 
 -- | Compute the next state tag from the two direct child relation groups.
-stepRefinementFromRoots :: [LTA.RootObservation] -> Refinement
-stepRefinementFromRoots [previous, command] =
-    case (stateForRefinement $ LTA.observedRefinement previous, lookup (LTA.observedSymbol command) commandSymbols) of
+stepRefinementFromRoots :: [LiquidSymbol] -> Refinement
+stepRefinementFromRoots [LiquidSymbol _ previous, LiquidSymbol command _] =
+    case (stateForRefinement previous, lookup command commandSymbols) of
         (Just before, Just selectedCommand) ->
             case modelStep before selectedCommand of
                 Just (_, after) -> stateRefinement after

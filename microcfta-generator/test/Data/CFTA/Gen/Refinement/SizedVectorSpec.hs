@@ -10,7 +10,7 @@ import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 
 -- | Compile one sized-vector language or fail the surrounding example.
-compileOrFail :: Int -> LTA.LTAGen a -> IO (LTA.Compiled a)
+compileOrFail :: Int -> LTA.LTAGen a -> IO (LTA.LTAGen a)
 compileOrFail depth generator =
     withZ3 (solverDeclarationsAtDepth depth) $ \solver ->
         Support.compileOrFail solver generator
@@ -20,12 +20,12 @@ spec =
     describe "sized-vector pipelines" $ do
         it "proves append, take, and zip result lengths" $ do
             compiled <- compileOrFail 1 $ vectorsAtDepth 1
-            LTA.cardinality compiled `shouldBe` 20
+            LTA.cardinality compiled `shouldBe` Right 20
             values compiled `shouldSatisfy` all vectorLengthIsCorrect
 
         it "keeps exactly the safe indexes over one operation layer" $ do
             compiled <- compileOrFail 1 $ safeProgramsAtDepth 1
-            LTA.cardinality compiled `shouldBe` 44
+            LTA.cardinality compiled `shouldBe` Right 44
             values compiled `shouldSatisfy` all programIsSafe
 
         it "makes the partial interpreter total for generated programs" $ do

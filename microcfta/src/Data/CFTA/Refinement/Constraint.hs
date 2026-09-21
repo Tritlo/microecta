@@ -16,6 +16,7 @@ module Data.CFTA.Refinement.Constraint (
     equalityConstraint,
     combineConstraints,
     constraintAsGuard,
+    constraintIndicators,
     equalityPathPairs,
     guardPaths,
     symbolSensitivePaths,
@@ -28,7 +29,7 @@ import Data.Hashable (Hashable)
 import Data.Maybe (isNothing)
 import GHC.Generics (Generic)
 
-import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..), equalityIndicators)
 import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     combineEqConstraints,
@@ -98,6 +99,7 @@ instance Constraint LiquidConstraint where
     equalities LiquidConstraint{constraintEqualities, constraintGuard} =
         maybe constraintEqualities (combineEqConstraints constraintEqualities) (positiveEqualities constraintGuard)
     residual LiquidConstraint{constraintGuard} = isNothing (positiveEqualities constraintGuard)
+    indicators = either (const Nothing) Just . constraintIndicators
 
 {- | The path equalities of a guard made only of 'Top', 'Same' between two
 distinct paths, and 'And'. A reflexive 'Same' requires its path to exist and
@@ -109,6 +111,31 @@ positiveEqualities (Same left right)
     | left /= right = Just $ mkEqConstraints [[left, right]]
 positiveEqualities (And guards) = foldr (\guard rest -> combineEqConstraints <$> positiveEqualities guard <*> rest) (Just EmptyConstraints) guards
 positiveEqualities _ = Nothing
+
+{- | Express a constraint as a signed sum of equality indicators.
+
+'Top', 'Bottom', 'Same', 'Not', 'And', and 'Or' have an inclusion-exclusion
+form. A guard that needs a solver, or a substitution, is returned as the
+residual it is.
+-}
+constraintIndicators :: LiquidConstraint -> Either Guard [(Integer, [[Path]])]
+constraintIndicators LiquidConstraint{constraintEqualities, constraintGuard} =
+    conjoinTerms (equalityIndicators constraintEqualities) <$> guardTerms constraintGuard
+  where
+    guardTerms Top = Right [(1, [])]
+    guardTerms Bottom = Right []
+    guardTerms (Same left right) = Right [(1, [[left, right]])]
+    guardTerms (Not guard) = complement <$> guardTerms guard
+    guardTerms (And guards) = foldl' conjoinTerms [(1, [])] <$> traverse guardTerms guards
+    guardTerms (Or guards) = complement . foldl' conjoinTerms [(1, [])] . map complement <$> traverse guardTerms guards
+    guardTerms guard = Left guard
+
+    complement summands = (1, []) : [(negate weight, classes) | (weight, classes) <- summands]
+    conjoinTerms left right =
+        [ (leftWeight * rightWeight, leftClasses <> rightClasses)
+        | (leftWeight, leftClasses) <- left
+        , (rightWeight, rightClasses) <- right
+        ]
 
 -- | A transition with neither equality nor liquid obligations.
 unconstrainedConstraint :: LiquidConstraint

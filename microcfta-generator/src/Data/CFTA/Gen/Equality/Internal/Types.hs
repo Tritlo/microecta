@@ -1,14 +1,25 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE PatternSynonyms #-}
+
 {- | The generator types and how they lower into QuickCheck.
 
-A generator is inspectable ECTA structure, finite or recursive, or an opaque
-QuickCheck generator. A grouped generator is the same thing per retained key. The
-combinators over these types live in the other @Data.CFTA.Gen.Equality.Internal@
-modules and in "Data.CFTA.Gen.Equality"; this module also holds the two weight checks
-that the flat and the grouped choice combinators share.
+A generator is the language it denotes and a recipe of how it was built.
+The language is inspectable ECTA structure, finite or recursive, or an
+opaque QuickCheck generator. A grouped generator is the same thing per
+retained key. The combinators over these types live in the other
+@Data.CFTA.Gen.Equality.Internal@ modules and in "Data.CFTA.Gen"; this
+module also holds the two weight checks that the flat and the grouped choice
+combinators share.
 -}
 module Data.CFTA.Gen.Equality.Internal.Types (
     -- * Generators
     Gen (..),
+    Language (..),
+    pattern Transparent,
+    pattern Cyclic,
+    pattern Opaque,
+    Recipe (..),
+    withRecipe,
     isRecursive,
     isOpaque,
     recursiveView,
@@ -22,6 +33,7 @@ module Data.CFTA.Gen.Equality.Internal.Types (
     Args (..),
     NodeLayer (..),
     node,
+    nodeWithKey,
 
     -- * Lowering
     lower,
@@ -40,6 +52,7 @@ import Data.CFTA.Constraint (Constraint (..))
 import Data.Hashable (Hashable)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
@@ -55,17 +68,69 @@ import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (mapIndex, productIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
-{- | A generator is inspectable ECTA structure — finite or recursive — or an
-opaque QuickCheck generator.
+{- | A generator: the language it denotes and how it was built.
 
-The support is an automaton over 'Label': the user's symbols, closed with
-@node@ or read from an imported automaton, and the private labels of the
-engine.
+The language is inspectable ECTA structure — finite or recursive — or an
+opaque QuickCheck generator. Its support is an automaton over 'Label': the
+user's symbols, closed with @node@ or read from an imported automaton, and
+the private labels of the engine. The recipe records the constructors,
+choices, applications, and imports the generator was built from, so that a
+theory whose constraints need a solver can fold it once the solver is at
+hand; a language that the engine could build at construction is 'Built'.
 -}
-data Gen symbol constraint a
-    = Transparent !(Either GenError (Static symbol constraint a))
-    | Cyclic !(Either GenError (Recursive symbol constraint a))
-    | Opaque !(QC.Gen (Either GenError a))
+data Gen symbol constraint a = Gen
+    { genRecipe :: Recipe symbol constraint a
+    , genLanguage :: !(Language symbol constraint a)
+    }
+
+-- | Inspectable ECTA structure, finite or recursive, or an opaque generator.
+data Language symbol constraint a
+    = TransparentLanguage !(Either GenError (Static symbol constraint a))
+    | CyclicLanguage !(Either GenError (Recursive symbol constraint a))
+    | OpaqueLanguage !(QC.Gen (Either GenError a))
+
+-- | A finite language, or the error that left it empty.
+pattern Transparent :: Either GenError (Static symbol constraint a) -> Gen symbol constraint a
+pattern Transparent result <- Gen _ (TransparentLanguage result)
+  where
+    Transparent result = Gen Built (TransparentLanguage result)
+
+-- | A recursive language, or the error that left it empty.
+pattern Cyclic :: Either GenError (Recursive symbol constraint a) -> Gen symbol constraint a
+pattern Cyclic result <- Gen _ (CyclicLanguage result)
+  where
+    Cyclic result = Gen Built (CyclicLanguage result)
+
+-- | An opaque QuickCheck generator.
+pattern Opaque :: QC.Gen (Either GenError a) -> Gen symbol constraint a
+pattern Opaque generated <- Gen _ (OpaqueLanguage generated)
+  where
+    Opaque generated = Gen Built (OpaqueLanguage generated)
+
+{-# COMPLETE Transparent, Cyclic, Opaque #-}
+
+{- | How a generator was built.
+
+Every combinator that a solver-backed compile step folds records itself
+here: a lifted value, a map, an application, a constructor closed over a
+child description with the constraint its edge carries, a weighted choice,
+and an automaton import with its depth bound. Everything else, sources
+and joins and recursion among them, is 'Built': its language is final.
+-}
+data Recipe symbol constraint a where
+    Built :: Recipe symbol constraint a
+    Lifted :: a -> Recipe symbol constraint a
+    Mapped :: (a -> b) -> Gen symbol constraint a -> Recipe symbol constraint b
+    Applied :: Gen symbol constraint (a -> b) -> Gen symbol constraint a -> Recipe symbol constraint b
+    Closed :: symbol -> constraint -> Gen symbol constraint a -> Recipe symbol constraint a
+    -- | A constructor whose symbol is computed from the root symbols of its children.
+    ClosedBy :: ([symbol] -> symbol) -> constraint -> Gen symbol constraint a -> Recipe symbol constraint a
+    Chosen :: [(Integer, Gen symbol constraint a)] -> Recipe symbol constraint a
+    Imported :: Maybe Int -> Node symbol constraint -> Recipe symbol constraint (Tree.Tree symbol)
+
+-- | Record how a generator was built.
+withRecipe :: Recipe symbol constraint a -> Gen symbol constraint a -> Gen symbol constraint a
+withRecipe recipe generator = generator{genRecipe = recipe}
 
 -- | Whether a generator stands for a recursive language.
 isRecursive :: Gen symbol constraint a -> Bool
@@ -134,29 +199,35 @@ node :: (NodeLayer symbol layer) => symbol -> layer a -> layer a
 node = closeNode
 
 instance (Constraint constraint, Hashable symbol, Typeable symbol) => NodeLayer symbol (Gen symbol constraint) where
-    closeNode symbol (Transparent result) =
-        Transparent $ fmap (labelStatic symbol) result
-    closeNode symbol (Cyclic result) =
-        Cyclic $ fmap (labelRecursive symbol) result
-    closeNode _ opaque@(Opaque _) = opaque
+    closeNode symbol generator =
+        withRecipe (Closed symbol noConstraint generator) $ case generator of
+            Transparent result -> Transparent $ fmap (labelStatic symbol) result
+            Cyclic result -> Cyclic $ fmap (labelRecursive symbol) result
+            Opaque generated -> Opaque generated
 
 instance (Constraint constraint, Hashable symbol, Typeable symbol) => NodeLayer symbol (Grouped symbol constraint key) where
-    closeNode symbol (Grouped result) =
-        Grouped $ fmap (fmap labelBucket) result
-      where
-        labelBucket bucket =
-            bucket
-                { keyedBucketStatic =
-                    labelStatic symbol $ keyedBucketStatic bucket
-                }
-    closeNode symbol (CyclicGrouped result) =
-        CyclicGrouped $ fmap (fmap labelGroup) result
-      where
-        labelGroup group =
-            group
-                { keyedRecursiveLanguage =
-                    labelRecursive symbol $ keyedRecursiveLanguage group
-                }
+    closeNode symbol = nodeWithKey (const symbol)
+
+-- | Close every group with a constructor computed from its key.
+nodeWithKey ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    (key -> symbol) -> Grouped symbol constraint key a -> Grouped symbol constraint key a
+nodeWithKey symbolOf (Grouped result) =
+    Grouped $ fmap (Map.mapWithKey labelBucket) result
+  where
+    labelBucket key bucket =
+        bucket
+            { keyedBucketStatic =
+                labelStatic (symbolOf key) $ keyedBucketStatic bucket
+            }
+nodeWithKey symbolOf (CyclicGrouped result) =
+    CyclicGrouped $ fmap (Map.mapWithKey labelGroup) result
+  where
+    labelGroup key group =
+        group
+            { keyedRecursiveLanguage =
+                labelRecursive (symbolOf key) $ keyedRecursiveLanguage group
+            }
 
 instance Functor (Grouped symbol constraint key) where
     fmap transform (Grouped result) =
@@ -186,25 +257,34 @@ instance Functor (Grouped symbol constraint key) where
             recursive = keyedRecursiveLanguage group
 
 instance Functor (Gen symbol constraint) where
-    fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
-    fmap transform (Cyclic result) = Cyclic $ fmap mapRecursive result
+    fmap transform generator =
+        withRecipe (Mapped transform generator) $ case generator of
+            Transparent result -> Transparent $ fmap (mapStatic transform) result
+            Cyclic result -> Cyclic $ fmap mapRecursive result
+            Opaque generated -> Opaque $ fmap (fmap transform) generated
       where
         mapRecursive recursive =
             recursive
                 { recursiveIndex = mapIndex transform $ recursiveIndex recursive
                 , recursiveSampling = mapSampleIndex transform $ recursiveSampling recursive
                 }
-    fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
 instance (Constraint constraint, Hashable symbol, Typeable symbol) => Applicative (Gen symbol constraint) where
-    pure value = Transparent $ Right $ pureStatic value
+    pure value = withRecipe (Lifted value) $ Transparent $ Right $ pureStatic value
 
-    Transparent (Left err) <*> _ = Transparent $ Left err
-    _ <*> Transparent (Left err) = Transparent $ Left err
-    Transparent (Right functions) <*> Transparent (Right values) =
-        Transparent $ Right $ applyStatic functions values
-    functions <*> values
-        | isRecursive functions || isRecursive values =
+    functions <*> values = withRecipe (Applied functions values) $ applyLanguages functions values
+
+-- | The applicative product of two languages.
+applyLanguages ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Gen symbol constraint (a -> b) -> Gen symbol constraint a -> Gen symbol constraint b
+applyLanguages functions values = case (functions, values) of
+    (Transparent (Left err), _) -> Transparent $ Left err
+    (_, Transparent (Left err)) -> Transparent $ Left err
+    (Transparent (Right functionStatic), Transparent (Right valueStatic)) ->
+        Transparent $ Right $ applyStatic functionStatic valueStatic
+    _
+        | isRecursive functions || isRecursive values ->
             Cyclic $ do
                 left <- recursiveView functions
                 right <- recursiveView values
@@ -231,8 +311,8 @@ instance (Constraint constraint, Hashable symbol, Typeable symbol) => Applicativ
                                 [ Edge (plainSymbol Apply) [inspectionGraph $ recursiveInspection left, inspectionGraph $ recursiveInspection right]
                                 ]
                         )
-    functions <*> values =
-        Opaque $ liftA2 (<*>) (lower functions) (lower values)
+        | otherwise ->
+            Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
 -- | Lower to QuickCheck, preserving construction and decoding errors.
 lower :: Gen symbol constraint a -> QC.Gen (Either GenError a)

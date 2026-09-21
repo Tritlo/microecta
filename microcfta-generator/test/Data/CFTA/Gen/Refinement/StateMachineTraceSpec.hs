@@ -8,19 +8,19 @@ import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
 import Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
-import Data.CFTA.Gen.Refinement.TestSupport (values)
+import Data.CFTA.Gen.Refinement.TestSupport (ranks, termsOf, values)
 import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
 import Data.CFTA.Refinement (LiquidSymbol (LiquidSymbol))
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
 -- | Compile one trace language with the symbolic model environment.
-compileOrFail :: LTA.LTAGen a -> IO (LTA.Compiled a)
+compileOrFail :: LTA.LTAGen a -> IO (LTA.LTAGen a)
 compileOrFail generator =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver ->
         Support.compileOrFail solver generator
 
 -- | Compile the automaton-level flagship path with the symbolic model.
-compileTraceOrFail :: Int -> IO (LTA.Compiled Trace)
+compileTraceOrFail :: Int -> IO (LTA.LTAGen Trace)
 compileTraceOrFail traceLength =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         compileTracesOfLength solver traceLength >>= Support.rightOrFail
@@ -31,7 +31,7 @@ spec =
         it "matches the independent trace counts through length four" $ do
             compiled <- traverse compileTraceOrFail [1 .. 4]
             map LTA.cardinality compiled
-                `shouldBe` [traceCount length_ (StackState []) | length_ <- [1 .. 4]]
+                `shouldBe` [Right $ traceCount length_ (StackState []) | length_ <- [1 .. 4]]
 
         it "counts the deeper benchmark language without enumerating traces" $
             -- These constants are the values traceCount produced when the
@@ -43,39 +43,35 @@ spec =
 
         it "compiles the qualified-do surface beyond the old length-six wall" $ do
             compiled <- compileTraceOrFail 10
-            LTA.cardinality compiled `shouldBe` traceCount 10 (StackState [])
+            LTA.cardinality compiled `shouldBe` Right (traceCount 10 (StackState []))
 
         it "retains valid structural shrinks from the relational ECTA plan" $ do
             compiled <- compileTraceOrFail 3
             let candidates =
                     [ candidate
-                    | source <- [0 .. LTA.cardinality compiled - 1]
+                    | source <- ranks compiled
                     , candidate <- LTA.shrinkRank compiled source
                     ]
             candidates `shouldSatisfy` not . null
-            candidates `shouldSatisfy` all (\rank -> rank >= 0 && rank < LTA.cardinality compiled)
+            candidates `shouldSatisfy` all (`elem` ranks compiled)
             let shrunk =
-                    [ LTA.generatedValue member
+                    [ member
                     | candidate <- candidates
                     , Right member <- [LTA.unrank compiled candidate]
                     ]
             shrunk `shouldSatisfy` all traceIsValid
 
-        it "keeps materialized and fused automaton decoders extensionally equal" $
+        it "compiles the hand-built trace automaton to the same language" $
             withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-                materialized <- compileTraceAutomatonMaterialized solver 4
-                fused <- compileTraceAutomatonFused solver 4
-                case (materialized, fused) of
-                    (Right materializedCompiled, Right fusedCompiled) -> do
-                        LTA.cardinality fusedCompiled `shouldBe` LTA.cardinality materializedCompiled
-                        values fusedCompiled `shouldBe` values materializedCompiled
-                    (Left err, _) -> expectationFailure $ show err
-                    (_, Left err) -> expectationFailure $ show err
+                automaton <- compileTraceAutomaton solver 4 >>= Support.rightOrFail
+                surface <- compileTracesOfLength solver 4 >>= Support.rightOrFail
+                LTA.cardinality automaton `shouldBe` LTA.cardinality surface
+                Set.fromList (values automaton) `shouldBe` Set.fromList (values surface)
 
         it "retains the dependent command sequences and rejects ill-typed ones" $ do
             compiled <- compileTraceOrFail 3
-            LTA.cardinality compiled `shouldBe` 132
-            LTA.cardinality compiled `shouldBe` traceCount 3 (StackState [])
+            LTA.cardinality compiled `shouldBe` Right 132
+            LTA.cardinality compiled `shouldBe` Right (traceCount 3 (StackState []))
             let sequences = Set.fromList $ map (map eventCommand . traceEvents) $ values compiled
             sequences `shouldSatisfy` Set.member [Push (IntValue 0), Push (IntValue 1), Add]
             sequences `shouldSatisfy` Set.member [Push (BoolValue False), Push (BoolValue True), And]
@@ -90,25 +86,16 @@ spec =
 
         it "carries the final stack type as the trace result refinement" $ do
             compiled <- compileTraceOrFail 3
-            let generated =
-                    [ member
-                    | rank <- [0 .. LTA.cardinality compiled - 1]
-                    , Right member <- [LTA.unrank compiled rank]
-                    ]
-            generated
+            zip (values compiled) (termsOf compiled)
                 `shouldSatisfy` all
-                    ( \member ->
-                        let LiquidSymbol _ refinement = Tree.rootLabel (LTA.generatedTerm member)
-                         in refinement == stateRefinement (traceFinalState $ LTA.generatedValue member)
+                    ( \(trace, term) ->
+                        let LiquidSymbol _ refinement = Tree.rootLabel term
+                         in refinement == stateRefinement (traceFinalState trace)
                     )
 
         it "shrinks only to shorter traces whose stack preconditions still hold" $ do
             compiled <- compileOrFail $ tracesUpTo 3
-            let ranked =
-                    [ (rank, LTA.generatedValue member)
-                    | rank <- [0 .. LTA.cardinality compiled - 1]
-                    , Right member <- [LTA.unrank compiled rank]
-                    ]
+            let ranked = zip (ranks compiled) (values compiled)
                 lengthThreeRanks =
                     [ rank
                     | (rank, trace) <- ranked
@@ -116,11 +103,7 @@ spec =
                     ]
             case lengthThreeRanks of
                 source : _ -> do
-                    let shrunk =
-                            [ LTA.generatedValue member
-                            | rank <- LTA.shrinkRank compiled source
-                            , Right member <- [LTA.unrank compiled rank]
-                            ]
+                    let shrunk = map snd $ LTA.smallerMembers compiled source
                     shrunk `shouldSatisfy` any ((< 3) . length . traceEvents)
                     shrunk `shouldSatisfy` all traceIsValid
                 [] -> expectationFailure "no accepted three-step trace"

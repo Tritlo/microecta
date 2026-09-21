@@ -76,13 +76,12 @@ equalityExpressionAutomaton requestedDepth = validate root >> pure root
 compileEqualityExpressionsAtDepth ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.Compiled TypedExpression))
+    IO (Either LTA.GenError (LTA.LTAGen TypedExpression))
 compileEqualityExpressionsAtDepth entailment depth =
     case equalityExpressionAutomaton depth of
         Left err -> pure $ Left $ LTA.InvalidSupport err
         Right automaton ->
-            fmap (fmap $ LTA.mapCompiled decodeExpression) $
-                LTA.compileAutomaton entailment automaton
+            LTA.compile entailment $ decodeExpression <$> LTA.fromAutomaton automaton
   where
     decodeExpression term =
         case expressionFromLiquidTerm term of

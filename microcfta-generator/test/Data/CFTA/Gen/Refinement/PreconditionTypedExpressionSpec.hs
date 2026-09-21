@@ -9,7 +9,7 @@ import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
 import Data.CFTA.Gen.Refinement.TypedExpressionLanguage
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 
-compileOrFail :: LTA.LTAGen a -> IO (LTA.Compiled a)
+compileOrFail :: LTA.LTAGen a -> IO (LTA.LTAGen a)
 compileOrFail generator =
     withZ3 solverDeclarations $ \solver ->
         Support.compileOrFail solver generator
@@ -27,7 +27,7 @@ spec =
 
         it "does not mistake non-negative for provably non-zero" $ do
             compiled <- compileOrFail divisions
-            LTA.cardinality compiled `shouldBe` 10
+            LTA.cardinality compiled `shouldBe` Right 10
             values compiled `shouldSatisfy` all denominatorIsProvablyNonZero
 
         it "samples only programs admitted by the liquid precondition" $ do

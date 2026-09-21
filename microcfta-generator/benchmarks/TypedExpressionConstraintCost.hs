@@ -50,7 +50,7 @@ prepare "lta-eq" depth =
         case result of
             Left err -> fail $ "could not compile equality-refined LTA: " <> show err
             Right compiled
-                | LTA.cardinality compiled == expressionTotal depth ->
+                | LTA.cardinality compiled == Right (expressionTotal depth) ->
                     pure $ LTA.toGen compiled
                 | otherwise ->
                     fail $

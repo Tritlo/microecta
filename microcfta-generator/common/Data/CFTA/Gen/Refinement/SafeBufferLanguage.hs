@@ -37,7 +37,7 @@ import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
-import Data.CFTA.Refinement (LiquidConstraint, Refinement)
+import Data.CFTA.Refinement (LiquidConstraint, LiquidSymbol (LiquidSymbol), Refinement)
 import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.==.), (.>=.))
 import Data.CFTA.Refinement.Guard (
     Position,
@@ -168,7 +168,7 @@ appendedBuffers =
                 (Append (bufferExpression left) (bufferExpression right))
                 (resultLength result)
   where
-    resultRefinement (result : _) = LTA.observedRefinement result
+    resultRefinement (LiquidSymbol _ refinement : _) = refinement
     resultRefinement [] = error "appendedBuffers: missing result annotation"
 
 -- | One candidate result-length refinement for append.

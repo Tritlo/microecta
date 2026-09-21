@@ -1,5 +1,5 @@
 -- | Count finite equality languages without constructing their members.
-module Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked, symbolicRankedWith, symbolicGroupsWith) where
+module Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked) where
 
 import qualified Control.Monad.State.Lazy as State
 import Data.Hashable (Hashable)
@@ -10,9 +10,8 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
-import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Constraint (Constraint (..))
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
@@ -83,7 +82,12 @@ symbolicRanked ::
     (symbol -> key) -> ECTA.Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
 symbolicRanked order = symbolicRankedWith order interpret
   where
-    interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses . ECTA.equalities
+    interpret constraint = case indicators constraint of
+        Just summands -> summands
+        Nothing ->
+            error
+                "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Symbolic.symbolicRanked: \
+                \a constraint without indicators reached symbolic counting"
 
 {- | Compile a finite graph with an exact sum of equality indicators per guard.
 
@@ -104,84 +108,6 @@ symbolicRankedWith order interpret root =
   where
     (total, counts) = State.runState (countNode interpret root) emptyCounts
     select rank = State.evalState (selectTerm order interpret root [] rank) counts
-
-{- | Partition constructor-order ranks by finite path observations.
-
-Each group contains its count and a prefix counter over the original rank
-domain. The prefix counter counts group ranks strictly below its argument.
-Missing positions are absent from the observation map. Neither partitioning
-nor prefix counting constructs a term.
--}
-symbolicGroupsWith ::
-    (Theory symbol constraint, Ord key) =>
-    (symbol -> key) ->
-    Interpretation constraint ->
-    [Path] ->
-    Node symbol constraint ->
-    Map.Map (Map.Map Path (symbol, Bool)) (Integer, Integer -> Integer)
-symbolicGroupsWith order interpret requested root =
-    Map.map
-        (\(count, graph) -> (count, \rank -> State.evalState (prefixAt order interpret root graph [[]] rank) counts))
-        groups
-  where
-    (groups, counts) = State.runState (partitionAt (Set.toAscList $ Set.fromList requested) Map.empty root) emptyCounts
-    partitionAt [] observations graph = do
-        count <- countNode interpret graph
-        pure $ if count == 0 then Map.empty else Map.singleton observations (count, graph)
-    partitionAt (target : rest) observations graph = do
-        let position = unPath target
-            present =
-                [ (Map.insert target (symbol, arity == 0) observations, condition position constructor graph)
-                | constructor@(symbol, arity) <- constructorsAt order position graph
-                ]
-            absent = (observations, conditionMissing position graph)
-        variants <-
-            traverse
-                ( \(observed, restricted) -> do
-                    count <- countNode interpret restricted
-                    if count == 0 then pure Map.empty else partitionAt rest observed restricted
-                )
-                (absent : present)
-        pure $ Map.unions variants
-
--- | Count one observed group's members before a source-rank boundary.
-prefixAt ::
-    (Theory symbol constraint, Ord key) =>
-    (symbol -> key) ->
-    Interpretation constraint ->
-    Node symbol constraint ->
-    Node symbol constraint ->
-    [[Int]] ->
-    Integer ->
-    State.State (Counts symbol) Integer
-prefixAt _ _ _ _ _ rank | rank <= 0 = pure 0
-prefixAt order interpret root subset pending rank = do
-    total <- countNode interpret root
-    retained <- countNode interpret subset
-    if rank >= total
-        then pure retained
-        else
-            if retained == 0 || retained == total
-                then pure $ if retained == 0 then 0 else rank
-                else case pending of
-                    [] -> pure 0
-                    position : rest -> do
-                        local <- countNode interpret $ project position root
-                        if local == 1
-                            then prefixAt order interpret root subset rest rank
-                            else alternatives position rest rank $ constructorsAt order position root
-  where
-    alternatives _ _ _ [] = pure 0
-    alternatives position rest remaining (constructor@(_, arity) : others) = do
-        let selected = condition position constructor root
-            restricted = condition position constructor subset
-        count <- countNode interpret selected
-        if remaining >= count
-            then do
-                before <- countNode interpret restricted
-                after <- alternatives position rest (remaining - count) others
-                pure $ before + after
-            else prefixAt order interpret selected restricted ([position <> [index] | index <- [0 .. arity - 1]] <> rest) remaining
 
 -- | Count a shared graph once per interned identity.
 countNode ::
@@ -407,18 +333,6 @@ condition (index : rest) constructor node =
         , let children = edgeChildren edge
         , child : _ <- [drop index children]
         ]
-
--- | Retain terms for which a requested position does not exist.
-conditionMissing :: (Theory symbol constraint) => [Int] -> Node symbol constraint -> Node symbol constraint
-conditionMissing [] _ = Node []
-conditionMissing (index : rest) node = Node $ map restrict $ nodeEdges node
-  where
-    restrict edge = case drop index $ edgeChildren edge of
-        child : _
-            | index >= 0 ->
-                setChildren edge $
-                    take index (edgeChildren edge) <> [conditionMissing rest child] <> drop (index + 1) (edgeChildren edge)
-        _ -> edge
 
 -- | Read possible constructors at a path without enumerating subterms, in key order.
 constructorsAt ::

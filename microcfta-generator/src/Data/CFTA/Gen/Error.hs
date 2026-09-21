@@ -81,10 +81,8 @@ data GenError
       InvalidSimilarity !SimilarityError
     | -- | LTA minimization could not be applied.
       InvalidMinimization !MinimizeError
-    | -- | The source has no symbolic observation index.
-      RelationalPlanUnavailable
-    | -- | A constructor computes its refinement from a Haskell value.
-      RelationalComputedRefinement !Symbol
+    | -- | A constructor computes its label from its children's roots, and a child has none.
+      MissingRootObservation
     | -- | The source observations do not decide an equality constraint.
       RelationalEqualityUnsupported !EqConstraints
     | -- | The sparse relational shortcut cannot inspect complete subtrees.
@@ -248,17 +246,11 @@ explain SolverUnknown =
 explain (InvalidPruning err) = "LTA pruning could not discharge a constraint: " <> show err
 explain (InvalidSimilarity err) = "Could not compute LTA similarity: " <> show err
 explain (InvalidMinimization err) = "Could not apply LTA minimization: " <> show err
-explain RelationalPlanUnavailable =
+explain MissingRootObservation =
     guidance
-        [ "This compiled source has no symbolic observation index."
-        , "Fix: keep its source recipe available, or inspect small inputs"
-        , "explicitly with validOutcomes."
-        ]
-explain (RelationalComputedRefinement (Symbol symbol)) =
-    guidance
-        [ "Constructor " <> show symbol <> " computes a refinement from a Haskell value."
-        , "Fix: use refinedNodeByRoots when child labels suffice, and"
-        , "validOutcomes only for explicit diagnostics on small inputs."
+        [ "A constructor computes its refinement from the roots of its children,"
+        , "but a child has no observable root: it is a source without symbols."
+        , "Fix: give the child a symbol with pool, leaf, or a constructor."
         ]
 explain (RelationalEqualityUnsupported _) =
     guidance
@@ -281,8 +273,10 @@ explain (ResidualGuard guard) =
         ]
 explain SourceRequiresCompilation =
     guidance
-        [ "This generator contains a deferred automaton source."
-        , "Fix: call compile first, then inspect compiledSupport."
+        [ "This generator has a guard or an imported automaton that needs the"
+        , "solver, or such a part sits inside a join, a recursion, or a grouping"
+        , "that compile cannot fold."
+        , "Fix: call compile on the guarded part first, then inspect or combine it."
         ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.

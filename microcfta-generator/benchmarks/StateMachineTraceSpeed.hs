@@ -1,12 +1,12 @@
-{- | Compare seven exact-uniform generators and one QSM-style baseline.
+{- | Compare five exact-uniform generators and one QSM-style baseline.
 
 The naive generator rejects whole raw command sequences, the bespoke generator
 tracks exact suffix counts in Haskell, the QSM-style generator chooses a valid
 next command from the current model, the ranked control hand-codes one global
-rank decoder, and four LTA rows separate default compilation, relational compilation,
-materialized automaton decoding, and fused automaton decoding. Every engine
-except QSM-style online generation is exact-uniform; QSM has the same support
-but intentionally uses a different distribution.
+rank decoder, and two LTA rows compile the qualified-do surface and the
+hand-built trace automaton. Every engine except QSM-style online generation
+is exact-uniform; QSM has the same support but intentionally uses a different
+distribution.
 -}
 module Main (main) where
 
@@ -31,10 +31,8 @@ benchmark =
             , "qsm-online"
             , "bespoke"
             , "ranked"
-            , "lta-default"
             , "lta-do"
-            , "lta-materialized"
-            , "lta-fused"
+            , "lta-automaton"
             ]
         , benchmarkSampleCount = 20000
         , benchmarkMembers = \length_ -> traceCount length_ (StackState [])
@@ -48,33 +46,21 @@ prepare "naive" length_ = pure $ naiveTraceGen length_
 prepare "qsm-online" length_ = pure $ qsmTraceGen length_
 prepare "bespoke" length_ = pure $ handwrittenTraceGen length_
 prepare "ranked" length_ = pure $ rankedTraceGen length_
-prepare "lta-default" length_ =
-    withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-        result <- LTA.compile solver $ tracesOfLength length_
-        case result of
-            Left err -> fail $ "could not compile default LTA benchmark: " <> LTA.explain err
-            Right compiled
-                | LTA.cardinality compiled == traceCount length_ (StackState []) ->
-                    pure $ LTA.toGen compiled
-                | otherwise -> fail "default LTA cardinality differs from the independent trace count"
 prepare "lta" length_ = prepare "lta-do" length_
 prepare "lta-do" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         result <- compileTracesOfLength solver length_
         case result of
-            Left err -> fail $ "could not compile LTA benchmark: " <> show err
-            Right compiled -> pure $ LTA.toGen compiled
-prepare "lta-materialized" length_ =
+            Left err -> fail $ "could not compile LTA benchmark: " <> LTA.explain err
+            Right compiled
+                | LTA.cardinality compiled == Right (traceCount length_ (StackState [])) ->
+                    pure $ LTA.toGen compiled
+                | otherwise -> fail "LTA cardinality differs from the independent trace count"
+prepare "lta-automaton" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-        result <- compileTraceAutomatonMaterialized solver length_
+        result <- compileTraceAutomaton solver length_
         case result of
-            Left err -> fail $ "could not compile materialized LTA benchmark: " <> show err
-            Right compiled -> pure $ LTA.toGen compiled
-prepare "lta-fused" length_ =
-    withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-        result <- compileTraceAutomatonFused solver length_
-        case result of
-            Left err -> fail $ "could not compile fused LTA benchmark: " <> show err
+            Left err -> fail $ "could not compile the trace automaton: " <> LTA.explain err
             Right compiled -> pure $ LTA.toGen compiled
 prepare engine _ = fail $ "unknown engine: " <> engine
 

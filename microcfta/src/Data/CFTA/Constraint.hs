@@ -1,5 +1,5 @@
 -- | The constraint theories of the automaton engine.
-module Data.CFTA.Constraint (Constraint (..), HasEqualities (..)) where
+module Data.CFTA.Constraint (Constraint (..), HasEqualities (..), equalityIndicators) where
 
 import Data.Hashable (Hashable)
 import Data.Typeable (Typeable)
@@ -8,7 +8,10 @@ import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     combineEqConstraints,
     constraintsAreContradictory,
+    subsumptionOrderedEclasses,
+    unPathEClass,
  )
+import Data.CFTA.Path (Path)
 
 {- | A constraint theory with a pure conjunction operation.
 
@@ -19,7 +22,11 @@ These operations do not evaluate a constraint against a concrete term.
 
 Every theory exposes the path equalities it requires. Enumeration solves
 those by unification and hands a constraint with a 'residual' to a check
-together with the complete subterm.
+together with the complete subterm. Symbolic counting reads a constraint as
+'indicators': a signed sum of equality indicators, where each summand is a
+weight and the path classes that must exist and hold equal subterms. A theory
+whose residual is Boolean structure over equalities can express it that way;
+one that needs a solver cannot.
 -}
 class (Hashable constraint, Typeable constraint) => Constraint constraint where
     -- | Constraint that permits every term.
@@ -36,6 +43,17 @@ class (Hashable constraint, Typeable constraint) => Constraint constraint where
 
     -- | Whether the constraint requires more than its path equalities.
     residual :: constraint -> Bool
+
+    -- | The constraint as a signed sum of equality indicators, if it has one.
+    indicators :: constraint -> Maybe [(Integer, [[Path]])]
+    indicators constraint
+        | residual constraint = Nothing
+        | otherwise = Just $ equalityIndicators $ equalities constraint
+
+-- | Path equality classes as one indicator summand, or none when contradictory.
+equalityIndicators :: EqConstraints -> [(Integer, [[Path]])]
+equalityIndicators =
+    maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
 
 instance Constraint () where
     noConstraint = ()
