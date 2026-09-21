@@ -269,7 +269,10 @@ tuples, and `filterGroupsM` performs an effectful selection over an existing
 key space without visiting the members below each key.
 
 `Grouped key a` is the explicit grouping-preserving path for nested or very
-large languages. The `key` is the type returned by the classifier and used to
+large languages. The snippets in this section are fragments of one complete
+program, the typed-expression flagship
+[`Data.CFTA.Gen.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs);
+read it as a whole when the pieces below are not enough. The `key` is the type returned by the classifier and used to
 decide which groups may be joined; it is not part of the generated `a`. Matching
 key values receive equal internal labels on constrained ECTA paths. `groupBy`
 classifies any transparent generator's outcomes (enumerating them once), and
@@ -289,11 +292,20 @@ edge holding one equality constraint per argument, and retains the result key
 for later equality constraints. The operation family holds functions (`fmap`
 a compiling function onto it); the argument families arrive as an `Args`
 chain. `frequencies` chooses among grouped generators with relative weights,
-group by group, so alternated layers (for example expressions of depth at
-most n) stay grouped. `uniformlyGrouped` combines grouped generators in
-proportion to their exact cardinalities, so every member of the union is
-equally likely, which is what a layered language wants; `uniformly` does the
-same for flat generators. `ungroup` returns an ordinary `ECTAGen` with
+group by group, so alternated layers stay grouped. `uniformlyGrouped`
+combines grouped generators in proportion to their exact cardinalities, so
+every member of the union is equally likely, which is what a layered
+language wants; `uniformly` does the same for flat generators. The
+expressions of depth at most `n` are one such union, with no count computed
+by hand:
+
+```haskell
+upToDepthByType 0 = literalsByType
+upToDepthByType depth =
+  ECTAGen.uniformlyGrouped
+    [literalsByType, applicationLayer (upToDepthByType (depth - 1))]
+```
+ `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 

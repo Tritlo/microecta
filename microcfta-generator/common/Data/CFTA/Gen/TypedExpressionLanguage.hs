@@ -314,20 +314,15 @@ expressionGenAtDepth = ECTAGen.ungroup . depthByType
 
 {- | Expressions of depth at most the bound, grouped by result type.
 
-'ECTAGen.frequencies' merges the literal layer and the application layer group
-by group. Weighting the two alternatives by their exact expression counts
-makes every expression of every admitted depth equally likely, so the whole
-bounded language is uniform.
+'ECTAGen.uniformlyGrouped' merges the literal layer and the application
+layer group by group, weighting each by its exact cardinality, so every
+expression of every admitted depth is equally likely and no count is
+computed by hand.
 -}
 upToDepthByType :: Int -> Grouped Type TypedExpression
 upToDepthByType 0 = literalsByType
 upToDepthByType depth =
-    ECTAGen.frequencies
-        [ (literalCount, literalsByType)
-        , (upToDepthCount depth - literalCount, applicationLayer $ upToDepthByType $ depth - 1)
-        ]
-  where
-    literalCount = sum $ map (expressionCount 0) allTypes
+    ECTAGen.uniformlyGrouped [literalsByType, applicationLayer $ upToDepthByType $ depth - 1]
 
 {- | Every well-typed expression, as one recursive family.
 
