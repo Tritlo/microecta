@@ -41,24 +41,19 @@ module Data.CFTA.Gen.Equality.Internal.Static (
 
 import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
+import Data.Hashable (Hashable)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import Data.Text (Text)
 import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Support (
-    applySymbol,
-    frequencySymbol,
-    indexedSymbol,
-    labelSupport,
-    labelTerm,
-    labelTermWith,
-    pureSymbol,
- )
+import Data.CFTA.Gen.Equality.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Decoder (
@@ -68,22 +63,21 @@ import Data.CFTA.Ranked.Internal.Decoder (
  )
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeIndex)
-import Data.CFTA.Symbol (Symbol)
 
 -- | One term, its normalized probability mass, and its decoded value.
-data Outcome a = Outcome
-    { outcomeTerm :: Tree.Tree Symbol
+data Outcome symbol a = Outcome
+    { outcomeTerm :: Tree.Tree (Label symbol)
     , outcomeMass :: Rational
     , outcomeValue :: a
-    , outcomeInspection :: Tree.Tree InspectionSymbol
+    , outcomeInspection :: Tree.Tree (InspectionSymbol symbol)
     -- ^ Source descriptions for a selected outcome, built only for inspection.
     }
 
 -- | A finite language with exact cardinality and rank-based selection.
-data OutcomeIndex a = OutcomeIndex
+data OutcomeIndex symbol a = OutcomeIndex
     { outcomeCardinality :: !Integer
     , outcomeUniformMass :: !(Maybe Rational)
-    , outcomeSelect :: Integer -> Either GenError (Outcome a)
+    , outcomeSelect :: Integer -> Either GenError (Outcome symbol a)
     , outcomeValueAt :: Integer -> a
     , outcomeSampler :: Sampler a
     {- ^ The compositional sampler is demand-driven. Uniform lowering uses the
@@ -101,29 +95,29 @@ data OutcomeIndex a = OutcomeIndex
 mkOutcomeIndex ::
     Integer ->
     Maybe Rational ->
-    (Integer -> Either GenError (Outcome a)) ->
+    (Integer -> Either GenError (Outcome symbol a)) ->
     (Integer -> a) ->
     Sampler a ->
     Plan a ->
-    OutcomeIndex a
+    OutcomeIndex symbol a
 mkOutcomeIndex total mass select valueAt sampler plan =
     OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan)
 
 -- | Decode positions of one enumerated outcome sequence.
-seqPlan :: Seq (Outcome a) -> Plan a
+seqPlan :: Seq (Outcome symbol a) -> Plan a
 seqPlan outcomes =
     PlanSelect
         (toInteger $ Sequence.length outcomes)
         (outcomeValue . Sequence.index outcomes . fromInteger)
 
 -- | One transparent ECTA with a matching indexed outcome language.
-data Static a = Static
-    { staticSupport :: Node Symbol EqConstraints
+data Static symbol a = Static
+    { staticSupport :: Node (Label symbol) EqConstraints
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     use the outcome index without forcing this field. A support observer builds
     it when needed; finite combinators retain their support work as a thunk.
     -}
-    , staticOutcomes :: !(OutcomeIndex a)
+    , staticOutcomes :: !(OutcomeIndex symbol a)
     , staticAtomic :: !Bool
     {- ^ Whether an explicit atomic boundary closes this finite language.
 
@@ -131,38 +125,39 @@ data Static a = Static
     sets this marker so 'recursiveFromStatic' can preserve them as one source
     choice. The sampler itself already lives in 'staticOutcomes'.
     -}
-    , staticInspection :: Inspection
+    , staticInspection :: Inspection symbol
     -- ^ Diagnostic structure. Counting and decoding do not force this field.
     }
 
 -- | The one-outcome language of a single value.
-pureStatic :: a -> Static a
+pureStatic :: (Hashable symbol, Typeable symbol) => a -> Static symbol a
 pureStatic value =
     Static
-        (Node [Edge pureSymbol []])
+        (Node [Edge Pure []])
         ( mkOutcomeIndex
             1
             (Just 1)
             ( \index -> do
                 checkIndex 1 index
-                pure $ Outcome (Tree.Node pureSymbol []) 1 value (Tree.Node (plainSymbol pureSymbol) [])
+                pure $ Outcome (Tree.Node Pure []) 1 value (Tree.Node (plainSymbol Pure) [])
             )
             (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
         )
         False
-        (Inspection Nothing $ Node [Edge (plainSymbol pureSymbol) []])
+        (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
 
 -- | The language of one finite indexed source.
-indexedStatic :: Indexed a -> Static a
+indexedStatic :: (Hashable symbol, Typeable symbol) => Indexed a -> Static symbol a
 indexedStatic = indexedStaticWithLabels $ const Nothing
 
 -- | Retain source names independently of values and rank decoding.
-indexedStaticWithLabels :: (Integer -> Maybe Text) -> Indexed a -> Static a
+indexedStaticWithLabels ::
+    (Hashable symbol, Typeable symbol) => (Integer -> Maybe Text) -> Indexed a -> Static symbol a
 indexedStaticWithLabels label indexed =
     Static
-        (Node [Edge (indexedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
+        (Node [Edge (Index index) [] | index <- [0 .. totalOutcomes - 1]])
         ( mkOutcomeIndex
             totalOutcomes
             (Just $ 1 / fromInteger totalOutcomes)
@@ -174,45 +169,51 @@ indexedStaticWithLabels label indexed =
         False
         (Inspection Nothing $ Node [Edge (namedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
   where
-    namedSymbol index = InspectionSymbol (indexedSymbol index) (label index)
+    namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
     select index = do
         checkIndex totalOutcomes index
         pure $
             Outcome
-                (Tree.Node (indexedSymbol index) [])
+                (Tree.Node (Index index) [])
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
                 (Tree.Node (namedSymbol index) [])
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 
-Sampling is uniform over accepted terms. The common plan supplies replay and
-structural shrinking. No term is decoded while this adapter is constructed.
+The values are the accepted terms of the automaton, and the support is the
+automaton under user labels. Sampling is uniform over accepted terms. The
+common plan supplies replay and structural shrinking. No term is decoded
+while this adapter is constructed.
 -}
-termStatic :: Node Symbol EqConstraints -> Ranked.Ranked (Tree.Tree Symbol) -> Static (Tree.Tree Symbol)
-termStatic supportNode ranked =
+termStatic ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol EqConstraints -> Ranked.Ranked (Tree.Tree symbol) -> Static symbol (Tree.Tree symbol)
+termStatic root ranked =
     Static
         supportNode
         (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
         False
         (plainInspection supportNode)
   where
+    supportNode = relabel Label root
     total = Ranked.cardinality ranked
     mass = 1 / fromInteger total
     valueAt = Ranked.rankedValueAt ranked
     select rank = do
         checkIndex total rank
         let term = valueAt rank
-        pure $ Outcome term mass term (fmap plainSymbol term)
+            labelled = fmap Label term
+        pure $ Outcome labelled mass term (fmap plainSymbol labelled)
 
 -- | The applicative product of a function language and an argument language.
-applyStatic :: Static (a -> b) -> Static a -> Static b
+applyStatic :: (Hashable symbol, Typeable symbol) => Static symbol (a -> b) -> Static symbol a -> Static symbol b
 applyStatic functions values =
     Static
         ( Node
             [ Edge
-                applySymbol
+                Apply
                 [staticSupport functions, staticSupport values]
             ]
         )
@@ -235,7 +236,7 @@ applyStatic functions values =
         False
         ( Inspection Nothing $
             Node
-                [ Edge (plainSymbol applySymbol) [inspectionGraph $ staticInspection functions, inspectionGraph $ staticInspection values]
+                [ Edge (plainSymbol Apply) [inspectionGraph $ staticInspection functions, inspectionGraph $ staticInspection values]
                 ]
         )
   where
@@ -252,12 +253,12 @@ applyStatic functions values =
         pure $
             Outcome
                 ( Tree.Node
-                    applySymbol
+                    Apply
                     [outcomeTerm functionOutcome, outcomeTerm valueOutcome]
                 )
                 (outcomeMass functionOutcome * outcomeMass valueOutcome)
                 (outcomeValue functionOutcome $ outcomeValue valueOutcome)
-                (Tree.Node (plainSymbol applySymbol) [outcomeInspection functionOutcome, outcomeInspection valueOutcome])
+                (Tree.Node (plainSymbol Apply) [outcomeInspection functionOutcome, outcomeInspection valueOutcome])
 
     selectValue index =
         let (functionIndex, valueIndex) = splitIndex index
@@ -267,11 +268,11 @@ applyStatic functions values =
     splitIndex index = index `quotRem` valueCardinality
 
 -- | Concatenate weighted alternatives with stable rank offsets.
-frequencyStatic :: [(Integer, Static a)] -> Static a
+frequencyStatic :: (Hashable symbol, Typeable symbol) => [(Integer, Static symbol a)] -> Static symbol a
 frequencyStatic alternatives =
     Static
         ( Node
-            [ Edge (frequencySymbol index) [staticSupport static]
+            [ Edge (Choice index) [staticSupport static]
             | (index, (_, static)) <- numbered
             ]
         )
@@ -320,13 +321,13 @@ frequencyStatic alternatives =
         child <- outcomeSelect (staticOutcomes static) childIndex
         pure $
             Outcome
-                (Tree.Node (frequencySymbol branchIndex) [outcomeTerm child])
+                (Tree.Node (Choice branchIndex) [outcomeTerm child])
                 ( fromInteger weight
                     / fromInteger totalWeight
                     * outcomeMass child
                 )
                 (outcomeValue child)
-                (Tree.Node (plainSymbol $ frequencySymbol branchIndex) [outcomeInspection child])
+                (Tree.Node (plainSymbol $ Choice branchIndex) [outcomeInspection child])
 
     selectValue index =
         let (_, _, static, childIndex) = selectBranch index rankedBranches
@@ -341,7 +342,7 @@ frequencyStatic alternatives =
         | otherwise = selectBranch index remaining
 
 -- | Map the values of a static language.
-mapStatic :: (a -> b) -> Static a -> Static b
+mapStatic :: (a -> b) -> Static symbol a -> Static symbol b
 mapStatic transform static =
     Static
         (staticSupport static)
@@ -350,7 +351,7 @@ mapStatic transform static =
         (staticInspection static)
 
 -- | Map the values of an outcome index.
-mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
+mapOutcomeIndex :: (a -> b) -> OutcomeIndex symbol a -> OutcomeIndex symbol b
 mapOutcomeIndex transform outcomes =
     mkOutcomeIndex
         (outcomeCardinality outcomes)
@@ -361,7 +362,7 @@ mapOutcomeIndex transform outcomes =
         (PlanMap transform $ outcomePlan outcomes)
 
 -- | Map the value of one outcome.
-mapOutcome :: (a -> b) -> Outcome a -> Outcome b
+mapOutcome :: (a -> b) -> Outcome symbol a -> Outcome symbol b
 mapOutcome transform outcome =
     Outcome
         (outcomeTerm outcome)
@@ -370,7 +371,7 @@ mapOutcome transform outcome =
         (outcomeInspection outcome)
 
 -- | Make every outcome of a finite language contribute one unit of size.
-atomicStatic :: Static a -> Static a
+atomicStatic :: Static symbol a -> Static symbol a
 atomicStatic static =
     static
         { staticOutcomes =
@@ -398,7 +399,7 @@ Closing it removes that scaffolding from the root term: applicative spines
 become direct children, grouped joins retain their equality constraints, and
 choice wrappers distribute the new label over their alternatives.
 -}
-labelStatic :: Symbol -> Static a -> Static a
+labelStatic :: (Hashable symbol, Typeable symbol) => symbol -> Static symbol a -> Static symbol a
 labelStatic symbol static =
     static
         { staticSupport = labelSupport symbol $ staticSupport static
@@ -406,22 +407,22 @@ labelStatic symbol static =
         , staticInspection = labelInspection symbol $ staticInspection static
         }
 
-labelOutcomeTerms :: Symbol -> OutcomeIndex a -> OutcomeIndex a
+labelOutcomeTerms :: symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
 labelOutcomeTerms symbol outcomes =
     outcomes
         { outcomeSelect = fmap (labelOutcome symbol) . outcomeSelect outcomes
         }
 
 -- | Relabel the retained term of one finite outcome.
-labelOutcome :: Symbol -> Outcome a -> Outcome a
+labelOutcome :: symbol -> Outcome symbol a -> Outcome symbol a
 labelOutcome symbol outcome =
     outcome
         { outcomeTerm = labelTerm symbol $ outcomeTerm outcome
-        , outcomeInspection = labelTermWith originalSymbol (plainSymbol symbol) $ outcomeInspection outcome
+        , outcomeInspection = labelTermWith originalSymbol (plainSymbol $ Label symbol) $ outcomeInspection outcome
         }
 
 -- | Sample one outcome sequence by its masses.
-sequenceSampler :: Seq (Outcome a) -> Either GenError (Sampler a)
+sequenceSampler :: Seq (Outcome symbol a) -> Either GenError (Sampler a)
 sequenceSampler outcomes
     | Just _ <- commonValue $ Just . outcomeMass <$> toList outcomes =
         pure $ uniformSampler totalOutcomes selectValue
@@ -440,7 +441,7 @@ sequenceSampler outcomes
     selectValue = outcomeValue . Sequence.index outcomes . fromInteger
 
 -- | Sample weighted alternatives with rank offsets.
-frequencySampler :: [(Integer, Static a)] -> Sampler a
+frequencySampler :: [(Integer, Static symbol a)] -> Sampler a
 frequencySampler alternatives =
     Sampler
         ( frequencyGen
@@ -458,7 +459,7 @@ frequencySampler alternatives =
         )
 
 -- | Pair every alternative with its cumulative rank offset.
-offsetAlternatives :: [(Integer, Static a)] -> [(Integer, (Integer, Static a))]
+offsetAlternatives :: [(Integer, Static symbol a)] -> [(Integer, (Integer, Static symbol a))]
 offsetAlternatives = go 0
   where
     go _ [] = []
@@ -473,7 +474,7 @@ weightedCompilationBound :: Integer
 weightedCompilationBound = 32768
 
 -- | Compile a small non-uniform language without aggregating equal values.
-compiledWeightedSampler :: OutcomeIndex a -> Maybe (Sampler a)
+compiledWeightedSampler :: OutcomeIndex symbol a -> Maybe (Sampler a)
 compiledWeightedSampler outcomes
     | Just _ <- outcomeUniformMass outcomes = Nothing
     | outcomeCardinality outcomes > weightedCompilationBound = Nothing
@@ -492,14 +493,14 @@ compiledWeightedSampler outcomes
                 (decode <$> selectInt bound)
 
 -- | Compile the retained plan once, at lowering time.
-compiledDecoder :: OutcomeIndex a -> RankDecoder a
+compiledDecoder :: OutcomeIndex symbol a -> RankDecoder a
 compiledDecoder outcomes =
     compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
 
 -- | Sample one value; uniform languages go through the compiled decoder.
 sampleStatic ::
     (GenBackend gen) =>
-    Static a ->
+    Static symbol a ->
     gen (Either GenError a)
 sampleStatic static
     | Just _ <- outcomeUniformMass outcomes =
@@ -514,7 +515,7 @@ sampleStatic static
 -- | Sample one value together with its replay rank.
 sampleStaticWithRank ::
     (GenBackend gen) =>
-    Static a ->
+    Static symbol a ->
     gen (Either GenError (Integer, a))
 sampleStaticWithRank static
     | Just _ <- outcomeUniformMass outcomes =
@@ -529,14 +530,14 @@ sampleStaticWithRank static
     outcomes = staticOutcomes static
 
 -- | Select every outcome in rank order.
-enumerateOutcomeIndex :: OutcomeIndex a -> Either GenError [Outcome a]
+enumerateOutcomeIndex :: OutcomeIndex symbol a -> Either GenError [Outcome symbol a]
 enumerateOutcomeIndex outcomes =
     traverse
         (outcomeSelect outcomes)
         [0 .. outcomeCardinality outcomes - 1]
 
 -- | Enumerate a language as normalized mass and value pairs.
-compileOutcomes :: Static a -> Either GenError [(Rational, a)]
+compileOutcomes :: Static symbol a -> Either GenError [(Rational, a)]
 compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]

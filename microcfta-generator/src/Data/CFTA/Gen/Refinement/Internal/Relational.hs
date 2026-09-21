@@ -291,7 +291,7 @@ compileSourceGroups requested compiled = do
                             [ ( ObservationKey $ Map.map (\(identifier, isLeaf) -> toObservation (labels IntMap.! identifier, isLeaf)) observations
                               , GroupInfo alphabet $ Source.fromPrefix total count prefixAt
                               )
-                            | (observations, (count, prefixAt)) <- Map.toList $ symbolicGroupsWith interpret requested root
+                            | (observations, (count, prefixAt)) <- Map.toList $ symbolicGroupsWith id interpret requested root
                             ]
         _ -> Left RelationalPlanUnavailable
     pure

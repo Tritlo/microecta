@@ -57,6 +57,7 @@ import qualified Data.Tree as Tree
 import qualified Data.CFTA.Equality as ECTA.Core
 import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Error (GenError (..), fromRankedError)
+import Data.CFTA.Gen.Label (Label)
 import Data.CFTA.Gen.Refinement.Internal.Witness (Witness)
 import qualified Data.CFTA.Ranked as Ranked
 import Data.CFTA.Refinement
@@ -331,7 +332,7 @@ data CompiledSupport
     = -- | The pruned LTA; a constraint-free one is counted as an ordinary FTA, the rest symbolically.
       AutomatonSupport !Automaton
     | -- | A grouped relational plan produced native hash-consed ECTA support.
-      RelationalSupport !(ECTA.Core.Node Symbol EqConstraints)
+      RelationalSupport !(ECTA.Core.Node (Label Symbol) EqConstraints)
 
 -- | Solver-checked support paired with its pure ranked language and shrinks.
 data Compiled a = Compiled

@@ -45,13 +45,12 @@ import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support (argKeyedSymbol)
 import Data.CFTA.Gen.Equality.Sig (Sig (..))
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, productIndex)
-import Data.CFTA.Symbol (Symbol)
 
 {- | Group maps of every argument family, threaded through the operation type.
 
@@ -76,7 +75,7 @@ data ArgChain f operation result where
         ArgChain f (arg -> operation) result
 
 -- | The matched finite group of every argument family, in signature order.
-type ArgStatics = ArgChain Static
+type ArgStatics symbol = ArgChain (Static symbol)
 
 -- | Find the argument group for every signature key.
 lookupArgs ::
@@ -98,33 +97,33 @@ mapChain transform (ChainCons group rest) =
     ChainCons (transform group) (mapChain transform rest)
 
 -- | The product of the matched groups' probability masses.
-chainMass :: ArgChain KeyedBucket operation result -> Rational
+chainMass :: ArgChain (KeyedBucket symbol) operation result -> Rational
 chainMass ChainNil = 1
 chainMass (ChainCons bucket rest) = keyedBucketMass bucket * chainMass rest
 
 -- | Number of arguments in the chain.
-chainLength :: ArgStatics operation result -> Int
+chainLength :: ArgStatics symbol operation result -> Int
 chainLength ChainNil = 0
 chainLength (ChainCons _ rest) = 1 + chainLength rest
 
 -- | ECTA support of every argument group, in order.
-chainSupports :: ArgStatics operation result -> [Node Symbol EqConstraints]
+chainSupports :: ArgStatics symbol operation result -> [Node (Label symbol) EqConstraints]
 chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
 
 -- | Diagnostic metadata of each matched finite argument group.
-chainInspections :: ArgStatics operation result -> [Inspection]
+chainInspections :: ArgStatics symbol operation result -> [Inspection symbol]
 chainInspections ChainNil = []
 chainInspections (ChainCons static rest) = staticInspection static : chainInspections rest
 
 -- | Product of the argument group cardinalities.
-chainCardinality :: ArgStatics operation result -> Integer
+chainCardinality :: ArgStatics symbol operation result -> Integer
 chainCardinality ChainNil = 1
 chainCardinality (ChainCons static rest) =
     outcomeCardinality (staticOutcomes static) * chainCardinality rest
 
 -- | Product of the argument uniform masses, when all are uniform.
-chainUniformMass :: ArgStatics operation result -> Maybe Rational
+chainUniformMass :: ArgStatics symbol operation result -> Maybe Rational
 chainUniformMass ChainNil = Just 1
 chainUniformMass (ChainCons static rest) =
     (*)
@@ -136,7 +135,7 @@ chainUniformMass (ChainCons static rest) =
 The composed rank is @operationRank@ most significant, then argument ranks
 left to right, matching 'chainDecoder'.
 -}
-chainSampler :: Sampler operation -> ArgStatics operation result -> Sampler result
+chainSampler :: Sampler operation -> ArgStatics symbol operation result -> Sampler result
 chainSampler sampler ChainNil = sampler
 chainSampler sampler (ChainCons static rest) =
     chainSampler
@@ -148,7 +147,7 @@ chainSampler sampler (ChainCons static rest) =
         rest
 
 -- | Mirror 'chainSampler' as plan structure, one product per argument.
-chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
+chainPlan :: Plan operation -> ArgStatics symbol operation result -> Plan result
 chainPlan plan ChainNil = plan
 chainPlan plan (ChainCons static rest) =
     chainPlan
@@ -160,7 +159,7 @@ chainPlan plan (ChainCons static rest) =
         rest
 
 -- | Build a rank decoder once, capturing every suffix cardinality.
-chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
+chainDecoder :: ArgStatics symbol operation result -> operation -> Integer -> result
 chainDecoder ChainNil = const
 chainDecoder (ChainCons static ChainNil) =
     let valueAt = outcomeValueAt $ staticOutcomes static
@@ -184,19 +183,19 @@ chainDecoder (ChainCons static rest) =
 -- | Select one outcome per argument, threading terms, mass, and the applied value.
 selectChain ::
     operation ->
-    ArgStatics operation result ->
-    [Tree.Tree Symbol] ->
+    ArgStatics symbol operation result ->
+    [Tree.Tree (Label symbol)] ->
     Integer ->
-    Either GenError ([Tree.Tree Symbol], [Tree.Tree InspectionSymbol], Rational, result)
+    Either GenError ([Tree.Tree (Label symbol)], [Tree.Tree (InspectionSymbol symbol)], Rational, result)
 selectChain value ChainNil _ _ = Right ([], [], 1, value)
 selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
     let (here, there) = index `quotRem` chainCardinality rest
     outcome <- outcomeSelect (staticOutcomes static) here
     (terms, inspections, mass, value) <- selectChain (partial $ outcomeValue outcome) rest keyTerms there
     pure
-        ( Tree.Node argKeyedSymbol [keyTerm, outcomeTerm outcome] : terms
+        ( Tree.Node ArgKeyed [keyTerm, outcomeTerm outcome] : terms
         , Tree.Node
-            (plainSymbol argKeyedSymbol)
+            (plainSymbol ArgKeyed)
             [ fmap (\symbol -> InspectionSymbol symbol $ inspectionName $ staticInspection static) keyTerm
             , outcomeInspection outcome
             ]
@@ -210,13 +209,13 @@ selectChain _ (ChainCons _ _) [] _ =
         \fewer key terms than arguments"
 
 -- | The support of every matched recursive argument group, in order.
-recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol EqConstraints]
+recursiveSupports :: ArgChain (KeyedRecursive symbol) operation result -> [Node (Label symbol) EqConstraints]
 recursiveSupports ChainNil = []
 recursiveSupports (ChainCons recursive rest) =
     recursiveSupport (keyedRecursiveLanguage recursive) : recursiveSupports rest
 
 -- | Diagnostic metadata of each matched recursive argument group.
-recursiveInspections :: ArgChain KeyedRecursive operation result -> [Inspection]
+recursiveInspections :: ArgChain (KeyedRecursive symbol) operation result -> [Inspection symbol]
 recursiveInspections ChainNil = []
 recursiveInspections (ChainCons recursive rest) =
     recursiveInspection (keyedRecursiveLanguage recursive) : recursiveInspections rest
@@ -224,7 +223,7 @@ recursiveInspections (ChainCons recursive rest) =
 -- | Consume the argument groups into the operation, left to right.
 recursiveChainIndex ::
     SizeIndex operation ->
-    ArgChain KeyedRecursive operation result ->
+    ArgChain (KeyedRecursive symbol) operation result ->
     SizeIndex result
 recursiveChainIndex index ChainNil = index
 recursiveChainIndex index (ChainCons recursive rest) =
@@ -235,7 +234,7 @@ recursiveChainIndex index (ChainCons recursive rest) =
 -- | Multiply group masses through an applicative chain.
 recursiveChainMass ::
     MassIndex ->
-    ArgChain KeyedRecursive operation result ->
+    ArgChain (KeyedRecursive symbol) operation result ->
     MassIndex
 recursiveChainMass mass ChainNil = mass
 recursiveChainMass mass (ChainCons recursive rest) =
@@ -248,7 +247,7 @@ recursiveChainSampling ::
     SizeIndex operation ->
     MassIndex ->
     SampleIndex operation ->
-    ArgChain KeyedRecursive operation result ->
+    ArgChain (KeyedRecursive symbol) operation result ->
     SampleIndex result
 recursiveChainSampling _ _ sampling ChainNil = sampling
 recursiveChainSampling index mass sampling (ChainCons recursive rest) =
@@ -267,19 +266,19 @@ recursiveChainSampling index mass sampling (ChainCons recursive rest) =
             (recursiveSampling recursive')
 
 -- | Whether any recursive argument contains a weighted atomic choice.
-recursiveChainWeighted :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainWeighted :: ArgChain (KeyedRecursive symbol) operation result -> Bool
 recursiveChainWeighted ChainNil = False
 recursiveChainWeighted (ChainCons recursive rest) =
     recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
 
 -- | Whether any recursive argument is still a recursive occurrence.
-recursiveChainOccurrence :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainOccurrence :: ArgChain (KeyedRecursive symbol) operation result -> Bool
 recursiveChainOccurrence ChainNil = False
 recursiveChainOccurrence (ChainCons recursive rest) =
     recursiveOccurrence (keyedRecursiveLanguage recursive) || recursiveChainOccurrence rest
 
 -- | Whether a recursive argument's key mass differs from structural counts.
-recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
+recursiveChainMassWeighted :: ArgChain (KeyedRecursive symbol) operation result -> Bool
 recursiveChainMassWeighted ChainNil = False
 recursiveChainMassWeighted (ChainCons recursive rest) =
     keyedRecursiveMassWeighted recursive || recursiveChainMassWeighted rest

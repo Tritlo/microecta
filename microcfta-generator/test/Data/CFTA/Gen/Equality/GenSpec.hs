@@ -17,12 +17,13 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Equality (Node (Node), accepts, edgeChildren, edgeConstraint, edgeSymbol, terms)
+import Data.CFTA.Equality (Node (Node), accepts, edgeChildren, edgeConstraint, edgeSymbol, termsWith)
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
+import Data.CFTA.Gen.Equality.TestSupport (renameSymbols)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 
 data UserId = Alice | Bob | Carol | Dave
@@ -148,7 +149,7 @@ spec = do
             case ECTAGen.support authenticationFixture of
                 Right (Node [edge]) ->
                     (edgeSymbol edge, length $ edgeChildren edge)
-                        `shouldBe` (fromString "authentication", 2)
+                        `shouldBe` (ECTAGen.Label $ fromString "authentication", 2)
                 result -> expectationFailure $ "unexpected node support: " <> show result
 
         it "keeps relabelled recursive witnesses inside their support" $ do
@@ -158,13 +159,17 @@ spec = do
                 Left err -> expectationFailure $ show err
                 Right original -> do
                     let label = ECTAGen.node $ fromString "closed"
-                        fromAutomaton = ECTAGen.fromAutomaton original
+                        -- Read the support back as an automaton over plain
+                        -- symbols, private labels included.
+                        surface (ECTAGen.Label symbol) = symbol
+                        surface private = fromString $ show private
+                        fromAutomaton = ECTAGen.fromAutomaton $ renameSymbols surface original
                         check labelled =
                             case ( ECTAGen.support labelled
                                  , ECTAGen.support $ ECTAGen.ungroup $ ECTAGen.groupBy (const ()) labelled
                                  ) of
                                 (Right support, Right regrouped) -> do
-                                    let witnesses = terms regrouped
+                                    let witnesses = termsWith (ECTAGen.Label $ fromString "Mu") regrouped
                                     ECTAGen.cardinality labelled `shouldBe` Right 2
                                     length witnesses `shouldBe` 2
                                     witnesses `shouldSatisfy` all (accepts support)

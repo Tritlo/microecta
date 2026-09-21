@@ -30,7 +30,7 @@ import Data.CFTA.Equality.Constraint (EqConstraints, mkEqConstraints)
 import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, GenError (..), Sig (..))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Equality.TestSupport (aggregateRights)
+import Data.CFTA.Gen.Equality.TestSupport (aggregateRights, renameSymbols)
 import Data.CFTA.Path (path)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Symbol (Symbol)
@@ -313,7 +313,7 @@ spec = do
                 `shouldBe` Right (sort $ terms finiteAutomaton)
             map (ECTAGen.sizeOfRank atomic) ranks
                 `shouldBe` replicate 4 (Just 1)
-            fmap (== finiteAutomaton) (ECTAGen.support atomic)
+            fmap (== renameSymbols ECTAGen.Label finiteAutomaton) (ECTAGen.support atomic)
                 `shouldBe` Right True
 
         it "keeps a large atomic automaton compact" $ do

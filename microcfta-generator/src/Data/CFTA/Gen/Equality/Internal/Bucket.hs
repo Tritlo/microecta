@@ -13,9 +13,11 @@ module Data.CFTA.Gen.Equality.Internal.Bucket (
 ) where
 
 import Data.Foldable (toList)
+import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Equality.Internal.Inspection
@@ -25,17 +27,18 @@ import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.
-data KeyedBucket a = KeyedBucket
+data KeyedBucket symbol a = KeyedBucket
     { keyedBucketMass :: !Rational
-    , keyedBucketStatic :: !(Static a)
+    , keyedBucketStatic :: !(Static symbol a)
     }
 
 -- | Group enumerated outcomes by key.
-groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
+groupOutcomes :: (Ord key) => [(key, Outcome symbol value)] -> Map.Map key [Outcome symbol value]
 groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
 
 -- | Build one retained group from its outcomes, in rank order.
-bucketFromOutcomes :: Bool -> [Outcome a] -> Either GenError (KeyedBucket a)
+bucketFromOutcomes ::
+    (Hashable symbol, Typeable symbol) => Bool -> [Outcome symbol a] -> Either GenError (KeyedBucket symbol a)
 bucketFromOutcomes retainAtomic outcomes = do
     sampler <- sequenceSampler conditional
     pure
@@ -72,7 +75,8 @@ bucketFromOutcomes retainAtomic outcomes = do
     selectValue = outcomeValue . Sequence.index conditional . fromInteger
 
 -- | Merge weighted static languages into one group.
-mergeBucketGroup :: [(Rational, Static a)] -> Either GenError (KeyedBucket a)
+mergeBucketGroup ::
+    (Hashable symbol, Typeable symbol) => [(Rational, Static symbol a)] -> Either GenError (KeyedBucket symbol a)
 -- One alternative is already the group, and rebuilding it through
 -- 'frequencyStatic' would drop its atomic marker.
 mergeBucketGroup [(mass, static)] | mass > 0 = Right $ KeyedBucket mass static
@@ -91,9 +95,9 @@ mergeBucketGroup alternatives = do
 
 -- | Merge weighted joined components into normalized result-key groups.
 mergeComponentsByKey ::
-    (Ord resultKey) =>
-    [(resultKey, Rational, Static a)] ->
-    Either GenError (Map.Map resultKey (KeyedBucket a))
+    (Ord resultKey, Hashable symbol, Typeable symbol) =>
+    [(resultKey, Rational, Static symbol a)] ->
+    Either GenError (Map.Map resultKey (KeyedBucket symbol a))
 mergeComponentsByKey [] = Left EmptyGenerator
 mergeComponentsByKey components = do
     unnormalized <- traverse mergeBucketGroup grouped

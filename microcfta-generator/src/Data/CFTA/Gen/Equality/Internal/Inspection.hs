@@ -9,31 +9,30 @@ module Data.CFTA.Gen.Equality.Internal.Inspection (
     joinInspection,
 ) where
 
-import qualified Control.Monad.State.Strict as State
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 
-import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeChildren, edgeConstraint, edgeSymbol, mkEdge)
-import qualified Data.CFTA.Equality as Core
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Support
-import Data.CFTA.Symbol (Symbol)
+import Data.CFTA.Gen.Label (Label (..))
 
-{- | An original support symbol with an optional source or group name.
+{- | An original support label with an optional source or group name.
 
 Names participate in diagnostic sharing. Two source occurrences can have the
-same original symbol and different meanings. Use 'originalSymbol' to inspect
-the support symbol. Display names do not participate in generation.
+same original label and different meanings. Use 'originalSymbol' to inspect
+the support label. Display names do not participate in generation.
 -}
-data InspectionSymbol = InspectionSymbol
-    { originalSymbol :: Symbol
+data InspectionSymbol symbol = InspectionSymbol
+    { originalSymbol :: Label symbol
     , displayLabel :: Maybe Text
     }
     deriving (Eq, Ord, Show, Generic)
 
-instance Hashable InspectionSymbol
+instance (Hashable symbol) => Hashable (InspectionSymbol symbol)
 
 {- | A named diagnostic graph retained by an inspectable generator.
 
@@ -42,50 +41,28 @@ a replacement for the semantic support: diagnostic names can distinguish
 otherwise equal nodes, and this graph does not run equality reduction.
 All fields are lazy. Reading counts or decoding ranks does not build it.
 -}
-data Inspection = Inspection
+data Inspection symbol = Inspection
     { inspectionName :: Maybe Text
-    , inspectionGraph :: Node InspectionSymbol EqConstraints
+    , inspectionGraph :: Node (InspectionSymbol symbol) EqConstraints
     }
-    deriving (Show)
 
--- | Retain a symbol without adding a display name.
-plainSymbol :: Symbol -> InspectionSymbol
+deriving instance (Show symbol) => Show (Inspection symbol)
+
+-- | Retain a label without adding a display name.
+plainSymbol :: Label symbol -> InspectionSymbol symbol
 plainSymbol symbol = InspectionSymbol symbol Nothing
 
--- | Copy an imported graph with its labels, constraints, and bound references.
-plainInspection :: Node Symbol EqConstraints -> Inspection
-plainInspection root = Inspection Nothing $ State.evalState (visit Map.empty root) Map.empty
-  where
-    visit environment node = do
-        memo <- State.get
-        case Map.lookup node memo of
-            Just copied -> pure copied
-            Nothing -> do
-                copied <- case node of
-                    Core.EmptyNode -> pure Core.EmptyNode
-                    Core.Rec ident -> pure $ Map.findWithDefault (Core.Rec ident) ident environment
-                    Core.InternedMu binder ->
-                        pure $ Core.createMu $ \self ->
-                            State.evalState
-                                ( visit
-                                    (Map.insert (Core.RecInt $ Core.internedMuId binder) self environment)
-                                    (Core.internedMuBody binder)
-                                )
-                                Map.empty
-                    Core.InternedNode payload -> Node <$> traverse (copyEdge environment) (Core.internedNodeEdges payload)
-                State.modify' $ Map.insert node copied
-                pure copied
-    copyEdge environment edge = do
-        children <- traverse (visit environment) $ edgeChildren edge
-        pure $ mkEdge (plainSymbol $ edgeSymbol edge) children $ edgeConstraint edge
+-- | Copy a support graph with its labels, constraints, and bound references.
+plainInspection :: (Hashable symbol, Typeable symbol) => Node (Label symbol) EqConstraints -> Inspection symbol
+plainInspection = Inspection Nothing . relabel plainSymbol
 
 -- | Preserve choice order and a name common to every alternative.
-choiceInspection :: [Inspection] -> Inspection
+choiceInspection :: (Hashable symbol, Typeable symbol) => [Inspection symbol] -> Inspection symbol
 choiceInspection alternatives =
     Inspection
         commonName
         ( Node
-            [ Edge (plainSymbol $ frequencySymbol index) [inspectionGraph alternative]
+            [ Edge (plainSymbol $ Choice index) [inspectionGraph alternative]
             | (index, alternative) <- zip [0 ..] alternatives
             ]
         )
@@ -95,22 +72,21 @@ choiceInspection alternatives =
         _ -> Nothing
 
 -- | Close one diagnostic child layer with the same domain constructor.
-labelInspection :: Symbol -> Inspection -> Inspection
+labelInspection :: (Hashable symbol, Typeable symbol) => symbol -> Inspection symbol -> Inspection symbol
 labelInspection symbol inspection =
     inspection
         { inspectionGraph =
-            labelSupportWith originalSymbol (plainSymbol symbol) $ inspectionGraph inspection
+            labelSupportWith originalSymbol (plainSymbol $ Label symbol) $ inspectionGraph inspection
         }
 
 -- | Join diagnostic groups and name each equality witness from its argument.
-joinInspection :: Int -> Inspection -> [Inspection] -> Inspection
+joinInspection ::
+    (Hashable symbol, Typeable symbol) =>
+    Int -> Inspection symbol -> [Inspection symbol] -> Inspection symbol
 joinInspection component operation arguments =
     Inspection Nothing $
         joinNodeWith namedSymbol component (inspectionGraph operation) (map inspectionGraph arguments)
   where
-    names =
-        Map.fromList
-            [ (argKeySymbol component position, inspectionName argument)
-            | (position, argument) <- zip [0 ..] arguments
-            ]
-    namedSymbol symbol = InspectionSymbol symbol $ Map.findWithDefault Nothing symbol names
+    names = Map.fromList $ zip [0 ..] $ map inspectionName arguments
+    namedSymbol symbol@(ArgKey _ position) = InspectionSymbol symbol $ Map.findWithDefault Nothing position names
+    namedSymbol symbol = plainSymbol symbol

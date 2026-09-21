@@ -14,7 +14,10 @@ and refinement generators into one package over `microcfta`.
 - `Data.CFTA.Gen.Equality`: equality-constrained sources, `match` and
   `relate` joins, retained key groups with `Sig` signatures, recursive
   languages with size-major ranks, generator inspection, and size-minimal
-  counterexamples in `forAll`.
+  counterexamples in `forAll`. The engine underneath is generic in the symbol
+  type; `support` and `termAt` return graphs and terms over
+  `Data.CFTA.Gen.Label`, which wraps user symbols in `Label` and types the
+  engine's private labels as constructors instead of reserving symbol names.
 - `Data.CFTA.Gen.Refinement`: refinement-constrained sources compiled once
   with a solver into pure sampling, replay, and shrinking; imported LTAs;
   frozen native pools; semantic pool shrinking; and bounded generation from

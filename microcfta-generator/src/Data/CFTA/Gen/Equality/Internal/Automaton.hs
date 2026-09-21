@@ -23,12 +23,14 @@ term twice; such an automaton is rejected rather than miscounted.
 module Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton) where
 
 import qualified Control.Monad.State.Strict as State
+import Data.Hashable (Hashable)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (
     Edge,
@@ -44,14 +46,11 @@ import Data.CFTA.Equality (
  )
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Path (unPath)
-import Data.CFTA.Symbol (Symbol (Symbol))
 
-import qualified Data.CFTA as FTA
 import Data.CFTA.Gen.Equality.Internal.Static (Static, termStatic)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked)
 import Data.CFTA.Gen.Error (GenError (..))
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
-import qualified Data.CFTA.Interned as Interned
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Size (SizeIndex)
 import Data.CFTA.Refinement (AutomatonError (OpenAutomaton))
@@ -62,7 +61,9 @@ Fails on an automaton with free recursive variables, which is not a closed
 language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
-automatonIndex :: Node Symbol EqConstraints -> Either GenError (SizeIndex (Tree.Tree Symbol))
+automatonIndex ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol EqConstraints -> Either GenError (SizeIndex (Tree.Tree symbol))
 automatonIndex EmptyNode = Right $ Ordinary.tableIndex (0 :: Int) Map.empty
 automatonIndex root
     | not $ Set.null $ freeVars root = Left $ InvalidSupport OpenAutomaton
@@ -73,7 +74,7 @@ automatonIndex root
     alternatives = IntMap.elems (reachable root)
 
 -- | Whether a node accepts any term at all.
-productive :: Node Symbol EqConstraints -> Bool
+productive :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Bool
 productive node
     | null (nodeEdges node) = False
     | otherwise = Map.member (nodeIdentity node) $ Ordinary.minimumSizes $ Ordinary.rowsOf node
@@ -85,7 +86,7 @@ symbol and arity share a term exactly when every child position does, and a
 child position shares one exactly when the intersection of the two children
 is productive.
 -}
-ambiguous :: [Edge Symbol EqConstraints] -> Bool
+ambiguous :: (Hashable symbol, Typeable symbol) => [Edge symbol EqConstraints] -> Bool
 ambiguous alternatives =
     or
         [ overlapping left right
@@ -104,7 +105,7 @@ ambiguous alternatives =
                 )
 
 -- | Whether an edge carries equality constraints.
-constrained :: Edge Symbol EqConstraints -> Bool
+constrained :: Edge symbol EqConstraints -> Bool
 constrained edge = case edgeConstraint edge of
     EmptyConstraints -> False
     _ -> True
@@ -114,10 +115,13 @@ constrained edge = case edgeConstraint edge of
 Distinct constructor alternatives and direct-child equalities have compact
 plans. Equal child positions select one term from the intersection of their
 languages. Nested equality paths and overlapping alternatives use symbolic
-equality contexts and intersection counts. Only a selected term is constructed.
+equality contexts and intersection counts, whose ranks order the
+constructors by the given key. Only a selected term is constructed.
 -}
-finiteAutomaton :: Node Symbol EqConstraints -> Either GenError (Static (Tree.Tree Symbol))
-finiteAutomaton root =
+finiteAutomaton ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol EqConstraints -> Either GenError (Static symbol (Tree.Tree symbol))
+finiteAutomaton order root =
     case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
         Just ranked -> Right $ termStatic root ranked
@@ -159,12 +163,7 @@ finiteAutomaton root =
     addGroup prefix (positions, ranked) =
         (\values term -> foldr (`Map.insert` term) values positions) <$> prefix <*> ranked
 
-    symbolic node = do
-        graph <- either (const Nothing) Just $ Interned.toFTA node
-        named <- either (const Nothing) Just $ FTA.mapSymbols (\(Symbol name) -> name) graph
-        let namedRoot = Interned.fromFTA named
-        ranked <- either (const Nothing) Just $ symbolicRanked namedRoot
-        pure $ fmap (fmap Symbol) ranked
+    symbolic = either (const Nothing) Just . symbolicRanked order
 
 -- | Whether a non-contradictory equality inspects below direct child roots.
 needsPathExpansion :: EqConstraints -> Bool

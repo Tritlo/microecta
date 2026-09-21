@@ -20,7 +20,7 @@ import Data.CFTA.Equality (
     edgeSymbol,
     nodeEdges,
     numNestedMu,
-    terms,
+    termsWith,
     unfoldBounded,
  )
 import qualified Data.CFTA.Equality as ECTA
@@ -74,7 +74,7 @@ isWellTyped typed =
     inferType (expression typed) == Just (expressionType typed)
 
 -- | Find a joined edge that retains the requested argument constraints.
-hasArgumentConstraints :: Int -> Node Symbol EqConstraints -> Bool
+hasArgumentConstraints :: Int -> Node (ECTAGen.Label Symbol) EqConstraints -> Bool
 hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
   where
     edgeMatches edge =
@@ -82,11 +82,11 @@ hasArgumentConstraints count node = any edgeMatches $ nodeEdges node
             || any (hasArgumentConstraints count) (edgeChildren edge)
 
 -- | Collect the constructor symbols from one finite support graph.
-supportSymbols :: Node Symbol EqConstraints -> [Symbol]
+supportSymbols :: Node (ECTAGen.Label Symbol) EqConstraints -> [ECTAGen.Label Symbol]
 supportSymbols = map edgeSymbol . supportEdges
 
 -- | Collect the edges from one finite support graph.
-supportEdges :: Node Symbol EqConstraints -> [Edge Symbol EqConstraints]
+supportEdges :: Node (ECTAGen.Label Symbol) EqConstraints -> [Edge (ECTAGen.Label Symbol) EqConstraints]
 supportEdges node =
     edges <> concatMap supportEdges (concatMap edgeChildren edges)
   where
@@ -154,7 +154,7 @@ spec =
                     Set.fromList (map fst outcomes) `shouldBe` expectedLanguage
             case ECTAGen.support depthTwoGenerator of
                 Left err -> expectationFailure $ show err
-                Right node -> length (terms node) `shouldBe` 27054
+                Right node -> length (termsWith (ECTAGen.Label $ fromString "Mu") node) `shouldBe` 27054
 
         it "represents unary, binary, and ternary dependencies in ECTA edges" $
             case ECTAGen.support (expressionGenAtDepth 1) of
@@ -180,7 +180,7 @@ spec =
                 Right node ->
                     Set.fromList (supportSymbols node)
                         `shouldSatisfy` \symbols ->
-                            Set.fromList (map fromString ["not", "binary-application", "if"])
+                            Set.fromList (map (ECTAGen.Label . fromString) ["not", "binary-application", "if"])
                                 `Set.isSubsetOf` symbols
                 Left err -> expectationFailure $ show err
 
@@ -193,7 +193,7 @@ spec =
                             , not $ null $ unsafeGetEclasses $ edgeConstraint edge
                             ]
                     Set.fromList (map edgeSymbol constrained)
-                        `shouldBe` Set.singleton (fromString "binary-application")
+                        `shouldBe` Set.singleton (ECTAGen.Label $ fromString "binary-application")
                     map (length . unsafeGetEclasses . edgeConstraint) constrained
                         `shouldSatisfy` \counts -> not (null counts) && all (== 2) counts
                 Left err -> expectationFailure $ show err
@@ -351,7 +351,7 @@ spec =
                     numNestedMu node `shouldBe` 1
                     -- Unfolding the recursion twice admits the literals and one
                     -- application layer, and nothing ill-typed: 46 members.
-                    length (terms $ unfoldBounded 2 node) `shouldBe` 46
+                    length (termsWith (ECTAGen.Label $ fromString "Mu") $ unfoldBounded 2 node) `shouldBe` 46
 
         it "keeps every recursive group at its own result type" $ do
             let groupHasType result = do

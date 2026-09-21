@@ -1,27 +1,12 @@
-{-# LANGUAGE OverloadedStrings #-}
+{- | The private support nodes the generator engine builds.
 
-{- | The private ECTA symbols and support nodes the generator engine builds.
-
-The engine labels an open child layer with its own namespaced symbols. The
-labelling functions replace that scaffolding with one domain constructor when
-@node@ closes the layer, so a generated term holds user symbols only.
+The engine labels an open child layer with private labels. The labelling
+functions replace that scaffolding with one domain constructor when @node@
+closes the layer, so a generated term holds user symbols only.
 -}
 module Data.CFTA.Gen.Equality.Internal.Support (
-    -- * Symbols
-    pureSymbol,
-    applySymbol,
-    joinSymbol,
-    joinNSymbol,
-    centerKeyedSymbol,
-    leftKeyedSymbol,
-    rightKeyedSymbol,
-    argKeyedSymbol,
-    indexedSymbol,
-    frequencySymbol,
-    keySymbol,
-    argKeySymbol,
-
     -- * Support nodes
+    relabel,
     keyNode,
     singletonNode,
     joinNode,
@@ -38,9 +23,10 @@ module Data.CFTA.Gen.Equality.Internal.Support (
     labelTermWith,
 ) where
 
+import qualified Control.Monad.State.Strict as State
 import Data.Hashable (Hashable)
 import Data.List (compareLength)
-import qualified Data.Text as Text
+import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
@@ -53,63 +39,45 @@ import Data.CFTA.Equality (
     mkEdge,
     unfoldOuterRec,
  )
+import qualified Data.CFTA.Equality as Core
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Path (path)
-import Data.CFTA.Symbol (Symbol (Symbol))
 
-{- | Symbols labelling the ECTA structure this module builds. They are
-namespaced so generated supports cannot collide with user symbols.
--}
-pureSymbol
-    , applySymbol
-    , joinSymbol
-    , joinNSymbol
-    , centerKeyedSymbol
-    , leftKeyedSymbol
-    , rightKeyedSymbol
-    , argKeyedSymbol
-    , familySymbol
-    , keyRestrictSymbol ::
-        Symbol
-pureSymbol = "$ecta-gen/pure"
-applySymbol = "$ecta-gen/apply"
-joinSymbol = "$ecta-gen/join"
-centerKeyedSymbol = "$ecta-gen/center-keyed"
-leftKeyedSymbol = "$ecta-gen/left-keyed"
-rightKeyedSymbol = "$ecta-gen/right-keyed"
-joinNSymbol = "$ecta-gen/join-n"
-argKeyedSymbol = "$ecta-gen/arg-keyed"
-familySymbol = "$ecta-gen/family"
-keyRestrictSymbol = "$ecta-gen/at-key"
-
--- | Leaf symbol carrying one stable source index.
-indexedSymbol :: Integer -> Symbol
-indexedSymbol index = Symbol $ Text.pack $ "$ecta-gen/index/" <> show index
-
--- | Branch symbol carrying one alternative index.
-frequencySymbol :: Int -> Symbol
-frequencySymbol index = Symbol $ Text.pack $ "$ecta-gen/frequency/" <> show index
-
--- | Key symbol shared by one matched group.
-keySymbol :: Int -> Symbol
-keySymbol index = Symbol $ Text.pack $ "$ecta-gen/key/" <> show index
-
--- | Key symbol for one argument position of one joined component.
-argKeySymbol :: Int -> Int -> Symbol
-argKeySymbol componentIndex position =
-    Symbol
-        $ Text.pack
-        $ "$ecta-gen/key/" <> show componentIndex <> "/" <> show position
-
--- | Whether a symbol names one private choice wrapper.
-isFrequencySymbol :: Symbol -> Bool
-isFrequencySymbol (Symbol name) = "$ecta-gen/frequency/" `Text.isPrefixOf` name
+-- | Copy a graph under new symbols, keeping its constraints and bound references.
+relabel ::
+    (Hashable other, Typeable other) =>
+    (symbol -> other) -> Node symbol EqConstraints -> Node other EqConstraints
+relabel rename root = State.evalState (visit Map.empty root) Map.empty
+  where
+    visit environment node = do
+        memo <- State.get
+        case Map.lookup node memo of
+            Just copied -> pure copied
+            Nothing -> do
+                copied <- case node of
+                    Core.EmptyNode -> pure Core.EmptyNode
+                    Core.Rec ident -> pure $ Map.findWithDefault (Core.Rec ident) ident environment
+                    Core.InternedMu binder ->
+                        pure $ Core.createMu $ \self ->
+                            State.evalState
+                                ( visit
+                                    (Map.insert (Core.RecInt $ Core.internedMuId binder) self environment)
+                                    (Core.internedMuBody binder)
+                                )
+                                Map.empty
+                    Core.InternedNode payload -> Node <$> traverse (copyEdge environment) (Core.internedNodeEdges payload)
+                State.modify' $ Map.insert node copied
+                pure copied
+    copyEdge environment edge = do
+        children <- traverse (visit environment) $ edgeChildren edge
+        pure $ mkEdge (rename $ edgeSymbol edge) children $ edgeConstraint edge
 
 -- | Singleton key node labelling one matched group.
-keyNode :: Int -> Node Symbol EqConstraints
-keyNode index = Node [Edge (keySymbol index) []]
+keyNode :: (Hashable symbol, Typeable symbol) => Int -> Node (Label symbol) EqConstraints
+keyNode index = Node [Edge (Key index) []]
 
--- | The ECTA node accepting exactly one term.
+-- | The node accepting exactly one term.
 singletonNode :: (Hashable symbol, Typeable symbol) => Tree.Tree symbol -> Node symbol EqConstraints
 singletonNode = Tree.foldTree $ \symbol children -> Node [Edge symbol children]
 
@@ -117,21 +85,23 @@ singletonNode = Tree.foldTree $ \symbol children -> Node [Edge symbol children]
 equality constraint per argument tying each argument to the operation's key
 at that position.
 -}
-joinNode :: Int -> Node Symbol EqConstraints -> [Node Symbol EqConstraints] -> Node Symbol EqConstraints
+joinNode ::
+    (Hashable symbol, Typeable symbol) =>
+    Int -> Node (Label symbol) EqConstraints -> [Node (Label symbol) EqConstraints] -> Node (Label symbol) EqConstraints
 joinNode = joinNodeWith id
 
--- | Build a joined support with a caller-supplied representation of private symbols.
+-- | Build a joined support with a caller-supplied representation of private labels.
 joinNodeWith ::
-    (Hashable symbol, Typeable symbol) =>
-    (Symbol -> symbol) ->
+    (Hashable other, Typeable other) =>
+    (Label symbol -> other) ->
     Int ->
-    Node symbol EqConstraints ->
-    [Node symbol EqConstraints] ->
-    Node symbol EqConstraints
+    Node other EqConstraints ->
+    [Node other EqConstraints] ->
+    Node other EqConstraints
 joinNodeWith inject componentIndex operationSupport argumentSupports =
     Node
         [ mkEdge
-            (inject joinNSymbol)
+            (inject JoinN)
             (operationNode : argumentNodes)
             ( mkEqConstraints
                 [ [path [0, position], path [position + 1, 0]]
@@ -141,13 +111,13 @@ joinNodeWith inject componentIndex operationSupport argumentSupports =
         ]
   where
     keyNodes =
-        [ singletonNode $ Tree.Node (inject $ argKeySymbol componentIndex position) []
+        [ singletonNode $ Tree.Node (inject $ ArgKey componentIndex position) []
         | position <- [0 .. length argumentSupports - 1]
         ]
     operationNode =
-        Node [Edge (inject centerKeyedSymbol) (keyNodes <> [operationSupport])]
+        Node [Edge (inject CenterKeyed) (keyNodes <> [operationSupport])]
     argumentNodes =
-        [ Node [Edge (inject argKeyedSymbol) [argKeyNode, argumentSupport]]
+        [ Node [Edge (inject ArgKeyed) [argKeyNode, argumentSupport]]
         | (argKeyNode, argumentSupport) <- zip keyNodes argumentSupports
         ]
 
@@ -158,46 +128,52 @@ so an occurrence at one key is the family under an edge holding that key's
 label, with a constraint equating the two. The discrimination is the
 automaton's own, which is what lets the whole family share one binder.
 -}
-restrictToKey :: Int -> Node Symbol EqConstraints -> Node Symbol EqConstraints
+restrictToKey ::
+    (Hashable symbol, Typeable symbol) =>
+    Int -> Node (Label symbol) EqConstraints -> Node (Label symbol) EqConstraints
 restrictToKey = restrictToKeyWith id
 
--- | Restrict a recursive family with a caller-supplied representation of private symbols.
+-- | Restrict a recursive family with a caller-supplied representation of private labels.
 restrictToKeyWith ::
-    (Hashable symbol, Typeable symbol) =>
-    (Symbol -> symbol) -> Int -> Node symbol EqConstraints -> Node symbol EqConstraints
+    (Hashable other, Typeable other) =>
+    (Label symbol -> other) -> Int -> Node other EqConstraints -> Node other EqConstraints
 restrictToKeyWith inject position family =
     Node
         [ mkEdge
-            (inject keyRestrictSymbol)
-            [singletonNode $ Tree.Node (inject $ keySymbol position) [], family]
+            (inject AtKey)
+            [singletonNode $ Tree.Node (inject $ Key position) [], family]
             (mkEqConstraints [[path [0], path [1, 0]]])
         ]
 
 -- | One recursive family node: one key-labelled edge per key, in key order.
-familyNode :: [(Int, Node Symbol EqConstraints)] -> Node Symbol EqConstraints
+familyNode ::
+    (Hashable symbol, Typeable symbol) =>
+    [(Int, Node (Label symbol) EqConstraints)] -> Node (Label symbol) EqConstraints
 familyNode = familyNodeWith id
 
--- | Build a recursive family with a caller-supplied representation of private symbols.
+-- | Build a recursive family with a caller-supplied representation of private labels.
 familyNodeWith ::
-    (Hashable symbol, Typeable symbol) =>
-    (Symbol -> symbol) -> [(Int, Node symbol EqConstraints)] -> Node symbol EqConstraints
+    (Hashable other, Typeable other) =>
+    (Label symbol -> other) -> [(Int, Node other EqConstraints)] -> Node other EqConstraints
 familyNodeWith inject keyed =
     Node
-        [ Edge (inject familySymbol) [singletonNode $ Tree.Node (inject $ keySymbol position) [], body]
+        [ Edge (inject Family) [singletonNode $ Tree.Node (inject $ Key position) [], body]
         | (position, body) <- keyed
         ]
 
 -- | Close one private support root while preserving its constraints.
-labelSupport :: Symbol -> Node Symbol EqConstraints -> Node Symbol EqConstraints
-labelSupport = labelSupportWith id
-
--- | Close a support layer by recognizing the original private symbols.
-labelSupportWith ::
+labelSupport ::
     (Hashable symbol, Typeable symbol) =>
-    (symbol -> Symbol) -> symbol -> Node symbol EqConstraints -> Node symbol EqConstraints
+    symbol -> Node (Label symbol) EqConstraints -> Node (Label symbol) EqConstraints
+labelSupport symbol = labelSupportWith id (Label symbol)
+
+-- | Close a support layer by recognizing the private labels under a representation.
+labelSupportWith ::
+    (Hashable other, Typeable other) =>
+    (other -> Label symbol) -> other -> Node other EqConstraints -> Node other EqConstraints
 labelSupportWith original symbol support@(Node edges)
     | not (null edges)
-    , all (isFrequencyEdge original) edges =
+    , all (isChoiceEdge original) edges =
         Node
             [ labelled
             | edge <- edges
@@ -205,7 +181,7 @@ labelSupportWith original symbol support@(Node edges)
             , labelled <- rootEdges $ labelSupportWith original symbol child
             ]
     | [edge] <- edges
-    , original (edgeSymbol edge) == joinNSymbol =
+    , JoinN <- original (edgeSymbol edge) =
         Node [mkEdge symbol (edgeChildren edge) (edgeConstraint edge)]
     | isPureSupport original support = Node [Edge symbol []]
     | Just arguments <- applicationSupportChildren original support =
@@ -215,15 +191,15 @@ labelSupportWith original symbol support@(Mu _) = labelSupportWith original symb
 labelSupportWith _ symbol support = Node [Edge symbol [support]]
 
 -- | Read the alternatives from one ordinary support node.
-rootEdges :: (Typeable symbol) => Node symbol EqConstraints -> [Edge symbol EqConstraints]
+rootEdges :: (Typeable other) => Node other EqConstraints -> [Edge other EqConstraints]
 rootEdges (Node edges) = edges
 rootEdges _ = []
 
 -- | Recognize the children of one private applicative support spine.
 applicationSupportChildren ::
-    (Typeable symbol) => (symbol -> Symbol) -> Node symbol EqConstraints -> Maybe [Node symbol EqConstraints]
+    (Typeable other) => (other -> Label symbol) -> Node other EqConstraints -> Maybe [Node other EqConstraints]
 applicationSupportChildren original (Node [edge])
-    | original (edgeSymbol edge) == applySymbol
+    | Apply <- original (edgeSymbol edge)
     , edgeConstraint edge == EmptyConstraints
     , [functions, argument] <- edgeChildren edge =
         Just $ applicationLeftSupport original functions <> [argument]
@@ -231,52 +207,53 @@ applicationSupportChildren _ _ = Nothing
 
 -- | Flatten the already-applied left portion of a support spine.
 applicationLeftSupport ::
-    (Typeable symbol) => (symbol -> Symbol) -> Node symbol EqConstraints -> [Node symbol EqConstraints]
+    (Typeable other) => (other -> Label symbol) -> Node other EqConstraints -> [Node other EqConstraints]
 applicationLeftSupport original support
     | isPureSupport original support = []
     | Just arguments <- applicationSupportChildren original support = arguments
     | otherwise = [support]
 
 -- | Whether a support node is the nullary private applicative identity.
-isPureSupport :: (Typeable symbol) => (symbol -> Symbol) -> Node symbol EqConstraints -> Bool
-isPureSupport original (Node [edge]) =
-    original (edgeSymbol edge) == pureSymbol
-        && null (edgeChildren edge)
-        && edgeConstraint edge == EmptyConstraints
+isPureSupport :: (Typeable other) => (other -> Label symbol) -> Node other EqConstraints -> Bool
+isPureSupport original (Node [edge])
+    | Pure <- original (edgeSymbol edge) =
+        null (edgeChildren edge) && edgeConstraint edge == EmptyConstraints
 isPureSupport _ _ = False
 
 -- | Whether an edge is one private single-child choice wrapper.
-isFrequencyEdge :: (symbol -> Symbol) -> Edge symbol EqConstraints -> Bool
-isFrequencyEdge original edge =
-    isFrequencySymbol (original $ edgeSymbol edge)
-        && compareLength (edgeChildren edge) 1 == EQ
-        && edgeConstraint edge == EmptyConstraints
+isChoiceEdge :: (other -> Label symbol) -> Edge other EqConstraints -> Bool
+isChoiceEdge original edge
+    | Choice _ <- original (edgeSymbol edge) =
+        compareLength (edgeChildren edge) 1 == EQ && edgeConstraint edge == EmptyConstraints
+    | otherwise = False
 
 -- | Close one private applicative term spine with a domain constructor.
-labelTerm :: Symbol -> Tree.Tree Symbol -> Tree.Tree Symbol
-labelTerm = labelTermWith id
+labelTerm :: symbol -> Tree.Tree (Label symbol) -> Tree.Tree (Label symbol)
+labelTerm symbol = labelTermWith id (Label symbol)
 
--- | Close a term layer by recognizing the original private symbols.
-labelTermWith :: (symbol -> Symbol) -> symbol -> Tree.Tree symbol -> Tree.Tree symbol
-labelTermWith original symbol term@(Tree.Node internal children)
-    | original internal == joinNSymbol = Tree.Node symbol children
-    | isFrequencySymbol $ original internal
-    , [child] <- children =
-        labelTermWith original symbol child
-    | original internal == pureSymbol = Tree.Node symbol []
-    | Just arguments <- applicationTermChildren original term = Tree.Node symbol arguments
-    | otherwise = Tree.Node symbol [term]
+-- | Close a term layer by recognizing the private labels under a representation.
+labelTermWith :: (other -> Label symbol) -> other -> Tree.Tree other -> Tree.Tree other
+labelTermWith original symbol term@(Tree.Node internal children) =
+    case original internal of
+        JoinN -> Tree.Node symbol children
+        Choice _ | [child] <- children -> labelTermWith original symbol child
+        Pure -> Tree.Node symbol []
+        _
+            | Just arguments <- applicationTermChildren original term -> Tree.Node symbol arguments
+            | otherwise -> Tree.Node symbol [term]
 
 -- | Recognize the children of one private applicative term spine.
-applicationTermChildren :: (symbol -> Symbol) -> Tree.Tree symbol -> Maybe [Tree.Tree symbol]
+applicationTermChildren :: (other -> Label symbol) -> Tree.Tree other -> Maybe [Tree.Tree other]
 applicationTermChildren original (Tree.Node internal [functions, argument])
-    | original internal == applySymbol =
+    | Apply <- original internal =
         Just $ applicationLeftChildren original functions <> [argument]
 applicationTermChildren _ _ = Nothing
 
 -- | Flatten the already-applied left portion of an applicative term spine.
-applicationLeftChildren :: (symbol -> Symbol) -> Tree.Tree symbol -> [Tree.Tree symbol]
+applicationLeftChildren :: (other -> Label symbol) -> Tree.Tree other -> [Tree.Tree other]
 applicationLeftChildren original term@(Tree.Node internal children)
-    | original internal == pureSymbol && null children = []
+    | Pure <- original internal
+    , null children =
+        []
     | Just arguments <- applicationTermChildren original term = arguments
     | otherwise = [term]

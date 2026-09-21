@@ -72,11 +72,16 @@ Counting expands constructor contexts only along constrained paths. Equal
 variables share an intersected domain. Inclusion-exclusion removes overlapping
 alternatives. Rank selection conditions the graph on one constructor at a time.
 Only the selected term is constructed. No accepted-term table is retained.
+
+Ranks follow the order of the constructors at each position, and the
+constructors are ordered by the given key. Pass a key with a stable order,
+such as the text of an interned symbol, so that ranks do not depend on
+interning order.
 -}
 symbolicRanked ::
-    (Ord symbol, Hashable symbol, Typeable symbol) =>
-    ECTA.Node symbol EqConstraints -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
-symbolicRanked = symbolicRankedWith interpret
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> ECTA.Node symbol EqConstraints -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
+symbolicRanked order = symbolicRankedWith order interpret
   where
     interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
 
@@ -89,13 +94,16 @@ must give the pointwise product of their indicators. These are integration
 invariants. Checking them by enumerating the language would defeat the compiler.
 -}
 symbolicRankedWith ::
-    (Theory symbol constraint) =>
-    Interpretation constraint -> Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
-symbolicRankedWith interpret root =
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
+    Interpretation constraint ->
+    Node symbol constraint ->
+    Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
+symbolicRankedWith order interpret root =
     Ranked.fromIndexedOnDemand $ Ranked.Indexed total select
   where
     (total, counts) = State.runState (countNode interpret root) emptyCounts
-    select rank = State.evalState (selectTerm interpret root [] rank) counts
+    select rank = State.evalState (selectTerm order interpret root [] rank) counts
 
 {- | Partition constructor-order ranks by finite path observations.
 
@@ -105,13 +113,16 @@ Missing positions are absent from the observation map. Neither partitioning
 nor prefix counting constructs a term.
 -}
 symbolicGroupsWith ::
-    (Theory symbol constraint) =>
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
     Interpretation constraint ->
     [Path] ->
     Node symbol constraint ->
     Map.Map (Map.Map Path (symbol, Bool)) (Integer, Integer -> Integer)
-symbolicGroupsWith interpret requested root =
-    Map.map (\(count, graph) -> (count, \rank -> State.evalState (prefixAt interpret root graph [[]] rank) counts)) groups
+symbolicGroupsWith order interpret requested root =
+    Map.map
+        (\(count, graph) -> (count, \rank -> State.evalState (prefixAt order interpret root graph [[]] rank) counts))
+        groups
   where
     (groups, counts) = State.runState (partitionAt (Set.toAscList $ Set.fromList requested) Map.empty root) emptyCounts
     partitionAt [] observations graph = do
@@ -121,7 +132,7 @@ symbolicGroupsWith interpret requested root =
         let position = unPath target
             present =
                 [ (Map.insert target (symbol, arity == 0) observations, condition position constructor graph)
-                | constructor@(symbol, arity) <- constructorsAt position graph
+                | constructor@(symbol, arity) <- constructorsAt order position graph
                 ]
             absent = (observations, conditionMissing position graph)
         variants <-
@@ -135,15 +146,16 @@ symbolicGroupsWith interpret requested root =
 
 -- | Count one observed group's members before a source-rank boundary.
 prefixAt ::
-    (Theory symbol constraint) =>
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
     Interpretation constraint ->
     Node symbol constraint ->
     Node symbol constraint ->
     [[Int]] ->
     Integer ->
     State.State (Counts symbol) Integer
-prefixAt _ _ _ _ rank | rank <= 0 = pure 0
-prefixAt interpret root subset pending rank = do
+prefixAt _ _ _ _ _ rank | rank <= 0 = pure 0
+prefixAt order interpret root subset pending rank = do
     total <- countNode interpret root
     retained <- countNode interpret subset
     if rank >= total
@@ -156,8 +168,8 @@ prefixAt interpret root subset pending rank = do
                     position : rest -> do
                         local <- countNode interpret $ project position root
                         if local == 1
-                            then prefixAt interpret root subset rest rank
-                            else alternatives position rest rank $ constructorsAt position root
+                            then prefixAt order interpret root subset rest rank
+                            else alternatives position rest rank $ constructorsAt order position root
   where
     alternatives _ _ _ [] = pure 0
     alternatives position rest remaining (constructor@(_, arity) : others) = do
@@ -169,7 +181,7 @@ prefixAt interpret root subset pending rank = do
                 before <- countNode interpret restricted
                 after <- alternatives position rest (remaining - count) others
                 pure $ before + after
-            else prefixAt interpret selected restricted ([position <> [index] | index <- [0 .. arity - 1]] <> rest) remaining
+            else prefixAt order interpret selected restricted ([position <> [index] | index <- [0 .. arity - 1]] <> rest) remaining
 
 -- | Count a shared graph once per interned identity.
 countNode ::
@@ -408,10 +420,18 @@ conditionMissing (index : rest) node = Node $ map restrict $ nodeEdges node
                     take index (edgeChildren edge) <> [conditionMissing rest child] <> drop (index + 1) (edgeChildren edge)
         _ -> edge
 
--- | Read possible constructors at a path without enumerating subterms.
-constructorsAt :: (Theory symbol constraint) => [Int] -> Node symbol constraint -> [(symbol, Int)]
-constructorsAt position root =
-    Set.toAscList $ Set.fromList [(edgeSymbol edge, length $ edgeChildren edge) | edge <- nodeEdges $ project position root]
+-- | Read possible constructors at a path without enumerating subterms, in key order.
+constructorsAt ::
+    (Theory symbol constraint, Ord key) => (symbol -> key) -> [Int] -> Node symbol constraint -> [(symbol, Int)]
+constructorsAt order position root =
+    map snd
+        $ Map.toAscList
+        $ Map.fromList
+            [ ((order symbol, arity), (symbol, arity))
+            | edge <- nodeEdges $ project position root
+            , let symbol = edgeSymbol edge
+                  arity = length $ edgeChildren edge
+            ]
 
 -- | An upper bound on the subtree language at one position.
 project :: (Theory symbol constraint) => [Int] -> Node symbol constraint -> Node symbol constraint
@@ -427,32 +447,34 @@ project position root = Node $ concatMap nodeEdges $ Set.toList $ go position $ 
 
 -- | Select one term in constructor order, carrying counts for the remaining suffix.
 selectTerm ::
-    (Theory symbol constraint) =>
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
     Interpretation constraint ->
     Node symbol constraint ->
     [Int] ->
     Integer ->
     State.State (Counts symbol) (Tree.Tree symbol)
-selectTerm interpret root position rank = do
-    ~(term, _, _) <- selectAt interpret root position rank
+selectTerm order interpret root position rank = do
+    ~(term, _, _) <- selectAt order interpret root position rank
     pure term
 
 -- | Restrict the selected prefix and decode only its selected descendants.
 selectAt ::
-    (Theory symbol constraint) =>
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
     Interpretation constraint ->
     Node symbol constraint ->
     [Int] ->
     Integer ->
     State.State (Counts symbol) (Tree.Tree symbol, Node symbol constraint, Integer)
-selectAt interpret root position rank = do
+selectAt order interpret root position rank = do
     let local = project position root
     count <- countNode interpret local
     if count == 1
         then do
             counts <- State.get
-            pure (State.evalState (selectUniqueAt interpret local []) counts, root, rank)
-        else choose rank $ constructorsAt position root
+            pure (State.evalState (selectUniqueAt order interpret local []) counts, root, rank)
+        else choose rank $ constructorsAt order position root
   where
     choose _ [] = error "symbolicRanked: rank outside the retained language"
     choose remaining (constructor@(symbol, arity) : rest) = do
@@ -465,15 +487,19 @@ selectAt interpret root position rank = do
                 pure (Tree.Node symbol children, final, suffixRank)
     selectChildren graph remaining [] = pure ([], graph, remaining)
     selectChildren graph remaining (index : rest) = do
-        ~(term, restricted, suffixRank) <- selectAt interpret graph (position <> [index]) remaining
+        ~(term, restricted, suffixRank) <- selectAt order interpret graph (position <> [index]) remaining
         ~(children, final, finalRank) <- selectChildren restricted suffixRank rest
         pure (term : children, final, finalRank)
 
 -- | Decode a singleton language without traversing unobserved sibling trees.
 selectUniqueAt ::
-    (Theory symbol constraint) =>
-    Interpretation constraint -> Node symbol constraint -> [Int] -> State.State (Counts symbol) (Tree.Tree symbol)
-selectUniqueAt interpret root position = choose $ constructorsAt position root
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) ->
+    Interpretation constraint ->
+    Node symbol constraint ->
+    [Int] ->
+    State.State (Counts symbol) (Tree.Tree symbol)
+selectUniqueAt order interpret root position = choose $ constructorsAt order position root
   where
     choose [] = error "symbolicRanked: empty singleton language"
     choose (constructor@(symbol, arity) : rest) = do
@@ -485,4 +511,4 @@ selectUniqueAt interpret root position = choose $ constructorsAt position root
                 pure $
                     Tree.Node
                         symbol
-                        [State.evalState (selectUniqueAt interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]
+                        [State.evalState (selectUniqueAt order interpret root $ position <> [index]) counts | index <- [0 .. arity - 1]]

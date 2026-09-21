@@ -156,7 +156,7 @@ compileSymbolicAutomaton ::
 compileSymbolicAutomaton buildValue pruned view = do
     mapM_ (first ResidualGuard . constraintTerms . FTA.transitionConstraint) (viewTransitions view)
     (root, alphabet) <- symbolicGraph view
-    ranked <- first fromRankedError $ symbolicRankedWith interpret root
+    ranked <- first fromRankedError $ symbolicRankedWith id interpret root
     let generated term = Generated 1 (foldTerm alphabet buildValue term) (fmap (alphabet IntMap.!) term)
         size rank = either (const 0) (length . Tree.flatten) $ Ranked.unrank ranked rank
         shrinks rank = filter ((< size rank) . size) $ Ranked.shrinkRank ranked rank

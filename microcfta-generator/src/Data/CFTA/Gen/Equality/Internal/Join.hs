@@ -12,10 +12,12 @@ module Data.CFTA.Gen.Equality.Internal.Join (
 ) where
 
 import Data.Foldable (toList)
+import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node), mkEdge, reducePartially)
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
@@ -26,25 +28,26 @@ import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Path (path)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 
 -- | One compatible key-pair bucket used to count and unrank a conditioned product.
-data JoinGroup left right = JoinGroup
+data JoinGroup symbol left right = JoinGroup
     { joinGroupIndex :: !Int
-    , joinGroupLeft :: !(Seq (Outcome left))
-    , joinGroupRight :: !(Seq (Outcome right))
+    , joinGroupLeft :: !(Seq (Outcome symbol left))
+    , joinGroupRight :: !(Seq (Outcome symbol right))
     }
 
 -- | Join two languages on equal projected keys with one ECTA equality constraint.
 joinStatic ::
-    (Ord key) =>
+    (Ord key, Hashable symbol, Typeable symbol) =>
     (left -> key) ->
     (right -> key) ->
-    Static left ->
-    Static right ->
-    Either GenError (Static (left, right))
+    Static symbol left ->
+    Static symbol right ->
+    Either GenError (Static symbol (left, right))
 joinStatic leftKey rightKey left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -57,13 +60,13 @@ joinStatic leftKey rightKey left right = do
 
 -- | Join two languages on a relation between their projected keys.
 relateStatic ::
-    (Ord leftKey, Ord rightKey) =>
+    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> Bool) ->
-    Static left ->
-    Static right ->
-    Either GenError (Static (left, right))
+    Static symbol left ->
+    Static symbol right ->
+    Either GenError (Static symbol (left, right))
 relateStatic leftKey rightKey relation left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -79,10 +82,11 @@ relateStatic leftKey rightKey relation left right = do
 
 -- | Compile selected group products with one equality witness per product.
 joinGroupedStatic ::
-    Static left ->
-    Static right ->
-    [([Outcome left], [Outcome right])] ->
-    Either GenError (Static (left, right))
+    (Hashable symbol, Typeable symbol) =>
+    Static symbol left ->
+    Static symbol right ->
+    [([Outcome symbol left], [Outcome symbol right])] ->
+    Either GenError (Static symbol (left, right))
 joinGroupedStatic left right related =
     if null related
         then Left EmptyGenerator
@@ -98,7 +102,7 @@ joinGroupedStatic left right related =
                 leftNode =
                     Node
                         [ Edge
-                            leftKeyedSymbol
+                            LeftKeyed
                             [ keyNode $ joinGroupIndex group
                             , singletonNode $ outcomeTerm outcome
                             ]
@@ -108,7 +112,7 @@ joinGroupedStatic left right related =
                 rightNode =
                     Node
                         [ Edge
-                            rightKeyedSymbol
+                            RightKeyed
                             [ keyNode $ joinGroupIndex group
                             , singletonNode $ outcomeTerm outcome
                             ]
@@ -119,7 +123,7 @@ joinGroupedStatic left right related =
                     reducePartially $
                         Node
                             [ mkEdge
-                                joinSymbol
+                                Join
                                 [leftNode, rightNode]
                                 (mkEqConstraints [[path [0, 0], path [1, 0]]])
                             ]
@@ -133,9 +137,9 @@ joinGroupedStatic left right related =
         Inspection Nothing $
             Node
                 [ mkEdge
-                    (plainSymbol joinSymbol)
-                    [ side leftKeyedSymbol (fmap outcomeInspection . joinGroupLeft)
-                    , side rightKeyedSymbol (fmap outcomeInspection . joinGroupRight)
+                    (plainSymbol Join)
+                    [ side LeftKeyed (fmap outcomeInspection . joinGroupLeft)
+                    , side RightKeyed (fmap outcomeInspection . joinGroupRight)
                     ]
                     (mkEqConstraints [[path [0, 0], path [1, 0]]])
                 ]
@@ -144,7 +148,7 @@ joinGroupedStatic left right related =
             Node
                 [ Edge
                     (plainSymbol symbol)
-                    [ singletonNode $ Tree.Node (plainSymbol $ keySymbol $ joinGroupIndex group) []
+                    [ singletonNode $ Tree.Node (plainSymbol $ Key $ joinGroupIndex group) []
                     , singletonNode outcome
                     ]
                 | group <- groups
@@ -154,18 +158,18 @@ joinGroupedStatic left right related =
 -- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
     (value -> key) ->
-    Static value ->
-    Either GenError [(key, Outcome value)]
+    Static symbol value ->
+    Either GenError [(key, Outcome symbol value)]
 keyedOutcomes key static =
     map (\outcome -> (key $ outcomeValue outcome, outcome))
         <$> enumerateOutcomeIndex (staticOutcomes static)
 
 -- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::
-    Static left ->
-    Static right ->
-    [JoinGroup left right] ->
-    Either GenError (OutcomeIndex (left, right))
+    Static symbol left ->
+    Static symbol right ->
+    [JoinGroup symbol left right] ->
+    Either GenError (OutcomeIndex symbol (left, right))
 joinOutcomeIndex left right groups = do
     rankSampler <- case uniformMass of
         Just _ -> pure $ uniformSampler totalOutcomes selectValue
@@ -197,23 +201,23 @@ joinOutcomeIndex left right groups = do
     select index = do
         checkIndex totalOutcomes index
         let (group, leftOutcome, rightOutcome) = selectPair index
-            keyTerm = Tree.Node (keySymbol $ joinGroupIndex group) []
+            keyTerm = Tree.Node (Key $ joinGroupIndex group) []
             leftTerm =
-                Tree.Node leftKeyedSymbol [keyTerm, outcomeTerm leftOutcome]
+                Tree.Node LeftKeyed [keyTerm, outcomeTerm leftOutcome]
             rightTerm =
-                Tree.Node rightKeyedSymbol [keyTerm, outcomeTerm rightOutcome]
+                Tree.Node RightKeyed [keyTerm, outcomeTerm rightOutcome]
         pure $
             Outcome
-                (Tree.Node joinSymbol [leftTerm, rightTerm])
+                (Tree.Node Join [leftTerm, rightTerm])
                 ( outcomeMass leftOutcome
                     * outcomeMass rightOutcome
                     / totalMass
                 )
                 (outcomeValue leftOutcome, outcomeValue rightOutcome)
                 ( Tree.Node
-                    (plainSymbol joinSymbol)
-                    [ Tree.Node (plainSymbol leftKeyedSymbol) [fmap plainSymbol keyTerm, outcomeInspection leftOutcome]
-                    , Tree.Node (plainSymbol rightKeyedSymbol) [fmap plainSymbol keyTerm, outcomeInspection rightOutcome]
+                    (plainSymbol Join)
+                    [ Tree.Node (plainSymbol LeftKeyed) [fmap plainSymbol keyTerm, outcomeInspection leftOutcome]
+                    , Tree.Node (plainSymbol RightKeyed) [fmap plainSymbol keyTerm, outcomeInspection rightOutcome]
                     ]
                 )
 
@@ -230,13 +234,13 @@ joinOutcomeIndex left right groups = do
          in (group, leftOutcome, rightOutcome)
 
 -- | Number of pairs in one matched group.
-joinGroupCardinality :: JoinGroup left right -> Integer
+joinGroupCardinality :: JoinGroup symbol left right -> Integer
 joinGroupCardinality group =
     toInteger (Sequence.length $ joinGroupLeft group)
         * toInteger (Sequence.length $ joinGroupRight group)
 
 -- | Probability mass of one matched group.
-joinGroupMass :: JoinGroup left right -> Rational
+joinGroupMass :: JoinGroup symbol left right -> Rational
 joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
@@ -244,8 +248,8 @@ joinGroupMass group =
 -- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Integer ->
-    [JoinGroup left right] ->
-    (JoinGroup left right, Integer)
+    [JoinGroup symbol left right] ->
+    (JoinGroup symbol left right, Integer)
 selectJoinGroup _ [] =
     error
         "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Join.selectJoinGroup: \
@@ -258,7 +262,7 @@ selectJoinGroup index (group : remaining)
 
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
-    [JoinGroup left right] ->
+    [JoinGroup symbol left right] ->
     Either GenError (Sampler (left, right))
 joinSampler groups = do
     weightedGroups <-
@@ -301,7 +305,7 @@ joinSampler groups = do
         pure (weight, offset, rightCardinality, leftSampler, rightSampler)
 
 -- | Pair every join group with its cumulative rank offset.
-offsetJoinGroups :: [JoinGroup left right] -> [(Integer, JoinGroup left right)]
+offsetJoinGroups :: [JoinGroup symbol left right] -> [(Integer, JoinGroup symbol left right)]
 offsetJoinGroups = go 0
   where
     go _ [] = []
@@ -310,10 +314,11 @@ offsetJoinGroups = go 0
 
 -- | Join one operation group with its argument groups in one ECTA edge, with one equality constraint per argument.
 joinNBucketStatic ::
+    (Hashable symbol, Typeable symbol) =>
     Int ->
-    Static operation ->
-    ArgStatics operation result ->
-    Static result
+    Static symbol operation ->
+    ArgStatics symbol operation result ->
+    Static symbol result
 joinNBucketStatic componentIndex operation arguments =
     -- This cannot fail: signature lookup supplies one non-empty bucket per
     -- component, so the outcome product proves non-emptiness without forcing
@@ -332,7 +337,7 @@ joinNBucketStatic componentIndex operation arguments =
         (joinInspection componentIndex (staticInspection operation) $ chainInspections arguments)
   where
     keyTerms =
-        [ Tree.Node (argKeySymbol componentIndex position) []
+        [ Tree.Node (ArgKey componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
     joined =
@@ -355,15 +360,15 @@ joinNBucketStatic componentIndex operation arguments =
         (argumentTerms, argumentInspections, argumentsMass, value) <-
             selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
         let operationTerm =
-                Tree.Node centerKeyedSymbol (keyTerms <> [outcomeTerm operationOutcome])
+                Tree.Node CenterKeyed (keyTerms <> [outcomeTerm operationOutcome])
         pure $
             Outcome
-                (Tree.Node joinNSymbol (operationTerm : argumentTerms))
+                (Tree.Node JoinN (operationTerm : argumentTerms))
                 (outcomeMass operationOutcome * argumentsMass)
                 value
-                ( Tree.Node (plainSymbol joinNSymbol) $
+                ( Tree.Node (plainSymbol JoinN) $
                     Tree.Node
-                        (plainSymbol centerKeyedSymbol)
+                        (plainSymbol CenterKeyed)
                         ( zipWith
                             (\term inspection -> fmap (\symbol -> InspectionSymbol symbol $ inspectionName inspection) term)
                             keyTerms
@@ -384,10 +389,11 @@ the arguments follow it left to right. The joined edge is not reduced, since
 propagating constraints through a recursive node is not sound.
 -}
 recursiveJoin ::
+    (Hashable symbol, Typeable symbol) =>
     Int ->
-    KeyedRecursive operation ->
-    ArgChain KeyedRecursive operation result ->
-    KeyedRecursive result
+    KeyedRecursive symbol operation ->
+    ArgChain (KeyedRecursive symbol) operation result ->
+    KeyedRecursive symbol result
 recursiveJoin componentIndex operation arguments =
     KeyedRecursive
         ( Recursive

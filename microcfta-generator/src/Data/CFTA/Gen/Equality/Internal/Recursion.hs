@@ -14,7 +14,9 @@ module Data.CFTA.Gen.Equality.Internal.Recursion (
 
 import Control.Monad (void, when)
 import Data.Either (fromRight)
+import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Node (EmptyNode), createMu, numNestedMu)
 import Data.CFTA.Gen.Equality.Internal.Inspection
@@ -23,6 +25,7 @@ import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
     choiceIndex,
@@ -35,23 +38,8 @@ import Data.CFTA.Ranked.Internal.Size (
     withMinimumMemberSize,
  )
 
-{- | Treat every member of a finite generator as one atomic source choice.
-
-An already finite generator keeps its support, cardinality, ranks, values,
-and distribution. Only size changes: every complete member has size one when
-it is used inside 'recur'. Its finite distribution is also used when sampling
-that recursive language. Put 'atomic' around the complete finite choice that
-enters recursion; a finite composition outside the boundary is a new choice
-and needs its own boundary. An acyclic automaton read with 'fromAutomaton' closes
-its whole finite language without enumerating its terms, rather than taking
-an inner prefix from the QuickCheck size. Bound a recursive language with
-'upToSize' before making it atomic, /outside/ the recursive definition:
-@atomic (upToSize n self)@ inside a 'recur' body asks for an atom whose
-cardinality depends on itself, and is rejected with
-'BoundedRecursiveOccurrence'. Opaque generators have no size structure to
-change.
--}
-atomic :: ECTAGen a -> ECTAGen a
+-- | Treat every member of a finite generator as one atomic source choice.
+atomic :: Gen symbol a -> Gen symbol a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
     Transparent $ do
@@ -66,59 +54,8 @@ atomic (Cyclic result) =
                     else Left UnboundedGenerator
 atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
-{- | Build a recursive generator from its own language.
-
-The argument receives the generator being defined and returns its body, so
-a language can refer to itself:
-
-@
-tree = ECTAGen.recur $ \\self ->
-    ECTAGen.frequency
-        [ (1, Leaf '<$>' ECTAGen.elements [0 .. 3])
-        , (1, Branch '<$>' self '<*>' self)
-        ]
-@
-
-The result stands for the whole unbounded language: it has size classes and
-size-major ranks instead of a cardinality, and its ECTA support is a @Mu@
-node. 'upToSize' bounds it back to an ordinary finite generator, and the
-QuickCheck adapter does that automatically from the size parameter. A keyed
-language recurses with 'recurGrouped' instead.
-
-The self-reference has to go through this combinator. A generator that
-names itself directly, as in @tree = Branch '<$>' tree '<*>' tree@, is an
-infinite Haskell value: building it never finishes, and the failure is a
-hang or @\<\<loop\>\>@ rather than anything this library can report. In the
-other direction, a body that never uses the argument is not recursive, and
-is returned as it is: a finite body stays a finite generator, with the
-cardinality and the inspection that come with it. A body that could not be
-built at all is returned with its own error, not as a recursive language.
-
-'upToSize' and 'atomic' cannot be applied to the argument, or to anything
-built from it: the bound would need the size classes this definition is still
-computing, and an atom over them would have a cardinality depending on itself.
-Both shapes are rejected with 'BoundedRecursiveOccurrence'. Bound the finished
-language from outside instead, as in @upToSize n (recur ...)@, and keep only
-finite atomic choices inside the body.
-
-Two rules apply inside the knot. The recursion must be guarded — every
-occurrence of the argument under at least one '<*>' — or the language has no
-smallest member; an unguarded definition is rejected with
-'UnguardedRecursion' rather than left to diverge. The check is per definition,
-so inside a nested 'recur' an occurrence of the /outer/ language must also sit
-under an application within the inner body. 'pure' is one source choice, so
-@pure f '<*>' self@ counts as guarded where @f '<$>' self@ does not - and
-@pure f '<*>' x@ has one more choice than @f '<$>' x@, so the two have
-different sizes and different ranks. A recursive language also
-needs a finite base member; a guarded cycle with no base is an 'EmptyGenerator'.
-Recursive structure is
-chosen from its counted size classes, so 'frequency' alternatives around a
-recursive occurrence must carry equal weights; 'oneof' is the combinator that
-already reads that way, and the size bound controls how large members get. A
-weighted finite choice closed with 'atomic' keeps its distribution inside
-each recursive size class without changing counts, sizes, or ranks.
--}
-recur :: (ECTAGen a -> ECTAGen a) -> ECTAGen a
+-- | Build a recursive generator from its own language.
+recur :: (Hashable symbol, Typeable symbol) => (Gen symbol a -> Gen symbol a) -> Gen symbol a
 recur build
     -- An opaque body cannot contain the occurrence, so it is not recursive.
     | Opaque _ <- probeBody = probeBody
@@ -195,48 +132,11 @@ recur build
                         Nothing
                         inspection
 
-{- | Build a recursive grouped family from its own languages.
-
-The argument receives the family being defined, so a keyed language can
-refer to itself — which is what a recursively typed expression language
-needs:
-
-@
-expressions = ECTAGen.recurGrouped $ \self ->
-    ECTAGen.frequencies
-        [ (1, literalsByType)
-        , (1, ECTAGen.apply (compileBinary '<$>' binaryFunctionsBySignature) (self ':&' self ':&' 'ANil'))
-        ]
-@
-
-Which keys the family has is itself part of the fixpoint, so it is solved
-first, from the empty family upward: each pass adds the result keys of the
-operations whose argument keys are already present, and the set can only
-grow, so it converges in at most one pass per key. The languages are then
-tied lazily over that fixed set.
-
-The reachable key set must be finite. For example,
-@oneofGrouped [keyed 0 atom, regroupBy succ self]@ adds another key on every
-pass and therefore cannot converge.
-
-All the keys share one @Mu@ node, whose edges carry their key as a first
-child. An occurrence at one key is that node under an edge holding the
-key's label, with an equality constraint tying the two — so a recursive
-family is one recursive automaton whose cycle carries equality constraints,
-and the keyed joins inside it keep the constraints they always had. The
-joined edges are not reduced, since propagating constraints through a
-recursive node is not sound.
-
-'ungroup' and 'atKey' are the exits into an ordinary recursive generator.
-The rules of 'recur' apply here too: the recursion must be guarded by an
-'apply', every live key must eventually reach a finite base member, and
-alternatives around a recursive occurrence must carry equal weights, which is
-what 'oneofGrouped' gives without asking for them.
--}
+-- | Build a recursive grouped family from its own languages.
 recurGrouped ::
-    (Ord key) =>
-    (Grouped key a -> Grouped key a) ->
-    Grouped key a
+    (Ord key, Hashable symbol, Typeable symbol) =>
+    (Grouped symbol key a -> Grouped symbol key a) ->
+    Grouped symbol key a
 recurGrouped build
     -- As in 'recur': a body that failed to build reports its own error rather
     -- than being wrapped in a family every finite inspector calls unbounded.
@@ -372,8 +272,9 @@ recurGrouped build
             (fmap $ inspectionName . recursiveInspection . keyedRecursiveLanguage)
             probed
     nameForKey key = Map.findWithDefault Nothing key inspectionNames
-    namesBySymbol = Map.fromList [(keySymbol $ positionOf key, nameForKey key) | key <- keys]
-    labelKey symbol = InspectionSymbol symbol $ Map.findWithDefault Nothing symbol namesBySymbol
+    namesByPosition = Map.fromList [(positionOf key, nameForKey key) | key <- keys]
+    labelKey symbol@(Key position) = InspectionSymbol symbol $ Map.findWithDefault Nothing position namesByPosition
+    labelKey symbol = plainSymbol symbol
     inspectionFamily = createMu $ \self ->
         let bodies = fromRight Map.empty $ bodyGroups $ inspectionOccurrences self
          in familyNodeWith
@@ -447,25 +348,8 @@ recurGrouped build
                 , Map.member key minimumSizes
                 ]
 
-{- | Bound a generator to the members of size at most the given bound.
-
-Size is the number of source choices in a member. A recursive generator
-becomes an ordinary finite one and keeps the ranks it already had, so a rank
-found under one bound replays under any larger bound and through the unbounded
-generator itself. Size classes keep their count-based probability. Weighted
-finite choices closed with 'atomic' keep their own distribution inside those
-classes.
-
-This bounds recursion; it does not filter a finite language. A generator
-that is not recursive is returned unchanged, members larger than the bound
-included.
-
-Bounding the recursive occurrence inside the 'recur' or 'recurGrouped' body
-that defines it is rejected with 'BoundedRecursiveOccurrence': the bound would
-need the size classes the definition is still computing. Bound the finished
-language instead, as in @upToSize n (recur ...)@.
--}
-upToSize :: Int -> ECTAGen a -> ECTAGen a
+-- | Bound a generator to the members of size at most the given bound.
+upToSize :: Int -> Gen symbol a -> Gen symbol a
 upToSize bound (Cyclic result) =
     Transparent $ do
         recursive <- result

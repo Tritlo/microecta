@@ -61,6 +61,7 @@ import Data.CFTA.Gen.Equality (
     apply,
  )
 import qualified Data.CFTA.Gen.Refinement as LTA
+import Data.CFTA.Symbol (Symbol)
 
 -- | Map a generator or an accumulated child forest of any layer.
 fmap :: (Prelude.Functor f) => (a -> b) -> f a -> f b
@@ -154,7 +155,7 @@ operation's signature arity.
 newtype Applying (pendingKeys :: [Type]) resultKey b
     = Applying
         ( forall result.
-          Args pendingKeys b result ->
+          Args Symbol pendingKeys b result ->
           Grouped resultKey result
         )
 

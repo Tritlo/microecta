@@ -395,7 +395,10 @@ by sampling that size. Declared atomic weights can therefore produce equal
 counts and unequal masses. Recursive groups memoize both size series, so these
 queries do not enumerate traces. ECTA support is demand-driven: counts, masses,
 replay, sampling, and constrained joins retain it as a lazy thunk. `support`
-forces the complete symbolic representation.
+forces the complete symbolic representation, a `Node (Label Symbol) EqConstraints`:
+`Label` wraps the user's symbols, and the other constructors of
+`Data.CFTA.Gen.Label` are the engine's private labels for the applicative
+spine, choices, source indexes, joins, keys, and recursive families.
 
 `smallest (atKey key family)` returns a globally smallest witness for one
 observation. An unreachable key returns `Right Nothing`. A temporal observation
@@ -495,9 +498,9 @@ incremented = Gen.namedElements [("increment", (+ 1))] <*> integers
 ```
 
 `Gen.inspect incremented` returns an `Inspection`. Its `inspectionGraph` is a
-`Node InspectionSymbol EqConstraints`. Pass it to `ECTA.toTree`, then render the typed
+`Node (InspectionSymbol Symbol) EqConstraints`. Pass it to `ECTA.toTree`, then render the typed
 labels with `fmap` and `Data.Tree.drawTree`. Each `InspectionSymbol` retains
-`originalSymbol` and an optional `displayLabel`. `inspectionName` holds a group
+`originalSymbol`, a `Label Symbol`, and an optional `displayLabel`. `inspectionName` holds a group
 name when one is available. `ViewPath` locations belong to the graph passed to
 `toTree`.
 

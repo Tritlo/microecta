@@ -521,8 +521,9 @@ discipline is baked into which child nodes each edge takes, exactly as in the
 grouped generator.
 
 The generator's own 'ECTAGen.support' cannot serve here. It is built over
-namespaced @$ecta-gen/...@ symbols and carries the joins' equality
-constraints, so a template cannot name its symbols and @fromAutomaton@ rejects it.
+'ECTAGen.Label', the engine's private labels included, and carries the
+joins' equality constraints, so a template over surface symbols cannot name
+its symbols and @fromAutomaton@ rejects it.
 -}
 surfaceExpressionNode :: Int -> Labeled -> Node Symbol EqConstraints
 surfaceExpressionNode depth key =

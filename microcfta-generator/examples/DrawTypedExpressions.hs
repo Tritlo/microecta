@@ -43,8 +43,8 @@ drawSupport title generator = do
 renderTree ::
     Tree
         ( Either
-            (FTA.StateView (ECTA.Node Gen.InspectionSymbol ECTA.EqConstraints))
-            (ECTA.Edge Gen.InspectionSymbol ECTA.EqConstraints)
+            (FTA.StateView (ECTA.Node (Gen.InspectionSymbol Symbol) ECTA.EqConstraints))
+            (ECTA.Edge (Gen.InspectionSymbol Symbol) ECTA.EqConstraints)
         ) ->
     Tree String
 renderTree tree = fmap (either renderState renderTransition) tree
@@ -64,7 +64,7 @@ renderViewPath [] = "root"
 renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep the symbol and print equalities with child paths instead of trie internals.
-renderTransition :: ECTA.Edge Gen.InspectionSymbol ECTA.EqConstraints -> String
+renderTransition :: ECTA.Edge (Gen.InspectionSymbol Symbol) ECTA.EqConstraints -> String
 renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equalities
   where
     equalities = case subsumptionOrderedEclasses $ ECTA.edgeConstraint transition of
@@ -76,16 +76,16 @@ renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equal
                 <> "]"
 
 -- | Prefer retained domain names and use short names for construction steps.
-renderSymbol :: Gen.InspectionSymbol -> String
+renderSymbol :: Gen.InspectionSymbol Symbol -> String
 renderSymbol (Gen.InspectionSymbol _ (Just label)) = Text.unpack label
-renderSymbol (Gen.InspectionSymbol (Symbol symbol) Nothing) = Text.unpack $
-    case Text.stripPrefix "$ecta-gen/" symbol of
-        Just "center-keyed" -> "operation"
-        Just "arg-keyed" -> "argument"
-        Just "at-key" -> "select type"
-        Just "family" -> "type alternative"
-        Just private -> maybe ("gen:" <> private) ("choice " <>) $ Text.stripPrefix "frequency/" private
-        Nothing -> symbol
+renderSymbol (Gen.InspectionSymbol label Nothing) = case label of
+    Gen.Label (Symbol symbol) -> Text.unpack symbol
+    Gen.CenterKeyed -> "operation"
+    Gen.ArgKeyed -> "argument"
+    Gen.AtKey -> "select type"
+    Gen.Family -> "type alternative"
+    Gen.Choice index -> "choice " <> show index
+    private -> "gen:" <> show private
 
 -- | Print a path as child indexes separated by dots.
 renderPath :: Path -> String

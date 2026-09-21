@@ -26,16 +26,19 @@ module Data.CFTA.Gen.Equality.Internal.Recursive (
     productMassIndex,
 ) where
 
+import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support (frequencySymbol, labelSupport, labelTerm)
+import Data.CFTA.Gen.Equality.Internal.Support (labelSupport, labelTerm)
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
@@ -43,7 +46,6 @@ import Data.CFTA.Ranked.Internal.Size (
     choiceIndex,
     sizeClasses,
  )
-import Data.CFTA.Symbol (Symbol)
 
 {- | One recursive ECTA and the size-stratified language it accepts.
 
@@ -52,8 +54,8 @@ language. Members are reached through size classes rather than a
 cardinality, and ranks are size-major, so bounding the language with
 'boundedStatic' keeps every rank it already had.
 -}
-data Recursive a = Recursive
-    { recursiveSupport :: Node Symbol EqConstraints
+data Recursive symbol a = Recursive
+    { recursiveSupport :: Node (Label symbol) EqConstraints
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     interpret the same recursive declaration without forcing this field.
     A support observer builds it once when needed.
@@ -74,18 +76,18 @@ data Recursive a = Recursive
     set on the placeholders and cleared on the finished result, and is
     therefore not the Boolean knot @usedOccurrence@ is.
     -}
-    , recursiveTerm :: Maybe (a -> Tree.Tree Symbol)
+    , recursiveTerm :: Maybe (a -> Tree.Tree (Label symbol))
     {- ^ How to read a member's ECTA term off its value, when the values are
     the accepted terms themselves. Every combinator drops it, because a
     mapped or combined value no longer stands for one term of the
     support.
     -}
-    , recursiveInspection :: Inspection
+    , recursiveInspection :: Inspection symbol
     -- ^ A lazy diagnostic graph with occurrence labels and source values.
     }
 
 -- | View a finite language as one size-stratified recursive component.
-recursiveFromStatic :: Static a -> Recursive a
+recursiveFromStatic :: Static symbol a -> Recursive symbol a
 recursiveFromStatic static =
     Recursive
         (staticSupport static)
@@ -122,7 +124,7 @@ inspection through 'outcomeSelect' reports
 'CannotInspectRecursiveGenerator', while sampling, unranking, and shrinking
 go through the value decoder and the plan.
 -}
-boundedStatic :: Int -> Recursive a -> Either GenError (Static a)
+boundedStatic :: Int -> Recursive symbol a -> Either GenError (Static symbol a)
 boundedStatic bound recursive
     | totalOutcomes <= 0 = Left EmptyGenerator
     | otherwise =
@@ -174,7 +176,7 @@ boundedStatic bound recursive
             | otherwise = go rest (index - count)
 
 -- | Close one recursive child layer with a user-facing node label.
-labelRecursive :: Symbol -> Recursive a -> Recursive a
+labelRecursive :: (Hashable symbol, Typeable symbol) => symbol -> Recursive symbol a -> Recursive symbol a
 labelRecursive symbol recursive =
     recursive
         { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
@@ -188,14 +190,14 @@ The mass is unnormalized. Across all sibling keys it sums to the structural
 member count at that size. This keeps language counts separate from sampler
 probabilities while allowing keys to be merged without losing either.
 -}
-data KeyedRecursive a = KeyedRecursive
-    { keyedRecursiveLanguage :: !(Recursive a)
+data KeyedRecursive symbol a = KeyedRecursive
+    { keyedRecursiveLanguage :: !(Recursive symbol a)
     , keyedRecursiveMasses :: MassIndex
     , keyedRecursiveMassWeighted :: !Bool
     }
 
 -- | Put a complete recursive language under one key.
-keyedRecursive :: Recursive a -> KeyedRecursive a
+keyedRecursive :: Recursive symbol a -> KeyedRecursive symbol a
 keyedRecursive recursive =
     KeyedRecursive
         recursive
@@ -203,7 +205,7 @@ keyedRecursive recursive =
         False
 
 -- | Turn every finite key bucket into one size-indexed recursive group.
-keyedRecursiveFromBuckets :: Map.Map key (KeyedBucket a) -> Map.Map key (KeyedRecursive a)
+keyedRecursiveFromBuckets :: Map.Map key (KeyedBucket symbol a) -> Map.Map key (KeyedRecursive symbol a)
 keyedRecursiveFromBuckets buckets = fmap fromBucket buckets
   where
     totalCount =
@@ -234,7 +236,8 @@ keyedRecursiveFromBuckets buckets = fmap fromBucket buckets
 Alternatives keep their order, as they do in the finite merge, so ranks stay
 deterministic.
 -}
-mergeRecursiveGroups :: [KeyedRecursive a] -> Maybe (KeyedRecursive a)
+mergeRecursiveGroups ::
+    (Hashable symbol, Typeable symbol) => [KeyedRecursive symbol a] -> Maybe (KeyedRecursive symbol a)
 mergeRecursiveGroups [] = Nothing
 mergeRecursiveGroups [only] = Just only
 mergeRecursiveGroups alternatives =
@@ -242,7 +245,7 @@ mergeRecursiveGroups alternatives =
         KeyedRecursive
             ( Recursive
                 ( Node
-                    [ Edge (frequencySymbol branchIndex) [recursiveSupport $ keyedRecursiveLanguage alternative]
+                    [ Edge (Choice branchIndex) [recursiveSupport $ keyedRecursiveLanguage alternative]
                     | (branchIndex, alternative) <- zip [0 ..] alternatives
                     ]
                 )
@@ -279,7 +282,7 @@ massAtSize _ size | size < 1 = 0
 massAtSize (MassIndex masses) size = masses !! (size - 1)
 
 -- | Read one recursive group's mass at a size.
-keyedRecursiveMassAtSize :: KeyedRecursive a -> Int -> Rational
+keyedRecursiveMassAtSize :: KeyedRecursive symbol a -> Int -> Rational
 keyedRecursiveMassAtSize recursive = massAtSize $ keyedRecursiveMasses recursive
 
 -- | A language with no members at any size.

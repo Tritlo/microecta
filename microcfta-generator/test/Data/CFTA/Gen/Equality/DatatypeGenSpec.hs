@@ -106,7 +106,7 @@ spec = do
             support <- either (fail . show) pure $ ECTAGen.support generator
             forM_ [0, count `div` 2, count - 1] $ \rank -> do
                 selected <- timeout 10000000 $ evaluate $ case ECTAGen.unrank generator rank of
-                    Right term -> Automaton.accepts support term
+                    Right term -> Automaton.accepts support $ fmap ECTAGen.Label term
                     _ -> False
                 selected `shouldBe` Just True
 

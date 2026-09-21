@@ -90,6 +90,7 @@ library
     Data.CFTA.Gen.Error
     Data.CFTA.Gen.Internal.Automaton
     Data.CFTA.Gen.Internal.Shrink
+    Data.CFTA.Gen.Label
     Data.CFTA.Gen.QuickCheck
     Data.CFTA.Gen.Refinement
     Data.CFTA.Gen.Refinement.QuickCheck
@@ -105,6 +106,7 @@ library
     Data.CFTA.Gen.Equality.Internal.Automaton
     Data.CFTA.Gen.Equality.Internal.Bucket
     Data.CFTA.Gen.Equality.Internal.Chain
+    Data.CFTA.Gen.Equality.Internal.Flat
     Data.CFTA.Gen.Equality.Internal.Grouped
     Data.CFTA.Gen.Equality.Internal.Inspect
     Data.CFTA.Gen.Equality.Internal.Inspection
@@ -263,6 +265,7 @@ test-suite equality-tests
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta >=0.1.0.0 && <0.2,
     microcfta-generator,
