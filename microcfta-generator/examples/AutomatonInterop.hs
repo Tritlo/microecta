@@ -1,0 +1,77 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE TypeApplications #-}
+
+-- | Import a recursive LTA and compose its bounded terms with an ordinary pool.
+module Main (main) where
+
+import Control.Monad (unless)
+import GHC.Generics (Generic)
+import qualified Test.QuickCheck as QC
+
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
+import Data.CFTA.Generic (HasFTA, TypedFTA, annotateDatatype, constructorName, deriveFTA)
+import Data.CFTA.Refinement (Refinement, unconstrainedConstraint)
+import Data.CFTA.Refinement.Expression (integer, value, (.==.), (.>.))
+import Data.CFTA.Refinement.Guard (requires)
+import Data.CFTA.Refinement.LiquidFixpoint (integerDeclarations, withZ3)
+
+-- | A successor term denotes a positive integer.
+positive :: Refinement
+positive = value .>. integer 0
+
+-- | Natural-number constructor structure.
+data Natural = Zero | Successor Natural
+    deriving (Eq, Show, Generic)
+
+instance HasFTA Natural
+
+-- | Derive the recursive grammar once, independently of its refinements.
+naturals :: TypedFTA () Natural
+naturals = either (error . show) id $ deriveFTA @Natural
+
+-- | Interpret the generated datatype.
+naturalValue :: Natural -> Integer
+naturalValue Zero = 0
+naturalValue (Successor child) = 1 + naturalValue child
+
+-- | Import heights zero through two, then reject zero before dividing.
+divisions :: LTAGen.LTAGen (Integer, Integer, Integer)
+divisions =
+    LTAGen.node "divide" (\_ denominator -> denominator `requires` positive) $ LTAGen.do
+        numerator <- numerators
+        denominator <- fmap naturalValue naturalNumbers
+        LTAGen.pure (numerator, denominator, numerator `div` denominator)
+  where
+    naturalNumbers = LTAGen.fromDatatypeUpToDepth 2 $ annotateDatatype annotate naturals
+    annotate constructor =
+        (if constructorName constructor == "Zero" then value .==. integer 0 else positive, unconstrainedConstraint)
+    numerators =
+        LTAGen.pool
+            [ LTAGen.Refined 12 "twelve" (value .==. integer 12)
+            , LTAGen.Refined 24 "twenty-four" (value .==. integer 24)
+            ]
+
+-- | Compile once, check every replay rank, and sample the accepted divisions.
+main :: IO ()
+main = do
+    withZ3 (integerDeclarations ["v"]) $ \solver -> do
+        compiled <- LTAGen.compile solver divisions >>= either (fail . LTAGen.explain) pure
+        let expected = [(12, 1, 12), (12, 2, 6), (24, 1, 24), (24, 2, 12)]
+            replayed = LTAGen.cardinality compiled >>= \total -> traverse (LTAGen.unrank compiled) [0 .. total - 1]
+        unless (replayed == Right expected)
+            $ fail
+            $ "unexpected replayed divisions: " <> show replayed
+        print expected
+        result <-
+            QC.quickCheckResult $
+                QC.conjoin
+                    [ LTAGen.forAll compiled $ \(numerator, denominator, quotient) ->
+                        denominator > 0 && quotient == numerator `div` denominator
+                    , QC.forAll (LTAGen.toGenWithRank compiled) $ \(rank, division) ->
+                        LTAGen.unrank compiled rank == Right division
+                    ]
+        unless (QC.isSuccess result) $
+            fail "imported automaton generation or replay failed"

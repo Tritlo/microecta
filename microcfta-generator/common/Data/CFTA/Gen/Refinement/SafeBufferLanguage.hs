@@ -1,0 +1,256 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QualifiedDo #-}
+
+{- | A small buffer-program language whose generated programs are safe by
+construction.
+
+The interesting constraints are not finite tags. Buffer lengths and indexes
+are symbolic integers in a Liquid environment. The LTA uses Z3 to prove an
+index is in bounds, to compute append result lengths by actual-for-formal
+substitution, and to carry those result refinements into later operations.
+
+That is the practical QuickCheck payoff: the deliberately partial
+'runProgram' is total for every member of 'safePrograms', without a
+@suchThat@ loop or a precondition in the property.
+-}
+module Data.CFTA.Gen.Refinement.SafeBufferLanguage (
+    BufferExpression (..),
+    RefinedBuffer (..),
+    Program (..),
+    value,
+    variable,
+    solverDeclarations,
+    solverAssumptions,
+    sourceBuffers,
+    appendedBuffers,
+    safeReads,
+    safeHeads,
+    safePrograms,
+    evaluateBuffer,
+    runProgram,
+    programIsSafe,
+) where
+
+import Data.String (fromString)
+import qualified Language.Fixpoint.Types as Fixpoint
+
+import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
+import Data.CFTA.Refinement (LiquidConstraint, LiquidSymbol (LiquidSymbol), Refinement)
+import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.==.), (.>=.))
+import Data.CFTA.Refinement.Guard (
+    Position,
+    descendant,
+    isSubtypeOf,
+    requires,
+    unconstrained,
+    withActualFor,
+    withActualsFor,
+ )
+
+-- | Buffer expressions understood by the example interpreter.
+data BufferExpression
+    = Source !String ![Int]
+    | Append !BufferExpression !BufferExpression
+    deriving (Eq, Ord, Show)
+
+-- | A buffer expression paired with its proven length refinement.
+data RefinedBuffer = RefinedBuffer
+    { bufferExpression :: !BufferExpression
+    , bufferLength :: !Refinement
+    }
+    deriving (Eq, Show)
+
+-- | Partial buffer operations that become safe after LTA compilation.
+data Program
+    = ReadAt !BufferExpression !Int
+    | ReadHead !BufferExpression
+    deriving (Eq, Ord, Show)
+
+-- | Integer names used by guards and their ambient typing environment.
+solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
+solverDeclarations =
+    [ (Fixpoint.symbol name, Fixpoint.FInt)
+    | name <- "v" : "n" : "m" : map fst namedIntegers
+    ]
+
+-- | Facts a Liquid typing environment knows about the named inputs.
+solverAssumptions :: [Refinement]
+solverAssumptions =
+    [ variable name .==. integer
+    | (name, integer) <- namedIntegers
+    ]
+
+namedIntegers :: [(String, Int)]
+namedIntegers =
+    [ ("emptyLength", 0)
+    , ("singletonLength", 1)
+    , ("tripleLength", 3)
+    , ("minusOne", -1)
+    , ("indexZero", 0)
+    , ("indexOne", 1)
+    , ("indexTwo", 2)
+    , ("indexThree", 3)
+    ]
+
+-- | Three concrete buffers whose lengths enter the solver symbolically.
+sourceBuffers :: LTAGen.LTAGen RefinedBuffer
+sourceBuffers =
+    LTAGen.pool
+        [ source "empty" "emptyLength" []
+        , source "singleton" "singletonLength" [10]
+        , source "triple" "tripleLength" [20, 21, 22]
+        ]
+  where
+    source name lengthName contents =
+        let refinement = value .==. variable lengthName
+            buffer = RefinedBuffer (Source name contents) refinement
+         in LTAGen.Refined buffer (fromString lengthName) refinement
+
+-- | Index candidates deliberately include negative and upper-bound failures.
+indexes :: LTAGen.LTAGen (String, Int)
+indexes =
+    LTAGen.pool
+        [ index "minusOne" (-1)
+        , index "indexZero" 0
+        , index "indexOne" 1
+        , index "indexTwo" 2
+        , index "indexThree" 3
+        ]
+  where
+    index name integer =
+        LTAGen.Refined (name, integer) (fromString name) (value .==. variable name)
+
+-- | Programs whose symbolic index is proved in bounds for the chosen buffer.
+safeReads :: LTAGen.LTAGen Program
+safeReads = LTAGen.node "read-at" validRead $ LTAGen.do
+    buffer <- sourceBuffers
+    _function <- readFunction
+    ~(_indexName, index) <- indexes
+    LTAGen.pure $ ReadAt (bufferExpression buffer) index
+
+-- | Substitute the selected buffer length into the function precondition.
+validRead :: Position -> Position -> Position -> LiquidConstraint
+validRead buffer function index =
+    withActualFor buffer (descendant function [0]) $
+        index `isSubtypeOf` descendant function [1]
+
+-- | A dependent read operation with formal length and valid-index positions.
+readFunction :: LTAGen.LTAGen ()
+readFunction = LTAGen.node "read-function" unconstrained $ LTAGen.do
+    _lengthFormal <- LTAGen.leaf () "n" nonNegative
+    _validIndex <- LTAGen.leaf () "valid-index" indexWithinLength
+    LTAGen.pure ()
+
+-- | The refinement required by a safe head operation.
+positive :: Refinement
+positive = value .>=. (1 :: Int)
+
+-- | A dependent index range using the formal buffer length @n@.
+indexWithinLength :: Refinement
+indexWithinLength =
+    Fixpoint.pAnd
+        [ value .>=. (0 :: Int)
+        , value .<. variable "n"
+        ]
+
+-- | Every ordered append of the source buffers, with its result length proved.
+appendedBuffers :: LTAGen.LTAGen RefinedBuffer
+appendedBuffers =
+    LTAGen.refinedNodeByRoots "append" resultRefinement validAppend $ LTAGen.do
+        result <- possibleLengths
+        _function <- appendFunction
+        left <- sourceBuffers
+        right <- sourceBuffers
+        LTAGen.pure $
+            RefinedBuffer
+                (Append (bufferExpression left) (bufferExpression right))
+                (resultLength result)
+  where
+    resultRefinement (LiquidSymbol _ refinement : _) = refinement
+    resultRefinement [] = error "appendedBuffers: missing result annotation"
+
+-- | One candidate result-length refinement for append.
+newtype LengthResult = LengthResult
+    { resultLength :: Refinement
+    }
+
+-- | Every result length reachable from the finite source-buffer universe.
+possibleLengths :: LTAGen.LTAGen LengthResult
+possibleLengths =
+    LTAGen.pool
+        [ result length_
+        | length_ <- [0, 1, 2, 3, 4, 6] :: [Int]
+        ]
+  where
+    result length_ =
+        let refinement = value .==. length_
+         in LTAGen.Refined
+                (LengthResult refinement)
+                (fromString $ "length-" <> show length_)
+                refinement
+
+-- | A two-argument dependent append operation whose output length is @n + m@.
+appendFunction :: LTAGen.LTAGen ()
+appendFunction = LTAGen.node "append-function" unconstrained $ LTAGen.do
+    _leftFormal <- LTAGen.leaf () "n" nonNegative
+    _rightFormal <- LTAGen.leaf () "m" nonNegative
+    _output <- LTAGen.leaf () "sum-length" (value .==. (variable "n" .+. variable "m"))
+    LTAGen.pure ()
+
+-- | Substitute both selected operand lengths into append's result refinement.
+validAppend :: Position -> Position -> Position -> Position -> LiquidConstraint
+validAppend result function left right =
+    withActualsFor
+        [ (left, descendant function [0])
+        , (right, descendant function [1])
+        ]
+        (descendant function [2] `isSubtypeOf` result)
+
+-- | Safe head reads over both source and solver-checked appended buffers.
+safeHeads :: LTAGen.LTAGen Program
+safeHeads = LTAGen.node "head" hasElement $ LTAGen.do
+    buffer <- allBuffers
+    LTAGen.pure $ ReadHead $ bufferExpression buffer
+
+-- | Require the chosen buffer to prove that a head element exists.
+hasElement :: Position -> LiquidConstraint
+hasElement buffer = buffer `requires` positive
+
+-- | Source and solver-checked appended buffers available to later operations.
+allBuffers :: LTAGen.LTAGen RefinedBuffer
+allBuffers = LTAGen.oneof [sourceBuffers, appendedBuffers]
+
+-- | The complete safe program language used by the QuickCheck example.
+safePrograms :: LTAGen.LTAGen Program
+safePrograms = LTAGen.oneof [safeReads, safeHeads]
+
+-- | Interpret a buffer expression.
+evaluateBuffer :: BufferExpression -> [Int]
+evaluateBuffer (Source _ contents) = contents
+evaluateBuffer (Append left right) = evaluateBuffer left <> evaluateBuffer right
+
+{- | Execute a deliberately partial buffer program.
+
+The function uses 'head' and list indexing directly. It is safe for values
+produced by the compiled 'safePrograms' language; that is what the specs prove.
+-}
+runProgram :: Program -> Int
+runProgram (ReadAt buffer index)
+    | index < 0 = error "microlta invariant broken: negative buffer index"
+    | otherwise =
+        case drop index $ evaluateBuffer buffer of
+            element : _ -> element
+            [] -> error "microlta invariant broken: buffer index out of bounds"
+runProgram (ReadHead buffer) =
+    case evaluateBuffer buffer of
+        element : _ -> element
+        [] -> error "microlta invariant broken: head of an empty buffer"
+
+-- | Independent executable safety check used by the properties.
+programIsSafe :: Program -> Bool
+programIsSafe (ReadAt buffer index) =
+    index >= 0 && index < length (evaluateBuffer buffer)
+programIsSafe (ReadHead buffer) =
+    not $ null $ evaluateBuffer buffer
