@@ -13,6 +13,7 @@ module Data.CFTA.Gen.Equality.Internal.Recursion (
 ) where
 
 import Control.Monad (void, when)
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
 import Data.Either (fromRight)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
@@ -39,7 +40,7 @@ import Data.CFTA.Ranked.Internal.Size (
  )
 
 -- | Treat every member of a finite generator as one atomic source choice.
-atomic :: Gen symbol a -> Gen symbol a
+atomic :: Gen symbol constraint a -> Gen symbol constraint a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
     Transparent $ do
@@ -55,7 +56,9 @@ atomic (Cyclic result) =
 atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
 -- | Build a recursive generator from its own language.
-recur :: (Hashable symbol, Typeable symbol) => (Gen symbol a -> Gen symbol a) -> Gen symbol a
+recur ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    (Gen symbol constraint a -> Gen symbol constraint a) -> Gen symbol constraint a
 recur build
     -- An opaque body cannot contain the occurrence, so it is not recursive.
     | Opaque _ <- probeBody = probeBody
@@ -134,9 +137,9 @@ recur build
 
 -- | Build a recursive grouped family from its own languages.
 recurGrouped ::
-    (Ord key, Hashable symbol, Typeable symbol) =>
-    (Grouped symbol key a -> Grouped symbol key a) ->
-    Grouped symbol key a
+    (HasEqualities constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    (Grouped symbol constraint key a -> Grouped symbol constraint key a) ->
+    Grouped symbol constraint key a
 recurGrouped build
     -- As in 'recur': a body that failed to build reports its own error rather
     -- than being wrapped in a family every finite inspector calls unbounded.
@@ -349,7 +352,7 @@ recurGrouped build
                 ]
 
 -- | Bound a generator to the members of size at most the given bound.
-upToSize :: Int -> Gen symbol a -> Gen symbol a
+upToSize :: Int -> Gen symbol constraint a -> Gen symbol constraint a
 upToSize bound (Cyclic result) =
     Transparent $ do
         recursive <- result

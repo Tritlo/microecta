@@ -40,6 +40,7 @@ module Data.CFTA.Gen.Equality.Internal.Static (
 ) where
 
 import qualified Data.Bifunctor as Bifunctor
+import Data.CFTA.Constraint (Constraint (..))
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import Data.Sequence (Seq)
@@ -49,7 +50,6 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
 import Data.CFTA.Gen.Error (GenError (..))
@@ -111,8 +111,8 @@ seqPlan outcomes =
         (outcomeValue . Sequence.index outcomes . fromInteger)
 
 -- | One transparent ECTA with a matching indexed outcome language.
-data Static symbol a = Static
-    { staticSupport :: Node (Label symbol) EqConstraints
+data Static symbol constraint a = Static
+    { staticSupport :: Node (Label symbol) constraint
     {- ^ The ECTA support is demand-driven. Counting, mass, and sampling
     use the outcome index without forcing this field. A support observer builds
     it when needed; finite combinators retain their support work as a thunk.
@@ -125,12 +125,12 @@ data Static symbol a = Static
     sets this marker so 'recursiveFromStatic' can preserve them as one source
     choice. The sampler itself already lives in 'staticOutcomes'.
     -}
-    , staticInspection :: Inspection symbol
+    , staticInspection :: Inspection symbol constraint
     -- ^ Diagnostic structure. Counting and decoding do not force this field.
     }
 
 -- | The one-outcome language of a single value.
-pureStatic :: (Hashable symbol, Typeable symbol) => a -> Static symbol a
+pureStatic :: (Constraint constraint, Hashable symbol, Typeable symbol) => a -> Static symbol constraint a
 pureStatic value =
     Static
         (Node [Edge Pure []])
@@ -149,12 +149,13 @@ pureStatic value =
         (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
 
 -- | The language of one finite indexed source.
-indexedStatic :: (Hashable symbol, Typeable symbol) => Indexed a -> Static symbol a
+indexedStatic :: (Constraint constraint, Hashable symbol, Typeable symbol) => Indexed a -> Static symbol constraint a
 indexedStatic = indexedStaticWithLabels $ const Nothing
 
 -- | Retain source names independently of values and rank decoding.
 indexedStaticWithLabels ::
-    (Hashable symbol, Typeable symbol) => (Integer -> Maybe Text) -> Indexed a -> Static symbol a
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    (Integer -> Maybe Text) -> Indexed a -> Static symbol constraint a
 indexedStaticWithLabels label indexed =
     Static
         (Node [Edge (Index index) [] | index <- [0 .. totalOutcomes - 1]])
@@ -188,8 +189,8 @@ common plan supplies replay and structural shrinking. No term is decoded
 while this adapter is constructed.
 -}
 termStatic ::
-    (Hashable symbol, Typeable symbol) =>
-    Node symbol EqConstraints -> Ranked.Ranked (Tree.Tree symbol) -> Static symbol (Tree.Tree symbol)
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Node symbol constraint -> Ranked.Ranked (Tree.Tree symbol) -> Static symbol constraint (Tree.Tree symbol)
 termStatic root ranked =
     Static
         supportNode
@@ -208,7 +209,9 @@ termStatic root ranked =
         pure $ Outcome labelled mass term (fmap plainSymbol labelled)
 
 -- | The applicative product of a function language and an argument language.
-applyStatic :: (Hashable symbol, Typeable symbol) => Static symbol (a -> b) -> Static symbol a -> Static symbol b
+applyStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Static symbol constraint (a -> b) -> Static symbol constraint a -> Static symbol constraint b
 applyStatic functions values =
     Static
         ( Node
@@ -268,7 +271,9 @@ applyStatic functions values =
     splitIndex index = index `quotRem` valueCardinality
 
 -- | Concatenate weighted alternatives with stable rank offsets.
-frequencyStatic :: (Hashable symbol, Typeable symbol) => [(Integer, Static symbol a)] -> Static symbol a
+frequencyStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    [(Integer, Static symbol constraint a)] -> Static symbol constraint a
 frequencyStatic alternatives =
     Static
         ( Node
@@ -342,7 +347,7 @@ frequencyStatic alternatives =
         | otherwise = selectBranch index remaining
 
 -- | Map the values of a static language.
-mapStatic :: (a -> b) -> Static symbol a -> Static symbol b
+mapStatic :: (a -> b) -> Static symbol constraint a -> Static symbol constraint b
 mapStatic transform static =
     Static
         (staticSupport static)
@@ -371,7 +376,7 @@ mapOutcome transform outcome =
         (outcomeInspection outcome)
 
 -- | Make every outcome of a finite language contribute one unit of size.
-atomicStatic :: Static symbol a -> Static symbol a
+atomicStatic :: Static symbol constraint a -> Static symbol constraint a
 atomicStatic static =
     static
         { staticOutcomes =
@@ -399,7 +404,9 @@ Closing it removes that scaffolding from the root term: applicative spines
 become direct children, grouped joins retain their equality constraints, and
 choice wrappers distribute the new label over their alternatives.
 -}
-labelStatic :: (Hashable symbol, Typeable symbol) => symbol -> Static symbol a -> Static symbol a
+labelStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    symbol -> Static symbol constraint a -> Static symbol constraint a
 labelStatic symbol static =
     static
         { staticSupport = labelSupport symbol $ staticSupport static
@@ -441,7 +448,7 @@ sequenceSampler outcomes
     selectValue = outcomeValue . Sequence.index outcomes . fromInteger
 
 -- | Sample weighted alternatives with rank offsets.
-frequencySampler :: [(Integer, Static symbol a)] -> Sampler a
+frequencySampler :: [(Integer, Static symbol constraint a)] -> Sampler a
 frequencySampler alternatives =
     Sampler
         ( frequencyGen
@@ -459,7 +466,7 @@ frequencySampler alternatives =
         )
 
 -- | Pair every alternative with its cumulative rank offset.
-offsetAlternatives :: [(Integer, Static symbol a)] -> [(Integer, (Integer, Static symbol a))]
+offsetAlternatives :: [(Integer, Static symbol constraint a)] -> [(Integer, (Integer, Static symbol constraint a))]
 offsetAlternatives = go 0
   where
     go _ [] = []
@@ -500,7 +507,7 @@ compiledDecoder outcomes =
 -- | Sample one value; uniform languages go through the compiled decoder.
 sampleStatic ::
     (GenBackend gen) =>
-    Static symbol a ->
+    Static symbol constraint a ->
     gen (Either GenError a)
 sampleStatic static
     | Just _ <- outcomeUniformMass outcomes =
@@ -515,7 +522,7 @@ sampleStatic static
 -- | Sample one value together with its replay rank.
 sampleStaticWithRank ::
     (GenBackend gen) =>
-    Static symbol a ->
+    Static symbol constraint a ->
     gen (Either GenError (Integer, a))
 sampleStaticWithRank static
     | Just _ <- outcomeUniformMass outcomes =
@@ -537,7 +544,7 @@ enumerateOutcomeIndex outcomes =
         [0 .. outcomeCardinality outcomes - 1]
 
 -- | Enumerate a language as normalized mass and value pairs.
-compileOutcomes :: Static symbol a -> Either GenError [(Rational, a)]
+compileOutcomes :: Static symbol constraint a -> Either GenError [(Rational, a)]
 compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]

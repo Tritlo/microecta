@@ -28,7 +28,7 @@ import Data.Hashable (Hashable)
 import Data.Maybe (isNothing)
 import GHC.Generics (Generic)
 
-import Data.CFTA.Constraint (Constraint (..))
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
 import Data.CFTA.Equality.Constraint (
     EqConstraints (EmptyConstraints),
     combineEqConstraints,
@@ -87,6 +87,9 @@ the positive 'Same' atoms of its guard, so enumeration solves those by
 unification. A guard with anything else, including a scoped or negated
 equality, is a residual that the complete subterm must be checked against.
 -}
+instance HasEqualities LiquidConstraint where
+    fromEqualities = equalityConstraint
+
 instance Constraint LiquidConstraint where
     noConstraint = unconstrainedConstraint
     conjoinConstraints = combineConstraints

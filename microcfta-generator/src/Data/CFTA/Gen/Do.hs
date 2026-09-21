@@ -52,6 +52,7 @@ import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import Prelude (Ord, type (~))
 import qualified Prelude
 
+import Data.CFTA.Equality.Constraint (EqConstraints)
 import qualified Data.CFTA.Gen as FTA
 import Data.CFTA.Gen.Equality (
     Args (..),
@@ -155,7 +156,7 @@ operation's signature arity.
 newtype Applying (pendingKeys :: [Type]) resultKey b
     = Applying
         ( forall result.
-          Args Symbol pendingKeys b result ->
+          Args Symbol EqConstraints pendingKeys b result ->
           Grouped resultKey result
         )
 

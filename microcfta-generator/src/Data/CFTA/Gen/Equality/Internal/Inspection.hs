@@ -9,6 +9,7 @@ module Data.CFTA.Gen.Equality.Internal.Inspection (
     joinInspection,
 ) where
 
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -16,7 +17,6 @@ import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Label (Label (..))
 
@@ -41,23 +41,27 @@ a replacement for the semantic support: diagnostic names can distinguish
 otherwise equal nodes, and this graph does not run equality reduction.
 All fields are lazy. Reading counts or decoding ranks does not build it.
 -}
-data Inspection symbol = Inspection
+data Inspection symbol constraint = Inspection
     { inspectionName :: Maybe Text
-    , inspectionGraph :: Node (InspectionSymbol symbol) EqConstraints
+    , inspectionGraph :: Node (InspectionSymbol symbol) constraint
     }
 
-deriving instance (Show symbol) => Show (Inspection symbol)
+deriving instance (Show symbol, Show constraint, Constraint constraint) => Show (Inspection symbol constraint)
 
 -- | Retain a label without adding a display name.
 plainSymbol :: Label symbol -> InspectionSymbol symbol
 plainSymbol symbol = InspectionSymbol symbol Nothing
 
 -- | Copy a support graph with its labels, constraints, and bound references.
-plainInspection :: (Hashable symbol, Typeable symbol) => Node (Label symbol) EqConstraints -> Inspection symbol
+plainInspection ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Node (Label symbol) constraint -> Inspection symbol constraint
 plainInspection = Inspection Nothing . relabel plainSymbol
 
 -- | Preserve choice order and a name common to every alternative.
-choiceInspection :: (Hashable symbol, Typeable symbol) => [Inspection symbol] -> Inspection symbol
+choiceInspection ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    [Inspection symbol constraint] -> Inspection symbol constraint
 choiceInspection alternatives =
     Inspection
         commonName
@@ -72,7 +76,9 @@ choiceInspection alternatives =
         _ -> Nothing
 
 -- | Close one diagnostic child layer with the same domain constructor.
-labelInspection :: (Hashable symbol, Typeable symbol) => symbol -> Inspection symbol -> Inspection symbol
+labelInspection ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    symbol -> Inspection symbol constraint -> Inspection symbol constraint
 labelInspection symbol inspection =
     inspection
         { inspectionGraph =
@@ -81,8 +87,8 @@ labelInspection symbol inspection =
 
 -- | Join diagnostic groups and name each equality witness from its argument.
 joinInspection ::
-    (Hashable symbol, Typeable symbol) =>
-    Int -> Inspection symbol -> [Inspection symbol] -> Inspection symbol
+    (HasEqualities constraint, Hashable symbol, Typeable symbol) =>
+    Int -> Inspection symbol constraint -> [Inspection symbol constraint] -> Inspection symbol constraint
 joinInspection component operation arguments =
     Inspection Nothing $
         joinNodeWith namedSymbol component (inspectionGraph operation) (map inspectionGraph arguments)

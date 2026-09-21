@@ -1,5 +1,5 @@
 -- | The constraint theories of the automaton engine.
-module Data.CFTA.Constraint (Constraint (..)) where
+module Data.CFTA.Constraint (Constraint (..), HasEqualities (..)) where
 
 import Data.Hashable (Hashable)
 import Data.Typeable (Typeable)
@@ -43,6 +43,16 @@ instance Constraint () where
     contradictory _ = False
     equalities _ = EmptyConstraints
     residual _ = False
+
+{- | A theory that can carry path equalities on its own. The generator's
+joins attach the equalities they need through 'fromEqualities'.
+-}
+class (Constraint constraint) => HasEqualities constraint where
+    -- | Embed equality classes as a constraint of the theory.
+    fromEqualities :: EqConstraints -> constraint
+
+instance HasEqualities EqConstraints where
+    fromEqualities = id
 
 instance Constraint EqConstraints where
     noConstraint = EmptyConstraints

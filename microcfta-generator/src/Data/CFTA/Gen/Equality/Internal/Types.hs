@@ -36,6 +36,7 @@ module Data.CFTA.Gen.Equality.Internal.Types (
     allWeightsEqual,
 ) where
 
+import Data.CFTA.Constraint (Constraint (..))
 import Data.Hashable (Hashable)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -61,18 +62,18 @@ The support is an automaton over 'Label': the user's symbols, closed with
 @node@ or read from an imported automaton, and the private labels of the
 engine.
 -}
-data Gen symbol a
-    = Transparent !(Either GenError (Static symbol a))
-    | Cyclic !(Either GenError (Recursive symbol a))
+data Gen symbol constraint a
+    = Transparent !(Either GenError (Static symbol constraint a))
+    | Cyclic !(Either GenError (Recursive symbol constraint a))
     | Opaque !(QC.Gen (Either GenError a))
 
 -- | Whether a generator stands for a recursive language.
-isRecursive :: Gen symbol a -> Bool
+isRecursive :: Gen symbol constraint a -> Bool
 isRecursive (Cyclic _) = True
 isRecursive _ = False
 
 -- | Whether a generator is an opaque region, which cannot be inspected.
-isOpaque :: Gen symbol a -> Bool
+isOpaque :: Gen symbol constraint a -> Bool
 isOpaque (Opaque _) = True
 isOpaque _ = False
 
@@ -81,19 +82,19 @@ isOpaque _ = False
 A finite generator is a recursive language that happens to stop: its plan
 already counts by size, and its support is already its automaton.
 -}
-recursiveView :: Gen symbol a -> Either GenError (Recursive symbol a)
+recursiveView :: Gen symbol constraint a -> Either GenError (Recursive symbol constraint a)
 recursiveView (Transparent result) = recursiveFromStatic <$> result
 recursiveView (Cyclic result) = result
 recursiveView (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | A generator whose values are classified by a projected key: one language per key.
-data Grouped symbol key a
-    = Grouped !(Either GenError (Map.Map key (KeyedBucket symbol a)))
+data Grouped symbol constraint key a
+    = Grouped !(Either GenError (Map.Map key (KeyedBucket symbol constraint a)))
     | -- | A recursive family: one language per key, all sharing one @Mu@.
-      CyclicGrouped !(Either GenError (Map.Map key (KeyedRecursive symbol a)))
+      CyclicGrouped !(Either GenError (Map.Map key (KeyedRecursive symbol constraint a)))
 
 -- | Whether a grouped generator stands for a recursive family.
-isRecursiveGrouped :: Grouped symbol key a -> Bool
+isRecursiveGrouped :: Grouped symbol constraint key a -> Bool
 isRecursiveGrouped (CyclicGrouped _) = True
 isRecursiveGrouped _ = False
 
@@ -103,8 +104,8 @@ A finite family is a recursive one that happens to stop, so this is how the
 recursive builders accept either.
 -}
 recursiveGroups ::
-    Grouped symbol key a ->
-    Either GenError (Map.Map key (KeyedRecursive symbol a))
+    Grouped symbol constraint key a ->
+    Either GenError (Map.Map key (KeyedRecursive symbol constraint a))
 recursiveGroups (CyclicGrouped result) = result
 recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
 
@@ -113,13 +114,13 @@ recursiveGroups (Grouped result) = keyedRecursiveFromBuckets <$> result
 Each link requires the family key type named by the corresponding signature
 component and consumes the corresponding argument of the generated operation.
 -}
-data Args symbol (argKeys :: [Type]) operation result where
-    ANil :: Args symbol '[] result result
+data Args symbol constraint (argKeys :: [Type]) operation result where
+    ANil :: Args symbol constraint '[] result result
     (:&) ::
         (Ord argKey) =>
-        Grouped symbol argKey arg ->
-        Args symbol argKeys operation result ->
-        Args symbol (argKey ': argKeys) (arg -> operation) result
+        Grouped symbol constraint argKey arg ->
+        Args symbol constraint argKeys operation result ->
+        Args symbol constraint (argKey ': argKeys) (arg -> operation) result
 
 infixr 5 :&
 
@@ -132,14 +133,14 @@ class NodeLayer symbol layer | layer -> symbol where
 node :: (NodeLayer symbol layer) => symbol -> layer a -> layer a
 node = closeNode
 
-instance (Hashable symbol, Typeable symbol) => NodeLayer symbol (Gen symbol) where
+instance (Constraint constraint, Hashable symbol, Typeable symbol) => NodeLayer symbol (Gen symbol constraint) where
     closeNode symbol (Transparent result) =
         Transparent $ fmap (labelStatic symbol) result
     closeNode symbol (Cyclic result) =
         Cyclic $ fmap (labelRecursive symbol) result
     closeNode _ opaque@(Opaque _) = opaque
 
-instance (Hashable symbol, Typeable symbol) => NodeLayer symbol (Grouped symbol key) where
+instance (Constraint constraint, Hashable symbol, Typeable symbol) => NodeLayer symbol (Grouped symbol constraint key) where
     closeNode symbol (Grouped result) =
         Grouped $ fmap (fmap labelBucket) result
       where
@@ -157,7 +158,7 @@ instance (Hashable symbol, Typeable symbol) => NodeLayer symbol (Grouped symbol 
                     labelRecursive symbol $ keyedRecursiveLanguage group
                 }
 
-instance Functor (Grouped symbol key) where
+instance Functor (Grouped symbol constraint key) where
     fmap transform (Grouped result) =
         Grouped $ fmap (fmap mapBucket) result
       where
@@ -184,7 +185,7 @@ instance Functor (Grouped symbol key) where
           where
             recursive = keyedRecursiveLanguage group
 
-instance Functor (Gen symbol) where
+instance Functor (Gen symbol constraint) where
     fmap transform (Transparent result) = Transparent $ fmap (mapStatic transform) result
     fmap transform (Cyclic result) = Cyclic $ fmap mapRecursive result
       where
@@ -199,7 +200,7 @@ instance Functor (Gen symbol) where
                 (recursiveInspection recursive)
     fmap transform (Opaque generated) = Opaque $ fmap (fmap transform) generated
 
-instance (Hashable symbol, Typeable symbol) => Applicative (Gen symbol) where
+instance (Constraint constraint, Hashable symbol, Typeable symbol) => Applicative (Gen symbol constraint) where
     pure value = Transparent $ Right $ pureStatic value
 
     Transparent (Left err) <*> _ = Transparent $ Left err
@@ -238,23 +239,23 @@ instance (Hashable symbol, Typeable symbol) => Applicative (Gen symbol) where
         Opaque $ liftA2 (<*>) (lower functions) (lower values)
 
 -- | Lower to QuickCheck, preserving construction and decoding errors.
-lower :: Gen symbol a -> QC.Gen (Either GenError a)
+lower :: Gen symbol constraint a -> QC.Gen (Either GenError a)
 lower (Opaque generated) = generated
 lower generator = quickCheck $ lowerVia generator
 
 -- | Lower an inspectable generator while retaining the sampled rank.
-lowerWithRank :: Gen symbol a -> QC.Gen (Either GenError (Integer, a))
+lowerWithRank :: Gen symbol constraint a -> QC.Gen (Either GenError (Integer, a))
 lowerWithRank = quickCheck . lowerWithRankVia
 
 -- | Lower an inspectable generator through any sampling backend.
-lowerVia :: (GenBackend gen) => Gen symbol a -> gen (Either GenError a)
+lowerVia :: (GenBackend gen) => Gen symbol constraint a -> gen (Either GenError a)
 lowerVia (Transparent (Left err)) = pure $ Left err
 lowerVia (Transparent (Right static)) = sampleStatic static
 lowerVia (Cyclic _) = pure $ Left UnboundedGenerator
 lowerVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
 -- | 'lowerVia' retaining the sampled replay rank.
-lowerWithRankVia :: (GenBackend gen) => Gen symbol a -> gen (Either GenError (Integer, a))
+lowerWithRankVia :: (GenBackend gen) => Gen symbol constraint a -> gen (Either GenError (Integer, a))
 lowerWithRankVia (Transparent (Left err)) = pure $ Left err
 lowerWithRankVia (Transparent (Right static)) = sampleStaticWithRank static
 lowerWithRankVia (Cyclic _) = pure $ Left UnboundedGenerator
@@ -265,7 +266,7 @@ quickCheck :: QuickCheckBackend a -> QC.Gen a
 quickCheck (QuickCheckBackend generated) = generated
 
 -- | Lower a transparent uniform generator to a direct QuickCheck generator.
-lowerUniform :: Gen symbol a -> Maybe (QC.Gen a)
+lowerUniform :: Gen symbol constraint a -> Maybe (QC.Gen a)
 lowerUniform (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
         Just $ case compiledDecoder outcomes of
@@ -276,7 +277,7 @@ lowerUniform (Transparent (Right static))
 lowerUniform _ = Nothing
 
 -- | Like 'lowerUniform', retaining the sampled replay rank.
-lowerUniformWithRank :: Gen symbol a -> Maybe (QC.Gen (Integer, a))
+lowerUniformWithRank :: Gen symbol constraint a -> Maybe (QC.Gen (Integer, a))
 lowerUniformWithRank (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
         Just $ case compiledDecoder outcomes of

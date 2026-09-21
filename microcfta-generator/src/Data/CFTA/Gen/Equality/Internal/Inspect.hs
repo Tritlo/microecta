@@ -31,7 +31,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
-import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Inspection
 import Data.CFTA.Gen.Equality.Internal.Recursive
 import Data.CFTA.Gen.Equality.Internal.Static
@@ -53,38 +52,38 @@ import Data.CFTA.Ranked.Internal.Size (
 import qualified Data.CFTA.Ranked.Internal.Size as Size
 
 -- | Return the ECTA support of an inspectable generator.
-support :: Gen symbol a -> Either GenError (Node (Label symbol) EqConstraints)
+support :: Gen symbol constraint a -> Either GenError (Node (Label symbol) constraint)
 support (Transparent result) = staticSupport <$> result
 support (Cyclic result) = recursiveSupport <$> result
 support (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Read retained source descriptions and group names as a diagnostic graph.
-inspect :: Gen symbol a -> Either GenError (Inspection symbol)
+inspect :: Gen symbol constraint a -> Either GenError (Inspection symbol constraint)
 inspect (Transparent result) = staticInspection <$> result
 inspect (Cyclic result) = recursiveInspection <$> result
 inspect (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Return the exact number of ranks in a transparent generator.
-cardinality :: Gen symbol a -> Either GenError Integer
+cardinality :: Gen symbol constraint a -> Either GenError Integer
 cardinality (Transparent result) =
     outcomeCardinality . staticOutcomes <$> result
 cardinality (Cyclic _) = Left UnboundedGenerator
 cardinality (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | The number of members of one size, for any inspectable generator.
-countAtSize :: Gen symbol a -> Int -> Either GenError Integer
+countAtSize :: Gen symbol constraint a -> Int -> Either GenError Integer
 countAtSize generator size =
     flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
 
 -- | The smallest structural size in an inspectable language.
-minimumSize :: Gen symbol a -> Either GenError (Maybe Int)
+minimumSize :: Gen symbol constraint a -> Either GenError (Maybe Int)
 minimumSize generator = case recursiveView generator of
     Left EmptyGenerator -> Right Nothing
     Left err -> Left err
     Right recursive -> Right $ minimumMemberSize $ recursiveIndex recursive
 
 -- | Decode one stable rank from an inspectable generator.
-unrank :: Gen symbol a -> Integer -> Either GenError a
+unrank :: Gen symbol constraint a -> Integer -> Either GenError a
 unrank _ index | index < 0 = Left $ NegativeRank index
 unrank (Transparent result) index = do
     static <- result
@@ -106,7 +105,7 @@ unrank (Cyclic result) index = do
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 -- | The term of one member by rank.
-termAt :: Gen symbol a -> Integer -> Either GenError (Tree.Tree (Label symbol))
+termAt :: Gen symbol constraint a -> Integer -> Either GenError (Tree.Tree (Label symbol))
 termAt _ index | index < 0 = Left $ NegativeRank index
 termAt (Transparent result) index = do
     static <- result
@@ -115,7 +114,7 @@ termAt (Cyclic _) _ = Left CannotInspectRecursiveGenerator
 termAt (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 -- | Return the first member in structural size and rank order.
-smallest :: Gen symbol a -> Either GenError (Maybe a)
+smallest :: Gen symbol constraint a -> Either GenError (Maybe a)
 smallest (Transparent result) =
     case result of
         Left EmptyGenerator -> Right Nothing
@@ -133,7 +132,7 @@ smallest generator@(Cyclic _) =
 smallest (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | The number of source choices in the member a rank decodes to.
-sizeOfRank :: Gen symbol a -> Integer -> Maybe Int
+sizeOfRank :: Gen symbol constraint a -> Integer -> Maybe Int
 sizeOfRank (Cyclic (Right recursive)) rank =
     fst <$> sizeClassOf (recursiveIndex recursive) rank
 sizeOfRank (Transparent (Right static)) rank
@@ -145,7 +144,7 @@ sizeOfRank (Transparent (Right static)) rank
 sizeOfRank _ _ = Nothing
 
 -- | Structural shrink candidates for one rank of a transparent generator.
-shrinkRank :: Gen symbol a -> Integer -> [Integer]
+shrinkRank :: Gen symbol constraint a -> Integer -> [Integer]
 shrinkRank (Cyclic _) _ = []
 shrinkRank (Transparent (Right static)) rank
     | rank > 0
@@ -156,7 +155,7 @@ shrinkRank (Transparent (Right static)) rank
 shrinkRank _ _ = []
 
 -- | Every member of strictly smaller size than the given rank's member, in size order, as replayable rank and value.
-smallerMembers :: Gen symbol a -> Integer -> [(Integer, a)]
+smallerMembers :: Gen symbol constraint a -> Integer -> [(Integer, a)]
 smallerMembers (Transparent (Right static)) rank
     | rank >= 0
     , rank < outcomeCardinality outcomes =
@@ -179,7 +178,7 @@ smallerMembers (Cyclic (Right recursive)) rank
 smallerMembers _ _ = []
 
 -- | Count ranked outcomes by a projected key without aggregating equal values.
-countBy :: (Ord key) => (a -> key) -> Gen symbol a -> Either GenError (Map.Map key Integer)
+countBy :: (Ord key) => (a -> key) -> Gen symbol constraint a -> Either GenError (Map.Map key Integer)
 countBy key (Transparent result) = do
     static <- result
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
@@ -191,7 +190,7 @@ countBy _ (Cyclic _) = Left UnboundedGenerator
 countBy _ (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Aggregate the exact probability mass of every finite transparent result.
-pmf :: (Ord a) => Gen symbol a -> Either GenError [(a, Rational)]
+pmf :: (Ord a) => Gen symbol constraint a -> Either GenError [(a, Rational)]
 pmf (Transparent result) = do
     static <- result
     outcomes <- compileOutcomes static
@@ -202,7 +201,7 @@ pmf (Cyclic _) = Left UnboundedGenerator
 pmf (Opaque _) = Left CannotInspectOpaqueGenerator
 
 -- | Aggregate the exact result distribution conditional on one structural size.
-pmfAtSize :: (Ord a) => Gen symbol a -> Int -> Either GenError [(a, Rational)]
+pmfAtSize :: (Ord a) => Gen symbol constraint a -> Int -> Either GenError [(a, Rational)]
 pmfAtSize (Transparent result) size = do
     static <- result
     if size < 1

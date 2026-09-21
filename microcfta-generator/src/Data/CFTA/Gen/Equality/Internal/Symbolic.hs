@@ -12,7 +12,7 @@ import Data.Typeable (Typeable)
 
 import Data.CFTA.Constraint (Constraint)
 import qualified Data.CFTA.Equality as ECTA
-import Data.CFTA.Equality.Constraint (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
+import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
@@ -79,11 +79,11 @@ such as the text of an interned symbol, so that ranks do not depend on
 interning order.
 -}
 symbolicRanked ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> ECTA.Node symbol EqConstraints -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
+    (Theory symbol constraint, Ord key) =>
+    (symbol -> key) -> ECTA.Node symbol constraint -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree symbol))
 symbolicRanked order = symbolicRankedWith order interpret
   where
-    interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
+    interpret = maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses . ECTA.equalities
 
 {- | Compile a finite graph with an exact sum of equality indicators per guard.
 

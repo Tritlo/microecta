@@ -12,6 +12,7 @@ module Data.CFTA.Gen.Equality.Internal.Bucket (
     mergeComponentsByKey,
 ) where
 
+import Data.CFTA.Constraint (Constraint (..))
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
@@ -27,9 +28,9 @@ import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.
-data KeyedBucket symbol a = KeyedBucket
+data KeyedBucket symbol constraint a = KeyedBucket
     { keyedBucketMass :: !Rational
-    , keyedBucketStatic :: !(Static symbol a)
+    , keyedBucketStatic :: !(Static symbol constraint a)
     }
 
 -- | Group enumerated outcomes by key.
@@ -38,7 +39,8 @@ groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
 
 -- | Build one retained group from its outcomes, in rank order.
 bucketFromOutcomes ::
-    (Hashable symbol, Typeable symbol) => Bool -> [Outcome symbol a] -> Either GenError (KeyedBucket symbol a)
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Bool -> [Outcome symbol a] -> Either GenError (KeyedBucket symbol constraint a)
 bucketFromOutcomes retainAtomic outcomes = do
     sampler <- sequenceSampler conditional
     pure
@@ -76,7 +78,8 @@ bucketFromOutcomes retainAtomic outcomes = do
 
 -- | Merge weighted static languages into one group.
 mergeBucketGroup ::
-    (Hashable symbol, Typeable symbol) => [(Rational, Static symbol a)] -> Either GenError (KeyedBucket symbol a)
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    [(Rational, Static symbol constraint a)] -> Either GenError (KeyedBucket symbol constraint a)
 -- One alternative is already the group, and rebuilding it through
 -- 'frequencyStatic' would drop its atomic marker.
 mergeBucketGroup [(mass, static)] | mass > 0 = Right $ KeyedBucket mass static
@@ -95,9 +98,9 @@ mergeBucketGroup alternatives = do
 
 -- | Merge weighted joined components into normalized result-key groups.
 mergeComponentsByKey ::
-    (Ord resultKey, Hashable symbol, Typeable symbol) =>
-    [(resultKey, Rational, Static symbol a)] ->
-    Either GenError (Map.Map resultKey (KeyedBucket symbol a))
+    (Constraint constraint, Ord resultKey, Hashable symbol, Typeable symbol) =>
+    [(resultKey, Rational, Static symbol constraint a)] ->
+    Either GenError (Map.Map resultKey (KeyedBucket symbol constraint a))
 mergeComponentsByKey [] = Left EmptyGenerator
 mergeComponentsByKey components = do
     unnormalized <- traverse mergeBucketGroup grouped

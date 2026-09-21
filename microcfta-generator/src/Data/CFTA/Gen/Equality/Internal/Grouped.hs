@@ -31,6 +31,7 @@ module Data.CFTA.Gen.Equality.Internal.Grouped (
     massesAtSize,
 ) where
 
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -51,7 +52,7 @@ import Data.CFTA.Ranked.Internal.Size (mapIndex)
 import qualified Data.CFTA.Ranked.Internal.Size as Size
 
 -- | Declare that every member of an inspectable generator has one key.
-keyed :: key -> Gen symbol a -> Grouped symbol key a
+keyed :: key -> Gen symbol constraint a -> Grouped symbol constraint key a
 keyed key (Transparent result) =
     Grouped $ fmap (Map.singleton key . KeyedBucket 1) result
 keyed key (Cyclic result) =
@@ -59,7 +60,9 @@ keyed key (Cyclic result) =
 keyed _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
 -- | Classify a transparent generator's outcomes by a projected key.
-groupBy :: (Ord key, Hashable symbol, Typeable symbol) => (a -> key) -> Gen symbol a -> Grouped symbol key a
+groupBy ::
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    (a -> key) -> Gen symbol constraint a -> Grouped symbol constraint key a
 groupBy _ (Transparent (Left err)) = Grouped $ Left err
 groupBy key (Transparent (Right static)) =
     Grouped $ do
@@ -74,8 +77,8 @@ groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
 -- | Reclassify the groups without enumerating their values.
 regroupBy ::
-    (Ord newKey, Hashable symbol, Typeable symbol) =>
-    (oldKey -> newKey) -> Grouped symbol oldKey a -> Grouped symbol newKey a
+    (Constraint constraint, Ord newKey, Hashable symbol, Typeable symbol) =>
+    (oldKey -> newKey) -> Grouped symbol constraint oldKey a -> Grouped symbol constraint newKey a
 regroupBy regroup (CyclicGrouped result) =
     CyclicGrouped $ do
         groups <- result
@@ -114,7 +117,7 @@ regroupBy regroup (Grouped (Right buckets)) =
             buckets
 
 -- | Map group values with access to their retained key.
-mapWithKey :: (key -> a -> b) -> Grouped symbol key a -> Grouped symbol key b
+mapWithKey :: (key -> a -> b) -> Grouped symbol constraint key a -> Grouped symbol constraint key b
 mapWithKey transform (CyclicGrouped result) =
     CyclicGrouped $ fmap (Map.mapWithKey mapGroup) result
   where
@@ -142,7 +145,7 @@ mapWithKey transform (Grouped result) =
             (mapStatic (transform key) $ keyedBucketStatic bucket)
 
 -- | Retain a display name for each group without inspecting its members.
-nameGroups :: (key -> Text) -> Grouped symbol key a -> Grouped symbol key a
+nameGroups :: (key -> Text) -> Grouped symbol constraint key a -> Grouped symbol constraint key a
 nameGroups render (Grouped result) = Grouped $ fmap (Map.mapWithKey nameBucket) result
   where
     nameBucket key bucket = bucket{keyedBucketStatic = named}
@@ -157,7 +160,7 @@ nameGroups render (CyclicGrouped result) = CyclicGrouped $ fmap (Map.mapWithKey 
         named = recursive{recursiveInspection = (recursiveInspection recursive){inspectionName = Just $ render key}}
 
 -- | Select one retained group as an ordinary conditional generator.
-atKey :: (Ord key) => key -> Grouped symbol key a -> Gen symbol a
+atKey :: (Ord key) => key -> Grouped symbol constraint key a -> Gen symbol constraint a
 atKey key (CyclicGrouped result) =
     Cyclic $ do
         groups <- result
@@ -174,15 +177,16 @@ atKey key (Grouped (Right buckets)) =
             (Map.lookup key buckets)
 
 -- | Merge all retained groups while preserving their probability masses.
-ungroup :: (Hashable symbol, Typeable symbol) => Grouped symbol key a -> Gen symbol a
+ungroup ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) => Grouped symbol constraint key a -> Gen symbol constraint a
 ungroup = atKey () . regroupBy (const ())
 
 -- | Apply a generated operation of any arity to one argument family per signature component, retaining the operation's result group.
 apply ::
-    (Ord resultKey, Hashable symbol, Typeable symbol) =>
-    Grouped symbol (Sig argKeys resultKey) operation ->
-    Args symbol argKeys operation result ->
-    Grouped symbol resultKey result
+    (HasEqualities constraint, Ord resultKey, Hashable symbol, Typeable symbol) =>
+    Grouped symbol constraint (Sig argKeys resultKey) operation ->
+    Args symbol constraint argKeys operation result ->
+    Grouped symbol constraint resultKey result
 -- Which components an application has is decided by the operation signatures,
 -- so the operation family has to be finite; only arguments may recurse.
 apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
@@ -211,7 +215,9 @@ apply (Grouped (Right operations)) arguments
         )
 
 argsMaps ::
-    Args symbol argKeys operation result -> Either GenError (ArgMaps (KeyedBucket symbol) argKeys operation result)
+    (Constraint constraint) =>
+    Args symbol constraint argKeys operation result ->
+    Either GenError (ArgMaps (KeyedBucket symbol constraint) argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
 argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
@@ -225,10 +231,10 @@ argument families' recursive supports, counted as the operation choice
 followed by its arguments. Ranks and sizes match the finite join.
 -}
 applyRecursive ::
-    (Ord resultKey, Hashable symbol, Typeable symbol) =>
-    Map.Map (Sig argKeys resultKey) (KeyedBucket symbol operation) ->
-    Args symbol argKeys operation result ->
-    Grouped symbol resultKey result
+    (HasEqualities constraint, Ord resultKey, Hashable symbol, Typeable symbol) =>
+    Map.Map (Sig argKeys resultKey) (KeyedBucket symbol constraint operation) ->
+    Args symbol constraint argKeys operation result ->
+    Grouped symbol constraint resultKey result
 applyRecursive operationBuckets arguments =
     CyclicGrouped $ do
         argumentMaps <- argsRecursiveMaps arguments
@@ -246,21 +252,23 @@ applyRecursive operationBuckets arguments =
 
 -- | The recursive view of every argument family, in signature order.
 argsRecursiveMaps ::
-    Args symbol argKeys operation result ->
-    Either GenError (ArgMaps (KeyedRecursive symbol) argKeys operation result)
+    (Constraint constraint) =>
+    Args symbol constraint argKeys operation result ->
+    Either GenError (ArgMaps (KeyedRecursive symbol constraint) argKeys operation result)
 argsRecursiveMaps ANil = Right MapsNil
 argsRecursiveMaps (family :& rest) =
     MapsCons <$> recursiveGroups family <*> argsRecursiveMaps rest
 
 -- | Whether any argument family is recursive.
-anyRecursiveArgument :: Args symbol argKeys operation result -> Bool
+anyRecursiveArgument :: (Constraint constraint) => Args symbol constraint argKeys operation result -> Bool
 anyRecursiveArgument ANil = False
 anyRecursiveArgument (family :& rest) =
     isRecursiveGrouped family || anyRecursiveArgument rest
 
 -- | Collect keyed recursive languages into one alternative per key, in order.
 mergeByKey ::
-    (Ord key, Hashable symbol, Typeable symbol) => [(key, KeyedRecursive symbol a)] -> Map.Map key (KeyedRecursive symbol a)
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    [(key, KeyedRecursive symbol constraint a)] -> Map.Map key (KeyedRecursive symbol constraint a)
 mergeByKey entries =
     Map.mapMaybe mergeRecursiveGroups $
         foldl'
@@ -270,9 +278,9 @@ mergeByKey entries =
 
 -- | Choose among grouped generators with positive relative weights, group by group.
 frequencies ::
-    (Ord key, Hashable symbol, Typeable symbol) =>
-    [(Integer, Grouped symbol key a)] ->
-    Grouped symbol key a
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    [(Integer, Grouped symbol constraint key a)] ->
+    Grouped symbol constraint key a
 frequencies [] = Grouped $ Left EmptyGenerator
 frequencies alternatives
     | Just badWeight <- firstNonPositiveWeight alternatives =
@@ -321,11 +329,15 @@ frequencies alternatives
             [(weight, buckets) | (weight, Grouped (Right buckets)) <- alternatives]
 
 -- | Choose uniformly among grouped generators, group by group.
-oneofGrouped :: (Ord key, Hashable symbol, Typeable symbol) => [Grouped symbol key a] -> Grouped symbol key a
+oneofGrouped ::
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    [Grouped symbol constraint key a] -> Grouped symbol constraint key a
 oneofGrouped alternatives = frequencies [(1, alternative) | alternative <- alternatives]
 
 -- | Choose among grouped generators so that every member of the combined language is equally likely.
-uniformlyGrouped :: (Ord key, Hashable symbol, Typeable symbol) => [Grouped symbol key a] -> Grouped symbol key a
+uniformlyGrouped ::
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
+    [Grouped symbol constraint key a] -> Grouped symbol constraint key a
 uniformlyGrouped alternatives
     | any isRecursiveGrouped alternatives = oneofGrouped alternatives
     | otherwise = case traverse liveCardinality alternatives of
@@ -345,12 +357,12 @@ uniformlyGrouped alternatives
 
 -- | Compile an effectful relation directly over two grouped languages.
 relateGroupsM ::
-    (Ord resultKey, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord resultKey, Hashable symbol, Typeable symbol) =>
     (leftKey -> rightKey -> IO (Either relationError Bool)) ->
     (leftKey -> rightKey -> resultKey) ->
-    Grouped symbol leftKey left ->
-    Grouped symbol rightKey right ->
-    IO (Either relationError (Grouped symbol resultKey (left, right)))
+    Grouped symbol constraint leftKey left ->
+    Grouped symbol constraint rightKey right ->
+    IO (Either relationError (Grouped symbol constraint resultKey (left, right)))
 relateGroupsM relation resultKey left right =
     case (left, right) of
         (Grouped (Left err), _) -> pure $ Right $ Grouped $ Left err
@@ -397,10 +409,10 @@ relateGroupsM relation resultKey left right =
 
 -- | Compile one relation over a homogeneous list of grouped arguments.
 relateN ::
-    (Ord key, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord key, Hashable symbol, Typeable symbol) =>
     ([key] -> IO (Either relationError Bool)) ->
-    [Grouped symbol key a] ->
-    IO (Either relationError (Grouped symbol [key] [a]))
+    [Grouped symbol constraint key a] ->
+    IO (Either relationError (Grouped symbol constraint [key] [a]))
 relateN _ [] = pure $ Right $ Grouped $ Left EmptyGenerator
 relateN relation (first : rest) = do
     combined <- combine (regroupBy pure $ mapWithKey (\_ value -> [value]) first) rest
@@ -425,10 +437,10 @@ relateN relation (first : rest) = do
 
 -- | Retain complete groups selected by one effectful key predicate.
 filterGroupsM ::
-    (Ord key, Hashable symbol, Typeable symbol) =>
+    (Constraint constraint, Ord key, Hashable symbol, Typeable symbol) =>
     (key -> IO (Either relationError Bool)) ->
-    Grouped symbol key a ->
-    IO (Either relationError (Grouped symbol key a))
+    Grouped symbol constraint key a ->
+    IO (Either relationError (Grouped symbol constraint key a))
 filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
 filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
 filterGroupsM predicate (Grouped (Right buckets)) = do
@@ -449,13 +461,13 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
                     rest
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
-sizes :: Grouped symbol key a -> Either GenError (Map.Map key Integer)
+sizes :: Grouped symbol constraint key a -> Either GenError (Map.Map key Integer)
 sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
 
 -- | Return the exact number of retained members in every live key at one structural size.
-countsAtSize :: Grouped symbol key a -> Int -> Either GenError (Map.Map key Integer)
+countsAtSize :: Grouped symbol constraint key a -> Int -> Either GenError (Map.Map key Integer)
 countsAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1
@@ -486,7 +498,7 @@ countsAtSize (Grouped result) size = do
                     buckets
 
 -- | Return the exact distribution of retained keys conditional on one structural size.
-massesAtSize :: Grouped symbol key a -> Int -> Either GenError (Map.Map key Rational)
+massesAtSize :: Grouped symbol constraint key a -> Int -> Either GenError (Map.Map key Rational)
 massesAtSize (CyclicGrouped result) size = do
     groups <- result
     if size < 1

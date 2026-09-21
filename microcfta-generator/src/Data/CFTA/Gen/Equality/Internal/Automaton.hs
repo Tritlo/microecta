@@ -23,6 +23,7 @@ term twice; such an automaton is rejected rather than miscounted.
 module Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton) where
 
 import qualified Control.Monad.State.Strict as State
+import Data.CFTA.Constraint (Constraint (..))
 import Data.Hashable (Hashable)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sortOn, tails)
@@ -44,10 +45,11 @@ import Data.CFTA.Equality (
     nodeIdentity,
     reachable,
  )
-import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), subsumptionOrderedEclasses, unPathEClass)
+import Data.CFTA.Equality.Constraint (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Path (unPath)
 
 import Data.CFTA.Gen.Equality.Internal.Static (Static, termStatic)
+import Data.CFTA.Gen.Equality.Internal.Support (unconstrainedEdge)
 import Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked)
 import Data.CFTA.Gen.Error (GenError (..))
 import qualified Data.CFTA.Gen.Internal.Automaton as Ordinary
@@ -62,8 +64,8 @@ language, on one whose edges carry equality constraints, and on an ambiguous
 one, whose runs outnumber its terms.
 -}
 automatonIndex ::
-    (Hashable symbol, Typeable symbol) =>
-    Node symbol EqConstraints -> Either GenError (SizeIndex (Tree.Tree symbol))
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Node symbol constraint -> Either GenError (SizeIndex (Tree.Tree symbol))
 automatonIndex EmptyNode = Right $ Ordinary.tableIndex (0 :: Int) Map.empty
 automatonIndex root
     | not $ Set.null $ freeVars root = Left $ InvalidSupport OpenAutomaton
@@ -74,7 +76,7 @@ automatonIndex root
     alternatives = IntMap.elems (reachable root)
 
 -- | Whether a node accepts any term at all.
-productive :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Bool
+productive :: (Constraint constraint, Hashable symbol, Typeable symbol) => Node symbol constraint -> Bool
 productive node
     | null (nodeEdges node) = False
     | otherwise = Map.member (nodeIdentity node) $ Ordinary.minimumSizes $ Ordinary.rowsOf node
@@ -86,7 +88,7 @@ symbol and arity share a term exactly when every child position does, and a
 child position shares one exactly when the intersection of the two children
 is productive.
 -}
-ambiguous :: (Hashable symbol, Typeable symbol) => [Edge symbol EqConstraints] -> Bool
+ambiguous :: (Constraint constraint, Hashable symbol, Typeable symbol) => [Edge symbol constraint] -> Bool
 ambiguous alternatives =
     or
         [ overlapping left right
@@ -105,10 +107,8 @@ ambiguous alternatives =
                 )
 
 -- | Whether an edge carries equality constraints.
-constrained :: Edge symbol EqConstraints -> Bool
-constrained edge = case edgeConstraint edge of
-    EmptyConstraints -> False
-    _ -> True
+constrained :: (Constraint constraint) => Edge symbol constraint -> Bool
+constrained = not . unconstrainedEdge
 
 {- | Compile a finite equality graph with shared ordinary rank plans.
 
@@ -119,10 +119,12 @@ equality contexts and intersection counts, whose ranks order the
 constructors by the given key. Only a selected term is constructed.
 -}
 finiteAutomaton ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Node symbol EqConstraints -> Either GenError (Static symbol (Tree.Tree symbol))
-finiteAutomaton order root =
-    case State.evalState (buildNode root) Map.empty of
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol constraint -> Either GenError (Static symbol constraint (Tree.Tree symbol))
+finiteAutomaton order root
+    | null (nodeEdges root) = Left EmptyGenerator
+    | any (any (residual . edgeConstraint)) (reachable root) = Left CannotCountConstrainedEdges
+    | otherwise = case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
         Just ranked -> Right $ termStatic root ranked
   where
@@ -139,14 +141,14 @@ finiteAutomaton order root =
 
     buildAlternatives node
         | Set.size (Set.fromList $ map edgeSymbol edges) /= length edges = pure $ symbolic node
-        | any (needsPathExpansion . edgeConstraint) edges = pure $ symbolic node
+        | any (needsPathExpansion . equalities . edgeConstraint) edges = pure $ symbolic node
         | otherwise = do
             alternatives <- traverse buildEdge edges
             pure $ either (const Nothing) (Just . Ranked.share) $ Ranked.oneof (catMaybes alternatives)
       where
         edges = nodeEdges node
 
-    buildEdge edge = case childGroups (length children) (edgeConstraint edge) of
+    buildEdge edge = case childGroups (length children) (equalities $ edgeConstraint edge) of
         Nothing -> pure Nothing
         Just groups -> do
             selected <- traverse (buildGroup children) groups
@@ -175,8 +177,8 @@ needsPathExpansion constraints = case subsumptionOrderedEclasses constraints of
 childGroups :: Int -> EqConstraints -> Maybe [[Int]]
 childGroups arity constraints = do
     classes <- subsumptionOrderedEclasses constraints
-    equalities <- traverse (traverse childIndex . unPathEClass) classes
-    pure $ foldl' merge (map pure [0 .. arity - 1]) equalities
+    positions <- traverse (traverse childIndex . unPathEClass) classes
+    pure $ foldl' merge (map pure [0 .. arity - 1]) positions
   where
     childIndex target = case unPath target of
         [index] | index >= 0 && index < arity -> Just index

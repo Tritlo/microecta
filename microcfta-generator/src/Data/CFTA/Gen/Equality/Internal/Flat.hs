@@ -27,6 +27,7 @@ module Data.CFTA.Gen.Equality.Internal.Flat (
 ) where
 
 import qualified Data.Array as Array
+import Data.CFTA.Constraint (Constraint (..), HasEqualities (..))
 import Data.Hashable (Hashable)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
@@ -34,7 +35,6 @@ import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Equality.Constraint (EqConstraints)
 import Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton)
 import Data.CFTA.Gen.Equality.Internal.Grouped (groupBy, relateGroupsM, ungroup)
 import Data.CFTA.Gen.Equality.Internal.Inspect (cardinality)
@@ -67,17 +67,19 @@ withKeys (first :&&: second) continue =
                 (\right -> (rightKey right, otherRightKey right))
 
 -- | Lift one finite indexed source into transparent ECTA structure.
-fromIndexed :: (Hashable symbol, Typeable symbol) => Indexed a -> Gen symbol a
+fromIndexed :: (Constraint constraint, Hashable symbol, Typeable symbol) => Indexed a -> Gen symbol constraint a
 fromIndexed indexed
     | indexedCardinality indexed <= 0 = Transparent $ Left EmptyGenerator
     | otherwise = Transparent $ Right $ indexedStatic indexed
 
 -- | Embed an ordinary QuickCheck generator as an opaque region.
-fromGen :: QC.Gen a -> Gen symbol a
+fromGen :: QC.Gen a -> Gen symbol constraint a
 fromGen generated = Opaque $ Right <$> generated
 
 -- | Read an automaton as a recursive generator of the terms it accepts.
-fromAutomaton :: (Hashable symbol, Typeable symbol) => Node symbol EqConstraints -> Gen symbol (Tree.Tree symbol)
+fromAutomaton ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
 fromAutomaton root =
     Cyclic $ do
         index <- automatonIndex root
@@ -88,12 +90,12 @@ fromAutomaton root =
 
 -- | Compile an equality-constrained automaton up to a constructor-depth bound, ranking symbolic counts by the key.
 fromAutomatonUpToDepth ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Int -> Node symbol EqConstraints -> Gen symbol (Tree.Tree symbol)
+    (Constraint constraint, Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Int -> Node symbol constraint -> Gen symbol constraint (Tree.Tree symbol)
 fromAutomatonUpToDepth order depth graph = Transparent $ finiteAutomaton order $ Common.boundDepth depth graph
 
 -- | Choose uniformly from a finite non-empty list.
-elements :: (Hashable symbol, Typeable symbol) => [a] -> Gen symbol a
+elements :: (Constraint constraint, Hashable symbol, Typeable symbol) => [a] -> Gen symbol constraint a
 elements values =
     fromIndexed $
         Indexed
@@ -104,7 +106,8 @@ elements values =
     indexed = Array.listArray (0, total - 1) values
 
 -- | Choose uniformly from named source values.
-namedElements :: (Hashable symbol, Typeable symbol) => [(Text.Text, a)] -> Gen symbol a
+namedElements ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) => [(Text.Text, a)] -> Gen symbol constraint a
 namedElements values
     | total <= 0 = Transparent $ Left EmptyGenerator
     | otherwise =
@@ -119,7 +122,9 @@ namedElements values
     entry index = indexed Array.! fromInteger index
 
 -- | Choose one generator with the supplied positive relative weight.
-frequency :: (Hashable symbol, Typeable symbol) => [(Integer, Gen symbol a)] -> Gen symbol a
+frequency ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    [(Integer, Gen symbol constraint a)] -> Gen symbol constraint a
 frequency [] = Transparent $ Left EmptyGenerator
 frequency alternatives
     | Just badWeight <- firstNonPositiveWeight alternatives =
@@ -164,11 +169,13 @@ frequency alternatives
     getStatic _ = Nothing
 
 -- | Choose uniformly among generators.
-oneof :: (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
+oneof ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) => [Gen symbol constraint a] -> Gen symbol constraint a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
 
 -- | Choose among generators so that every member of the combined language is equally likely.
-uniformly :: (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
+uniformly ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) => [Gen symbol constraint a] -> Gen symbol constraint a
 uniformly alternatives
     | any isRecursive alternatives = oneof alternatives
     | otherwise = case traverse liveCardinality alternatives of
@@ -186,11 +193,11 @@ uniformly alternatives
 
 -- | Generate two values whose projected keys agree.
 match ::
-    (Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Hashable symbol, Typeable symbol) =>
     On left right ->
-    Gen symbol left ->
-    Gen symbol right ->
-    Gen symbol (left, right)
+    Gen symbol constraint left ->
+    Gen symbol constraint right ->
+    Gen symbol constraint (left, right)
 match _ (Transparent (Left err)) _ = Transparent $ Left err
 match _ _ (Transparent (Left err)) = Transparent $ Left err
 match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
@@ -208,13 +215,13 @@ match condition left right =
 
 -- | Generate two values whose projected keys satisfy a relation.
 relate ::
-    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> Bool) ->
-    Gen symbol left ->
-    Gen symbol right ->
-    Gen symbol (left, right)
+    Gen symbol constraint left ->
+    Gen symbol constraint right ->
+    Gen symbol constraint (left, right)
 relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
 relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
 relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
@@ -230,13 +237,13 @@ relate leftKey rightKey relation left right =
 
 -- | Compile an effectful relation between two finite inspectable languages.
 relateM ::
-    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> IO (Either relationError Bool)) ->
-    Gen symbol left ->
-    Gen symbol right ->
-    IO (Either relationError (Gen symbol (left, right)))
+    Gen symbol constraint left ->
+    Gen symbol constraint right ->
+    IO (Either relationError (Gen symbol constraint (left, right)))
 relateM leftKey rightKey relation left right =
     fmap (fmap ungroup) $
         relateGroupsM

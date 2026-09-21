@@ -128,7 +128,7 @@ import Data.CFTA.Symbol (Symbol (Symbol))
 {- | A generator is inspectable ECTA structure — finite or recursive — or an
 opaque QuickCheck generator.
 -}
-type ECTAGen = Gen Symbol
+type ECTAGen = Gen Symbol EqConstraints
 
 {- | A transparent generator whose values are classified by a projected key.
 
@@ -137,7 +137,7 @@ during a join, matching key values determine which groups receive equal internal
 labels on constrained ECTA paths. Each key group retains compact ECTA support
 and indexed selection without storing all outcomes.
 -}
-type Grouped = Engine.Grouped Symbol
+type Grouped = Engine.Grouped Symbol EqConstraints
 
 -- | The text of a symbol, the order in which symbolic counts rank constructors.
 symbolText :: Symbol -> Text
@@ -362,7 +362,7 @@ argument ranks left to right.
 apply ::
     (Ord resultKey) =>
     Grouped (Sig argKeys resultKey) operation ->
-    Args Symbol argKeys operation result ->
+    Args Symbol EqConstraints argKeys operation result ->
     Grouped resultKey result
 apply = Engine.apply
 
@@ -590,7 +590,7 @@ The graph preserves construction context and equality obligations. It does
 not reduce constraints or enumerate complete generated values. Use 'support'
 for semantic operations. An unnamed source retains its original labels.
 -}
-inspect :: ECTAGen a -> Either GenError (Inspection Symbol)
+inspect :: ECTAGen a -> Either GenError (Inspection Symbol EqConstraints)
 inspect = Engine.inspect
 
 {- | Return the ECTA support of an inspectable generator.

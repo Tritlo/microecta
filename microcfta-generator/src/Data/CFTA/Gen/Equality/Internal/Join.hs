@@ -11,6 +11,7 @@ module Data.CFTA.Gen.Equality.Internal.Join (
     recursiveJoin,
 ) where
 
+import Data.CFTA.Constraint (HasEqualities (..))
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
@@ -42,12 +43,12 @@ data JoinGroup symbol left right = JoinGroup
 
 -- | Join two languages on equal projected keys with one ECTA equality constraint.
 joinStatic ::
-    (Ord key, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord key, Hashable symbol, Typeable symbol) =>
     (left -> key) ->
     (right -> key) ->
-    Static symbol left ->
-    Static symbol right ->
-    Either GenError (Static symbol (left, right))
+    Static symbol constraint left ->
+    Static symbol constraint right ->
+    Either GenError (Static symbol constraint (left, right))
 joinStatic leftKey rightKey left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -60,13 +61,13 @@ joinStatic leftKey rightKey left right = do
 
 -- | Join two languages on a relation between their projected keys.
 relateStatic ::
-    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
     (left -> leftKey) ->
     (right -> rightKey) ->
     (leftKey -> rightKey -> Bool) ->
-    Static symbol left ->
-    Static symbol right ->
-    Either GenError (Static symbol (left, right))
+    Static symbol constraint left ->
+    Static symbol constraint right ->
+    Either GenError (Static symbol constraint (left, right))
 relateStatic leftKey rightKey relation left right = do
     leftEntries <- keyedOutcomes leftKey left
     rightEntries <- keyedOutcomes rightKey right
@@ -82,11 +83,11 @@ relateStatic leftKey rightKey relation left right = do
 
 -- | Compile selected group products with one equality witness per product.
 joinGroupedStatic ::
-    (Hashable symbol, Typeable symbol) =>
-    Static symbol left ->
-    Static symbol right ->
+    (HasEqualities constraint, Hashable symbol, Typeable symbol) =>
+    Static symbol constraint left ->
+    Static symbol constraint right ->
     [([Outcome symbol left], [Outcome symbol right])] ->
-    Either GenError (Static symbol (left, right))
+    Either GenError (Static symbol constraint (left, right))
 joinGroupedStatic left right related =
     if null related
         then Left EmptyGenerator
@@ -125,7 +126,7 @@ joinGroupedStatic left right related =
                             [ mkEdge
                                 Join
                                 [leftNode, rightNode]
-                                (mkEqConstraints [[path [0, 0], path [1, 0]]])
+                                (fromEqualities $ mkEqConstraints [[path [0, 0], path [1, 0]]])
                             ]
              in -- Every group came from two non-empty outcome buckets. Keep
                 -- support reduction lazy; the outcome index already proves
@@ -141,7 +142,7 @@ joinGroupedStatic left right related =
                     [ side LeftKeyed (fmap outcomeInspection . joinGroupLeft)
                     , side RightKeyed (fmap outcomeInspection . joinGroupRight)
                     ]
-                    (mkEqConstraints [[path [0, 0], path [1, 0]]])
+                    (fromEqualities $ mkEqConstraints [[path [0, 0], path [1, 0]]])
                 ]
       where
         side symbol outcomes =
@@ -158,7 +159,7 @@ joinGroupedStatic left right related =
 -- | Enumerate a language and pair every outcome with its projected key.
 keyedOutcomes ::
     (value -> key) ->
-    Static symbol value ->
+    Static symbol constraint value ->
     Either GenError [(key, Outcome symbol value)]
 keyedOutcomes key static =
     map (\outcome -> (key $ outcomeValue outcome, outcome))
@@ -166,8 +167,8 @@ keyedOutcomes key static =
 
 -- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::
-    Static symbol left ->
-    Static symbol right ->
+    Static symbol constraint left ->
+    Static symbol constraint right ->
     [JoinGroup symbol left right] ->
     Either GenError (OutcomeIndex symbol (left, right))
 joinOutcomeIndex left right groups = do
@@ -314,11 +315,11 @@ offsetJoinGroups = go 0
 
 -- | Join one operation group with its argument groups in one ECTA edge, with one equality constraint per argument.
 joinNBucketStatic ::
-    (Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Hashable symbol, Typeable symbol) =>
     Int ->
-    Static symbol operation ->
-    ArgStatics symbol operation result ->
-    Static symbol result
+    Static symbol constraint operation ->
+    ArgStatics symbol constraint operation result ->
+    Static symbol constraint result
 joinNBucketStatic componentIndex operation arguments =
     -- This cannot fail: signature lookup supplies one non-empty bucket per
     -- component, so the outcome product proves non-emptiness without forcing
@@ -389,11 +390,11 @@ the arguments follow it left to right. The joined edge is not reduced, since
 propagating constraints through a recursive node is not sound.
 -}
 recursiveJoin ::
-    (Hashable symbol, Typeable symbol) =>
+    (HasEqualities constraint, Hashable symbol, Typeable symbol) =>
     Int ->
-    KeyedRecursive symbol operation ->
-    ArgChain (KeyedRecursive symbol) operation result ->
-    KeyedRecursive symbol result
+    KeyedRecursive symbol constraint operation ->
+    ArgChain (KeyedRecursive symbol constraint) operation result ->
+    KeyedRecursive symbol constraint result
 recursiveJoin componentIndex operation arguments =
     KeyedRecursive
         ( Recursive
