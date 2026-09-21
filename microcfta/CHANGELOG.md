@@ -17,6 +17,15 @@ remains a separate ECTA-only package.
   restriction, and enumeration with unification variables. An automaton with
   no equality constraint and no recursion is enumerated by the shared
   enumerator.
+- `Data.CFTA.Refinement`: liquid tree automata as
+  `Node LiquidSymbol LiquidConstraint`, built with the interned constructors;
+  the module re-exports `Data.CFTA.Interned`. It has the paper's Boolean guard
+  language, actual-for-formal position substitution, transition-level semantic
+  pruning, similarity, minimization, recursive nodes under the acyclic-guard
+  restriction checked by `validate`, a bounded reference denotation on the
+  shared enumerator, and the Z3 entailment in
+  `Data.CFTA.Refinement.LiquidFixpoint`. `Data.CFTA.Refinement.Guard` builds
+  transitions from guards that name the constructor arguments.
 - `Data.CFTA.Enumeration`: one enumerator for every theory. `terms` solves
   path equalities by unification and stops at recursion, `plainTerms` lists an
   automaton without constraints lazily by depth, and `runs` returns each
@@ -34,12 +43,29 @@ remains a separate ECTA-only package.
   equality reduction restricts and edits every required path of an edge in
   one traversal, which cut a further 15% of instructions and 17% of
   allocation on that suite.
+- The refinement layer's `denotationAtMost` runs on the shared enumerator: a
+  positive `Same` guard is a path equality solved by unification, so an
+  equality-guarded pair costs milliseconds instead of a quadratic candidate
+  filter, and an unconstrained bounded automaton is listed without interning.
 - `Data.CFTA.Interned.fromFTA` imports a recursive graph as `Mu` nodes, and
   `boundDepth` bounds an interned graph by tree depth;
   `Data.CFTA.Enumeration.plainTermsAtMost` lists a graph up to a depth without
   building the bounded graph. The reduction in
   `Data.CFTA.Equality.Operations` narrows children by the `equalities` of any
   constraint theory.
+- LTA pruning narrows equal positions to their intersection through that
+  reduction, specializes nodes bottom up and shares each result by node
+  identity, and prunes a recursive node to a fixed point. Minimization runs
+  the paper's M-Trans on the explicit view and interns the result. There is no
+  separate state type, syntax module, or lowering to an equality automaton:
+  residual positive equalities stay on the transition as its `equalities`.
+
+- One vocabulary across the layers: membership is `accepts` (`acceptsWith`
+  on the interned engine takes the constraint interpreter), the equality
+  theory's constraints live in `Data.CFTA.Equality.Constraint` beside the
+  equality facade, the bounded denotation reports a `DenotationError`, and
+  both theory facades re-export the engine, the paths, the enumerator, and
+  the templates.
 
 ### Differences from microecta 0.1.0.0
 

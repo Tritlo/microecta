@@ -617,6 +617,364 @@ reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
 The test and benchmark support module `Data.CFTA.TermSearch.TermSearch`
 defines that helper.
 
+## Refinements
+
+`Data.CFTA.Refinement` is the liquid tree automata layer. An LTA is an
+interned graph, `Node LiquidSymbol LiquidConstraint`, built with the same
+`Node`, `Edge`, `mkEdge`, and `Mu` as an ordinary or an equality-constrained
+automaton. The module re-exports `Data.CFTA.Interned`, so one import gives
+the constructors, the views, and the LTA operations. It uses the equality
+layer for the path equalities of a guard.
+Concrete annotated terms use `Data.Tree.Tree LiquidSymbol`. Construct a node
+with `Tree.Node (LiquidSymbol symbol refinement) children`. The label retains
+strict symbol and refinement fields. The tree label and child list use the
+standard lazy `Data.Tree` representation. `eraseRefinements` maps each label
+to its constructor symbol.
+
+A transition is an edge whose symbol is a `LiquidSymbol`, a ranked constructor
+with its Liquid Fixpoint refinement, and whose constraint is the paper's
+Boolean constraint language over child positions. The pattern
+`Transition symbol refinement children constraint` builds and matches one.
+Syntactic `Same` and semantic `Entails` are LTA atoms. Guards support
+substitution, negation, conjunction, and disjunction. Refinement implication
+is discharged through the small `Entailment` boundary;
+`Data.CFTA.Refinement.LiquidFixpoint.withZ3` supplies the reusable Z3
+implementation.
+
+`LiquidConstraint` implements the common engine's pure `Constraint` interface,
+so `union`, `intersect`, `boundDepth`, and the enumerator work on an LTA
+without conversion. Construction does not call the solver and does not
+validate. `validate` checks that the graph is closed, that each ranked symbol
+keeps one arity, and that no guard inspects a position whose node is
+recursive. The operations that need these properties call it and report an
+`AutomatonError`. Recognition, pruning, and semantic intersection remain
+operations of this layer.
+
+Position substitutions apply simultaneously within each scope and avoid bound
+variable capture in refinement expressions. Actual refinements remain facts
+about the surrounding environment. A substitution does not rename those facts.
+Equal complete actual terms share one value identity for semantic entailment.
+Different actual terms with the same constructor name receive fresh solver
+values with the sort declared for that name.
+
+Bare `Same` compares the original annotated subtrees, as in ECTA. Inside a
+`Substitute` scope it compares renamed views of those trees. Each scope replaces
+formal constructor symbols and free names in refinement annotations with the
+corresponding actual symbols. The first non-identity mapping for a repeated
+formal name takes precedence. Nested scopes apply from inner to outer. Tree
+shape and generated output terms stay unchanged; substitution does not splice
+an actual subtree into a formal leaf. This is the library's specified
+interpretation of the paper's general substitution syntax.
+
+For equally refined leaves `x` and `y`, `Same(left,right)` rejects `pair(x,y)`.
+The guard `[x/y].Same(left,right)` accepts it because both compared views contain
+`x`. Refinement annotations still participate in exact syntactic comparison.
+Use `withActualFor` or `withActualsFor` to scope the complete constraint,
+including any cached positive equalities. Scoped equality remains an LTA guard;
+it cannot be lowered directly to ordinary ECTA path equality.
+
+`Entailment decide` retains the simple query interface. A query that needs fresh
+declarations returns `Unknown` through that interface. `entailmentWithBindings`
+accepts a callback that receives `(freshName, declaredName)` pairs. The Z3 adapter
+declares each fresh value with the sort of `declaredName`. Generator query caches
+include these bindings.
+
+The complete pair `(constructor, refinement)` is one ranked-alphabet symbol,
+not metadata outside the automaton. This can represent the paper literally: in
+Figure 12 each formula is a nullary symbol such as
+`LiquidSymbol "predicate" phi`, and the `f` transition relates its two formula
+children. The generator DSL also offers a compressed convention in which a
+program constructor carries its result refinement directly. That convention is
+a surface encoding, not the definition of LTA.
+
+The paper's arbitrary final-state set is the `union` of the accepting nodes.
+The empty union is `EmptyNode`, whose denotation is empty. This preserves
+Figure 6's denotation without a fresh state or epsilon transitions.
+
+The literal Figure 12 shape is therefore ordinary Haskell data:
+
+```haskell
+figure12 =
+  Node
+    [ Transition "f" true [predicate, predicate]
+        (semanticConstraint (Entails (path [0]) (path [1])))
+    ]
+  where
+    predicate =
+      Node
+        [ Transition "predicate" phi1 [] unconstrainedConstraint
+        , Transition "predicate" phi2 [] unconstrainedConstraint
+        , Transition "predicate" phi3 [] unconstrainedConstraint
+        ]
+```
+
+Here the three `(predicate, phi)` pairs are three distinct nullary alphabet
+symbols. They are not a Haskell pool hidden behind `relate`.
+
+A handwritten LTA has the shape of a handwritten interned FTA. A named guard
+replaces the raw constraint, and `Data.CFTA.Refinement.Guard` checks it
+against the children:
+
+```haskell
+import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (value, (.>=.))
+import Data.CFTA.Refinement.Guard (automaton, requires, transition, unconstrained)
+
+numbers :: Either AutomatonError Automaton
+numbers = do
+  number <- automaton [transition "zero" nonNegative [] unconstrained]
+  automaton
+    [ transition "sqrt" nonNegative [number]
+        (\argument -> argument `requires` nonNegative)
+    ]
+  where
+    nonNegative = value .>=. (0 :: Int)
+```
+
+The lambda receives symbolic child positions in transition order. Useful guard
+phrases are:
+
+- ``candidate `requires` predicate`` for an ordinary precondition;
+- ``actual `isSubtypeOf` expected`` for semantic subtyping;
+- ``actual `isSameTermAs` expected`` for ECTA-style structural equality;
+- `withActualFor actual formal guard` for dependent result types; the actual
+  symbol is assumed to satisfy the refinement carried by its whole subtree;
+- `allOf`, `anyOf`, and `notGuard` for Boolean composition, including `Same`.
+
+`Satisfies position predicate` is a conservative convenience extension for the
+common paper pattern `position Entails literalPredicate`. It avoids adding an
+otherwise uninteresting predicate child to every surface DSL node; the literal
+Figure 12 encoding can continue to use `Entails` between two tree positions.
+
+Raw paths and guard constructors remain available for generated automata. A
+named `transition` retains its construction error until `automaton` checks the
+node. Wrap a raw `Transition` in `Right` to include it in the same list.
+
+`denotationAtMost` is the small, materializing implementation of Figure 6. It
+bounds the graph with `boundDepth`, so it works for cyclic LTAs under an
+explicit tree-height bound, and it is the semantics oracle against which
+optimized pruning and generation can be checked.
+
+### Visualize a refined automaton
+
+`toTree` converts the reachable graph to a finite tree with typed labels:
+
+```haskell
+toTree ::
+    Automaton ->
+    Either (FTAViewError LiquidSymbol) (Tree (Either (StateView Automaton) Transition))
+```
+
+`Left` contains a node definition or reference. `Right` contains the complete
+transition, including its refinement and constraint. An open graph gives
+`OpenNode`. Map these labels to strings before using `drawTree` from
+`containers`. This example defines its own renderer and uses Liquid Fixpoint's
+`showpp` for refinement formulas:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (true, value, (.>=.))
+import Data.List (intercalate)
+import qualified Data.Text as Text
+import Data.Tree (drawTree)
+import Language.Fixpoint.Types (showpp)
+
+-- | A square root whose argument must have a nonnegative refinement.
+graph :: Automaton
+graph =
+    Node
+        [ Transition
+            "sqrt"
+            true
+            [Node [Transition "zero" nonNegative [] unconstrainedConstraint]]
+            (semanticConstraint (Satisfies (path [0]) nonNegative))
+        ]
+  where
+    nonNegative = value .>=. (0 :: Int)
+
+-- | Show reference markers and occurrence locations.
+renderNode :: StateView Automaton -> String
+renderNode view = prefix ++ "node @" ++ renderPath (viewPath view)
+  where
+    prefix = case view of
+        Expanded{} -> ""
+        Recursive{} -> "mu "
+        Shared{} -> "ref "
+
+-- | Render zero-based alternative and child indexes from the root.
+renderPath :: ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | (alternative, child) <- steps]
+
+-- | Render symbols, nontrivial refinements, and complete constraints.
+renderTransition :: Transition -> String
+renderTransition transition =
+    Text.unpack name ++ refinementLabel ++ guardLabel
+  where
+    Symbol name = transitionSymbol transition
+    refinement = transitionRefinement transition
+    refinementLabel
+        | refinement == true = ""
+        | otherwise = " {" ++ showpp refinement ++ "}"
+    guardLabel = case constraintAsGuard (transitionConstraint transition) of
+        Top -> ""
+        Satisfies position predicate ->
+            " [refinement("
+                ++ intercalate "." (map show (unPath position))
+                ++ ") entails "
+                ++ showpp predicate
+                ++ "]"
+        guard -> " [" ++ show guard ++ "]"
+
+-- | Draw the graph with the chosen node and transition labels.
+main :: IO ()
+main = do
+    tree <- either (fail . show) pure (toTree graph)
+    putStr $ drawTree $ fmap (either renderNode renderTransition) tree
+```
+
+Add `microcfta`, `containers`, `text`, and `liquid-fixpoint` to the component's
+`build-depends`. To run the example in this checkout, save it as `Main.hs` at
+the workspace root:
+
+```sh
+cabal build microcfta
+cabal exec -- ghc -package microcfta -package liquid-fixpoint -e main Main.hs
+```
+
+This program prints:
+
+```text
+node @root
+|
+`- sqrt [refinement(0) entails v >= 0]
+   |
+   `- node @0:0
+      |
+      `- zero {v >= 0}
+```
+
+`renderNode` and `renderTransition` are caller code. Change them to use domain
+names or a different constraint notation. The example omits only `true`
+refinements and `Top` guards. `constraintAsGuard` recovers the complete
+constraint, including cached equalities. Guards other than `Satisfies` use a
+`Show` fallback, so the renderer retains every obligation.
+
+`Recursive` ends a cycle; `Shared` refers to a node expanded earlier. The
+example displays these as `mu node` and `ref node`. `viewNode` retains the
+original node, while `viewPath` locates each occurrence, including references.
+`ViewPath` is `[(Int, Int)]`; each pair selects a zero-based alternative and its
+zero-based child. The root is `[]`, displayed as `@root`. `@0:1/2:0` follows
+child 1 of alternative 0, then child 0 of alternative 2.
+
+View paths are graph-view locations, not node identities. They
+include alternative indexes and differ from the child-only paths in guards
+and equality constraints. `map snd` gives the child-only route for one
+occurrence; the finite view does not list every route through a shared graph.
+`toTree` builds these paths on demand. Normal generation does not build them.
+This view does not enumerate terms or call a solver.
+
+### Cycles and pruning
+
+Cycles are legal. A guard may not inspect a position whose node is recursive,
+matching the paper's restriction that keeps solver obligations finite;
+`validate` reports such a guard as `CyclicGuardReference`.
+`semanticIntersection` exposes Equation 4 directly: it retains the antecedent
+transition only when that refinement entails the consequent. It is
+directional, not a symmetric logical meet.
+
+`prune solver automaton` implements both rules behind the paper's pruning pass
+and returns another LTA. It validates the automaton first. Nodes are pruned
+bottom up, and a node shared by several transitions is pruned once. For
+`P-Syn-Eq`, each transition narrows the positions its equalities relate to
+their intersection, through the same reduction the equality layer uses. For
+`P-Sem-Ent`, it partitions the nodes at the observed positions by refinement;
+actual/formal positions are partitioned by both refinement and value-naming
+symbol. It retains precisely the combinations whose entailment succeeds,
+replaces that semantic guard with `Top`, and drops a transition whose child
+became empty. Nested positions produce shared node splits; complete accepted
+terms are never constructed. A recursive node is pruned to a fixed point,
+because a guard inside its body may observe through the node itself.
+
+Pruning preserves missing observations until it evaluates the complete Boolean
+guard. A missing path in an optional branch does not discard a candidate.
+Semantic guards that need equality of complete compound actuals can remain on
+the LTA: sparse root observations cannot always determine whether two actuals
+share a value. In that case pruning retains the original transition and guard.
+`accepts` and `denotationAtMost` continue to evaluate the complete terms. When
+the solver cannot decide a guard whose actuals are known, pruning stops with
+`PruneUnknown` and the transition.
+
+Residual positive equalities stay on a transition as its `equalities`. The
+enumerator solves them by unification, and the generator counts them
+symbolically. A negated, disjunctive, or still-semantic constraint stays as a
+guard that complete terms are checked against; equality between independently
+selected arbitrary subtrees is not in general a regular tree language.
+
+### Similarity and minimization
+
+`similarity` and `minimize` are core automaton operations corresponding to the
+paper's S-Trans/S-Eq and M-Trans/M-LTA rules. A `Subtyping` callback receives
+the current LTA and compares the type sub-automata associated with two program
+transitions. This supports source languages that represent an expression's type
+as a distinguished child node, as the paper does:
+
+```haskell
+let sourceSubtyping = Subtyping $ \current left right ->
+      compareTypeStates current left right
+Right related <- similarity sourceSubtyping automaton
+Right reduced <- pure $ minimize automaton related
+```
+
+`reduce solver sourceSubtyping automaton` runs the complete static reduction
+phase in the paper's order: `prune`, `similarity`, then `minimize`.
+
+For an encoding that stores the complete result-type refinement on the program
+transition, `refinementSubtypingBy` supplies a compact adapter. Its
+projection represents the non-liquid type shape and can exclude structural
+transitions:
+
+```haskell
+let sourceSubtyping = refinementSubtypingBy solver $ \transition ->
+      typeClass (transitionSymbol transition)
+Right related <- similarity sourceSubtyping automaton
+Right reduced <- pure $ minimize automaton related
+```
+
+`similarityPairs` exposes directed `(subtype, supertype)` pairs as
+`TransitionId`s; each names the node and the transition. `similarity` validates
+the automaton first and reports `InvalidSimilarityAutomaton` otherwise. A
+`Similarity` also retains the exact source automaton. `minimize` returns
+`StaleSimilarity` if the automaton is a different node, including when the
+relation is empty.
+
+Minimization applies a finite schedule of the paper's M-Trans rule on the
+explicit view of the graph, then interns the result, so the returned automaton
+is again a node. It resolves transitive representatives, then considers each
+selected original supertype once in node order. Each step retains existing
+incoming transitions and adds copies that replace the supertype's node with the
+representative's node in the children. Repeated occurrences of that node change
+together. Later steps can copy transitions added by earlier steps. The step
+removes only the selected original supertype transition and deduplicates equal
+transitions. A shared target node retains unrelated alternatives. One target can
+have multiple representatives, and root transitions can participate.
+
+Equivalent types keep the first transition in node order. When incomparable
+subtypes can replace one supertype, the first inferred dominator selects its
+representative. The root stays the root. This schedule does not promise a
+globally minimal automaton or an unchanged term language.
+
+The complete batch falls back to the original automaton if proposed redirects
+make a representative depend on its removed target, a representative loses all
+finite structural derivations, the last finite structural root derivation is
+lost, or a copied guard would inspect a recursive node. Successful batches remove
+transitions with structurally unproductive children. These checks use graph
+productivity; they do not prove that arbitrary transition guards are satisfiable.
+
 ## Module guide
 
 | Module | Use it for |
@@ -632,6 +990,10 @@ defines that helper.
 | `Data.CFTA.Equality.Constraint` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
 | `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
+| `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
+| `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, and `transition` and `automaton`, which check a named guard against the children. |
+| `Data.CFTA.Refinement.Expression` | Small helpers over Liquid Fixpoint refinement expressions. |
+| `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 
 The interned engine has a symbol type and a constraint type. A `Constraint`
@@ -827,4 +1189,38 @@ Use a larger first argument for longer runs:
 
 ```sh
 cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3 +RTS -s -M512M -RTS'
+```
+
+## Dependencies
+
+The library depends on `array`, `base`, `containers`, `hashable`, `intern`,
+`liquid-fixpoint`, `mtl`, `text`, `transformers`, and `unordered-containers`. Only the refinement layer needs a solver: put `z3` on
+`PATH` before using `Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint`
+is a heavy build dependency; it is included so that the three layers live in
+one package.
+
+## Development
+
+Build and test from the workspace root. The test suite needs `z3` on `PATH`;
+enter `nix-shell` to get it:
+
+```sh
+cabal build microcfta
+cabal test microcfta:unit-tests
+```
+
+`-j1` keeps an optimized build of the core inside a small machine's memory.
+To reproduce the compile-time memory budget CI enforces:
+
+```sh
+cabal build lib:microcfta --enable-optimization=2 \
+  --ghc-options='+RTS -K512M -M512M -RTS'
+```
+
+The examples in `Data.CFTA.Equality` are executable. Run them with
+[`doctest`](https://hackage.haskell.org/package/doctest):
+
+```sh
+cabal install doctest
+cabal repl --with-repl=doctest lib:microcfta
 ```
