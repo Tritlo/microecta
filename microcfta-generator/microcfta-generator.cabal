@@ -71,6 +71,27 @@ library
   import: warnings, extensions
   hs-source-dirs: src
   exposed-modules:
+    Data.CFTA.Gen
+    Data.CFTA.Gen.Do
+    Data.CFTA.Gen.Error
+    Data.CFTA.Gen.Internal.Automaton
+    Data.CFTA.Gen.Internal.Bucket
+    Data.CFTA.Gen.Internal.Chain
+    Data.CFTA.Gen.Internal.Flat
+    Data.CFTA.Gen.Internal.Grouped
+    Data.CFTA.Gen.Internal.Inspect
+    Data.CFTA.Gen.Internal.Inspection
+    Data.CFTA.Gen.Internal.Join
+    Data.CFTA.Gen.Internal.Recursion
+    Data.CFTA.Gen.Internal.Recursive
+    Data.CFTA.Gen.Internal.Static
+    Data.CFTA.Gen.Internal.Support
+    Data.CFTA.Gen.Internal.Symbolic
+    Data.CFTA.Gen.Internal.Table
+    Data.CFTA.Gen.Internal.Types
+    Data.CFTA.Gen.Label
+    Data.CFTA.Gen.QuickCheck
+    Data.CFTA.Gen.Sig
     Data.CFTA.Ranked
     Data.CFTA.Ranked.Internal
     Data.CFTA.Ranked.Internal.Decoder
@@ -83,6 +104,22 @@ library
     array >=0.5 && <0.6,
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    microcfta >=0.1.0.0 && <0.2,
+    mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
+executable cfta-pairs
+  import: warnings
+  main-is: FinitePairs.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
 test-suite gen-tests
@@ -90,6 +127,7 @@ test-suite gen-tests
   type: exitcode-stdio-1.0
   main-is: GenTests.hs
   hs-source-dirs:
+    common
     test
 
   default-extensions: PartialTypeSignatures
@@ -100,10 +138,41 @@ test-suite gen-tests
     -Wno-partial-type-signatures
 
   other-modules:
+    Data.CFTA.Gen.UntypedExpressionLanguage
+    Data.CFTA.GenSpec
     Data.CFTA.RankedSpec
 
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
+    microcfta >=0.1.0.0 && <0.2,
     microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
+benchmark untyped-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: UntypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.UntypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
