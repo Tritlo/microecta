@@ -1,12 +1,8 @@
 name: CI
 
-# The microcfta stack merges in order. CI runs only for its penultimate
-# branch, where the code is complete. The last pull request removes the
-# microecta packages and restores the push and pull_request triggers.
 on:
   push:
-    branches:
-      - cfta-09-refinement-generation
+  pull_request:
 
 permissions:
   contents: read
@@ -24,8 +20,7 @@ jobs:
         with:
           version: "0.20.1.0"
           pattern: |
-            microcfta/**/*.hs
-            microcfta-generator/**/*.hs
+            **/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
