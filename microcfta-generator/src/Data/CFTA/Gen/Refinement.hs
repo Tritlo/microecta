@@ -17,6 +17,7 @@ without a guard, need no solver and are built at once.
 module Data.CFTA.Gen.Refinement (
     -- * Generators
     LTAGen,
+    Grouped,
     module Data.CFTA.Gen,
 
     -- * Refined sources
@@ -48,10 +49,18 @@ import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Gen hiding (fromAutomaton, fromAutomatonUpToDepth, fromDatatype, fromDatatypeUpToDepth, leaf, node)
+import Data.CFTA.Gen hiding (
+    Grouped,
+    fromAutomaton,
+    fromAutomatonUpToDepth,
+    fromDatatype,
+    fromDatatypeUpToDepth,
+    leaf,
+    node,
+ )
 import qualified Data.CFTA.Gen as Gen
-import qualified Data.CFTA.Gen.Equality.Internal.Flat as Flat
-import Data.CFTA.Gen.Equality.Internal.Types (Gen (..), Language (..), Recipe (..), withRecipe, pattern Transparent)
+import qualified Data.CFTA.Gen.Internal.Flat as Flat
+import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..), withRecipe, pattern Transparent)
 import Data.CFTA.Gen.Refinement.Internal.Compile (compile, liquidOrder, spineArity, validOutcomes)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import Data.CFTA.Refinement (
@@ -78,6 +87,9 @@ import Data.CFTA.Refinement.Guard (GuardBuilder, buildGuard, guardArgumentCount)
 
 -- | A generator over liquid tree automata.
 type LTAGen = Gen LiquidSymbol LiquidConstraint
+
+-- | A grouped generator over liquid tree automata.
+type Grouped = Gen.Grouped LiquidSymbol LiquidConstraint
 
 {- | One atom of a refined pool: a value, its symbol, and its refinement.
 

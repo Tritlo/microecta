@@ -4,7 +4,7 @@ The engine labels an open child layer with private labels. The labelling
 functions replace that scaffolding with one domain constructor when @node@
 closes the layer, so a generated term holds user symbols only.
 -}
-module Data.CFTA.Gen.Equality.Internal.Support (
+module Data.CFTA.Gen.Internal.Support (
     unconstrainedEdge,
 
     -- * Support nodes

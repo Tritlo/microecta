@@ -7,11 +7,11 @@ A generator is the language it denotes and a recipe of how it was built.
 The language is inspectable ECTA structure, finite or recursive, or an
 opaque QuickCheck generator. A grouped generator is the same thing per
 retained key. The combinators over these types live in the other
-@Data.CFTA.Gen.Equality.Internal@ modules and in "Data.CFTA.Gen"; this
+@Data.CFTA.Gen.Internal@ modules and in "Data.CFTA.Gen"; this
 module also holds the two weight checks that the flat and the grouped choice
 combinators share.
 -}
-module Data.CFTA.Gen.Equality.Internal.Types (
+module Data.CFTA.Gen.Internal.Types (
     -- * Generators
     Gen (..),
     Language (..),
@@ -57,11 +57,11 @@ import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Bucket
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Bucket
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Decoder (RankDecoder (..))
 import Data.CFTA.Ranked.Internal.Sampler

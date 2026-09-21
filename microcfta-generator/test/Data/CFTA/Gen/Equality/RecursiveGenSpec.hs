@@ -205,7 +205,9 @@ spec = do
                     QC.counterexample (show member) $ QC.property $ leaves member <= 4
 
         it "reports the exact atomic distribution inside one recursive size" $ do
-            let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
+            let coin :: ECTAGen.ECTAGen _
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
+                words_ :: ECTAGen.ECTAGen _
                 words_ = ECTAGen.recur $ \rest ->
                     ECTAGen.oneof
                         [ (: []) <$> coin
@@ -223,7 +225,8 @@ spec = do
                 `shouldBe` Right [(2, 1)]
 
         it "rejects weighted alternatives around a recursive occurrence" $
-            let weighted =
+            let weighted :: ECTAGen.ECTAGen _
+                weighted =
                     ECTAGen.recur $ \self ->
                         ECTAGen.frequency
                             [ (1, Leaf <$> ECTAGen.elements [0 .. 2])
@@ -233,7 +236,8 @@ spec = do
                     `shouldBe` Left WeightedRecursiveAlternatives
 
         it "rejects a recursion that never passes through an application" $ do
-            let unguarded = ECTAGen.recur $ \self ->
+            let unguarded :: ECTAGen.ECTAGen _
+                unguarded = ECTAGen.recur $ \self ->
                     ECTAGen.oneof [Leaf <$> ECTAGen.elements [0 .. 2], self]
                 mapped = ECTAGen.recur (id)
             ECTAGen.countAtSize unguarded 1 `shouldBe` Left UnguardedRecursion
@@ -256,7 +260,8 @@ spec = do
             result `shouldBe` Just (Right Nothing)
 
         it "starts QuickCheck at the first live recursive size" $ do
-            let minimumTwo = ECTAGen.recur $ \self ->
+            let minimumTwo :: ECTAGen.ECTAGen _
+                minimumTwo = ECTAGen.recur $ \self ->
                     ECTAGen.oneof
                         [ (\_ _ -> Leaf 0) <$> ECTAGen.elements [()] <*> ECTAGen.elements [()]
                         , Branch <$> self <*> self
@@ -270,7 +275,8 @@ spec = do
             sampled `shouldBe` Leaf 0
 
         it "hands back a body that never uses the argument" $ do
-            let notRecursive = ECTAGen.recur $ \_self -> Leaf <$> ECTAGen.elements [0 .. 2]
+            let notRecursive :: ECTAGen.ECTAGen _
+                notRecursive = ECTAGen.recur $ \_self -> Leaf <$> ECTAGen.elements [0 .. 2]
             ECTAGen.cardinality notRecursive `shouldBe` Right 3
             fmap numNestedMu (ECTAGen.support notRecursive) `shouldBe` Right 0
             fmap length (ECTAGen.pmf notRecursive) `shouldBe` Right 3

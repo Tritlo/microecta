@@ -1,5 +1,5 @@
 -- | Optional display names carried beside the generator's semantic support.
-module Data.CFTA.Gen.Equality.Internal.Inspection (
+module Data.CFTA.Gen.Internal.Inspection (
     InspectionSymbol (..),
     Inspection (..),
     plainSymbol,
@@ -17,7 +17,7 @@ import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Support
+import Data.CFTA.Gen.Internal.Support
 import Data.CFTA.Gen.Label (Label (..))
 
 {- | An original support label with an optional source or group name.

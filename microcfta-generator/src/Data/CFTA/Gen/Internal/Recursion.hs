@@ -5,7 +5,7 @@ sampling, and the @Mu@ support are solved together, and each pass reads the
 definition rather than its language. 'upToSize' turns the result back into a
 finite generator with the ranks the recursive language already gave it.
 -}
-module Data.CFTA.Gen.Equality.Internal.Recursion (
+module Data.CFTA.Gen.Internal.Recursion (
     atomic,
     recur,
     recurGrouped,
@@ -20,12 +20,12 @@ import qualified Data.Map.Strict as Map
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Node (EmptyNode), createMu, numNestedMu)
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support
-import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support
+import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (

@@ -1,10 +1,10 @@
 {- | The flat layer: sources, imported automata, choices, and joins over one
 generator at a time.
 
-The grouped layer lives in "Data.CFTA.Gen.Equality.Internal.Grouped" and
-recursion in "Data.CFTA.Gen.Equality.Internal.Recursion".
+The grouped layer lives in "Data.CFTA.Gen.Internal.Grouped" and
+recursion in "Data.CFTA.Gen.Internal.Recursion".
 -}
-module Data.CFTA.Gen.Equality.Internal.Flat (
+module Data.CFTA.Gen.Internal.Flat (
     -- * Sources
     fromIndexed,
     fromGen,
@@ -35,18 +35,18 @@ import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Automaton (automatonIndex, finiteAutomaton)
-import Data.CFTA.Gen.Equality.Internal.Grouped (groupBy, relateGroupsM, ungroup)
-import Data.CFTA.Gen.Equality.Internal.Inspect (cardinality)
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Join
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support (relabel)
-import Data.CFTA.Gen.Equality.Internal.Types
-import Data.CFTA.Gen.Equality.Sig (On (..))
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
+import Data.CFTA.Gen.Internal.Grouped (groupBy, relateGroupsM, ungroup)
+import Data.CFTA.Gen.Internal.Inspect (cardinality)
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Join
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support (relabel)
+import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Sig (On (..))
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)

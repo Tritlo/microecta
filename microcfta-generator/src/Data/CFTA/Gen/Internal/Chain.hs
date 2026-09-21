@@ -4,7 +4,7 @@ One chain holds the matched group of every signature component, in order. The
 folds over a chain count, sample, and decode the joined ranks, and they are
 written once for finite and for recursive argument families.
 -}
-module Data.CFTA.Gen.Equality.Internal.Chain (
+module Data.CFTA.Gen.Internal.Chain (
     -- * Chains
     ArgMaps (..),
     ArgChain (..),
@@ -41,13 +41,13 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
-import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Sig (Sig (..))
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..))
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Sig (Sig (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, productIndex)
@@ -210,7 +210,7 @@ selectChain partial (ChainCons static rest) (keyTerm : keyTerms) index = do
         )
 selectChain _ (ChainCons _ _) [] _ =
     error
-        "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Chain.selectChain: \
+        "microcfta-generator bug in Data.CFTA.Gen.Internal.Chain.selectChain: \
         \fewer key terms than arguments"
 
 -- | The support of every matched recursive argument group, in order.

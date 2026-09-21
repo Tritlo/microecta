@@ -32,8 +32,8 @@ import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
-import qualified Data.CFTA.Gen.Equality.Internal.Flat as Flat
-import Data.CFTA.Gen.Equality.Internal.Types (Gen (..), Language (..), Recipe (..))
+import qualified Data.CFTA.Gen.Internal.Flat as Flat
+import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Refinement
 

@@ -4,7 +4,7 @@ A join encodes membership with ECTA equality constraints and counts the
 matched group products, so it visits no member of the joined language while it
 is built.
 -}
-module Data.CFTA.Gen.Equality.Internal.Join (
+module Data.CFTA.Gen.Internal.Join (
     joinStatic,
     relateStatic,
     joinNBucketStatic,
@@ -22,13 +22,13 @@ import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node), mkEdge, reducePartially)
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
-import Data.CFTA.Gen.Equality.Internal.Bucket
-import Data.CFTA.Gen.Equality.Internal.Chain
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Internal.Bucket
+import Data.CFTA.Gen.Internal.Chain
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Path (path)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
@@ -253,7 +253,7 @@ selectJoinGroup ::
     (JoinGroup symbol left right, Integer)
 selectJoinGroup _ [] =
     error
-        "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Join.selectJoinGroup: \
+        "microcfta-generator bug in Data.CFTA.Gen.Internal.Join.selectJoinGroup: \
         \rank outside the matched groups"
 selectJoinGroup index (group : remaining)
     | index < groupSize = (group, index)

@@ -121,16 +121,16 @@ import Data.Typeable (Typeable)
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (Constraint)
-import Data.CFTA.Gen.Equality.Internal.Flat hiding (fromAutomaton, fromAutomatonUpToDepth)
-import qualified Data.CFTA.Gen.Equality.Internal.Flat as Flat
-import Data.CFTA.Gen.Equality.Internal.Grouped
-import Data.CFTA.Gen.Equality.Internal.Inspect
-import Data.CFTA.Gen.Equality.Internal.Inspection (Inspection (..), InspectionSymbol (..))
-import Data.CFTA.Gen.Equality.Internal.Recursion
-import Data.CFTA.Gen.Equality.Internal.Types
-import Data.CFTA.Gen.Equality.Sig (On (..), Sig (..), sigResult)
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Flat hiding (fromAutomaton, fromAutomatonUpToDepth)
+import qualified Data.CFTA.Gen.Internal.Flat as Flat
+import Data.CFTA.Gen.Internal.Grouped
+import Data.CFTA.Gen.Internal.Inspect
+import Data.CFTA.Gen.Internal.Inspection (Inspection (..), InspectionSymbol (..))
+import Data.CFTA.Gen.Internal.Recursion
+import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (Label (..), surface)
+import Data.CFTA.Gen.Sig (On (..), Sig (..), sigResult)
 import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA, decodeLabelledTerm)
 import Data.CFTA.Interned (Node)
 import qualified Data.CFTA.Interned as Common

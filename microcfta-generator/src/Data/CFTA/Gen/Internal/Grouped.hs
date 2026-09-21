@@ -4,7 +4,7 @@ A group keeps its own compact support and indexed selection, so joining,
 merging, and counting groups never enumerates their members. The key itself is
 not part of a generated value; it decides which groups a join relates.
 -}
-module Data.CFTA.Gen.Equality.Internal.Grouped (
+module Data.CFTA.Gen.Internal.Grouped (
     -- * Entering and leaving the layer
     keyed,
     groupBy,
@@ -37,15 +37,15 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Data.Typeable (Typeable)
 
-import Data.CFTA.Gen.Equality.Internal.Bucket
-import Data.CFTA.Gen.Equality.Internal.Chain
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Join
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Types
-import Data.CFTA.Gen.Equality.Sig (Sig, sigResult)
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Bucket
+import Data.CFTA.Gen.Internal.Chain
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Join
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Types
+import Data.CFTA.Gen.Sig (Sig, sigResult)
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (planMemberSize)
 import Data.CFTA.Ranked.Internal.Size (mapIndex)

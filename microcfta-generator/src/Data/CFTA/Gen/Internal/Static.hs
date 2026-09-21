@@ -2,10 +2,10 @@
 
 A t'Static' is an ECTA support paired with an t'OutcomeIndex' that counts,
 selects, decodes, and samples outcomes by rank. Every finite combinator of
-"Data.CFTA.Gen.Equality" is one function here. The sampling engine itself lives in
+"Data.CFTA.Gen" is one function here. The sampling engine itself lives in
 "Data.CFTA.Ranked.Internal.Sampler".
 -}
-module Data.CFTA.Gen.Equality.Internal.Static (
+module Data.CFTA.Gen.Internal.Static (
     -- * Languages
     Outcome (..),
     OutcomeIndex (..),
@@ -50,9 +50,9 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import qualified Data.CFTA.Ranked.Internal as Ranked
@@ -340,7 +340,7 @@ frequencyStatic alternatives =
 
     selectBranch _ [] =
         error
-            "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Static.frequencyStatic: \
+            "microcfta-generator bug in Data.CFTA.Gen.Internal.Static.frequencyStatic: \
             \rank outside the alternatives"
     selectBranch index ((upperBound, offset, branchIndex, weight, static) : remaining)
         | index < upperBound = (branchIndex, weight, static, index - offset)

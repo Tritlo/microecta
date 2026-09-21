@@ -199,7 +199,7 @@ spec = do
                         modifyIORef' calls (+ 1)
                         pure (Right (leftKey == rightKey) :: Either () Bool)
                     )
-                    (ECTAGen.elements [0 .. 3 :: Int])
+                    (ECTAGen.elements [0 .. 3] :: ECTAGen Int)
                     (ECTAGen.elements [10 .. 13 :: Int])
             readIORef calls `shouldReturn` 4
             fmap ECTAGen.cardinality related `shouldBe` Right (Right 8)
@@ -212,7 +212,7 @@ spec = do
                         modifyIORef' calls (+ 1)
                         pure (Right (and $ zipWith (==) keys $ drop 1 keys) :: Either () Bool)
                     )
-                    [ ECTAGen.groupBy even $ ECTAGen.elements [0 .. 3 :: Int]
+                    [ ECTAGen.groupBy even (ECTAGen.elements [0 .. 3] :: ECTAGen Int)
                     , ECTAGen.groupBy even $ ECTAGen.elements [10 .. 13 :: Int]
                     , ECTAGen.groupBy even $ ECTAGen.elements [20 .. 23 :: Int]
                     ]
@@ -226,7 +226,7 @@ spec = do
                     id
                     id
                     canRead
-                    (ECTAGen.frequency [(3, ECTAGen.elements [Admin]), (1, ECTAGen.elements [Member])])
+                    (ECTAGen.frequency [(3, ECTAGen.elements [Admin]), (1, ECTAGen.elements [Member])] :: ECTAGen Role)
                     (ECTAGen.elements [Public, Secret])
                 )
                 `shouldBe` Right
@@ -259,7 +259,7 @@ spec = do
             ECTAGen.pmf
                 ( ECTAGen.match
                     (id :==: id)
-                    (ECTAGen.elements [Alice])
+                    (ECTAGen.elements [Alice] :: ECTAGen UserId)
                     (ECTAGen.elements [Bob])
                 )
                 `shouldBe` Left ECTAGen.EmptyGenerator
@@ -270,7 +270,7 @@ spec = do
                     id
                     id
                     (\_ _ -> False)
-                    (ECTAGen.elements [Admin])
+                    (ECTAGen.elements [Admin] :: ECTAGen Role)
                     (ECTAGen.elements [Public])
                 )
                 `shouldBe` Left ECTAGen.EmptyGenerator
@@ -297,7 +297,9 @@ spec = do
                     `shouldBe` Right [(Password, 1 % 2), (Token, 1 % 2)]
 
         it "conjoins every declared key equality" $ do
-            let left = ECTAGen.elements [(0 :: Int, 0 :: Int, "left-00"), (0, 1, "left-01")]
+            let left :: ECTAGen.ECTAGen _
+                left = ECTAGen.elements [(0 :: Int, 0 :: Int, "left-00"), (0, 1, "left-01")]
+                right :: ECTAGen.ECTAGen _
                 right =
                     ECTAGen.elements
                         [ (0 :: Int, 0 :: Int, "right-00")
@@ -397,21 +399,22 @@ spec = do
                             ["common", "rare", "left-a", "left-b", "left-c", "right-a", "0", "1"]
 
     describe "indexed and opaque sources" $ do
-        it "decodes a transparent source from stable indices" $
-            ECTAGen.pmf
-                ( ECTAGen.fromIndexed $
-                    ECTAGen.Indexed 3 $ \case
-                        0 -> Alice
-                        1 -> Bob
-                        2 -> Carol
-                        index -> error $ "unexpected index: " <> show index
-                )
-                `shouldBe` Right [(Alice, 1 % 3), (Bob, 1 % 3), (Carol, 1 % 3)]
+        it "decodes a transparent source from stable indices" $ do
+            let users :: ECTAGen UserId
+                users =
+                    ECTAGen.fromIndexed $
+                        ECTAGen.Indexed 3 $ \case
+                            0 -> Alice
+                            1 -> Bob
+                            2 -> Carol
+                            index -> error $ "unexpected index: " <> show index
+            ECTAGen.pmf users `shouldBe` Right [(Alice, 1 % 3), (Bob, 1 % 3), (Carol, 1 % 3)]
 
         it "freezes native draws as transparent ranks, including duplicates" $ do
             let native = QC.chooseInteger (0, 3)
                 seed = QCRandom.mkQCGen 20260818
                 expected = QCGen.unGen (QC.vectorOf 8 native) seed 30
+                pooled :: ECTAGen.ECTAGen _
                 pooled = QCGen.unGen (ECTAGen.samplePool 8 native) seed 30
             ECTAGen.cardinality pooled `shouldBe` Right 8
             traverse (ECTAGen.unrank pooled) [0 .. 7] `shouldBe` Right expected
@@ -422,7 +425,9 @@ spec = do
             let native = QC.chooseInteger (0, 3)
                 seed = QCRandom.mkQCGen 20260818
                 values = QCGen.unGen (QC.vectorOf 8 native) seed 30
+                pooled :: ECTAGen.ECTAGen _
                 pooled = QCGen.unGen (ECTAGen.samplePool 8 native) seed 30
+                equalPairs :: ECTAGen.ECTAGen _
                 equalPairs = ECTAGen.match (id :==: id) pooled pooled
                 accepted = [(left, right) | left <- values, right <- values, left == right]
                 acceptedCount = toInteger $ length accepted
@@ -434,7 +439,8 @@ spec = do
             ECTAGen.pmf equalPairs `shouldBe` Right pooledExpectedPmf
 
         it "turns a non-positive pool size into an empty generator" $ do
-            let freeze sampleCount =
+            let freeze :: Int -> ECTAGen UserId
+                freeze sampleCount =
                     QCGen.unGen
                         (ECTAGen.samplePool sampleCount (pure Alice))
                         (QCRandom.mkQCGen 20260818)
@@ -445,7 +451,7 @@ spec = do
         it "reuses one indexed choice through fmap" $ do
             ECTAGen.pmf
                 ( do
-                    user <- ECTAGen.elements [Alice, Bob]
+                    user <- ECTAGen.elements [Alice, Bob] :: ECTAGen UserId
                     pure (user, user)
                 )
                 `shouldBe` Right [((Alice, Alice), 1 % 2), ((Bob, Bob), 1 % 2)]
@@ -497,8 +503,11 @@ spec = do
             traverse (ECTAGen.unrank selected) [0 .. 2] `shouldBe` Right [Alice, Bob, Carol]
 
         it "finds a finite structural minimum beyond rank zero" $ do
-            let larger = (,) <$> ECTAGen.elements [0 :: Int] <*> ECTAGen.elements [0 :: Int]
+            let larger :: ECTAGen.ECTAGen _
+                larger = (,) <$> ECTAGen.elements [0 :: Int] <*> ECTAGen.elements [0 :: Int]
+                smaller :: ECTAGen.ECTAGen _
                 smaller = ECTAGen.elements [(1, 1)]
+                generator :: ECTAGen.ECTAGen _
                 generator = ECTAGen.oneof [larger, smaller]
             ECTAGen.unrank generator 0 `shouldBe` Right (0, 0)
             ECTAGen.sizeOfRank generator 0 `shouldBe` Just 2
@@ -512,7 +521,8 @@ spec = do
 
         modifyMaxSuccess (const 200)
             $ it "replays weighted samples even when sampling reorders branches"
-            $ let weighted =
+            $ let weighted :: ECTAGen UserId
+                  weighted =
                     ECTAGen.frequency
                         [ (1, pure Alice)
                         , (3, ECTAGen.elements [Bob, Carol])
@@ -528,13 +538,14 @@ spec = do
                         30
             sample (ECTAGen.frequency [] :: ECTAGen UserId)
                 `shouldBe` Left ECTAGen.EmptyGenerator
-            sample (ECTAGen.frequency [(0, pure Alice)])
+            sample (ECTAGen.frequency [(0, pure Alice)] :: ECTAGen UserId)
                 `shouldBe` Left (ECTAGen.NonPositiveWeight 0)
-            sample (ECTAGen.frequency [(-1, pure Alice)])
+            sample (ECTAGen.frequency [(-1, pure Alice)] :: ECTAGen UserId)
                 `shouldBe` Left (ECTAGen.NonPositiveWeight (-1))
 
         it "samples a directly indexed source whose cardinality exceeds Int" $ do
             let total = toInteger (maxBound :: Int) + 17
+                source :: ECTAGen.ECTAGen _
                 source = ECTAGen.fromIndexed $ ECTAGen.Indexed total id
                 (rank, value) =
                     QCGen.unGen
@@ -546,6 +557,7 @@ spec = do
 
         it "keeps fromGen opaque" $ do
             let opaque = ECTAGen.fromGen $ QC.elements [Alice, Bob]
+                opaqueJoin :: ECTAGen.ECTAGen _
                 opaqueJoin =
                     ECTAGen.match (id :==: id) opaque (ECTAGen.elements [Bob])
             ECTAGen.pmf opaqueJoin
@@ -557,6 +569,7 @@ spec = do
 
         it "allows an opaque source to participate in a join" $
             let opaque = ECTAGen.fromGen $ QC.elements [Alice, Bob]
+                opaqueJoin :: ECTAGen.ECTAGen _
                 opaqueJoin =
                     ECTAGen.match (id :==: id) opaque (ECTAGen.elements [Bob])
              in QC.property
@@ -564,6 +577,7 @@ spec = do
 
         it "allows an opaque source to participate in a relation" $
             let opaque = ECTAGen.fromGen $ QC.elements [Admin, Member]
+                related :: ECTAGen.ECTAGen _
                 related =
                     ECTAGen.relate
                         id
@@ -596,7 +610,8 @@ spec = do
             traverse (ECTAGen.unrank regrouped) [0, 1] `shouldBe` Right [("a", 1), ("a", 3)]
 
         it "preserves a finite source's support, ranks, and distribution" $ do
-            let source =
+            let source :: ECTAGen.ECTAGen _
+                source =
                     ECTAGen.frequency
                         [ (3, ECTAGen.elements [Alice])
                         , (1, ECTAGen.elements [Bob, Carol])
@@ -615,7 +630,8 @@ spec = do
                 `shouldBe` Right Nothing
 
         it "combines declared languages with the grouped choice weights" $ do
-            let family =
+            let family :: ECTAGen.Grouped _ _
+                family =
                     ECTAGen.oneofGrouped
                         [ ECTAGen.keyed DeclaredUsers $ ECTAGen.elements [Alice, Bob]
                         , ECTAGen.keyed OtherUsers $ ECTAGen.elements [Carol]
@@ -645,7 +661,8 @@ spec = do
                 `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
 
         it "reports finite retained-key masses conditional on size" $ do
-            let family =
+            let family :: ECTAGen.Grouped _ _
+                family =
                     ECTAGen.frequencies
                         [ (3, ECTAGen.keyed DeclaredUsers $ pure Alice)
                         , (1, ECTAGen.keyed OtherUsers $ pure Bob)

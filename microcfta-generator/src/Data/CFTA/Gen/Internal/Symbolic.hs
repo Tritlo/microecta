@@ -1,5 +1,5 @@
 -- | Count finite equality languages without constructing their members.
-module Data.CFTA.Gen.Equality.Internal.Symbolic (symbolicRanked) where
+module Data.CFTA.Gen.Internal.Symbolic (symbolicRanked) where
 
 import qualified Control.Monad.State.Lazy as State
 import Data.Hashable (Hashable)
@@ -86,7 +86,7 @@ symbolicRanked order = symbolicRankedWith order interpret
         Just summands -> summands
         Nothing ->
             error
-                "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Symbolic.symbolicRanked: \
+                "microcfta-generator bug in Data.CFTA.Gen.Internal.Symbolic.symbolicRanked: \
                 \a constraint without indicators reached symbolic counting"
 
 {- | Compile a finite graph with an exact sum of equality indicators per guard.

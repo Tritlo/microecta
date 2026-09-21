@@ -63,7 +63,8 @@ spec = do
             decodesEveryRankExactly $ Core.ungroup mixed
 
         it "agrees with unrank on every enumerated non-uniform rank" $ do
-            let generator =
+            let generator :: ECTAGen.ECTAGen _
+                generator =
                     Core.frequency
                         [ (3, Core.elements [1 :: Int])
                         , (1, Core.elements [2, 3])
@@ -121,6 +122,7 @@ spec = do
         modifyMaxSuccess (const 200)
             $ it "replays sampled ranks below the Int cardinality boundary"
             $ let chunk = ECTAGen.elements [0 :: Int .. 199]
+                  wide :: ECTAGen.ECTAGen _
                   wide =
                     (,,,,,,,)
                         <$> chunk
@@ -141,6 +143,7 @@ spec = do
         modifyMaxSuccess (const 200)
             $ it "replays sampled ranks beyond the Int cardinality boundary"
             $ let chunk = ECTAGen.elements [0 :: Int .. 255]
+                  wide :: ECTAGen.ECTAGen _
                   wide =
                     (,,,,,,,)
                         <$> chunk

@@ -5,7 +5,7 @@ structure. A finite generator answers with a cardinality, a recursive one with
 one size class at a time, and an opaque one with
 'CannotInspectOpaqueGenerator'.
 -}
-module Data.CFTA.Gen.Equality.Internal.Inspect (
+module Data.CFTA.Gen.Internal.Inspect (
     -- * Structure
     support,
     inspect,
@@ -31,11 +31,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Recursive
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Types
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (Label)
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (

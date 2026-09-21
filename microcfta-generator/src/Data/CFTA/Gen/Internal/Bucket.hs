@@ -4,7 +4,7 @@ A t'KeyedBucket' is one finite language and its mass in the whole
 distribution. Grouping, application, and relation all produce buckets, so the
 merge that normalizes them is written once here.
 -}
-module Data.CFTA.Gen.Equality.Internal.Bucket (
+module Data.CFTA.Gen.Internal.Bucket (
     KeyedBucket (..),
     groupOutcomes,
     bucketFromOutcomes,
@@ -21,10 +21,10 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support (singletonNode)
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support (singletonNode)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 
 -- | One compact conditional generator and its mass in the whole distribution.

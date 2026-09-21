@@ -92,9 +92,13 @@ class GenApply f g h | f g -> h where
     -- | Apply one generated function layer to one generated argument layer.
     (<*>) :: f (a -> b) -> g a -> h b
 
+-- The argument is a fresh variable equated in the context rather than
+-- repeated in the head, so instance selection needs only the function side.
+-- A statement built from a source whose theory is still open, such as
+-- @elements [..]@, then takes the theory of the block.
 instance
-    (Constraint constraint, Hashable symbol, Typeable symbol) =>
-    GenApply (Gen symbol constraint) (Gen symbol constraint) (Gen symbol constraint)
+    (argument ~ Gen symbol constraint, Constraint constraint, Hashable symbol, Typeable symbol) =>
+    GenApply (Gen symbol constraint) argument (Gen symbol constraint)
     where
     (<*>) = (Prelude.<*>)
 
@@ -111,44 +115,56 @@ newtype Applying symbol constraint (pendingKeys :: [Type]) resultKey b
           Grouped symbol constraint resultKey result
         )
 
--- The argument family's key is a fresh variable equated in the context rather
--- than repeated in the head, so instance selection does not need it fixed
--- already. An argument written as @keyed 0 ...@, whose key type is still open
--- and would default to Integer, then resolves against the operation's
--- signature the way it does when @apply@ is written out.
+-- The argument family is likewise a fresh variable equated in the context, so
+-- instance selection needs only the operation side. An argument written as
+-- @keyed 0 ...@, whose key type is still open and would default to Integer,
+-- then resolves against the operation's signature the way it does when
+-- @apply@ is written out, and its theory is the operation's.
 instance
-    (argKey ~ argKey', Ord argKey, Ord resultKey, HasEqualities constraint, Hashable symbol, Typeable symbol) =>
+    ( argument ~ Grouped symbol constraint argKey
+    , Ord argKey
+    , Ord resultKey
+    , HasEqualities constraint
+    , Hashable symbol
+    , Typeable symbol
+    ) =>
     GenApply
         (Grouped symbol constraint (Sig '[argKey] resultKey))
-        (Grouped symbol constraint argKey')
+        argument
         (Grouped symbol constraint resultKey)
     where
     operations <*> argument = apply operations (argument :& ANil)
 
 instance
-    (argKey ~ argKey', Ord argKey, Ord resultKey, HasEqualities constraint, Hashable symbol, Typeable symbol) =>
+    ( argument ~ Grouped symbol constraint argKey
+    , Ord argKey
+    , Ord resultKey
+    , HasEqualities constraint
+    , Hashable symbol
+    , Typeable symbol
+    ) =>
     GenApply
         (Grouped symbol constraint (Sig (argKey ': nextKey ': pendingKeys) resultKey))
-        (Grouped symbol constraint argKey')
+        argument
         (Applying symbol constraint (nextKey ': pendingKeys) resultKey)
     where
     operations <*> argument =
         Applying (\rest -> apply operations (argument :& rest))
 
 instance
-    (argKey ~ argKey', Ord argKey) =>
+    (argument ~ Grouped symbol constraint argKey, Ord argKey) =>
     GenApply
         (Applying symbol constraint '[argKey] resultKey)
-        (Grouped symbol constraint argKey')
+        argument
         (Grouped symbol constraint resultKey)
     where
     Applying continue <*> argument = continue (argument :& ANil)
 
 instance
-    (argKey ~ argKey', Ord argKey) =>
+    (argument ~ Grouped symbol constraint argKey, Ord argKey) =>
     GenApply
         (Applying symbol constraint (argKey ': nextKey ': pendingKeys) resultKey)
-        (Grouped symbol constraint argKey')
+        argument
         (Applying symbol constraint (nextKey ': pendingKeys) resultKey)
     where
     Applying continue <*> argument =

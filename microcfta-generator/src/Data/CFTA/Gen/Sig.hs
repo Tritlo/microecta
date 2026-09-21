@@ -3,7 +3,7 @@
 'Sig' writes many-sorted operation signatures over group keys, and 'On'
 reifies key equalities between two generated values.
 -}
-module Data.CFTA.Gen.Equality.Sig (
+module Data.CFTA.Gen.Sig (
     Sig (..),
     sigResult,
     On (..),

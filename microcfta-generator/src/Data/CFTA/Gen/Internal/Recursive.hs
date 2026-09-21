@@ -5,7 +5,7 @@ accepts. Members are reached through those classes rather than through a
 cardinality, and 'boundedStatic' turns one back into a finite language that
 keeps the ranks the recursive language already gave its members.
 -}
-module Data.CFTA.Gen.Equality.Internal.Recursive (
+module Data.CFTA.Gen.Internal.Recursive (
     -- * Recursive languages
     Recursive (..),
     recursiveFromStatic,
@@ -33,11 +33,11 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
-import Data.CFTA.Gen.Equality.Internal.Bucket (KeyedBucket (..))
-import Data.CFTA.Gen.Equality.Internal.Inspection
-import Data.CFTA.Gen.Equality.Internal.Static
-import Data.CFTA.Gen.Equality.Internal.Support (labelSupport, labelTerm)
 import Data.CFTA.Gen.Error (GenError (..))
+import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..))
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm)
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
@@ -151,7 +151,7 @@ boundedStatic bound recursive
                     Just (size, position) -> snd $ sizeClassSelect terms size position
                     Nothing ->
                         error
-                            "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Recursive.boundedStatic: \
+                            "microcfta-generator bug in Data.CFTA.Gen.Internal.Recursive.boundedStatic: \
                             \a member without a term"
             pure $
                 Outcome
@@ -175,7 +175,7 @@ boundedStatic bound recursive
       where
         go [] _ =
             error
-                "microcfta-generator bug in Data.CFTA.Gen.Equality.Internal.Recursive.boundedStatic: \
+                "microcfta-generator bug in Data.CFTA.Gen.Internal.Recursive.boundedStatic: \
                 \rank outside the bounded language"
         go ((_, count, decode, _) : rest) index
             | index < count = decode index
