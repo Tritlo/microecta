@@ -20,7 +20,7 @@ import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import qualified Data.CFTA.Gen.Refinement as LTA
+import qualified Data.CFTA.Gen.Refinement as LTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (
     BinaryFunctionInstance (..),
     Expression (..),
@@ -76,12 +76,12 @@ equalityExpressionAutomaton requestedDepth = validate root >> pure root
 compileEqualityExpressionsAtDepth ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.LTAGen TypedExpression))
+    IO (Either LTAGen.GenError (LTAGen.LTAGen TypedExpression))
 compileEqualityExpressionsAtDepth entailment depth =
     case equalityExpressionAutomaton depth of
-        Left err -> pure $ Left $ LTA.InvalidSupport err
+        Left err -> pure $ Left $ LTAGen.InvalidSupport err
         Right automaton ->
-            LTA.compile entailment $ decodeExpression <$> LTA.fromAutomaton automaton
+            LTAGen.compile entailment $ decodeExpression <$> LTAGen.fromAutomaton automaton
   where
     decodeExpression term =
         case expressionFromLiquidTerm term of

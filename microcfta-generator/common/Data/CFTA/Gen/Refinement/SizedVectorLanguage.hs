@@ -34,7 +34,7 @@ import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (LiquidSymbol (LiquidSymbol), Refinement)
 import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.<=.), (.==.), (.>=.))
 import Data.CFTA.Refinement.Guard (
@@ -78,9 +78,9 @@ solverDeclarationsAtDepth requestedDepth =
     maximumLength = maximumLengthAtDepth requestedDepth
 
 -- | Three ordinary vector inputs with distinct lengths.
-sourceVectors :: LTA.LTAGen SizedVector
+sourceVectors :: LTAGen.LTAGen SizedVector
 sourceVectors =
-    LTA.oneof
+    LTAGen.oneof
         [ sized "empty" []
         , sized "pair" [10, 11]
         , sized "triple" [20, 21, 22]
@@ -88,9 +88,9 @@ sourceVectors =
   where
     sized name elements =
         let refinement = exact $ length elements
-         in LTA.refinedNode (fromString name) refinement unconstrained $ LTA.do
+         in LTAGen.refinedNode (fromString name) refinement unconstrained $ LTAGen.do
                 _length <- numberLeaf $ length elements
-                LTA.pure $ SizedVector (Source name elements) refinement
+                LTAGen.pure $ SizedVector (Source name elements) refinement
 
 {- | Generate exact-depth vector pipelines.
 
@@ -98,7 +98,7 @@ The surface definition is independent of result lengths. Each constructor
 proposes a finite result refinement, and its adjacent liquid guard retains
 exactly the result compatible with the selected children.
 -}
-vectorsAtDepth :: Int -> LTA.LTAGen SizedVector
+vectorsAtDepth :: Int -> LTAGen.LTAGen SizedVector
 vectorsAtDepth requestedDepth
     | requestedDepth <= 0 = sourceVectors
     | otherwise = vectorLayer depth $ vectorsAtDepth (depth - 1)
@@ -106,9 +106,9 @@ vectorsAtDepth requestedDepth
     depth = max 0 requestedDepth
 
 -- | Add one dependent vector-operation layer.
-vectorLayer :: Int -> LTA.LTAGen SizedVector -> LTA.LTAGen SizedVector
+vectorLayer :: Int -> LTAGen.LTAGen SizedVector -> LTAGen.LTAGen SizedVector
 vectorLayer depth children =
-    LTA.oneof
+    LTAGen.oneof
         [ appendedVectors maximumLength children
         , takenVectors maximumLength children
         , zippedVectors maximumLength children
@@ -117,14 +117,14 @@ vectorLayer depth children =
     maximumLength = maximumLengthAtDepth depth
 
 -- | Generate append nodes whose result length is proved to be @n + m@.
-appendedVectors :: Int -> LTA.LTAGen SizedVector -> LTA.LTAGen SizedVector
+appendedVectors :: Int -> LTAGen.LTAGen SizedVector -> LTAGen.LTAGen SizedVector
 appendedVectors maximumLength children =
-    LTA.refinedNodeByRoots "append" resultRefinement validAppend $ LTA.do
+    LTAGen.refinedNodeByRoots "append" resultRefinement validAppend $ LTAGen.do
         result <- possibleLengths maximumLength
         _function <- appendFunction
         left <- children
         right <- children
-        LTA.pure $
+        LTAGen.pure $
             SizedVector
                 (Append (vectorExpression left) (vectorExpression right))
                 (numberRefinement result)
@@ -137,22 +137,22 @@ appendedVectors maximumLength children =
             (appendResultAt function `isSubtypeOf` result)
 
 -- | The reusable two-input append contract.
-appendFunction :: LTA.LTAGen ()
-appendFunction = LTA.node "append-function" unconstrained $ LTA.do
-    _leftLength <- LTA.leaf () "n" nonNegative
-    _rightLength <- LTA.leaf () "m" nonNegative
-    _resultLength <- LTA.leaf () "sum" (value .==. (variable "n" .+. variable "m"))
-    LTA.pure ()
+appendFunction :: LTAGen.LTAGen ()
+appendFunction = LTAGen.node "append-function" unconstrained $ LTAGen.do
+    _leftLength <- LTAGen.leaf () "n" nonNegative
+    _rightLength <- LTAGen.leaf () "m" nonNegative
+    _resultLength <- LTAGen.leaf () "sum" (value .==. (variable "n" .+. variable "m"))
+    LTAGen.pure ()
 
 -- | Generate @take@ nodes with @0 <= k <= n@ and result length @k@.
-takenVectors :: Int -> LTA.LTAGen SizedVector -> LTA.LTAGen SizedVector
+takenVectors :: Int -> LTAGen.LTAGen SizedVector -> LTAGen.LTAGen SizedVector
 takenVectors maximumLength children =
-    LTA.refinedNodeByRoots "take" resultRefinement validTake $ LTA.do
+    LTAGen.refinedNodeByRoots "take" resultRefinement validTake $ LTAGen.do
         result <- possibleLengths maximumLength
         _function <- takeFunction
         count <- possibleLengths maximumLength
         input <- children
-        LTA.pure $
+        LTAGen.pure $
             SizedVector
                 (Take (numberValue count) $ vectorExpression input)
                 (numberRefinement result)
@@ -165,12 +165,12 @@ takenVectors maximumLength children =
                 ]
 
 -- | A function accepting vectors at least as long as @k@ and returning @k@.
-takeFunction :: LTA.LTAGen ()
+takeFunction :: LTAGen.LTAGen ()
 takeFunction =
-    LTA.refinedNode "take-function" takeInput unconstrained $ LTA.do
-        _count <- LTA.leaf () "k" nonNegative
-        _result <- LTA.leaf () "take-result" (value .==. variable "k")
-        LTA.pure ()
+    LTAGen.refinedNode "take-function" takeInput unconstrained $ LTAGen.do
+        _count <- LTAGen.leaf () "k" nonNegative
+        _result <- LTAGen.leaf () "take-result" (value .==. variable "k")
+        LTAGen.pure ()
   where
     takeInput =
         Fixpoint.pAnd
@@ -179,14 +179,14 @@ takeFunction =
             ]
 
 -- | Generate equal-length element-wise additions.
-zippedVectors :: Int -> LTA.LTAGen SizedVector -> LTA.LTAGen SizedVector
+zippedVectors :: Int -> LTAGen.LTAGen SizedVector -> LTAGen.LTAGen SizedVector
 zippedVectors maximumLength children =
-    LTA.refinedNodeByRoots "zip-with-add" resultRefinement validZip $ LTA.do
+    LTAGen.refinedNodeByRoots "zip-with-add" resultRefinement validZip $ LTAGen.do
         result <- possibleLengths maximumLength
         _function <- zipFunction
         left <- children
         right <- children
-        LTA.pure $
+        LTAGen.pure $
             SizedVector
                 (ZipWithAdd (vectorExpression left) (vectorExpression right))
                 (numberRefinement result)
@@ -204,21 +204,21 @@ resultRefinement (LiquidSymbol _ refinement : _) = refinement
 resultRefinement [] = error "resultRefinement: missing result annotation"
 
 -- | A function requiring a second vector of length @n@ and returning @n@.
-zipFunction :: LTA.LTAGen ()
+zipFunction :: LTAGen.LTAGen ()
 zipFunction =
-    LTA.refinedNode "zip-function" (value .==. variable "n") unconstrained $ LTA.do
-        _leftLength <- LTA.leaf () "n" nonNegative
-        _result <- LTA.leaf () "zip-result" (value .==. variable "n")
-        LTA.pure ()
+    LTAGen.refinedNode "zip-function" (value .==. variable "n") unconstrained $ LTAGen.do
+        _leftLength <- LTAGen.leaf () "n" nonNegative
+        _result <- LTAGen.leaf () "zip-result" (value .==. variable "n")
+        LTAGen.pure ()
 
 -- | Generate safe indexing programs over exact-depth pipelines.
-safeProgramsAtDepth :: Int -> LTA.LTAGen Program
+safeProgramsAtDepth :: Int -> LTAGen.LTAGen Program
 safeProgramsAtDepth requestedDepth =
-    LTA.node "index" validIndex $ LTA.do
+    LTAGen.node "index" validIndex $ LTAGen.do
         vector <- vectorsAtDepth depth
         _function <- indexFunction
         index <- candidateIndexes maximumLength
-        LTA.pure $ Index (vectorExpression vector) (numberValue index)
+        LTAGen.pure $ Index (vectorExpression vector) (numberValue index)
   where
     depth = max 0 requestedDepth
     maximumLength = maximumLengthAtDepth depth
@@ -227,11 +227,11 @@ safeProgramsAtDepth requestedDepth =
             vectorLengthAt vector `isSubtypeOf` function
 
 -- | A function accepting vectors whose length is strictly greater than @i@.
-indexFunction :: LTA.LTAGen ()
+indexFunction :: LTAGen.LTAGen ()
 indexFunction =
-    LTA.refinedNode "index-function" indexInput unconstrained $ LTA.do
-        _index <- LTA.leaf () "i" (value .>=. (-1 :: Int))
-        LTA.pure ()
+    LTAGen.refinedNode "index-function" indexInput unconstrained $ LTAGen.do
+        _index <- LTAGen.leaf () "i" (value .>=. (-1 :: Int))
+        LTAGen.pure ()
   where
     indexInput =
         Fixpoint.pAnd
@@ -246,19 +246,19 @@ data RefinedNumber = RefinedNumber
     }
 
 -- | Candidate non-negative result lengths.
-possibleLengths :: Int -> LTA.LTAGen RefinedNumber
+possibleLengths :: Int -> LTAGen.LTAGen RefinedNumber
 possibleLengths maximumLength = numberPool [0 .. max 0 maximumLength]
 
 -- | Candidate indexes include one deliberately invalid negative value.
-candidateIndexes :: Int -> LTA.LTAGen RefinedNumber
+candidateIndexes :: Int -> LTAGen.LTAGen RefinedNumber
 candidateIndexes maximumLength = numberPool [-1 .. max 0 maximumLength]
 
 -- | Refine every integer in a finite pool by its exact value.
-numberPool :: [Int] -> LTA.LTAGen RefinedNumber
+numberPool :: [Int] -> LTAGen.LTAGen RefinedNumber
 numberPool integers =
-    LTA.pool
+    LTAGen.pool
         [ let refinement = exact integer
-           in LTA.Refined
+           in LTAGen.Refined
                 (RefinedNumber integer refinement)
                 (fromString $ numberName integer)
                 refinement
@@ -266,10 +266,10 @@ numberPool integers =
         ]
 
 -- | One exact integer leaf, used as the stable length position of a vector.
-numberLeaf :: Int -> LTA.LTAGen RefinedNumber
+numberLeaf :: Int -> LTAGen.LTAGen RefinedNumber
 numberLeaf integer =
     let refinement = exact integer
-     in LTA.leaf
+     in LTAGen.leaf
             (RefinedNumber integer refinement)
             (fromString $ numberName integer)
             refinement

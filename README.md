@@ -37,9 +37,9 @@ plain level-by-level enumerator whatever layer built it.
 
 `microcfta-generator` owns `Data.CFTA.Ranked`, which provides exact finite
 ranks, backend-independent sampling, and shrinking. `Data.CFTA.Gen` compiles an
-acyclic ordinary automaton or builds one with the `FTA.node`/`FTA.do` syntax.
-`Data.CFTA.Gen.Equality` adds equality-constrained sources, equality and
-relational joins, retained key groups, and recursive generation.
+acyclic ordinary automaton or builds one with the `FTAGen.node`/`FTAGen.do`
+syntax. `Data.CFTA.Gen.Equality` adds equality-constrained sources, equality
+and relational joins, retained key groups, and recursive generation.
 `Data.CFTA.Gen.Refinement` can retain the surface DSL's applicative structure,
 ask the solver once per live tuple of refinement groups, and lower the accepted
 tuples through indexed equality joins. Sampling is pure and does not enumerate
@@ -70,8 +70,8 @@ syntax.
 ## Three flagship languages
 
 The generator APIs close qualified-do child blocks consistently with
-`FTA.node`, `ECTA.node`, and `LTA.node`. Three worked languages make the added
-expressive power concrete:
+`FTAGen.node`, `ECTAGen.node`, and `LTAGen.node`. Three worked languages make
+the added expressive power concrete:
 
 | Automaton | Example | What becomes possible |
 | --- | --- | --- |

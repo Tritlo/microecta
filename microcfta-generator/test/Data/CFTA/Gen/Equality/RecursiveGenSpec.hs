@@ -27,7 +27,6 @@ import Data.CFTA.Equality (
     terms,
  )
 import Data.CFTA.Equality.Constraint (EqConstraints, mkEqConstraints)
-import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, GenError (..), Sig (..))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Equality.TestSupport (aggregateRights, renameSymbols)
@@ -393,21 +392,21 @@ spec = do
 
     describe "recursive sampling" $ do
         it "preserves an atomic finite distribution and its stable ranks" $ do
-            let coin :: Core.ECTAGen Bool
+            let coin :: ECTAGen.ECTAGen Bool
                 coin =
-                    Core.atomic $
-                        Core.frequency
-                            [ (3, Core.elements [True])
-                            , (1, Core.elements [False])
+                    ECTAGen.atomic $
+                        ECTAGen.frequency
+                            [ (3, ECTAGen.elements [True])
+                            , (1, ECTAGen.elements [False])
                             ]
                 traces =
-                    Core.recur $ \rest ->
-                        Core.oneof
+                    ECTAGen.recur $ \rest ->
+                        ECTAGen.oneof
                             [ (: []) <$> coin
                             , (:) <$> coin <*> rest
                             ]
-                bounded = Core.upToSize 2 traces
-            let sampled = runExact $ Core.lowerWithRankVia bounded
+                bounded = ECTAGen.upToSize 2 traces
+            let sampled = runExact $ ECTAGen.lowerWithRankVia bounded
             [() | (_, Left _) <- sampled] `shouldBe` []
             aggregateRights sampled
                 `shouldBe` [ (1 % 4, (0, [True]))
@@ -417,7 +416,7 @@ spec = do
                            , (1 % 8, (4, [False, True]))
                            , (1 % 24, (5, [False, False]))
                            ]
-            traverse (Core.unrank bounded) [0 .. 5]
+            traverse (ECTAGen.unrank bounded) [0 .. 5]
                 `shouldBe` Right
                     [ [True]
                     , [False]
@@ -428,41 +427,41 @@ spec = do
                     ]
 
         it "keeps finite weights out of recursion without an atomic boundary" $ do
-            let coin :: Core.ECTAGen Bool
+            let coin :: ECTAGen.ECTAGen Bool
                 coin =
-                    Core.frequency
-                        [ (3, Core.elements [True])
-                        , (1, Core.elements [False])
+                    ECTAGen.frequency
+                        [ (3, ECTAGen.elements [True])
+                        , (1, ECTAGen.elements [False])
                         ]
                 traces =
-                    Core.recur $ \rest ->
-                        Core.oneof
+                    ECTAGen.recur $ \rest ->
+                        ECTAGen.oneof
                             [ (: []) <$> coin
                             , (:) <$> coin <*> rest
                             ]
-            map fst (runExact $ Core.lowerWithRankVia $ Core.upToSize 2 traces)
+            map fst (runExact $ ECTAGen.lowerWithRankVia $ ECTAGen.upToSize 2 traces)
                 `shouldBe` replicate 6 (1 % 6)
 
         it "preserves atomic distributions through recurGrouped and apply" $ do
             let atoms =
-                    Core.keyed ()
-                        $ Core.atomic
-                        $ Core.frequency
-                            [ (3, Core.elements ["H"])
-                            , (1, Core.elements ["T"])
+                    ECTAGen.keyed ()
+                        $ ECTAGen.atomic
+                        $ ECTAGen.frequency
+                            [ (3, ECTAGen.elements ["H"])
+                            , (1, ECTAGen.elements ["T"])
                             ]
                 operators =
-                    Core.keyed (() :-> ()) $
-                        Core.elements [("x" <>)]
+                    ECTAGen.keyed (() :-> ()) $
+                        ECTAGen.elements [("x" <>)]
                 family =
-                    Core.recurGrouped $ \self ->
-                        Core.oneofGrouped
+                    ECTAGen.recurGrouped $ \self ->
+                        ECTAGen.oneofGrouped
                             [ atoms
-                            , Core.apply operators (self :& ANil)
+                            , ECTAGen.apply operators (self :& ANil)
                             ]
-                bounded :: Core.ECTAGen String
-                bounded = Core.upToSize 2 $ Core.atKey () family
-            let sampled = runExact $ Core.lowerWithRankVia bounded
+                bounded :: ECTAGen.ECTAGen String
+                bounded = ECTAGen.upToSize 2 $ ECTAGen.atKey () family
+            let sampled = runExact $ ECTAGen.lowerWithRankVia bounded
             [() | (_, Left _) <- sampled] `shouldBe` []
             aggregateRights sampled
                 `shouldBe` [ (3 % 8, (0, "H"))
@@ -474,37 +473,37 @@ spec = do
         it "keeps atomic mass between recursive operation keys" $ do
             let operations =
                     snd
-                        <$> Core.groupBy
+                        <$> ECTAGen.groupBy
                             fst
-                            ( Core.atomic $
-                                Core.frequency
+                            ( ECTAGen.atomic $
+                                ECTAGen.frequency
                                     [ (9, pure (Initial :-> SawHeads, (True :)))
                                     , (1, pure (Initial :-> SawTails, (False :)))
                                     ]
                             )
-                family :: Core.Grouped CoinPhase [Bool]
+                family :: ECTAGen.Grouped CoinPhase [Bool]
                 family =
-                    Core.recurGrouped $ \self ->
-                        Core.oneofGrouped
-                            [ Core.keyed Initial $ pure []
-                            , Core.apply operations (self :& ANil)
+                    ECTAGen.recurGrouped $ \self ->
+                        ECTAGen.oneofGrouped
+                            [ ECTAGen.keyed Initial $ pure []
+                            , ECTAGen.apply operations (self :& ANil)
                             ]
-                traces = Core.ungroup family
-            Core.countsAtSize family 2
+                traces = ECTAGen.ungroup family
+            ECTAGen.countsAtSize family 2
                 `shouldBe` Right
                     (Map.fromList [(SawHeads, 1), (SawTails, 1)])
-            Core.massesAtSize family 2
+            ECTAGen.massesAtSize family 2
                 `shouldBe` Right
                     (Map.fromList [(SawHeads, 9 % 10), (SawTails, 1 % 10)])
-            (sum <$> Core.countsAtSize family 2)
-                `shouldBe` Core.countAtSize traces 2
-            (sum <$> Core.massesAtSize family 2)
+            (sum <$> ECTAGen.countsAtSize family 2)
+                `shouldBe` ECTAGen.countAtSize traces 2
+            (sum <$> ECTAGen.massesAtSize family 2)
                 `shouldBe` Right 1
-            Core.pmfAtSize traces 2
+            ECTAGen.pmfAtSize traces 2
                 `shouldBe` Right [([False], 1 % 10), ([True], 9 % 10)]
-            Core.smallest (Core.atKey SawHeads family)
+            ECTAGen.smallest (ECTAGen.atKey SawHeads family)
                 `shouldBe` Right (Just [True])
-            Core.smallest (Core.atKey Unreachable family)
+            ECTAGen.smallest (ECTAGen.atKey Unreachable family)
                 `shouldBe` Right Nothing
 
 -- | The head symbol of a term, as a coverage key.

@@ -23,7 +23,7 @@ module Data.CFTA.Gen.Refinement.TypedExpressionLanguage (
 import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (LiquidConstraint, Refinement, Symbol)
 import Data.CFTA.Refinement.Expression (true, value, variable, (.+.), (./=.), (.==.))
 import Data.CFTA.Refinement.Guard (Position, allOf, descendant, isSubtypeOf, requires, unconstrained, withActualFor)
@@ -57,9 +57,9 @@ solverDeclarations =
     ]
 
 -- | Atoms ordered from least information to more useful concrete witnesses.
-atoms :: LTA.LTAGen RefinedExpression
+atoms :: LTAGen.LTAGen RefinedExpression
 atoms =
-    LTA.pool
+    LTAGen.pool
         [ atom Unknown "u" true
         , atom (Integer (-1)) "minus-one" (value .==. (-1 :: Int))
         , atom (Integer 0) "zero" (value .==. (0 :: Int))
@@ -68,19 +68,19 @@ atoms =
         ]
 
 -- | A unary operation whose argument must establish non-negativity.
-nonNegativeExpressions :: LTA.LTAGen RefinedExpression
+nonNegativeExpressions :: LTAGen.LTAGen RefinedExpression
 nonNegativeExpressions =
-    LTA.node "sqrt" (`requires` nonNegative) $ LTA.do
+    LTAGen.node "sqrt" (`requires` nonNegative) $ LTAGen.do
         argument <- atoms
-        LTA.pure $ RefinedExpression (SquareRoot $ expression argument) true
+        LTAGen.pure $ RefinedExpression (SquareRoot $ expression argument) true
 
 -- | Division expressions whose denominator proves it is non-zero.
-divisions :: LTA.LTAGen RefinedExpression
+divisions :: LTAGen.LTAGen RefinedExpression
 divisions =
-    LTA.node "divide" divisionGuard $ LTA.do
+    LTAGen.node "divide" divisionGuard $ LTAGen.do
         numerator <- atoms
         denominator <- atoms
-        LTA.pure $
+        LTAGen.pure $
             RefinedExpression
                 (Divide (expression numerator) (expression denominator))
                 true
@@ -89,12 +89,12 @@ divisionGuard :: Position -> Position -> LiquidConstraint
 divisionGuard _ denominator = denominator `requires` nonZero
 
 -- | Every ordered atom pair where the left refinement is a subtype of the right.
-subtypePairs :: LTA.LTAGen (RefinedExpression, RefinedExpression)
+subtypePairs :: LTAGen.LTAGen (RefinedExpression, RefinedExpression)
 subtypePairs =
-    LTA.node "ascribe" (\actual expected -> actual `isSubtypeOf` expected) $ LTA.do
+    LTAGen.node "ascribe" (\actual expected -> actual `isSubtypeOf` expected) $ LTAGen.do
         actual <- atoms
         expected <- atoms
-        LTA.pure (actual, expected)
+        LTAGen.pure (actual, expected)
 
 {- | Dependent application as represented in the LTA paper.
 
@@ -103,13 +103,13 @@ function subtree contains formal-name, input-type, and output-type children.
 The guard checks argument subtyping, then substitutes the actual variable for
 the formal variable before comparing the dependent output with the result.
 -}
-dependentApplications :: LTA.LTAGen RefinedExpression
+dependentApplications :: LTAGen.LTAGen RefinedExpression
 dependentApplications =
-    LTA.node "app" applicationGuard $ LTA.do
+    LTAGen.node "app" applicationGuard $ LTAGen.do
         result <- resultTypes
         _function <- incrementFunction
         argument <- namedArguments
-        LTA.pure $ RefinedExpression (ApplyIncrement $ expression argument) (resultRefinement result)
+        LTAGen.pure $ RefinedExpression (ApplyIncrement $ expression argument) (resultRefinement result)
   where
     applicationGuard result function argument =
         allOf
@@ -122,9 +122,9 @@ newtype ResultType = ResultType
     { resultRefinement :: Refinement
     }
 
-resultTypes :: LTA.LTAGen ResultType
+resultTypes :: LTAGen.LTAGen ResultType
 resultTypes =
-    LTA.pool
+    LTAGen.pool
         [ result "result-x" "x"
         , result "result-y" "y"
         , result "result-p" "p"
@@ -132,24 +132,24 @@ resultTypes =
   where
     result symbolName actualName =
         let refinement = value .==. (variable actualName .+. (1 :: Int))
-         in LTA.Refined (ResultType refinement) symbolName refinement
+         in LTAGen.Refined (ResultType refinement) symbolName refinement
 
-namedArguments :: LTA.LTAGen RefinedExpression
+namedArguments :: LTAGen.LTAGen RefinedExpression
 namedArguments =
-    LTA.pool
+    LTAGen.pool
         [ atom (Variable "x") "x" (value .==. (0 :: Int))
         , atom (Variable "y") "y" (value .==. (-1 :: Int))
         , atom (Variable "p") "p" (value .==. (1 :: Int))
         ]
 
-incrementFunction :: LTA.LTAGen ()
+incrementFunction :: LTAGen.LTAGen ()
 incrementFunction =
-    LTA.node "increment" unconstrained $ LTA.do
-        _formal <- LTA.leaf () "n" true
-        _input <- LTA.leaf () "input" nonNegative
-        _output <- LTA.leaf () "output" (value .==. (variable "n" .+. (1 :: Int)))
-        LTA.pure ()
+    LTAGen.node "increment" unconstrained $ LTAGen.do
+        _formal <- LTAGen.leaf () "n" true
+        _input <- LTAGen.leaf () "input" nonNegative
+        _output <- LTAGen.leaf () "output" (value .==. (variable "n" .+. (1 :: Int)))
+        LTAGen.pure ()
 
-atom :: Expression -> Symbol -> Refinement -> LTA.Refined RefinedExpression
+atom :: Expression -> Symbol -> Refinement -> LTAGen.Refined RefinedExpression
 atom expression symbol refinement =
-    LTA.Refined (RefinedExpression expression refinement) symbol refinement
+    LTAGen.Refined (RefinedExpression expression refinement) symbol refinement

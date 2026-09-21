@@ -12,7 +12,7 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 import GeneratorSpeedHarness (Benchmark (..), benchmarkMain)
@@ -51,17 +51,17 @@ prepare "lta-do" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         result <- compileTracesOfLength solver length_
         case result of
-            Left err -> fail $ "could not compile LTA benchmark: " <> LTA.explain err
+            Left err -> fail $ "could not compile LTA benchmark: " <> LTAGen.explain err
             Right compiled
-                | LTA.cardinality compiled == Right (traceCount length_ (StackState [])) ->
-                    pure $ LTA.toGen compiled
+                | LTAGen.cardinality compiled == Right (traceCount length_ (StackState [])) ->
+                    pure $ LTAGen.toGen compiled
                 | otherwise -> fail "LTA cardinality differs from the independent trace count"
 prepare "lta-automaton" length_ =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         result <- compileTraceAutomaton solver length_
         case result of
-            Left err -> fail $ "could not compile the trace automaton: " <> LTA.explain err
-            Right compiled -> pure $ LTA.toGen compiled
+            Left err -> fail $ "could not compile the trace automaton: " <> LTAGen.explain err
+            Right compiled -> pure $ LTAGen.toGen compiled
 prepare engine _ = fail $ "unknown engine: " <> engine
 
 -- | Force every trace field and reduce it to a stable checksum contribution.

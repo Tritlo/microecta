@@ -9,7 +9,7 @@ theory:
 | --- | --- |
 | `Data.CFTA.Gen` | The generator: sources, constructors, choices, joins, recursion, imported automata and datatypes, exact inspection, replay, and shrinking, for every theory. |
 | `Data.CFTA.Gen.QuickCheck` | Sampling and properties over a generator, and frozen pools. |
-| `Data.CFTA.Gen.Do` | Qualified applicative do-notation; import it qualified under the same alias as the generator module. |
+| `Data.CFTA.Gen.Do` | Qualified applicative do-notation, re-exported by the three `QuickCheck` facades; `FTAGen.do`, `ECTAGen.do`, and `LTAGen.do` are this module under the facade's alias. |
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: the `EqConstraints` theory, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
@@ -40,9 +40,9 @@ It checks all replay ranks and samples the accepted pairs with QuickCheck.
 It also constructs the same language as an interned `Common.PlainNode String`,
 imports it with `fromAutomaton`, and checks the imported generator.
 
-`Gen.node "pair"` closes an applicative child block with one constructor.
+`FTAGen.node "pair"` closes an applicative child block with one constructor.
 Each binding supplies one direct child. Enable `ApplicativeDo` and
-`QualifiedDo`, and finish the block with `Gen.pure`. Child generators must be
+`QualifiedDo`, and finish the block with `FTAGen.pure`. Child generators must be
 independent. `leaf value symbol` is a constructor without children, and
 `oneof` and `frequency` choose between generators; an empty alternative is
 skipped, not an error.
@@ -85,7 +85,7 @@ module Main (main) where
 
 import GHC.Generics (Generic)
 
-import qualified Data.CFTA.Gen as Gen
+import qualified Data.CFTA.Gen as FTAGen
 import Data.CFTA.Generic (HasFTA, deriveFTAWith, domain)
 
 -- | Arithmetic expressions with integer literals.
@@ -97,9 +97,9 @@ data Expr = Lit Int | Add Expr Expr
 main :: IO ()
 main = do
     datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
-    let language = Gen.fromDatatypeUpToDepth 3 datatype
-    total <- either (fail . Gen.explain) pure $ Gen.cardinality language
-    mapM_ (either (fail . Gen.explain) print . Gen.unrank language) [0 .. total - 1]
+    let language = FTAGen.fromDatatypeUpToDepth 3 datatype
+    total <- either (fail . FTAGen.explain) pure $ FTAGen.cardinality language
+    mapM_ (either (fail . FTAGen.explain) print . FTAGen.unrank language) [0 .. total - 1]
 ```
 
 Add both `microcfta` and `microcfta-generator` to your component's
@@ -196,12 +196,12 @@ Import the QuickCheck-facing API:
 
 ```haskell
 import Data.CFTA.Gen.Equality.QuickCheck (ECTAGen)
-import qualified Data.CFTA.Gen.Do as ECTAGen
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 ```
 
-The second import puts the qualified do-notation under the same alias, so
-`ECTAGen.do` and `ECTAGen.pure` sit next to `ECTAGen.node`.
+The QuickCheck facade re-exports the qualified do-notation, so `ECTAGen.do`
+and `ECTAGen.pure` sit next to `ECTAGen.node`; the ordinary and refinement
+facades give `FTAGen.do` and `LTAGen.do` the same way.
 
 ### Generator API
 
@@ -497,14 +497,14 @@ import qualified Data.CFTA.Gen.Equality.QuickCheck as Gen
 
 -- | Two named integer source choices.
 integers :: Gen.ECTAGen Int
-integers = Gen.namedElements [("zero", 0), ("one", 1)]
+integers = FTAGen.namedElements [("zero", 0), ("one", 1)]
 
 -- | Apply a named function to the integer source.
 incremented :: Gen.ECTAGen Int
-incremented = Gen.namedElements [("increment", (+ 1))] <*> integers
+incremented = FTAGen.namedElements [("increment", (+ 1))] <*> integers
 ```
 
-`Gen.inspect incremented` returns an `Inspection`. Its `inspectionGraph` is a
+`FTAGen.inspect incremented` returns an `Inspection`. Its `inspectionGraph` is a
 `Node (InspectionSymbol Symbol) EqConstraints`. Pass it to `ECTA.toTree`, then render the typed
 labels with `fmap` and `Data.Tree.drawTree`. Each `InspectionSymbol` retains
 `originalSymbol`, a `Label Symbol`, and an optional `displayLabel`. `inspectionName` holds a group
@@ -519,7 +519,7 @@ names remain available through grouping, application, and recursion.
 The diagnostic graph preserves construction structure and equality obligations.
 Names distinguish occurrences that share one semantic node, such as integer
 and Boolean sources with the same rank indices. The graph does not run equality
-reduction. Use `Gen.support` for membership and other semantic operations.
+reduction. Use `FTAGen.support` for membership and other semantic operations.
 
 Counts and rank decoding do not evaluate display names or construct the
 diagnostic graph. Retaining the extra fields and closures still uses memory.
@@ -828,7 +828,7 @@ it evaluates the division.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QualifiedDo #-}
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement.Guard (requires)
 import Data.CFTA.Refinement.LiquidFixpoint (integerDeclarations, withZ3)
 import Data.CFTA.Refinement.Expression (integer, value, (./=.), (.==.))
@@ -837,19 +837,19 @@ import qualified Test.QuickCheck as QC
 main :: IO ()
 main = withZ3 (integerDeclarations ["v"]) $ \solver -> do
   let nonZero = value ./=. integer 0
-      denominators = LTA.pool
+      denominators = LTAGen.pool
         [ LTA.Refined (0 :: Integer) "zero" (value .==. integer 0)
         , LTA.Refined 1 "one" (value .==. integer 1)
         , LTA.Refined 2 "two" (value .==. integer 2)
         ]
       divisions =
-        LTA.node "divide" (\denominator -> denominator `requires` nonZero) $ LTA.do
+        LTAGen.node "divide" (\denominator -> denominator `requires` nonZero) $ LTAGen.do
           denominator <- denominators
-          LTA.pure (denominator, 12 `div` denominator)
-  compiled <- LTA.compile solver divisions >>= either (fail . LTA.explain) pure
-  QC.quickCheck $ LTA.forAll compiled $ \(denominator, quotient) ->
+          LTAGen.pure (denominator, 12 `div` denominator)
+  compiled <- LTAGen.compile solver divisions >>= either (fail . LTAGen.explain) pure
+  QC.quickCheck $ LTAGen.forAll compiled $ \(denominator, quotient) ->
     denominator /= 0 && quotient == 12 `div` denominator
-  print $ LTA.unrank compiled 0
+  print $ LTAGen.unrank compiled 0
 ```
 
 Use the packages `base`, `microcfta`, `microcfta-generator`, and `QuickCheck`.
@@ -938,13 +938,13 @@ automaton with guards that need the solver waits for `compile`, which prunes
 it first. Both compose with ordinary sources:
 
 ```haskell
-boundedTerms = LTA.fromAutomatonUpToDepth 6 automaton
+boundedTerms = LTAGen.fromAutomatonUpToDepth 6 automaton
 
-wrapped = LTA.node "wrap" (\child -> child `requires` desiredRefinement) $ LTA.do
+wrapped = LTAGen.node "wrap" (\child -> child `requires` desiredRefinement) $ LTAGen.do
   term <- boundedTerms
-  LTA.pure (decode term)
+  LTAGen.pure (decode term)
 
-compiled <- LTA.compile solver wrapped >>= either (fail . LTA.explain) pure
+compiled <- LTAGen.compile solver wrapped >>= either (fail . LTAGen.explain) pure
 ```
 
 Under a guard, the pruned automaton is split by the observations the guard
@@ -978,8 +978,8 @@ A pool need not be part of a long-lived specification. Draw it once from a
 native QuickCheck generator of refined atoms:
 
 ```haskell
-lefts  = LTA.pool <$> QC.vectorOf 32 nativeRefinedInt
-rights = LTA.pool <$> QC.vectorOf 8  nativeRefinedInt
+lefts  = LTAGen.pool <$> QC.vectorOf 32 nativeRefinedInt
+rights = LTAGen.pool <$> QC.vectorOf 8  nativeRefinedInt
 ```
 
 Sample once and use the same `LTAGen` at both child positions when they
@@ -987,7 +987,7 @@ should share a universe. The pools stay fixed inside the compiled generator;
 changing them for each individual test would make ranks, replay, and
 shrinking unstable and would also invoke Z3 per test. Independent pool sizes
 multiply: the example describes 32 x 8 candidate pairs. For replay across
-process runs, fix the draws with a seed through `Test.QuickCheck.Gen.unGen`,
+process runs, fix the draws with a seed through `Test.QuickCheck.FTAGen.unGen`,
 as `freeze` does for unrefined values.
 
 ### What the LTA adds
@@ -999,10 +999,10 @@ for formal parameters. That permits constraints such as:
 
 ```haskell
 safeDivision =
-  LTA.node "divide" validDenominator $ LTA.do
+  LTAGen.node "divide" validDenominator $ LTAGen.do
     numerator   <- integers
     denominator <- integers
-    LTA.pure (Divide numerator denominator)
+    LTAGen.pure (Divide numerator denominator)
 
 validDenominator _ denominator = denominator `requires` nonZero
 ```
@@ -1046,13 +1046,13 @@ output state without decoding the traces hidden inside those groups:
 
 ```haskell
 extendTrace prefixes =
-  LTA.refinedNodeByRoots
+  LTAGen.refinedNodeByRoots
     "step"
     stepRefinementFromRoots
-    validStep $ LTA.do
+    validStep $ LTAGen.do
       prefix  <- prefixes
       command <- commandContracts
-      LTA.pure (predictPrefixStep prefix command)
+      LTAGen.pure (predictPrefixStep prefix command)
 
 validStep previous command =
   allOf
@@ -1061,7 +1061,7 @@ validStep previous command =
         descendant command [1] `isSubtypeOf` root
     ]
 
-Right compiled <- LTA.compile solver (tracesOfLength length)
+Right compiled <- LTAGen.compile solver (tracesOfLength length)
 ```
 
 The first guard says that the preceding trace's output state inhabits the next
@@ -1108,12 +1108,12 @@ One operation layer is ordinary applicative LTA syntax:
 
 ```haskell
 takenVectors maximumLength children =
-  LTA.refinedNodeByRoots "take" resultRefinement validTake $ LTA.do
+  LTAGen.refinedNodeByRoots "take" resultRefinement validTake $ LTAGen.do
     result    <- possibleLengths maximumLength
     _function <- takeFunction
     count     <- possibleLengths maximumLength
     input     <- children
-    LTA.pure $ SizedVector
+    LTAGen.pure $ SizedVector
       (Take (numberValue count) $ vectorExpression input)
       (numberRefinement result)
 
@@ -1156,11 +1156,11 @@ environment as solver assumptions, and generates two deliberately partial
 operations:
 
 ```haskell
-safeReads = LTA.node "read-at" validRead $ LTA.do
+safeReads = LTAGen.node "read-at" validRead $ LTAGen.do
   buffer <- sourceBuffers
   function <- readFunction
   ~(_, index) <- indexes
-  LTA.pure (ReadAt (bufferExpression buffer) index)
+  LTAGen.pure (ReadAt (bufferExpression buffer) index)
 
 validRead buffer function index =
   withActualFor buffer (descendant function [0]) $
@@ -1179,8 +1179,8 @@ precondition:
 
 ```haskell
 withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
-  Right compiled <- LTA.compile solver safePrograms
-  quickCheck $ LTA.forAll compiled $ \program ->
+  Right compiled <- LTAGen.compile solver safePrograms
+  quickCheck $ LTAGen.forAll compiled $ \program ->
     programIsSafe program && safeResult program == Just (runProgram program)
 ```
 
@@ -1224,7 +1224,7 @@ the non-liquid type class when semantic representatives are what you want:
 
 ```haskell
 Right representatives <-
-  LTA.minimizePoolBy solver operationKind candidates
+  LTAGen.minimizePoolBy solver operationKind candidates
 ```
 
 `minimizePoolBy` represents the entries as a one-state LTA, invokes the core
@@ -1242,7 +1242,7 @@ states. QuickCheck needs a finite language, so bound the import by tree
 height before compiling:
 
 ```haskell
-Right compiled <- LTA.compile solver (LTA.fromAutomatonUpToDepth 6 recursiveLTA)
+Right compiled <- LTAGen.compile solver (LTAGen.fromAutomatonUpToDepth 6 recursiveLTA)
 ```
 
 Depth zero keeps nullary transitions. Every parent-to-child edge consumes one

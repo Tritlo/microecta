@@ -8,23 +8,23 @@ facades, which re-export it. A block builds the applicative product of its
 statements, and 'Data.CFTA.Gen.node' closes it with one constructor:
 
 @
-import qualified Data.CFTA.Gen.QuickCheck as Gen
+import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 
-pairs = Gen.node "pair" $ Gen.do
+pairs = FTAGen.node "pair" $ FTAGen.do
     left <- choices
     right <- choices
-    Gen.pure (left, right)
+    FTAGen.pure (left, right)
 @
 
 When the first bind chooses an operation family keyed by
 'Data.CFTA.Gen.Sig', the block is one operation application of any arity:
 
 @
-binaryLayer children = Gen.node "binary-application" $ Gen.do
+binaryLayer children = ECTAGen.node "binary-application" $ ECTAGen.do
     operation <- binaryFunctionsBySignature
     left <- children
     right <- children
-    Gen.pure (compileBinary operation left right)
+    ECTAGen.pure (compileBinary operation left right)
 @
 
 Statements are independent: the block builds the same applicative product

@@ -20,7 +20,6 @@ import qualified Test.QuickCheck.Random as QCRandom
 import Data.CFTA.Equality (Node (Node), accepts, edgeChildren, edgeConstraint, edgeSymbol, termsWith)
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
-import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Equality.TestSupport (renameSymbols)
@@ -317,20 +316,20 @@ spec = do
                     ]
 
         it "samples a non-uniform join with exactly its inspected PMF" $ do
-            let left :: Core.ECTAGen UserId
+            let left :: ECTAGen.ECTAGen UserId
                 left =
-                    Core.frequency
-                        [ (4, Core.elements [Alice])
-                        , (1, Core.elements [Bob, Carol])
+                    ECTAGen.frequency
+                        [ (4, ECTAGen.elements [Alice])
+                        , (1, ECTAGen.elements [Bob, Carol])
                         ]
-                right :: Core.ECTAGen UserId
+                right :: ECTAGen.ECTAGen UserId
                 right =
-                    Core.frequency
-                        [ (1, Core.elements [Alice])
-                        , (3, Core.elements [Bob, Carol])
+                    ECTAGen.frequency
+                        [ (1, ECTAGen.elements [Alice])
+                        , (3, ECTAGen.elements [Bob, Carol])
                         ]
-                generator = Core.match (id Core.:==: id) left right
-                sampled = runExact $ Core.lowerVia generator
+                generator = ECTAGen.match (id ECTAGen.:==: id) left right
+                sampled = runExact $ ECTAGen.lowerVia generator
                 sampledErrors = [err | (_, Left err) <- sampled]
                 sampledPmf =
                     Map.toAscList $
@@ -338,7 +337,7 @@ spec = do
                             (+)
                             [(value, mass) | (mass, Right value) <- sampled]
             sampledErrors `shouldBe` []
-            Right sampledPmf `shouldBe` Core.pmf generator
+            Right sampledPmf `shouldBe` ECTAGen.pmf generator
 
         it "matches a brute-force grouped apply with weighted multiplicities" $ do
             let centers :: [((Char, Int, Int, Int), String)]

@@ -11,7 +11,7 @@ import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldReturn)
 
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (ranks, termsOf, values)
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Refinement (
@@ -64,11 +64,11 @@ unusedEntailment :: Entailment
 unusedEntailment = Entailment $ \_ _ -> pure Unknown
 
 -- | Compile the derived list grammar with unconstrained liquid annotations.
-compileAtDepth :: Int -> IO (LTA.LTAGen [()])
+compileAtDepth :: Int -> IO (LTAGen.LTAGen [()])
 compileAtDepth depth = do
     datatype <- either (fail . show) pure $ Datatype.deriveFTA @[()]
     let annotated = Datatype.annotateDatatype (const (true, unconstrainedConstraint)) datatype
-    LTA.compile unusedEntailment (LTA.fromDatatypeUpToDepth depth annotated)
+    LTAGen.compile unusedEntailment (LTAGen.fromDatatypeUpToDepth depth annotated)
         >>= either (fail . show) pure
 
 spec :: Spec
@@ -84,8 +84,8 @@ spec = do
 
         it "keeps deterministic replay ranks after unfolding" $ do
             compiled <- compileAtDepth 2
-            LTA.cardinality compiled `shouldBe` Right 3
-            LTA.unrank compiled 2
+            LTAGen.cardinality compiled `shouldBe` Right 3
+            LTAGen.unrank compiled 2
                 `shouldBe` Right (last $ values compiled)
 
         it "counts a residual equality symbolically instead of as an FTA product" $ do
@@ -95,7 +95,7 @@ spec = do
             case result of
                 Left err -> expectationFailure $ show err
                 Right compiled -> do
-                    LTA.cardinality compiled `shouldBe` Right 2
+                    LTAGen.cardinality compiled `shouldBe` Right 2
                     values compiled `shouldMatchList` [pair itemA, pair itemB]
 
     describe "structural automaton shrinking" $ do
@@ -103,14 +103,14 @@ spec = do
             compiled <- compileAutomaton (largeOrSmallAutomaton 0) >>= either (fail . show) pure
             large <- rankOf compiled $ Tree.Node (LiquidSymbol "large" true) [Tree.Node (LiquidSymbol "atom" true) []]
             small <- rankOf compiled $ Tree.Node (LiquidSymbol "small" true) []
-            map fst (LTA.smallerMembers compiled large) `shouldBe` [small]
-            LTA.smallerMembers compiled small `shouldBe` []
-            LTA.smallerMembers compiled (-1) `shouldBe` []
-            LTA.smallerMembers compiled 2 `shouldBe` []
+            map fst (LTAGen.smallerMembers compiled large) `shouldBe` [small]
+            LTAGen.smallerMembers compiled small `shouldBe` []
+            LTAGen.smallerMembers compiled (-1) `shouldBe` []
+            LTAGen.smallerMembers compiled 2 `shouldBe` []
 
         it "skips dead transitions and lists every smaller pair" $ do
             compiled <- compileAutomaton variablePairAutomaton >>= either (fail . show) pure
-            LTA.cardinality compiled `shouldBe` Right 9
+            LTAGen.cardinality compiled `shouldBe` Right 9
             let wrap leaf = Tree.Node (LiquidSymbol "wrap" true) [Tree.Node (LiquidSymbol leaf true) []]
                 atom = Tree.Node (LiquidSymbol "atom" true) []
                 pairOf left right = Tree.Node (LiquidSymbol "pair" true) [left, right]
@@ -119,14 +119,14 @@ spec = do
                 traverse
                     (rankOf compiled)
                     [pairOf atom atom, pairOf atom (wrap "x"), pairOf atom (wrap "y"), pairOf (wrap "x") atom, pairOf (wrap "y") atom]
-            map fst (LTA.smallerMembers compiled source) `shouldMatchList` expected
+            map fst (LTAGen.smallerMembers compiled source) `shouldMatchList` expected
             smallest <- rankOf compiled $ pairOf atom atom
-            LTA.smallerMembers compiled smallest `shouldBe` []
+            LTAGen.smallerMembers compiled smallest `shouldBe` []
 
         it "emits only accepted terms with strictly fewer tree nodes" $ do
             compiled <- compileAutomaton variablePairAutomaton >>= either (fail . show) pure
             forM_ (zip (ranks compiled) (termsOf compiled)) $ \(rank, source) ->
-                forM_ (LTA.smallerMembers compiled rank) $ \(candidate, term) -> do
+                forM_ (LTAGen.smallerMembers compiled rank) $ \(candidate, term) -> do
                     term `shouldBe` termsOf compiled !! fromInteger candidate
                     (termSize term < termSize source) `shouldBe` True
                     accepts unusedEntailment variablePairAutomaton term `shouldReturn` Yes
@@ -138,8 +138,8 @@ spec = do
                     >>= either (fail . show) pure
             large <- rankOf compiled $ Tree.Node (LiquidSymbol "large" true) [Tree.Node (LiquidSymbol "atom" true) []]
             small <- rankOf compiled $ Tree.Node (LiquidSymbol "small" true) []
-            map fst (LTA.smallerMembers compiled large) `shouldBe` [small]
-            map fst (LTA.smallerMembers (fmap (const False) compiled) large) `shouldBe` [small]
+            map fst (LTAGen.smallerMembers compiled large) `shouldBe` [small]
+            map fst (LTAGen.smallerMembers (fmap (const False) compiled) large) `shouldBe` [small]
 
         it "does not expand huge shared trees with uniform node counts" $ do
             completed <- timeout 60000000 $ do
@@ -148,8 +148,8 @@ spec = do
                         >>= either (fail . show) pure
                 evaluate $
                     Set.fromList (values compiled) == Set.fromList ["a", "b"]
-                        && null (LTA.shrinkRank compiled 0)
-                        && all (< 1) (LTA.shrinkRank compiled 1)
+                        && null (LTAGen.shrinkRank compiled 0)
+                        && all (< 1) (LTAGen.shrinkRank compiled 1)
             completed `shouldBe` Just True
 
         it "counts shared selected runs beyond machine-sized node counts" $ do
@@ -159,7 +159,7 @@ spec = do
                         >>= either (fail . show) pure
                 evaluate $
                     Set.fromList (values compiled) == Set.fromList ["large", "small"]
-                        && null (LTA.shrinkRank compiled 0)
+                        && null (LTAGen.shrinkRank compiled 0)
             completed `shouldBe` Just True
 
     describe "finite automaton overlap checks" $ do
@@ -168,29 +168,29 @@ spec = do
             case result of
                 Left err -> expectationFailure $ show err
                 Right compiled -> do
-                    LTA.cardinality compiled `shouldBe` Right 2
+                    LTAGen.cardinality compiled `shouldBe` Right 2
                     values compiled `shouldMatchList` ["a", "b"]
 
         it "keeps the term ranks of a small shared automaton" $ do
             let automaton = sharedSubtreeAutomaton 3 "b"
-            complete <- LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth 5 automaton
+            complete <- LTAGen.compile unusedEntailment $ LTAGen.fromAutomatonUpToDepth 5 automaton
             counted <- compileAutomaton automaton
-            (counted >>= LTA.cardinality) `shouldBe` Right 2
+            (counted >>= LTAGen.cardinality) `shouldBe` Right 2
             fmap values counted `shouldBe` fmap values complete
 
         it "deduplicates overlapping alternatives without expanding their shared subtrees" $ do
             result <- compileAutomatonWith selectedTag (sharedSubtreeAutomaton 50 "a")
-            (result >>= LTA.cardinality) `shouldBe` Right 1
+            (result >>= LTAGen.cardinality) `shouldBe` Right 1
 
         it "does not count an alternative with an empty child node" $ do
             let automaton = Node [plain "wrap" [EmptyNode], plain "wrap" [Node [plain "item-a" []]]]
             result <- compileAutomaton automaton
-            (result >>= LTA.cardinality) `shouldBe` Right 1
+            (result >>= LTAGen.cardinality) `shouldBe` Right 1
             fmap values result `shouldBe` Right [Tree.Node (LiquidSymbol "wrap" true) [itemA]]
 
         it "reports an empty root without an overlap" $ do
             result <- compileAutomaton EmptyNode
-            (result >>= LTA.cardinality) `shouldBe` Left LTA.EmptyGenerator
+            (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
   where
     sameChildren = mkEqConstraints [[path [0], path [1]]]
     itemA = Tree.Node (LiquidSymbol "item-a" true) []
@@ -202,13 +202,13 @@ spec = do
         ("wrap", [tag]) -> tag
         _ -> symbol
 
-    compileAutomaton = LTA.compile unusedEntailment . LTA.fromAutomaton
+    compileAutomaton = LTAGen.compile unusedEntailment . LTAGen.fromAutomaton
 
     -- Fold each accepted term into a value as it is selected.
     compileAutomatonWith build =
-        LTA.compile unusedEntailment
+        LTAGen.compile unusedEntailment
             . fmap (Tree.foldTree $ \(LiquidSymbol symbol refinement) -> build symbol refinement)
-            . LTA.fromAutomaton
+            . LTAGen.fromAutomaton
 
     rankOf compiled term =
         case elemIndex term (termsOf compiled) of

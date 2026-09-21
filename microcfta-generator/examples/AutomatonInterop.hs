@@ -11,7 +11,7 @@ import Control.Monad (unless)
 import GHC.Generics (Generic)
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Generic (HasFTA, TypedFTA, annotateDatatype, constructorName, deriveFTA)
 import Data.CFTA.Refinement (Refinement, unconstrainedConstraint)
 import Data.CFTA.Refinement.Expression (integer, value, (.==.), (.>.))
@@ -38,29 +38,29 @@ naturalValue Zero = 0
 naturalValue (Successor child) = 1 + naturalValue child
 
 -- | Import heights zero through two, then reject zero before dividing.
-divisions :: LTA.LTAGen (Integer, Integer, Integer)
+divisions :: LTAGen.LTAGen (Integer, Integer, Integer)
 divisions =
-    LTA.node "divide" (\_ denominator -> denominator `requires` positive) $ LTA.do
+    LTAGen.node "divide" (\_ denominator -> denominator `requires` positive) $ LTAGen.do
         numerator <- numerators
         denominator <- fmap naturalValue naturalNumbers
-        LTA.pure (numerator, denominator, numerator `div` denominator)
+        LTAGen.pure (numerator, denominator, numerator `div` denominator)
   where
-    naturalNumbers = LTA.fromDatatypeUpToDepth 2 $ annotateDatatype annotate naturals
+    naturalNumbers = LTAGen.fromDatatypeUpToDepth 2 $ annotateDatatype annotate naturals
     annotate constructor =
         (if constructorName constructor == "Zero" then value .==. integer 0 else positive, unconstrainedConstraint)
     numerators =
-        LTA.pool
-            [ LTA.Refined 12 "twelve" (value .==. integer 12)
-            , LTA.Refined 24 "twenty-four" (value .==. integer 24)
+        LTAGen.pool
+            [ LTAGen.Refined 12 "twelve" (value .==. integer 12)
+            , LTAGen.Refined 24 "twenty-four" (value .==. integer 24)
             ]
 
 -- | Compile once, check every replay rank, and sample the accepted divisions.
 main :: IO ()
 main = do
     withZ3 (integerDeclarations ["v"]) $ \solver -> do
-        compiled <- LTA.compile solver divisions >>= either (fail . LTA.explain) pure
+        compiled <- LTAGen.compile solver divisions >>= either (fail . LTAGen.explain) pure
         let expected = [(12, 1, 12), (12, 2, 6), (24, 1, 24), (24, 2, 12)]
-            replayed = LTA.cardinality compiled >>= \total -> traverse (LTA.unrank compiled) [0 .. total - 1]
+            replayed = LTAGen.cardinality compiled >>= \total -> traverse (LTAGen.unrank compiled) [0 .. total - 1]
         unless (replayed == Right expected)
             $ fail
             $ "unexpected replayed divisions: " <> show replayed
@@ -68,10 +68,10 @@ main = do
         result <-
             QC.quickCheckResult $
                 QC.conjoin
-                    [ LTA.forAll compiled $ \(numerator, denominator, quotient) ->
+                    [ LTAGen.forAll compiled $ \(numerator, denominator, quotient) ->
                         denominator > 0 && quotient == numerator `div` denominator
-                    , QC.forAll (LTA.toGenWithRank compiled) $ \(rank, division) ->
-                        LTA.unrank compiled rank == Right division
+                    , QC.forAll (LTAGen.toGenWithRank compiled) $ \(rank, division) ->
+                        LTAGen.unrank compiled rank == Right division
                     ]
         unless (QC.isSuccess result) $
             fail "imported automaton generation or replay failed"

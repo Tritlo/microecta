@@ -8,7 +8,7 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
+import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (
     TypedExpression (expressionType),
     allTypes,
@@ -39,5 +39,5 @@ benchmark =
 prepare :: String -> Int -> IO (QC.Gen TypedExpression)
 prepare "naive" depth = pure $ naiveExpressionGen depth
 prepare "bespoke" depth = pure $ handwrittenExpressionGen depth
-prepare "ecta" depth = pure $ ECTA.toGen $ expressionGenAtDepth depth
+prepare "ecta" depth = pure $ ECTAGen.toGen $ expressionGenAtDepth depth
 prepare engine _ = fail $ "unknown engine: " <> engine

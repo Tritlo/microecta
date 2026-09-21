@@ -16,7 +16,7 @@ import Test.Hspec (Expectation, expectationFailure, shouldBe)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Node)
 import Data.CFTA.Equality.Constraint (EqConstraints)
-import qualified Data.CFTA.Gen.Equality as Core
+import qualified Data.CFTA.Gen.Equality as ECTAGen
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 
@@ -45,14 +45,14 @@ aggregateRights outcomes =
     ]
 
 {- | Enumerate the compiled decoder through the exact backend and require,
-for every rank in order: uniform mass and agreement with 'Core.unrank'.
+for every rank in order: uniform mass and agreement with 'ECTAGen.unrank'.
 -}
-decodesEveryRankExactly :: (Eq a, Show a) => Core.ECTAGen a -> Expectation
+decodesEveryRankExactly :: (Eq a, Show a) => ECTAGen.ECTAGen a -> Expectation
 decodesEveryRankExactly generator =
-    case Core.cardinality generator of
+    case ECTAGen.cardinality generator of
         Left err -> expectationFailure $ show err
         Right total ->
-            runExact (Core.lowerWithRankVia generator)
-                `shouldBe` [ (1 % total, fmap (rank,) (Core.unrank generator rank))
+            runExact (ECTAGen.lowerWithRankVia generator)
+                `shouldBe` [ (1 % total, fmap (rank,) (ECTAGen.unrank generator rank))
                            | rank <- [0 .. total - 1]
                            ]

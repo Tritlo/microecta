@@ -5,7 +5,6 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatis
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Equality as Core
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Equality.TestSupport (decodesEveryRankExactly)
@@ -16,108 +15,108 @@ spec = do
     describe "compiled rank decoding" $ do
         it "decodes every rank of a mapped source"
             $ decodesEveryRankExactly
-            $ show <$> Core.elements [1 :: Int .. 5]
+            $ show <$> ECTAGen.elements [1 :: Int .. 5]
 
         it "decodes every rank of nested uniform frequencies"
             $ decodesEveryRankExactly
-            $ Core.frequency
-                [ (2, Core.elements "ab")
-                , (2, Core.frequency [(1, Core.elements "c"), (1, Core.elements "d")])
+            $ ECTAGen.frequency
+                [ (2, ECTAGen.elements "ab")
+                , (2, ECTAGen.frequency [(1, ECTAGen.elements "c"), (1, ECTAGen.elements "d")])
                 ]
 
         it "decodes every rank of an applicative product"
             $ decodesEveryRankExactly
-            $ (,) <$> Core.elements [1 :: Int, 2, 3] <*> Core.elements "ab"
+            $ (,) <$> ECTAGen.elements [1 :: Int, 2, 3] <*> ECTAGen.elements "ab"
 
         it "decodes every rank of a grouped ternary application tower" $ do
             let operations =
-                    Core.groupBy
+                    ECTAGen.groupBy
                         (\(_, key1, key2, key3, resultKey) -> key1 :* key2 :* key3 :-> resultKey)
-                        (Core.elements [("f", 0 :: Int, 0, 1, 0 :: Int), ("g", 0, 1, 1, 1), ("h", 1, 0, 0, 1)])
+                        (ECTAGen.elements [("f", 0 :: Int, 0, 1, 0 :: Int), ("g", 0, 1, 1, 1), ("h", 1, 0, 0, 1)])
                 family =
-                    Core.groupBy fst (Core.elements [(0 :: Int, "a"), (0, "b"), (1, "c")])
+                    ECTAGen.groupBy fst (ECTAGen.elements [(0 :: Int, "a"), (0, "b"), (1, "c")])
                 applied =
-                    Core.apply
+                    ECTAGen.apply
                         ((\(name, _, _, _, _) x y z -> name <> snd x <> snd y <> snd z) <$> operations)
                         (family :& family :& family :& ANil)
             decodesEveryRankExactly
-                $ Core.ungroup
-                $ Core.mapWithKey (,) applied
+                $ ECTAGen.ungroup
+                $ ECTAGen.mapWithKey (,) applied
 
         it "decodes every rank of a mixed-depth frequencies tower" $ do
             let atomsFamily =
-                    snd <$> Core.groupBy fst (Core.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
+                    snd <$> ECTAGen.groupBy fst (ECTAGen.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
                 operations =
-                    Core.groupBy
+                    ECTAGen.groupBy
                         (\(_, leftKey, rightKey, resultKey) -> leftKey :* rightKey :-> resultKey)
-                        (Core.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
+                        (ECTAGen.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
                 layer children =
-                    Core.apply
+                    ECTAGen.apply
                         ((\(name, _, _, _) left right -> name <> left <> right) <$> operations)
                         (children :& children :& ANil)
                 mixed =
-                    Core.frequencies
+                    ECTAGen.frequencies
                         [ (3, atomsFamily)
                         , (8, layer atomsFamily)
                         ]
-            decodesEveryRankExactly $ Core.ungroup mixed
+            decodesEveryRankExactly $ ECTAGen.ungroup mixed
 
         it "agrees with unrank on every enumerated non-uniform rank" $ do
             let generator :: ECTAGen.ECTAGen _
                 generator =
-                    Core.frequency
-                        [ (3, Core.elements [1 :: Int])
-                        , (1, Core.elements [2, 3])
+                    ECTAGen.frequency
+                        [ (3, ECTAGen.elements [1 :: Int])
+                        , (1, ECTAGen.elements [2, 3])
                         ]
-                sampled = runExact $ Core.lowerWithRankVia generator
+                sampled = runExact $ ECTAGen.lowerWithRankVia generator
             [() | (_, Left _) <- sampled] `shouldBe` []
-            [ Core.unrank generator rank == Right value
+            [ ECTAGen.unrank generator rank == Right value
               | (_, Right (rank, value)) <- sampled
               ]
                 `shouldSatisfy` and
 
         it "streams exactly the structurally smaller members in size order" $ do
             let atomsFamily =
-                    snd <$> Core.groupBy fst (Core.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
+                    snd <$> ECTAGen.groupBy fst (ECTAGen.elements [(0 :: Int, "x"), (0, "y"), (1, "z")])
                 operations =
-                    Core.groupBy
+                    ECTAGen.groupBy
                         (\(_, leftKey, rightKey, resultKey) -> leftKey :* rightKey :-> resultKey)
-                        (Core.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
-                mixed :: Core.ECTAGen String
+                        (ECTAGen.elements [("f", 0 :: Int, 0, 0), ("g", 0, 1, 1), ("h", 1, 0, 1)])
+                mixed :: ECTAGen.ECTAGen String
                 mixed =
-                    Core.ungroup $
-                        Core.frequencies
+                    ECTAGen.ungroup $
+                        ECTAGen.frequencies
                             [ (3, atomsFamily)
                             ,
                                 ( 8
-                                , Core.apply
+                                , ECTAGen.apply
                                     ((\(name, _, _, _) left right -> name <> left <> right) <$> operations)
                                     (atomsFamily :& atomsFamily :& ANil)
                                 )
                             ]
-            case Core.cardinality mixed of
+            case ECTAGen.cardinality mixed of
                 Left err -> expectationFailure $ show err
                 Right total -> do
                     let applicationRanks =
                             [ rank
                             | rank <- [0 .. total - 1]
-                            , Right value <- [Core.unrank mixed rank]
+                            , Right value <- [ECTAGen.unrank mixed rank]
                             , length value == 3
                             ]
                     case applicationRanks of
                         (firstApplication : _) -> do
-                            map snd (Core.smallerMembers mixed firstApplication)
+                            map snd (ECTAGen.smallerMembers mixed firstApplication)
                                 `shouldBe` ["x", "y", "z"]
-                            [ Core.unrank mixed rank == Right value
-                              | (rank, value) <- Core.smallerMembers mixed firstApplication
+                            [ ECTAGen.unrank mixed rank == Right value
+                              | (rank, value) <- ECTAGen.smallerMembers mixed firstApplication
                               ]
                                 `shouldSatisfy` and
                         [] -> expectationFailure "expected an application member"
 
         it "produces exactly the structural shrink candidates of a product" $
-            let pairs :: Core.ECTAGen (Int, Char)
-                pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
-             in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
+            let pairs :: ECTAGen.ECTAGen (Int, Char)
+                pairs = (,) <$> ECTAGen.elements [0 .. 3] <*> ECTAGen.elements "abcd"
+             in ECTAGen.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
 
         modifyMaxSuccess (const 200)
             $ it "replays sampled ranks below the Int cardinality boundary"

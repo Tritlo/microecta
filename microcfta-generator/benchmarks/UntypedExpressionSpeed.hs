@@ -8,7 +8,7 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.QuickCheck as FTA
+import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import Data.CFTA.Gen.UntypedExpressionLanguage (
     Expression,
     evaluate,
@@ -39,5 +39,5 @@ benchmark =
 prepare :: String -> Int -> IO (QC.Gen Expression)
 prepare "naive" depth = pure $ naiveExpressionGen depth
 prepare "bespoke" depth = pure $ handwrittenExpressionGen depth
-prepare "fta" depth = pure $ FTA.toGen $ expressionsAtDepth depth
+prepare "fta" depth = pure $ FTAGen.toGen $ expressionsAtDepth depth
 prepare engine _ = fail $ "unknown engine: " <> engine

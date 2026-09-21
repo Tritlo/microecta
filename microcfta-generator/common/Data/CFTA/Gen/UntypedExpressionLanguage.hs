@@ -24,7 +24,7 @@ import qualified Data.Tree as Tree
 import qualified Test.QuickCheck as QC
 
 import qualified Data.CFTA as Automaton
-import qualified Data.CFTA.Gen.QuickCheck as FTA
+import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 
 -- | Integer expressions with no explicit type annotation.
 data Expression
@@ -34,29 +34,29 @@ data Expression
     deriving (Eq, Ord, Show)
 
 -- | The two ground terms shared with the later examples.
-literals :: FTA.FTAGen String Expression
+literals :: FTAGen.FTAGen String Expression
 literals =
-    FTA.oneof
-        [ FTA.leaf (Literal 0) "zero"
-        , FTA.leaf (Literal 1) "one"
+    FTAGen.oneof
+        [ FTAGen.leaf (Literal 0) "zero"
+        , FTAGen.leaf (Literal 1) "one"
         ]
 
 -- | Add one ordinary binary-constructor layer.
-binaryLayer :: FTA.FTAGen String Expression -> FTA.FTAGen String Expression
+binaryLayer :: FTAGen.FTAGen String Expression -> FTAGen.FTAGen String Expression
 binaryLayer children =
-    FTA.oneof
-        [ FTA.node "add" $ FTA.do
+    FTAGen.oneof
+        [ FTAGen.node "add" $ FTAGen.do
             left <- children
             right <- children
-            FTA.pure $ Add left right
-        , FTA.node "multiply" $ FTA.do
+            FTAGen.pure $ Add left right
+        , FTAGen.node "multiply" $ FTAGen.do
             left <- children
             right <- children
-            FTA.pure $ Multiply left right
+            FTAGen.pure $ Multiply left right
         ]
 
 -- | Full expression trees with exactly the requested constructor depth.
-expressionsAtDepth :: Int -> FTA.FTAGen String Expression
+expressionsAtDepth :: Int -> FTAGen.FTAGen String Expression
 expressionsAtDepth depth
     | depth <= 0 = literals
     | otherwise = binaryLayer $ expressionsAtDepth (depth - 1)

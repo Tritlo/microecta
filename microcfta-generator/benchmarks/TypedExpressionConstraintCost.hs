@@ -9,12 +9,12 @@ module Main (main) where
 
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTA
+import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage (
     compileEqualityExpressionsAtDepth,
     solverDeclarations,
  )
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (
     Expression (..),
     TypedExpression (..),
@@ -43,21 +43,21 @@ benchmark =
 
 -- | Construct one exact-depth generator using the selected constraint engine.
 prepare :: String -> Int -> IO (QC.Gen TypedExpression)
-prepare "ecta" depth = pure $ ECTA.toGen $ expressionGenAtDepth depth
+prepare "ecta" depth = pure $ ECTAGen.toGen $ expressionGenAtDepth depth
 prepare "lta-eq" depth =
     withZ3 solverDeclarations $ \solver -> do
         result <- compileEqualityExpressionsAtDepth solver depth
         case result of
             Left err -> fail $ "could not compile equality-refined LTA: " <> show err
             Right compiled
-                | LTA.cardinality compiled == Right (expressionTotal depth) ->
-                    pure $ LTA.toGen compiled
+                | LTAGen.cardinality compiled == Right (expressionTotal depth) ->
+                    pure $ LTAGen.toGen compiled
                 | otherwise ->
                     fail $
                         "LTA cardinality mismatch: expected "
                             <> show (expressionTotal depth)
                             <> ", got "
-                            <> show (LTA.cardinality compiled)
+                            <> show (LTAGen.cardinality compiled)
 prepare engine _ = fail $ "unknown engine: " <> engine
 
 -- | Exact number of well-typed expressions across both result types.

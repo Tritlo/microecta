@@ -15,7 +15,7 @@ import Text.Read (readMaybe)
 
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (massesByRank, ranks, termsOf, values)
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Refinement (
@@ -49,20 +49,20 @@ unusedEntailment :: Entailment
 unusedEntailment = Entailment $ \_ _ -> fail "unexpected solver call"
 
 -- | Compile a bounded language or report the compiler error.
-compileBounded :: Entailment -> Int -> Automaton -> IO (LTA.LTAGen (Tree.Tree LiquidSymbol))
+compileBounded :: Entailment -> Int -> Automaton -> IO (LTAGen.LTAGen (Tree.Tree LiquidSymbol))
 compileBounded solver depth automaton =
-    LTA.compile solver (LTA.fromAutomatonUpToDepth depth automaton) >>= either (fail . show) pure
+    LTAGen.compile solver (LTAGen.fromAutomatonUpToDepth depth automaton) >>= either (fail . show) pure
 
 -- | Compile a bounded language and fold each selected term into a value.
 compileBoundedWith ::
-    Entailment -> (Symbol -> Refinement -> [a] -> a) -> Int -> Automaton -> IO (Either LTA.GenError (LTA.LTAGen a))
+    Entailment -> (Symbol -> Refinement -> [a] -> a) -> Int -> Automaton -> IO (Either LTAGen.GenError (LTAGen.LTAGen a))
 compileBoundedWith solver build depth automaton =
-    LTA.compile solver $
+    LTAGen.compile solver $
         Tree.foldTree (\(LiquidSymbol symbol refinement) -> build symbol refinement)
-            <$> LTA.fromAutomatonUpToDepth depth automaton
+            <$> LTAGen.fromAutomatonUpToDepth depth automaton
 
 -- | The replay rank of one accepted term.
-rankOf :: LTA.LTAGen a -> Tree.Tree LiquidSymbol -> IO Integer
+rankOf :: LTAGen.LTAGen a -> Tree.Tree LiquidSymbol -> IO Integer
 rankOf compiled term = case elemIndex term (termsOf compiled) of
     Just rank -> pure $ toInteger rank
     Nothing -> fail $ "term is not in the compiled language: " <> show term
@@ -74,17 +74,17 @@ termSize = length . Tree.flatten
 {- | Check that structural shrinks stay in the language at smaller ranks, and
 that every member of smaller size is accepted and strictly smaller.
 -}
-checkShrinks :: Entailment -> Automaton -> LTA.LTAGen a -> IO ()
+checkShrinks :: Entailment -> Automaton -> LTAGen.LTAGen a -> IO ()
 checkShrinks solver automaton compiled =
     forM_ (zip (ranks compiled) (termsOf compiled)) $ \(rank, source) -> do
-        let targets = LTA.shrinkRank compiled rank
+        let targets = LTAGen.shrinkRank compiled rank
         targets `shouldBe` nub targets
         targets `shouldSatisfy` all (\target -> target >= 0 && target < rank)
-        forM_ (LTA.smallerMembers compiled rank) $ \(target, _) -> do
+        forM_ (LTAGen.smallerMembers compiled rank) $ \(target, _) -> do
             let term = termsOf compiled !! fromInteger target
             accepts solver automaton term >>= (`shouldBe` Yes)
             termSize term `shouldSatisfy` (< termSize source)
-        length (LTA.smallerMembers compiled rank) `shouldSatisfy` (< length (ranks compiled))
+        length (LTAGen.smallerMembers compiled rank) `shouldSatisfy` (< length (ranks compiled))
 
 -- | An unrefined, unconstrained transition.
 plain :: Symbol -> [Automaton] -> Transition
@@ -129,8 +129,8 @@ optionalDescendant guard =
     Node [Transition "root" true [Node [plain "a" [], plain "wrap" [Node [plain "a" []]]]] $ semanticConstraint guard]
 
 -- | Force the retained support graph without inspecting generated values.
-supportNodes :: LTA.LTAGen a -> Int
-supportNodes = either (const 0) ECTA.nodeCount . LTA.support
+supportNodes :: LTAGen.LTAGen a -> Int
+supportNodes = either (const 0) ECTA.nodeCount . LTAGen.support
 
 spec :: Spec
 spec = do
@@ -146,13 +146,13 @@ spec = do
                         | Datatype.constructorName constructor == "(,)" =
                             (true, semanticConstraint $ Satisfies (path [1]) (Refinement.value .>. integer 0))
                         | otherwise = (true, unconstrainedConstraint)
-                    source = LTA.fromDatatypeUpToDepth 2 $ Datatype.annotateDatatype annotate datatype
+                    source = LTAGen.fromDatatypeUpToDepth 2 $ Datatype.annotateDatatype annotate datatype
                     expected = Nothing : [Just (numerator, denominator) | numerator <- [0, 1, 2], denominator <- [1, 2]]
-                compiled <- LTA.compile solver source >>= either (fail . show) pure
-                LTA.cardinality compiled `shouldBe` Right 7
+                compiled <- LTAGen.compile solver source >>= either (fail . show) pure
+                LTAGen.cardinality compiled `shouldBe` Right 7
                 sort (values compiled) `shouldBe` expected
                 forM_ (zip (ranks compiled) (termsOf compiled)) $ \(rank, term) ->
-                    forM_ (LTA.smallerMembers compiled rank) $ \(target, smaller) -> do
+                    forM_ (LTAGen.smallerMembers compiled rank) $ \(target, smaller) -> do
                         smaller `shouldSatisfy` (`elem` expected)
                         termSize (termsOf compiled !! fromInteger target) `shouldSatisfy` (< termSize term)
 
@@ -160,33 +160,33 @@ spec = do
         it "reads an automaton the engine can count without the solver" $ do
             let boolean = pairsWith $ semanticConstraint $ Not same
             forM_ [(2, recursiveLists), (1, ambiguousTerms), (2, boolean)] $ \(depth, automaton) -> do
-                let source = LTA.fromAutomatonUpToDepth depth automaton
-                void (LTA.support source) `shouldBe` Right ()
-                compiled <- LTA.compile unusedEntailment source >>= either (fail . show) pure
+                let source = LTAGen.fromAutomatonUpToDepth depth automaton
+                void (LTAGen.support source) `shouldBe` Right ()
+                compiled <- LTAGen.compile unusedEntailment source >>= either (fail . show) pure
                 termsOf compiled `shouldBe` termsOf source
                 denotationAtMost unusedEntailment depth automaton `shouldDenote` termsOf compiled
                 values compiled `shouldBe` termsOf compiled
 
         it "defers an automaton whose guards need the solver" $ do
-            let source = LTA.fromAutomatonUpToDepth 2 $ pairsWith $ semanticConstraint $ Satisfies (path [0]) true
-            void (LTA.support source) `shouldBe` Left LTA.SourceRequiresCompilation
-            LTA.cardinality source `shouldBe` Left LTA.SourceRequiresCompilation
-            compiled <- LTA.compile (Entailment $ \_ _ -> pure Yes) source >>= either (fail . show) pure
-            LTA.cardinality compiled `shouldBe` Right 9
+            let source = LTAGen.fromAutomatonUpToDepth 2 $ pairsWith $ semanticConstraint $ Satisfies (path [0]) true
+            void (LTAGen.support source) `shouldBe` Left LTAGen.SourceRequiresCompilation
+            LTAGen.cardinality source `shouldBe` Left LTAGen.SourceRequiresCompilation
+            compiled <- LTAGen.compile (Entailment $ \_ _ -> pure Yes) source >>= either (fail . show) pure
+            LTAGen.cardinality compiled `shouldBe` Right 9
 
         it "keeps unique imported terms and repeated pool draws with their weights" $ do
             imported <- compileBounded unusedEntailment 1 ambiguousTerms
             let weighted =
-                    LTA.frequency
-                        [ (2, LTA.pool [LTA.Refined (7 :: Int) "draw" true, LTA.Refined 7 "draw" true])
-                        , (5, LTA.leaf 7 "other" true)
+                    LTAGen.frequency
+                        [ (2, LTAGen.pool [LTAGen.Refined (7 :: Int) "draw" true, LTAGen.Refined 7 "draw" true])
+                        , (5, LTAGen.leaf 7 "other" true)
                         ]
-            let source = fmap (const (7 :: Int)) $ LTA.fromAutomatonUpToDepth 1 ambiguousTerms
+            let source = fmap (const (7 :: Int)) $ LTAGen.fromAutomatonUpToDepth 1 ambiguousTerms
                 generator =
-                    LTA.node "combined" unconstrainedConstraint $
+                    LTAGen.node "combined" unconstrainedConstraint $
                         (,) <$> source <*> weighted
-            compiled <- LTA.compile unusedEntailment generator >>= either (fail . show) pure
-            LTA.cardinality compiled `shouldBe` Right 9
+            compiled <- LTAGen.compile unusedEntailment generator >>= either (fail . show) pure
+            LTAGen.cardinality compiled `shouldBe` Right 9
             values compiled `shouldBe` replicate 9 (7, 7)
             map snd (massesByRank compiled) `shouldBe` concat (replicate 3 [1 % 21, 1 % 21, 5 % 21])
             termsOf compiled
@@ -197,42 +197,42 @@ spec = do
             length (nub $ termsOf compiled) `shouldBe` 6
 
         it "retains an ordinary alternative when an imported bound is empty" $
-            forM_ [LTA.fromAutomatonUpToDepth 0 EmptyNode, LTA.fromAutomatonUpToDepth (-1) recursiveLists] $ \source -> do
-                emptyResult <- LTA.compile unusedEntailment source
-                (emptyResult >>= LTA.cardinality) `shouldBe` Left LTA.EmptyGenerator
+            forM_ [LTAGen.fromAutomatonUpToDepth 0 EmptyNode, LTAGen.fromAutomatonUpToDepth (-1) recursiveLists] $ \source -> do
+                emptyResult <- LTAGen.compile unusedEntailment source
+                (emptyResult >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
                 let alternatives =
-                        LTA.oneof [fmap (const (7 :: Int)) source, LTA.leaf 9 "ordinary" true]
-                compiled <- LTA.compile unusedEntailment alternatives >>= either (fail . show) pure
-                LTA.cardinality compiled `shouldBe` Right 1
-                LTA.unrank compiled 0 `shouldBe` Right 9
+                        LTAGen.oneof [fmap (const (7 :: Int)) source, LTAGen.leaf 9 "ordinary" true]
+                compiled <- LTAGen.compile unusedEntailment alternatives >>= either (fail . show) pure
+                LTAGen.cardinality compiled `shouldBe` Right 1
+                LTAGen.unrank compiled 0 `shouldBe` Right 9
 
         it "skips a rejected deferred import and keeps the branch weights" $ do
             let rejected =
-                    LTA.node "dead" Bottom
+                    LTAGen.node "dead" Bottom
                         $ fmap (const (7 :: Int))
-                        $ LTA.fromAutomatonUpToDepth 1 ambiguousTerms
+                        $ LTAGen.fromAutomatonUpToDepth 1 ambiguousTerms
             let alternatives =
-                    LTA.frequency
-                        [ (3, LTA.leaf 9 "ordinary" true)
+                    LTAGen.frequency
+                        [ (3, LTAGen.leaf 9 "ordinary" true)
                         , (11, rejected)
-                        , (5, LTA.leaf 8 "later" true)
+                        , (5, LTAGen.leaf 8 "later" true)
                         ]
             compiled <-
-                LTA.compile unusedEntailment alternatives
+                LTAGen.compile unusedEntailment alternatives
                     >>= either (fail . show) pure
-            LTA.cardinality compiled `shouldBe` Right 2
+            LTAGen.cardinality compiled `shouldBe` Right 2
             values compiled `shouldBe` [9, 8]
             massesByRank compiled `shouldBe` [(0, 3 % 8), (1, 5 % 8)]
 
         it "skips deferred imports beside a known-empty child in either position" $ do
-            let deferred = LTA.fromAutomatonUpToDepth 1 ambiguousTerms
-            forM_ [LTA.pool [], LTA.fromAutomatonUpToDepth (-1) ambiguousTerms] $ \emptySource ->
+            let deferred = LTAGen.fromAutomatonUpToDepth 1 ambiguousTerms
+            forM_ [LTAGen.pool [], LTAGen.fromAutomatonUpToDepth (-1) ambiguousTerms] $ \emptySource ->
                 forM_ [(deferred, emptySource), (emptySource, deferred)] $ \(left, right) -> do
                     let generator =
-                            LTA.node "empty-pair" Top $
+                            LTAGen.node "empty-pair" Top $
                                 (,) <$> left <*> right
-                    result <- LTA.compile unusedEntailment generator
-                    (result >>= LTA.cardinality) `shouldBe` Left LTA.EmptyGenerator
+                    result <- LTAGen.compile unusedEntailment generator
+                    (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
 
         it "checks root, nested, and missing observations across an imported boundary" $
             withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
@@ -251,10 +251,10 @@ spec = do
                         , (Or [Top, absent], 3)
                         ]
                 forM_ guards $ \(guard, count) -> do
-                    let generator = LTA.node "host" (semanticConstraint guard) $ LTA.fromAutomatonUpToDepth 1 imported
+                    let generator = LTAGen.node "host" (semanticConstraint guard) $ LTAGen.fromAutomatonUpToDepth 1 imported
                         oracle = Node [Transition "host" true [imported] $ semanticConstraint guard]
-                    compiled <- LTA.compile solver generator >>= either (fail . show) pure
-                    LTA.cardinality compiled `shouldBe` Right count
+                    compiled <- LTAGen.compile solver generator >>= either (fail . show) pure
+                    LTAGen.cardinality compiled `shouldBe` Right count
                     denotationAtMost solver 2 oracle `shouldDenote` termsOf compiled
 
         it "reports unsupported scoped equality while retaining the core denotation" $ do
@@ -268,51 +268,52 @@ spec = do
                 let scoped = Substitute [Substitution (path [0]) (path [1])] guard
                     expected = [Tree.Node (LiquidSymbol "pair" true) [left, right] | (left, right) <- pairs]
                     automaton = pairsWith $ semanticConstraint scoped
-                    source = LTA.fromAutomatonUpToDepth 2 automaton
+                    source = LTAGen.fromAutomatonUpToDepth 2 automaton
                 denotationAtMost unusedEntailment 2 automaton `shouldDenote` expected
-                result <- LTA.compile unusedEntailment source
+                result <- LTAGen.compile unusedEntailment source
                 case result of
-                    Left (LTA.ResidualGuard residual) -> residual `shouldBe` scoped
+                    Left (LTAGen.ResidualGuard residual) -> residual `shouldBe` scoped
                     Left err -> expectationFailure $ "unexpected scoped equality failure: " <> show err
                     Right _ -> expectationFailure "an unsupported scoped equality was silently compiled"
 
         it "keeps a large imported language compact without forcing source values" $ do
             result <- timeout 60000000 $ do
-                let source = fmap (const $ error "imported value was forced") $ LTA.fromAutomatonUpToDepth 70 recursiveLists
-                    ordinary = fmap (const $ error "ordinary value was forced") $ LTA.leaf () "ordinary" true
+                let source = fmap (const $ error "imported value was forced") $ LTAGen.fromAutomatonUpToDepth 70 recursiveLists
+                    ordinary = fmap (const $ error "ordinary value was forced") $ LTAGen.leaf () "ordinary" true
                     generator =
-                        LTA.node "combined" unconstrainedConstraint $
+                        LTAGen.node "combined" unconstrainedConstraint $
                             (\_ _ -> (42 :: Int)) <$> source <*> ordinary
                     total = 2 ^ (71 :: Int) - 1
-                compiled <- LTA.compile unusedEntailment generator >>= either (fail . show) pure
-                LTA.cardinality compiled `shouldBe` Right total
+                compiled <- LTAGen.compile unusedEntailment generator >>= either (fail . show) pure
+                LTAGen.cardinality compiled `shouldBe` Right total
                 supportNodes compiled `shouldSatisfy` (\count -> count > 0 && count < 500)
-                LTA.unrank compiled 0 `shouldBe` Right 42
-                LTA.unrank compiled (total - 1) `shouldBe` Right 42
+                LTAGen.unrank compiled 0 `shouldBe` Right 42
+                LTAGen.unrank compiled (total - 1) `shouldBe` Right 42
             result `shouldBe` Just ()
 
         it "maps a shared depth-70 singleton beside an ordinary child without expanding its witness" $ do
             result <- timeout 60000000 $ do
                 let automaton = sharedBinaryTerm unconstrainedConstraint
                     rootSymbol (Tree.Node (LiquidSymbol symbol _) _) = symbol
-                    source = fmap rootSymbol $ LTA.fromAutomatonUpToDepth 71 automaton
+                    source = fmap rootSymbol $ LTAGen.fromAutomatonUpToDepth 71 automaton
                     generator =
-                        LTA.node "combined" unconstrainedConstraint $
-                            (,) <$> source <*> LTA.leaf (7 :: Int) "ordinary" true
-                compiled <- LTA.compile unusedEntailment generator >>= either (fail . show) pure
-                LTA.cardinality compiled `shouldBe` Right 1
+                        LTAGen.node "combined" unconstrainedConstraint $
+                            (,) <$> source <*> LTAGen.leaf (7 :: Int) "ordinary" true
+                compiled <- LTAGen.compile unusedEntailment generator >>= either (fail . show) pure
+                LTAGen.cardinality compiled `shouldBe` Right 1
                 supportNodes compiled `shouldSatisfy` (\count -> count > 0 && count < 500)
-                LTA.unrank compiled 0 `shouldBe` Right ("root", 7)
+                LTAGen.unrank compiled 0 `shouldBe` Right ("root", 7)
             result `shouldBe` Just ()
 
         it "counts positive and negative equality without expanding huge terms" $ do
             forM_
                 [ (equalityConstraint $ mkEqConstraints [[path [0], path [1]]], Right 1)
-                , (semanticConstraint $ Not same, Left LTA.EmptyGenerator)
+                , (semanticConstraint $ Not same, Left LTAGen.EmptyGenerator)
                 ]
                 $ \(constraint, expected) -> do
-                    result <- timeout 60000000 $ LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth 71 $ sharedBinaryTerm constraint
-                    fmap (>>= LTA.cardinality) result `shouldBe` Just expected
+                    result <-
+                        timeout 60000000 $ LTAGen.compile unusedEntailment $ LTAGen.fromAutomatonUpToDepth 71 $ sharedBinaryTerm constraint
+                    fmap (>>= LTAGen.cardinality) result `shouldBe` Just expected
 
     describe "bounded symbolic automaton compilation" $ do
         it "counts and replays exponential nested equality and disequality languages" $ do
@@ -322,22 +323,22 @@ spec = do
                 completed <- timeout 20000000 $ do
                     let automaton = largeBoxedLists $ semanticConstraint guard
                     compiled <- compileBounded unusedEntailment 71 automaton
-                    LTA.cardinality compiled `shouldBe` Right expected
+                    LTAGen.cardinality compiled `shouldBe` Right expected
                     forM_ [0, expected - 1] $ \rank -> do
-                        generated <- either (fail . show) pure $ LTA.unrank compiled rank
+                        generated <- either (fail . show) pure $ LTAGen.unrank compiled rank
                         accepts unusedEntailment automaton generated >>= (`shouldBe` Yes)
                 completed `shouldBe` Just ()
 
         it "groups nested observations of an exponential equality import without decoding values" $ do
             completed <- timeout 20000000 $ do
                 let automaton = largeBoxedLists $ equalityConstraint $ mkEqConstraints [[path [0, 0], path [1, 0]]]
-                    source = fmap (const $ error "symbolic grouping decoded a source value") $ LTA.fromAutomatonUpToDepth 71 automaton
-                    generator = LTA.node "host" (semanticConstraint $ Satisfies (path [0, 0, 0, 0]) true) $ fmap (const (42 :: Int)) source
+                    source = fmap (const $ error "symbolic grouping decoded a source value") $ LTAGen.fromAutomatonUpToDepth 71 automaton
+                    generator = LTAGen.node "host" (semanticConstraint $ Satisfies (path [0, 0, 0, 0]) true) $ fmap (const (42 :: Int)) source
                     solver = Entailment $ \_ _ -> pure Yes
-                compiled <- LTA.compile solver generator >>= either (fail . show) pure
-                LTA.cardinality compiled `shouldBe` Right (2 ^ (70 :: Int) - 2)
+                compiled <- LTAGen.compile solver generator >>= either (fail . show) pure
+                LTAGen.cardinality compiled `shouldBe` Right (2 ^ (70 :: Int) - 2)
                 forM_ [0, 2 ^ (70 :: Int) - 3] $ \rank ->
-                    LTA.unrank compiled rank `shouldBe` Right 42
+                    LTAGen.unrank compiled rank `shouldBe` Right 42
             completed `shouldBe` Just ()
 
         it "preserves missing-path semantics in reflexive Boolean equality" $ do
@@ -345,13 +346,13 @@ spec = do
             forM_ [reflexive, Not reflexive] $ \guard -> do
                 let automaton = optionalDescendant guard
                 compiled <- compileBounded unusedEntailment 2 automaton
-                LTA.cardinality compiled `shouldBe` Right 1
+                LTAGen.cardinality compiled `shouldBe` Right 1
                 denotationAtMost unusedEntailment 2 automaton `shouldDenote` termsOf compiled
 
         it "matches the bounded denotation of recursive two-atom lists" $
             forM_ [(0, 1), (1, 3), (2, 7)] $ \(depth, count) -> do
                 compiled <- compileBounded unusedEntailment depth recursiveLists
-                LTA.cardinality compiled `shouldBe` Right count
+                LTAGen.cardinality compiled `shouldBe` Right count
                 denotationAtMost unusedEntailment depth recursiveLists `shouldDenote` termsOf compiled
                 repeated <- compileBounded unusedEntailment depth recursiveLists
                 termsOf repeated `shouldBe` termsOf compiled
@@ -360,28 +361,28 @@ spec = do
         it "counts mutually recursive and unproductive nodes at the bound" $ do
             let productive = Mu $ \outer -> Node [plain "nil" [], plain "left" [Node [plain "right" [outer]]]]
             compiled <- compileBounded unusedEntailment 2 productive
-            LTA.cardinality compiled `shouldBe` Right 2
+            LTAGen.cardinality compiled `shouldBe` Right 2
             let unproductive = Mu $ \self -> Node [plain "loop" [self]]
-            result <- LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth 3 unproductive
-            (result >>= LTA.cardinality) `shouldBe` Left LTA.EmptyGenerator
+            result <- LTAGen.compile unusedEntailment $ LTAGen.fromAutomatonUpToDepth 3 unproductive
+            (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
 
         it "treats a negative bound as an empty language" $ do
-            result <- LTA.compile unusedEntailment $ LTA.fromAutomatonUpToDepth (-1) recursiveLists
-            (result >>= LTA.cardinality) `shouldBe` Left LTA.EmptyGenerator
+            result <- LTAGen.compile unusedEntailment $ LTAGen.fromAutomatonUpToDepth (-1) recursiveLists
+            (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
 
         it "deduplicates accepting runs and preserves replay order" $ do
             compiled <- compileBounded unusedEntailment 1 ambiguousTerms
-            LTA.cardinality compiled `shouldBe` Right 3
+            LTAGen.cardinality compiled `shouldBe` Right 3
             denotationAtMost unusedEntailment 1 ambiguousTerms `shouldDenote` termsOf compiled
             checkShrinks unusedEntailment ambiguousTerms compiled
             mapped <- compileBoundedWith unusedEntailment (\_ _ _ -> ()) 1 ambiguousTerms
-            (mapped >>= LTA.cardinality) `shouldBe` Right 3
+            (mapped >>= LTAGen.cardinality) `shouldBe` Right 3
             fmap termsOf mapped `shouldBe` Right (termsOf compiled)
 
         it "retains distinct refinements when symbols and values coincide" $ do
             let automaton = Node [plain "a" [], Transition "a" (variable "v" .==. (0 :: Int)) [] unconstrainedConstraint]
             result <- compileBoundedWith unusedEntailment (\_ _ _ -> ()) 0 automaton
-            (result >>= LTA.cardinality) `shouldBe` Right 2
+            (result >>= LTAGen.cardinality) `shouldBe` Right 2
 
         it "handles negated and disjunctive equality symbolically" $
             forM_ [Not same, Or [same, Not same]] $ \guard -> do
@@ -393,21 +394,21 @@ spec = do
         it "keeps both siblings equal when shrinking positive equality" $ do
             let automaton = pairsWith $ equalityConstraint $ mkEqConstraints [[path [0], path [1]]]
             compiled <- compileBounded unusedEntailment 2 automaton
-            LTA.cardinality compiled `shouldBe` Right 3
+            LTAGen.cardinality compiled `shouldBe` Right 3
             checkShrinks unusedEntailment automaton compiled
             wrappedPair <-
                 rankOf compiled
                     $ Tree.Node (LiquidSymbol "pair" true)
                     $ replicate 2
                     $ Tree.Node (LiquidSymbol "wrap" true) [Tree.Node (LiquidSymbol "a" true) []]
-            LTA.smallerMembers compiled wrappedPair `shouldSatisfy` (not . null)
+            LTAGen.smallerMembers compiled wrappedPair `shouldSatisfy` (not . null)
 
         it "evaluates absent paths inside negation and disjunction" $
             forM_ [(Not missing, 1), (Or [Top, missing], 2)] $ \(guard, count) -> do
                 let automaton = optionalDescendant guard
                     solver = Entailment $ \_ _ -> pure Yes
                 compiled <- compileBounded solver 2 automaton
-                LTA.cardinality compiled `shouldBe` Right count
+                LTAGen.cardinality compiled `shouldBe` Right count
                 denotationAtMost solver 2 automaton `shouldDenote` termsOf compiled
 
         it "reports unavailable compound actual identities without changing the core language" $
@@ -423,16 +424,16 @@ spec = do
                                 semanticConstraint guard
                             ]
                 denotationAtMost solver 2 automaton >>= (\result -> fmap length result `shouldBe` Right 3)
-                result <- LTA.compile solver $ LTA.fromAutomatonUpToDepth 2 automaton
+                result <- LTAGen.compile solver $ LTAGen.fromAutomatonUpToDepth 2 automaton
                 case result of
-                    Left (LTA.ResidualGuard residual) -> residual `shouldBe` guard
+                    Left (LTAGen.ResidualGuard residual) -> residual `shouldBe` guard
                     Left err -> expectationFailure $ show err
                     Right _ -> expectationFailure "unavailable compound identity was silently compiled"
 
         it "reports an undecidable full-term guard" $ do
             let automaton = pairsWith $ semanticConstraint $ Satisfies (path [0]) true
-            result <- LTA.compile (Entailment $ \_ _ -> pure Unknown) $ LTA.fromAutomatonUpToDepth 2 automaton
-            (result >>= LTA.cardinality) `shouldBe` Left LTA.SolverUnknown
+            result <- LTAGen.compile (Entailment $ \_ _ -> pure Unknown) $ LTAGen.fromAutomatonUpToDepth 2 automaton
+            (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.SolverUnknown
 
         it "uses the solver only during compilation" $ do
             calls <- newIORef (0 :: Int)
@@ -442,7 +443,7 @@ spec = do
             before <- readIORef calls
             before `shouldSatisfy` (> 0)
             length (termsOf compiled) `shouldBe` 9
-            length (concatMap (LTA.shrinkRank compiled) [0 .. 8]) `shouldSatisfy` (> 0)
+            length (concatMap (LTAGen.shrinkRank compiled) [0 .. 8]) `shouldSatisfy` (> 0)
             readIORef calls >>= (`shouldBe` before)
 
         it "keeps bounded shared graphs compact without forcing a huge witness" $ do
@@ -450,9 +451,9 @@ spec = do
             compiled <-
                 compileBoundedWith unusedEntailment (\symbol _ _ -> symbol) 71 automaton
                     >>= either (fail . show) pure
-            LTA.cardinality compiled `shouldBe` Right 1
-            LTA.unrank compiled 0 `shouldBe` Right "root"
-            LTA.shrinkRank compiled 0 `shouldBe` []
+            LTAGen.cardinality compiled `shouldBe` Right 1
+            LTAGen.unrank compiled 0 `shouldBe` Right "root"
+            LTAGen.shrinkRank compiled 0 `shouldBe` []
 
         it "orders the ranks of a shared graph by its explicit view" $ do
             let automaton = Node [plain "root" [forks !! 2]]

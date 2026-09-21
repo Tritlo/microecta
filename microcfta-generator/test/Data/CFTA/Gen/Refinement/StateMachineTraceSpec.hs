@@ -6,7 +6,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatis
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
 import Data.CFTA.Gen.Refinement.TestSupport (ranks, termsOf, values)
 import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
@@ -14,13 +14,13 @@ import Data.CFTA.Refinement (LiquidSymbol (LiquidSymbol))
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
 -- | Compile one trace language with the symbolic model environment.
-compileOrFail :: LTA.LTAGen a -> IO (LTA.LTAGen a)
+compileOrFail :: LTAGen.LTAGen a -> IO (LTAGen.LTAGen a)
 compileOrFail generator =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver ->
         Support.compileOrFail solver generator
 
 -- | Compile the automaton-level flagship path with the symbolic model.
-compileTraceOrFail :: Int -> IO (LTA.LTAGen Trace)
+compileTraceOrFail :: Int -> IO (LTAGen.LTAGen Trace)
 compileTraceOrFail traceLength =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
         compileTracesOfLength solver traceLength >>= Support.rightOrFail
@@ -30,7 +30,7 @@ spec =
     describe "liquid typed stack-machine traces" $ do
         it "matches the independent trace counts through length four" $ do
             compiled <- traverse compileTraceOrFail [1 .. 4]
-            map LTA.cardinality compiled
+            map LTAGen.cardinality compiled
                 `shouldBe` [Right $ traceCount length_ (StackState []) | length_ <- [1 .. 4]]
 
         it "counts the deeper benchmark language without enumerating traces" $
@@ -43,21 +43,21 @@ spec =
 
         it "compiles the qualified-do surface beyond the old length-six wall" $ do
             compiled <- compileTraceOrFail 10
-            LTA.cardinality compiled `shouldBe` Right (traceCount 10 (StackState []))
+            LTAGen.cardinality compiled `shouldBe` Right (traceCount 10 (StackState []))
 
         it "retains valid structural shrinks from the relational ECTA plan" $ do
             compiled <- compileTraceOrFail 3
             let candidates =
                     [ candidate
                     | source <- ranks compiled
-                    , candidate <- LTA.shrinkRank compiled source
+                    , candidate <- LTAGen.shrinkRank compiled source
                     ]
             candidates `shouldSatisfy` not . null
             candidates `shouldSatisfy` all (`elem` ranks compiled)
             let shrunk =
                     [ member
                     | candidate <- candidates
-                    , Right member <- [LTA.unrank compiled candidate]
+                    , Right member <- [LTAGen.unrank compiled candidate]
                     ]
             shrunk `shouldSatisfy` all traceIsValid
 
@@ -65,13 +65,13 @@ spec =
             withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
                 automaton <- compileTraceAutomaton solver 4 >>= Support.rightOrFail
                 surface <- compileTracesOfLength solver 4 >>= Support.rightOrFail
-                LTA.cardinality automaton `shouldBe` LTA.cardinality surface
+                LTAGen.cardinality automaton `shouldBe` LTAGen.cardinality surface
                 Set.fromList (values automaton) `shouldBe` Set.fromList (values surface)
 
         it "retains the dependent command sequences and rejects ill-typed ones" $ do
             compiled <- compileTraceOrFail 3
-            LTA.cardinality compiled `shouldBe` Right 132
-            LTA.cardinality compiled `shouldBe` Right (traceCount 3 (StackState []))
+            LTAGen.cardinality compiled `shouldBe` Right 132
+            LTAGen.cardinality compiled `shouldBe` Right (traceCount 3 (StackState []))
             let sequences = Set.fromList $ map (map eventCommand . traceEvents) $ values compiled
             sequences `shouldSatisfy` Set.member [Push (IntValue 0), Push (IntValue 1), Add]
             sequences `shouldSatisfy` Set.member [Push (BoolValue False), Push (BoolValue True), And]
@@ -103,7 +103,7 @@ spec =
                     ]
             case lengthThreeRanks of
                 source : _ -> do
-                    let shrunk = map snd $ LTA.smallerMembers compiled source
+                    let shrunk = map snd $ LTAGen.smallerMembers compiled source
                     shrunk `shouldSatisfy` any ((< 3) . length . traceEvents)
                     shrunk `shouldSatisfy` all traceIsValid
                 [] -> expectationFailure "no accepted three-step trace"
@@ -112,7 +112,7 @@ spec =
             compiled <- compileOrFail $ tracesUpTo 3
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 200} $
-                    LTA.forAll compiled $ \trace ->
+                    LTAGen.forAll compiled $ \trace ->
                         QC.counterexample (show trace) $
                             replayTrace trace QC.=== Just (traceFinalState trace)
             QC.isSuccess result `shouldBe` True

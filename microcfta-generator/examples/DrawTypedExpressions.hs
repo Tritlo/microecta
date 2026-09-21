@@ -11,7 +11,7 @@ import Data.Tree (Tree, drawTree, flatten)
 import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
-import qualified Data.CFTA.Gen.Equality as Gen
+import qualified Data.CFTA.Gen.Equality as ECTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (
     Type (TInt),
     depthByType,
@@ -28,23 +28,23 @@ main = do
     putStrLn "State names q0, q1, ... are local to each drawing."
     putStrLn "Locations use @alternative:child/..., with @root for the initial state."
     drawSupport "Exact depth 1: both result types" $ expressionGenAtDepth 1
-    drawSupport "Exact depth 1: TInt" $ Gen.atKey TInt $ depthByType 1
-    drawSupport "Recursive: TInt" $ Gen.atKey TInt recursiveExpressions
+    drawSupport "Exact depth 1: TInt" $ ECTAGen.atKey TInt $ depthByType 1
+    drawSupport "Recursive: TInt" $ ECTAGen.atKey TInt recursiveExpressions
 
 -- | Read retained diagnostic metadata and draw its state and transition labels.
-drawSupport :: String -> Gen.ECTAGen value -> IO ()
+drawSupport :: String -> ECTAGen.ECTAGen value -> IO ()
 drawSupport title generator = do
-    inspection <- either (fail . show) pure $ Gen.inspect generator
-    tree <- either (fail . show) pure $ ECTA.toTree $ Gen.inspectionGraph inspection
-    putStrLn $ "\n" <> title <> maybe "" (\name -> " [" <> Text.unpack name <> "]") (Gen.inspectionName inspection)
+    inspection <- either (fail . show) pure $ ECTAGen.inspect generator
+    tree <- either (fail . show) pure $ ECTA.toTree $ ECTAGen.inspectionGraph inspection
+    putStrLn $ "\n" <> title <> maybe "" (\name -> " [" <> Text.unpack name <> "]") (ECTAGen.inspectionName inspection)
     putStrLn $ drawTree $ renderTree tree
 
 -- | Assign local state names from typed labels and preserve all transitions.
 renderTree ::
     Tree
         ( Either
-            (FTA.StateView (ECTA.Node (Gen.InspectionSymbol Symbol) ECTA.EqConstraints))
-            (ECTA.Edge (Gen.InspectionSymbol Symbol) ECTA.EqConstraints)
+            (FTA.StateView (ECTA.Node (ECTAGen.InspectionSymbol Symbol) ECTA.EqConstraints))
+            (ECTA.Edge (ECTAGen.InspectionSymbol Symbol) ECTA.EqConstraints)
         ) ->
     Tree String
 renderTree tree = fmap (either renderState renderTransition) tree
@@ -64,7 +64,7 @@ renderViewPath [] = "root"
 renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
 
 -- | Keep the symbol and print equalities with child paths instead of trie internals.
-renderTransition :: ECTA.Edge (Gen.InspectionSymbol Symbol) ECTA.EqConstraints -> String
+renderTransition :: ECTA.Edge (ECTAGen.InspectionSymbol Symbol) ECTA.EqConstraints -> String
 renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equalities
   where
     equalities = case subsumptionOrderedEclasses $ ECTA.edgeConstraint transition of
@@ -76,15 +76,15 @@ renderTransition transition = renderSymbol (ECTA.edgeSymbol transition) <> equal
                 <> "]"
 
 -- | Prefer retained domain names and use short names for construction steps.
-renderSymbol :: Gen.InspectionSymbol Symbol -> String
-renderSymbol (Gen.InspectionSymbol _ (Just label)) = Text.unpack label
-renderSymbol (Gen.InspectionSymbol label Nothing) = case label of
-    Gen.Label (Symbol symbol) -> Text.unpack symbol
-    Gen.CenterKeyed -> "operation"
-    Gen.ArgKeyed -> "argument"
-    Gen.AtKey -> "select type"
-    Gen.Family -> "type alternative"
-    Gen.Choice index -> "choice " <> show index
+renderSymbol :: ECTAGen.InspectionSymbol Symbol -> String
+renderSymbol (ECTAGen.InspectionSymbol _ (Just label)) = Text.unpack label
+renderSymbol (ECTAGen.InspectionSymbol label Nothing) = case label of
+    ECTAGen.Label (Symbol symbol) -> Text.unpack symbol
+    ECTAGen.CenterKeyed -> "operation"
+    ECTAGen.ArgKeyed -> "argument"
+    ECTAGen.AtKey -> "select type"
+    ECTAGen.Family -> "type alternative"
+    ECTAGen.Choice index -> "choice " <> show index
     private -> "gen:" <> show private
 
 -- | Print a path as child indexes separated by dots.

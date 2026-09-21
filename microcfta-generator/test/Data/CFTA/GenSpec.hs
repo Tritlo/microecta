@@ -21,7 +21,7 @@ import qualified Test.QuickCheck as QC
 
 import Control.Monad (void)
 import qualified Data.CFTA as Automaton
-import qualified Data.CFTA.Gen.QuickCheck as FTA
+import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Common
@@ -63,14 +63,14 @@ data Growing a = GrowEnd | Grow (Growing [a])
 
 instance (Datatype.HasFTA a) => Datatype.HasFTA (Growing a)
 
-atoms :: FTA.FTAGen String Int
-atoms = FTA.oneof [FTA.leaf 0 "zero", FTA.leaf 1 "one"]
+atoms :: FTAGen.FTAGen String Int
+atoms = FTAGen.oneof [FTAGen.leaf 0 "zero", FTAGen.leaf 1 "one"]
 
-pairs :: FTA.FTAGen String (Int, Int)
-pairs = FTA.node "pair" $ FTA.do
+pairs :: FTAGen.FTAGen String (Int, Int)
+pairs = FTAGen.node "pair" $ FTAGen.do
     left <- atoms
     right <- atoms
-    FTA.pure (left, right)
+    FTAGen.pure (left, right)
 
 spec :: Spec
 spec = do
@@ -81,18 +81,18 @@ spec = do
                 Right datatype -> do
                     let expected = [Leaf False, Leaf True] <> [Fork (Leaf left) (Leaf right) | left <- [False, True], right <- [False, True]]
                         check generator = do
-                            FTA.cardinality generator `shouldBe` Right 6
-                            traverse (FTA.unrank generator) [0 .. 5] `shouldBe` Right expected
-                            traverse (FTA.termAt generator) [0 .. 5]
+                            FTAGen.cardinality generator `shouldBe` Right 6
+                            traverse (FTAGen.unrank generator) [0 .. 5] `shouldBe` Right expected
+                            traverse (FTAGen.termAt generator) [0 .. 5]
                                 `shouldBe` Right (map (fmap constructorSymbol . Datatype.encodeTerm) expected)
                             map (Datatype.decodeTerm . Datatype.encodeTerm) expected
                                 `shouldBe` map Just expected
-                            FTA.shrinkRank generator 5 `shouldSatisfy` (not . null)
-                            map (FTA.unrank generator) (FTA.shrinkRank generator 5)
+                            FTAGen.shrinkRank generator 5 `shouldSatisfy` (not . null)
+                            map (FTAGen.unrank generator) (FTAGen.shrinkRank generator 5)
                                 `shouldSatisfy` all (`elem` map Right (take 5 expected))
                     length (Automaton.states $ Datatype.datatypeFTA datatype) `shouldBe` 2
-                    check $ FTA.fromDatatypeUpToDepth 2 datatype
-                    check $ FTA.upToSize 5 $ FTA.fromDatatype datatype
+                    check $ FTAGen.fromDatatypeUpToDepth 2 datatype
+                    check $ FTAGen.upToSize 5 $ FTAGen.fromDatatype datatype
 
         it "retains record names, positions, and fully applied field types" $ do
             let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
@@ -107,8 +107,8 @@ spec = do
             case Datatype.deriveFTA @MutualA of
                 Left err -> expectationFailure $ show err
                 Right datatype ->
-                    let generator = FTA.fromDatatypeUpToDepth 3 datatype
-                     in traverse (FTA.unrank generator) [0 .. 3]
+                    let generator = FTAGen.fromDatatypeUpToDepth 3 datatype
+                     in traverse (FTAGen.unrank generator) [0 .. 3]
                             `shouldBe` Right [AEnd, AStep BEnd, AStep (BStep AEnd), AStep (BStep (AStep BEnd))]
             case Datatype.deriveFTA @[[Bool]] of
                 Left err -> expectationFailure $ show err
@@ -121,7 +121,7 @@ spec = do
             case Datatype.deriveFTAWith @(Maybe Int) $ Datatype.domain @Int [2, 1, 2] of
                 Left err -> expectationFailure $ show err
                 Right datatype ->
-                    traverse (FTA.unrank $ FTA.fromDatatypeUpToDepth 1 datatype) [0 .. 2]
+                    traverse (FTAGen.unrank $ FTAGen.fromDatatypeUpToDepth 1 datatype) [0 .. 2]
                         `shouldBe` Right [Nothing, Just 2, Just 1]
             void (Datatype.deriveFTAWith @Bool $ Datatype.domain [False])
                 `shouldBe` Left (Datatype.NonAtomicDomain $ typeRep $ Proxy @Bool)
@@ -130,39 +130,39 @@ spec = do
             case Datatype.deriveFTA @EmptyDatatype of
                 Left err -> expectationFailure $ show err
                 Right datatype ->
-                    FTA.cardinality (FTA.fromDatatypeUpToDepth 3 datatype)
-                        `shouldBe` Left FTA.EmptyGenerator
+                    FTAGen.cardinality (FTAGen.fromDatatypeUpToDepth 3 datatype)
+                        `shouldBe` Left FTAGen.EmptyGenerator
             void (Datatype.deriveFTA @(Growing Bool))
                 `shouldBe` Left (Datatype.NonRegularRecursion (typeRep $ Proxy @(Growing Bool)) (typeRep $ Proxy @(Growing [Bool])))
 
     describe "ordinary FTA generator syntax" $ do
         it "closes a single do binding as one direct constructor child" $ do
-            let boxed = FTA.node "box" $ FTA.do
+            let boxed = FTAGen.node "box" $ FTAGen.do
                     value <- atoms
-                    FTA.pure $ value + 1
-            FTA.cardinality boxed `shouldBe` Right 2
-            FTA.unrank boxed 1 `shouldBe` Right 2
-            FTA.termAt boxed 1
-                `shouldBe` Right (Tree.Node (FTA.Label "box") [Tree.Node (FTA.Label "one") []])
+                    FTAGen.pure $ value + 1
+            FTAGen.cardinality boxed `shouldBe` Right 2
+            FTAGen.unrank boxed 1 `shouldBe` Right 2
+            FTAGen.termAt boxed 1
+                `shouldBe` Right (Tree.Node (FTAGen.Label "box") [Tree.Node (FTAGen.Label "one") []])
 
         it "uses each do binding as one direct constructor child" $ do
             -- A child that is a choice keeps its alternative label, so equal
             -- values from different alternatives stay distinct terms.
-            FTA.cardinality pairs `shouldBe` Right 4
-            FTA.termAt pairs 2
+            FTAGen.cardinality pairs `shouldBe` Right 4
+            FTAGen.termAt pairs 2
                 `shouldBe` Right
                     ( Tree.Node
-                        (FTA.Label "pair")
-                        [ Tree.Node (FTA.Choice 1) [Tree.Node (FTA.Label "one") []]
-                        , Tree.Node (FTA.Choice 0) [Tree.Node (FTA.Label "zero") []]
+                        (FTAGen.Label "pair")
+                        [ Tree.Node (FTAGen.Choice 1) [Tree.Node (FTAGen.Label "one") []]
+                        , Tree.Node (FTAGen.Choice 0) [Tree.Node (FTAGen.Label "zero") []]
                         ]
                     )
 
         it "builds exact support accepting the term of every rank" $
-            case (FTA.support pairs, traverse (FTA.termAt pairs) [0 .. 3]) of
+            case (FTAGen.support pairs, traverse (FTAGen.termAt pairs) [0 .. 3]) of
                 (Right support, Right terms) -> do
                     terms `shouldSatisfy` all (acceptsPlain support)
-                    acceptsPlain support (Tree.Node (FTA.Label "pair") [Tree.Node (FTA.Label "zero") []])
+                    acceptsPlain support (Tree.Node (FTAGen.Label "pair") [Tree.Node (FTAGen.Label "zero") []])
                         `shouldBe` False
                 (Left err, _) -> expectationFailure $ show err
                 (_, Left err) -> expectationFailure $ show err
@@ -176,16 +176,16 @@ spec = do
                 Right automaton -> do
                     let node = Common.fromFTA automaton
                         check generator = do
-                            FTA.cardinality generator `shouldBe` Right 5
-                            traverse (FTA.unrank generator) [0 .. 4] `shouldBe` Right terms
-                            map (FTA.sizeOfRank generator) [0 .. 4] `shouldBe` map Just [1 .. 5]
-                            FTA.shrinkRank generator 4 `shouldSatisfy` (not . null)
-                            map (FTA.unrank generator) (FTA.shrinkRank generator 4)
+                            FTAGen.cardinality generator `shouldBe` Right 5
+                            traverse (FTAGen.unrank generator) [0 .. 4] `shouldBe` Right terms
+                            map (FTAGen.sizeOfRank generator) [0 .. 4] `shouldBe` map Just [1 .. 5]
+                            FTAGen.shrinkRank generator 4 `shouldSatisfy` (not . null)
+                            map (FTAGen.unrank generator) (FTAGen.shrinkRank generator 4)
                                 `shouldSatisfy` all (`elem` map Right (take 4 terms))
-                    check $ FTA.upToSize 5 $ FTA.fromAutomaton node
-                    check $ FTA.fromAutomatonUpToDepth 4 node
-                    FTA.cardinality (FTA.upToSize 0 $ FTA.fromAutomaton node)
-                        `shouldBe` Left FTA.EmptyGenerator
+                    check $ FTAGen.upToSize 5 $ FTAGen.fromAutomaton node
+                    check $ FTAGen.fromAutomatonUpToDepth 4 node
+                    FTAGen.cardinality (FTAGen.upToSize 0 $ FTAGen.fromAutomaton node)
+                        `shouldBe` Left FTAGen.EmptyGenerator
 
         it "keeps empty recursion distinct from ambiguity and counts distinct finite terms" $ do
             let rows =
@@ -195,8 +195,8 @@ spec = do
             case Automaton.mkFTA 0 rows of
                 Left err -> expectationFailure $ show err
                 Right empty ->
-                    FTA.cardinality (FTA.upToSize 10 $ FTA.fromAutomaton $ Common.fromFTA empty)
-                        `shouldBe` Left FTA.EmptyGenerator
+                    FTAGen.cardinality (FTAGen.upToSize 10 $ FTAGen.fromAutomaton $ Common.fromFTA empty)
+                        `shouldBe` Left FTAGen.EmptyGenerator
             let productive =
                     [ (0 :: Int, [Automaton.Transition "z" [] (), Automaton.Transition "step" [1] (), Automaton.Transition "step" [2] ()])
                     , (1, [Automaton.Transition "again" [0] (), Automaton.Transition "extra" [] ()])
@@ -209,11 +209,11 @@ spec = do
                     -- the ambiguous recursion; the finite bound counts each
                     -- distinct term once.
                     let node = Common.fromFTA automaton
-                        bounded = FTA.fromAutomatonUpToDepth 4 node
-                    FTA.cardinality (FTA.upToSize 5 $ FTA.fromAutomaton node)
-                        `shouldBe` Left FTA.AmbiguousAutomaton
-                    FTA.cardinality bounded `shouldBe` Right 5
-                    fmap (length . nub) (traverse (FTA.unrank bounded) [0 .. 4])
+                        bounded = FTAGen.fromAutomatonUpToDepth 4 node
+                    FTAGen.cardinality (FTAGen.upToSize 5 $ FTAGen.fromAutomaton node)
+                        `shouldBe` Left FTAGen.AmbiguousAutomaton
+                    FTAGen.cardinality bounded `shouldBe` Right 5
+                    fmap (length . nub) (traverse (FTAGen.unrank bounded) [0 .. 4])
                         `shouldBe` Right 5
 
         it "compiles the common interned unit-constraint graph without ECTA" $ do
@@ -224,12 +224,12 @@ spec = do
                     | left <- ["zero", "one"]
                     , right <- ["zero", "one"]
                     ]
-                generator = FTA.fromAutomaton root
+                generator = FTAGen.fromAutomaton root
             case Common.toFTA root of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    FTA.cardinality generator `shouldBe` Right 4
-                    traverse (FTA.unrank generator) [0 .. 3] `shouldBe` Right expected
+                    FTAGen.cardinality generator `shouldBe` Right 4
+                    traverse (FTAGen.unrank generator) [0 .. 3] `shouldBe` Right expected
                     all (Automaton.accepts automaton) expected `shouldBe` True
 
         it "shares state compilation and decoding across a large finite DAG" $ do
@@ -243,13 +243,13 @@ spec = do
             case Automaton.mkFTA depth rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> do
-                    let generator = FTA.fromAutomaton $ Common.fromFTA automaton
+                    let generator = FTAGen.fromAutomaton $ Common.fromFTA automaton
                     completed <-
                         timeout 60000000
                             $ evaluate
-                            $ FTA.cardinality generator == Right (2 ^ depth)
-                                && FTA.unrank generator 0 == Right (chain "a")
-                                && FTA.unrank generator (2 ^ depth - 1) == Right (chain "b")
+                            $ FTAGen.cardinality generator == Right (2 ^ depth)
+                                && FTAGen.unrank generator 0 == Right (chain "a")
+                                && FTAGen.unrank generator (2 ^ depth - 1) == Right (chain "b")
                     completed `shouldBe` Just True
 
         it "preserves ranks and structural shrinking through shared states" $ do
@@ -271,27 +271,27 @@ spec = do
                 Right automaton -> case reference of
                     Left err -> expectationFailure $ show err
                     Right expected -> do
-                        let actual = FTA.fromAutomaton $ Common.fromFTA automaton
+                        let actual = FTAGen.fromAutomaton $ Common.fromFTA automaton
                             ranks = [0 .. Ranked.cardinality expected - 1]
                             members = either (const Nothing) Just
-                        FTA.cardinality actual `shouldBe` Right (Ranked.cardinality expected)
-                        members (traverse (FTA.unrank actual) ranks) `shouldBe` members (traverse (Ranked.unrank expected) ranks)
-                        map (FTA.sizeOfRank actual) ranks `shouldBe` map (Ranked.sizeOfRank expected) ranks
-                        map (FTA.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
-                        map (FTA.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
+                        FTAGen.cardinality actual `shouldBe` Right (Ranked.cardinality expected)
+                        members (traverse (FTAGen.unrank actual) ranks) `shouldBe` members (traverse (Ranked.unrank expected) ranks)
+                        map (FTAGen.sizeOfRank actual) ranks `shouldBe` map (Ranked.sizeOfRank expected) ranks
+                        map (FTAGen.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
+                        map (FTAGen.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
 
     describe "ordinary FTA integer expressions" $ do
         it "has the exact structural cardinality at every bounded depth" $
-            map (FTA.cardinality . Expressions.expressionsAtDepth) [0 .. 4]
+            map (FTAGen.cardinality . Expressions.expressionsAtDepth) [0 .. 4]
                 `shouldBe` map (Right . Expressions.expressionCount) [0 .. 4]
 
         it "generates executable expressions without type-side conditions" $ do
             let expressions = Expressions.expressionsAtDepth 2
-                total = fromRight 0 $ FTA.cardinality expressions
+                total = fromRight 0 $ FTAGen.cardinality expressions
                 generated =
                     [ expression
                     | rank <- [0 .. total - 1]
-                    , Right expression <- [FTA.unrank expressions rank]
+                    , Right expression <- [FTAGen.unrank expressions rank]
                     ]
             length generated `shouldBe` fromInteger total
             generated `shouldSatisfy` all ((>= 0) . Expressions.evaluate)
@@ -317,9 +317,9 @@ expressionDepth (Expressions.Multiply left right) =
     1 + max (expressionDepth left) (expressionDepth right)
 
 -- | Membership in a plain interned support.
-acceptsPlain :: Common.PlainNode (FTA.Label String) -> Tree.Tree (FTA.Label String) -> Bool
+acceptsPlain :: Common.PlainNode (FTAGen.Label String) -> Tree.Tree (FTAGen.Label String) -> Bool
 acceptsPlain = Common.acceptsWith (\() _ -> True)
 
 -- | The generator symbol of a derived constructor.
-constructorSymbol :: Datatype.Constructor -> FTA.Label Symbol
-constructorSymbol = FTA.Label . fromString . Datatype.constructorLabel
+constructorSymbol :: Datatype.Constructor -> FTAGen.Label Symbol
+constructorSymbol = FTAGen.Label . fromString . Datatype.constructorLabel

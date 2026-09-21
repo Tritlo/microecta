@@ -5,9 +5,9 @@ kind of information:
 
 | Layer | Says | Natural authoring form |
 | --- | --- | --- |
-| FTA | These constructor shapes exist. | `FTA.node "label" $ FTA.do ...` |
-| ECTA | These paths contain the same term. | `ECTA.node "label" $ ECTA.do ...` |
-| LTA | These refinements logically imply one another. | `LTA.node "label" guard $ LTA.do ...` |
+| FTA | These constructor shapes exist. | `FTAGen.node "label" $ FTAGen.do ...` |
+| ECTA | These paths contain the same term. | `ECTAGen.node "label" $ ECTAGen.do ...` |
+| LTA | These refinements logically imply one another. | `LTAGen.node "label" guard $ LTAGen.do ...` |
 
 `microcfta` owns ordinary terms, the common interned engine, and the FTA graph.
 `Node symbol constraint` and `Edge symbol constraint` carry `()` for an FTA,
@@ -84,28 +84,28 @@ paths.
 
 Every qualified do-block describes direct constructor children. The matching
 `node` supplies the domain symbol and closes the block. The do-notation is
-`Data.CFTA.Gen.Do`, imported qualified under the same alias as the generator
-module, so `FTA.do`, `ECTA.do`, and `LTA.do` are one module under three
-aliases:
+`Data.CFTA.Gen.Do`, re-exported by each `QuickCheck` facade under the alias of
+the generator module, so `FTAGen.do`, `ECTAGen.do`, and `LTAGen.do` are one
+module under three aliases:
 
 ```haskell
-pair = FTA.node "pair" $ FTA.do
+pair = FTAGen.node "pair" $ FTAGen.do
   left  <- atoms
   right <- atoms
-  FTA.pure (left, right)
+  FTAGen.pure (left, right)
 ```
 
 ECTA dependencies are finite structural keys, so they belong inside the
 qualified do-block:
 
 ```haskell
-typedApplication children = ECTA.node "application" $ ECTA.do
+typedApplication children = ECTAGen.node "application" $ ECTAGen.do
   build    <- functionsBySignature
   argument <- children
-  ECTA.pure (build argument)
+  ECTAGen.pure (build argument)
 ```
 
-`ECTA.node` keeps the equality constraints accumulated by the grouped block,
+`ECTAGen.node` keeps the equality constraints accumulated by the grouped block,
 but replaces the generator's private join label with `"application"`.
 
 LTA dependencies need the solver. The do-block still builds independent child
@@ -114,16 +114,16 @@ same order:
 
 ```haskell
 safeDivision =
-  LTA.node "divide" divisionGuard $ LTA.do
+  LTAGen.node "divide" divisionGuard $ LTAGen.do
     numerator   <- integers
     denominator <- integers
-    LTA.pure (Divide numerator denominator)
+    LTAGen.pure (Divide numerator denominator)
 
 divisionGuard :: Position -> Position -> LiquidConstraint
 divisionGuard _ denominator = denominator `requires` nonZero
 ```
 
-`LTA.node` uses the universally accepting result refinement internally. A
+`LTAGen.node` uses the universally accepting result refinement internally. A
 language that computes a more precise result uses `refinedNode` or
 `refinedNodeByRoots`; the ordinary property-writer call contains only the meaningful
 guard name.
@@ -152,7 +152,7 @@ only to satisfy the API.
 
 ## Compile once and retain an escape hatch
 
-`LTA.compile solver language` preserves source order, occurrence weights, and
+`LTAGen.compile solver language` preserves source order, occurrence weights, and
 semantic pool shrinking. It groups candidates by the observations their guards
 need. Bounded automata use symbolic counts for nested equality and overlapping
 alternatives. Compilation reports unsupported guards and value-computed
@@ -160,7 +160,7 @@ refinements as errors. Use `explain` to render an error, and `validOutcomes`
 for explicit diagnostics on small inputs. Sampling, replay, and shrinking
 use the pure compiled result.
 
-`LTA.fromAutomatonUpToDepth maximumHeight automaton` imports an existing
+`LTAGen.fromAutomatonUpToDepth maximumHeight automaton` imports an existing
 interned automaton into the same source syntax. It preserves graph sharing
 until compilation. Each distinct accepted annotated term contributes one rank.
 Repeated ordinary pool draws keep their separate ranks and weights. A leaf has

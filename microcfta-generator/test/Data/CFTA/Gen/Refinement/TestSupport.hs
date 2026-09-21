@@ -12,13 +12,13 @@ module Data.CFTA.Gen.Refinement.TestSupport (
 import qualified Data.Tree as Tree
 import Test.Hspec (expectationFailure)
 
-import qualified Data.CFTA.Gen.Refinement as LTA
+import qualified Data.CFTA.Gen.Refinement as LTAGen
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Refinement (Entailment, LiquidSymbol)
 
 -- | Compile a fixture, reporting a compilation error as an Hspec failure.
-compileOrFail :: Entailment -> LTA.LTAGen a -> IO (LTA.LTAGen a)
-compileOrFail solver generator = LTA.compile solver generator >>= rightOrFail
+compileOrFail :: Entailment -> LTAGen.LTAGen a -> IO (LTAGen.LTAGen a)
+compileOrFail solver generator = LTAGen.compile solver generator >>= rightOrFail
 
 -- | Report a construction or compilation error as an Hspec failure.
 rightOrFail :: (Show err) => Either err a -> IO a
@@ -28,26 +28,26 @@ rightOrFail result =
         Right compiled -> pure compiled
 
 -- | Every rank of a finite generator; none when it failed.
-ranks :: LTA.LTAGen a -> [Integer]
-ranks generator = either (const []) (\total -> [0 .. total - 1]) $ LTA.cardinality generator
+ranks :: LTAGen.LTAGen a -> [Integer]
+ranks generator = either (const []) (\total -> [0 .. total - 1]) $ LTAGen.cardinality generator
 
 -- | Enumerate one small compiled language in stable rank order.
-values :: LTA.LTAGen a -> [a]
-values generator = [value | rank <- ranks generator, Right value <- [LTA.unrank generator rank]]
+values :: LTAGen.LTAGen a -> [a]
+values generator = [value | rank <- ranks generator, Right value <- [LTAGen.unrank generator rank]]
 
 -- | The accepted liquid term of every rank, in rank order.
-termsOf :: LTA.LTAGen a -> [Tree.Tree LiquidSymbol]
+termsOf :: LTAGen.LTAGen a -> [Tree.Tree LiquidSymbol]
 termsOf generator = [term | rank <- ranks generator, Right term <- [termOf generator rank]]
 
 -- | The accepted liquid term of one rank: the user's part of the engine's term.
-termOf :: LTA.LTAGen a -> Integer -> Either LTA.GenError (Tree.Tree LiquidSymbol)
+termOf :: LTAGen.LTAGen a -> Integer -> Either LTAGen.GenError (Tree.Tree LiquidSymbol)
 termOf generator rank = do
-    labelled <- LTA.termAt generator rank
-    case LTA.surface labelled of
+    labelled <- LTAGen.termAt generator rank
+    case LTAGen.surface labelled of
         [term] -> Right term
-        _ -> Left LTA.CannotInspectOpaqueGenerator
+        _ -> Left LTAGen.CannotInspectOpaqueGenerator
 
 -- | The exact sampling mass of every rank.
-massesByRank :: LTA.LTAGen a -> [(Integer, Rational)]
+massesByRank :: LTAGen.LTAGen a -> [(Integer, Rational)]
 massesByRank generator =
-    [(rank, mass) | (mass, Right (rank, _)) <- runExact $ LTA.lowerWithRankVia generator]
+    [(rank, mass) | (mass, Right (rank, _)) <- runExact $ LTAGen.lowerWithRankVia generator]

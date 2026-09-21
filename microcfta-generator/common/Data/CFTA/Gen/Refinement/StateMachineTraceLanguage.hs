@@ -65,7 +65,7 @@ import qualified Data.Tree as Tree
 import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (
     Automaton,
     AutomatonError,
@@ -179,11 +179,11 @@ data TracePrefix = TracePrefix
     }
 
 -- | Empty trace prefix before the public value is decoded.
-initialTracePrefix :: LTA.LTAGen TracePrefix
+initialTracePrefix :: LTAGen.LTAGen TracePrefix
 initialTracePrefix =
-    LTA.refinedNode "start" (stateRefinement emptyState) unconstrained start
+    LTAGen.refinedNode "start" (stateRefinement emptyState) unconstrained start
   where
-    start = LTA.pure (TracePrefix id emptyState) :: LTA.LTAGen TracePrefix
+    start = LTAGen.pure (TracePrefix id emptyState) :: LTAGen.LTAGen TracePrefix
 
 {- | Generate traces with exactly the requested number of commands through
 the compositional surface DSL.
@@ -192,11 +192,11 @@ This is the source of truth for the relational qualified-do benchmark.
 'compileTracesOfLength' retains this applicative recipe, groups prefixes by
 their output-state refinement, and never scans the Cartesian command language.
 -}
-tracesOfLength :: Int -> LTA.LTAGen Trace
+tracesOfLength :: Int -> LTAGen.LTAGen Trace
 tracesOfLength = fmap finishTracePrefix . tracePrefixesOfLength
 
 -- | Build exact-length prefixes without repeatedly appending event lists.
-tracePrefixesOfLength :: Int -> LTA.LTAGen TracePrefix
+tracePrefixesOfLength :: Int -> LTAGen.LTAGen TracePrefix
 tracePrefixesOfLength length_
     | length_ <= 0 = initialTracePrefix
     | otherwise = extendTrace $ tracePrefixesOfLength (length_ - 1)
@@ -284,20 +284,20 @@ traces are not visited during compilation.
 compileTracesOfLength ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.LTAGen Trace))
+    IO (Either LTAGen.GenError (LTAGen.LTAGen Trace))
 compileTracesOfLength entailment traceLength =
-    LTA.compile entailment $ tracesOfLength traceLength
+    LTAGen.compile entailment $ tracesOfLength traceLength
 
 -- | Compile the finite-state trace LTA and decode its accepted terms.
 compileTraceAutomaton ::
     Entailment ->
     Int ->
-    IO (Either LTA.GenError (LTA.LTAGen Trace))
+    IO (Either LTAGen.GenError (LTAGen.LTAGen Trace))
 compileTraceAutomaton entailment traceLength =
     case traceAutomaton traceLength of
-        Left err -> pure $ Left $ LTA.InvalidSupport err
+        Left err -> pure $ Left $ LTAGen.InvalidSupport err
         Right automaton ->
-            LTA.compile entailment $ decodeTrace <$> LTA.fromAutomaton automaton
+            LTAGen.compile entailment $ decodeTrace <$> LTAGen.fromAutomaton automaton
   where
     decodeTrace term =
         case traceFromLiquidTerm term of
@@ -312,9 +312,9 @@ commandSymbols =
     ]
 
 -- | Generate every trace up to a maximum length, shortest first for shrinking.
-tracesUpTo :: Int -> LTA.LTAGen Trace
+tracesUpTo :: Int -> LTAGen.LTAGen Trace
 tracesUpTo maximumLength =
-    LTA.oneof [tracesOfLength length_ | length_ <- [0 .. maximumLength]]
+    LTAGen.oneof [tracesOfLength length_ | length_ <- [0 .. maximumLength]]
 
 {- | Generate an untyped command sequence and reject the complete sequence
 unless the model accepts every transition.
@@ -582,16 +582,16 @@ traceIsValid trace =
             Nothing -> False
 
 -- | Add one solver-checked transition to an existing trace language.
-extendTrace :: LTA.LTAGen TracePrefix -> LTA.LTAGen TracePrefix
+extendTrace :: LTAGen.LTAGen TracePrefix -> LTAGen.LTAGen TracePrefix
 extendTrace previousTraces =
-    LTA.refinedNodeByRoots
+    LTAGen.refinedNodeByRoots
         "step"
         stepRefinementFromRoots
         validStep
-        $ LTA.do
+        $ LTAGen.do
             previous <- previousTraces
             command <- commandContracts
-            LTA.pure $ predictPrefixStep previous command
+            LTAGen.pure $ predictPrefixStep previous command
 
 -- | Compute the next state tag from the two direct child relation groups.
 stepRefinementFromRoots :: [LiquidSymbol] -> Refinement
@@ -640,9 +640,9 @@ Each command root is its admissible input-state space. Child zero names the
 formal input; child one is the output-state refinement. The command alternatives
 are schemas, not one transition per concrete pair of stack states.
 -}
-commandContracts :: LTA.LTAGen Command
+commandContracts :: LTAGen.LTAGen Command
 commandContracts =
-    LTA.oneof (map contractGenerator commandContractValues)
+    LTAGen.oneof (map contractGenerator commandContractValues)
 
 -- | One reusable liquid input/output schema for a stack-machine command.
 data CommandContract = CommandContract
@@ -690,12 +690,12 @@ popOutput TInt = popIntOutput
 popOutput TBool = popBoolOutput
 
 -- | Present one command schema through the compositional generator DSL.
-contractGenerator :: CommandContract -> LTA.LTAGen Command
+contractGenerator :: CommandContract -> LTAGen.LTAGen Command
 contractGenerator CommandContract{contractSymbol, contractCommand, contractInputSpace, contractPostState} =
-    LTA.refinedNode contractSymbol contractInputSpace unconstrained $ LTA.do
-        _formalState <- LTA.leaf () "model" stateRange
-        _postState <- LTA.leaf () "post-state" contractPostState
-        LTA.pure contractCommand
+    LTAGen.refinedNode contractSymbol contractInputSpace unconstrained $ LTAGen.do
+        _formalState <- LTAGen.leaf () "model" stateRange
+        _postState <- LTAGen.leaf () "post-state" contractPostState
+        LTAGen.pure contractCommand
 
 -- | States in which another value can be pushed.
 stacksWithRoom :: Refinement

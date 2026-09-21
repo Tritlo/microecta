@@ -3,13 +3,13 @@ module Data.CFTA.Gen.Refinement.SafeBufferSpec (spec) where
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import qualified Test.QuickCheck as QC
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.SafeBufferLanguage
 import Data.CFTA.Gen.Refinement.TestSupport (values)
 import qualified Data.CFTA.Gen.Refinement.TestSupport as Support
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
-compileOrFail :: LTA.LTAGen a -> IO (LTA.LTAGen a)
+compileOrFail :: LTAGen.LTAGen a -> IO (LTAGen.LTAGen a)
 compileOrFail generator =
     withZ3Assuming solverDeclarations solverAssumptions $ \solver ->
         Support.compileOrFail solver generator
@@ -28,20 +28,20 @@ spec =
 
         it "uses two substitutions to retain one exact append result per pair" $ do
             compiled <- compileOrFail appendedBuffers
-            LTA.cardinality compiled `shouldBe` Right 9
+            LTAGen.cardinality compiled `shouldBe` Right 9
             values compiled `shouldSatisfy` all appendLengthIsCorrect
 
         it "carries append refinements into a later non-empty precondition" $ do
             compiled <- compileOrFail safeHeads
-            LTA.cardinality compiled `shouldBe` Right 10
+            LTAGen.cardinality compiled `shouldBe` Right 10
             values compiled `shouldSatisfy` all programIsSafe
 
         it "gives QuickCheck a total property over an otherwise partial interpreter" $ do
             compiled <- compileOrFail safePrograms
-            LTA.cardinality compiled `shouldBe` Right 14
+            LTAGen.cardinality compiled `shouldBe` Right 14
             result <-
                 QC.quickCheckWithResult QC.stdArgs{QC.chatty = False, QC.maxSuccess = 200} $
-                    LTA.forAll compiled $ \program ->
+                    LTAGen.forAll compiled $ \program ->
                         programIsSafe program
                             QC..&&. safeResult program QC.=== Just (runProgram program)
             QC.isSuccess result `shouldBe` True

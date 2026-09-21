@@ -3,7 +3,7 @@ module Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec (spec) where
 import Data.String (fromString)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (values)
 import Data.CFTA.Gen.Refinement.TypedExpressionLanguage (nonNegative, solverDeclarations, value)
 import Data.CFTA.Refinement.Expression (true, (./=.), (.>=.))
@@ -15,14 +15,14 @@ data Candidate = Candidate
     }
     deriving (Eq, Show)
 
-compileMinimized :: [LTA.Refined Candidate] -> IO [Candidate]
+compileMinimized :: [LTAGen.Refined Candidate] -> IO [Candidate]
 compileMinimized entries =
     withZ3 solverDeclarations $ \solver -> do
-        minimized <- LTA.minimizePoolBy solver similarityClass entries
+        minimized <- LTAGen.minimizePoolBy solver similarityClass entries
         case minimized of
             Left err -> expectationFailure (show err) >> pure []
             Right generator -> do
-                compiled <- LTA.compile solver generator
+                compiled <- LTAGen.compile solver generator
                 case compiled of
                     Left err -> expectationFailure (show err) >> pure []
                     Right language -> pure $ values language
@@ -57,4 +57,4 @@ spec =
             map candidateName candidates `shouldBe` ["natural", "non-zero"]
   where
     entry className name refinement =
-        LTA.Refined (Candidate className name) (fromString name) refinement
+        LTAGen.Refined (Candidate className name) (fromString name) refinement

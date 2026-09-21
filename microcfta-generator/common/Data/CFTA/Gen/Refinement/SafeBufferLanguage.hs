@@ -36,7 +36,7 @@ import Data.String (fromString)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
-import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTA
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (LiquidConstraint, LiquidSymbol (LiquidSymbol), Refinement)
 import Data.CFTA.Refinement.Expression (value, variable, (.+.), (.<.), (.==.), (.>=.))
 import Data.CFTA.Refinement.Guard (
@@ -95,9 +95,9 @@ namedIntegers =
     ]
 
 -- | Three concrete buffers whose lengths enter the solver symbolically.
-sourceBuffers :: LTA.LTAGen RefinedBuffer
+sourceBuffers :: LTAGen.LTAGen RefinedBuffer
 sourceBuffers =
-    LTA.pool
+    LTAGen.pool
         [ source "empty" "emptyLength" []
         , source "singleton" "singletonLength" [10]
         , source "triple" "tripleLength" [20, 21, 22]
@@ -106,12 +106,12 @@ sourceBuffers =
     source name lengthName contents =
         let refinement = value .==. variable lengthName
             buffer = RefinedBuffer (Source name contents) refinement
-         in LTA.Refined buffer (fromString lengthName) refinement
+         in LTAGen.Refined buffer (fromString lengthName) refinement
 
 -- | Index candidates deliberately include negative and upper-bound failures.
-indexes :: LTA.LTAGen (String, Int)
+indexes :: LTAGen.LTAGen (String, Int)
 indexes =
-    LTA.pool
+    LTAGen.pool
         [ index "minusOne" (-1)
         , index "indexZero" 0
         , index "indexOne" 1
@@ -120,15 +120,15 @@ indexes =
         ]
   where
     index name integer =
-        LTA.Refined (name, integer) (fromString name) (value .==. variable name)
+        LTAGen.Refined (name, integer) (fromString name) (value .==. variable name)
 
 -- | Programs whose symbolic index is proved in bounds for the chosen buffer.
-safeReads :: LTA.LTAGen Program
-safeReads = LTA.node "read-at" validRead $ LTA.do
+safeReads :: LTAGen.LTAGen Program
+safeReads = LTAGen.node "read-at" validRead $ LTAGen.do
     buffer <- sourceBuffers
     _function <- readFunction
     ~(_indexName, index) <- indexes
-    LTA.pure $ ReadAt (bufferExpression buffer) index
+    LTAGen.pure $ ReadAt (bufferExpression buffer) index
 
 -- | Substitute the selected buffer length into the function precondition.
 validRead :: Position -> Position -> Position -> LiquidConstraint
@@ -137,11 +137,11 @@ validRead buffer function index =
         index `isSubtypeOf` descendant function [1]
 
 -- | A dependent read operation with formal length and valid-index positions.
-readFunction :: LTA.LTAGen ()
-readFunction = LTA.node "read-function" unconstrained $ LTA.do
-    _lengthFormal <- LTA.leaf () "n" nonNegative
-    _validIndex <- LTA.leaf () "valid-index" indexWithinLength
-    LTA.pure ()
+readFunction :: LTAGen.LTAGen ()
+readFunction = LTAGen.node "read-function" unconstrained $ LTAGen.do
+    _lengthFormal <- LTAGen.leaf () "n" nonNegative
+    _validIndex <- LTAGen.leaf () "valid-index" indexWithinLength
+    LTAGen.pure ()
 
 -- | The refinement required by a safe head operation.
 positive :: Refinement
@@ -156,14 +156,14 @@ indexWithinLength =
         ]
 
 -- | Every ordered append of the source buffers, with its result length proved.
-appendedBuffers :: LTA.LTAGen RefinedBuffer
+appendedBuffers :: LTAGen.LTAGen RefinedBuffer
 appendedBuffers =
-    LTA.refinedNodeByRoots "append" resultRefinement validAppend $ LTA.do
+    LTAGen.refinedNodeByRoots "append" resultRefinement validAppend $ LTAGen.do
         result <- possibleLengths
         _function <- appendFunction
         left <- sourceBuffers
         right <- sourceBuffers
-        LTA.pure $
+        LTAGen.pure $
             RefinedBuffer
                 (Append (bufferExpression left) (bufferExpression right))
                 (resultLength result)
@@ -177,27 +177,27 @@ newtype LengthResult = LengthResult
     }
 
 -- | Every result length reachable from the finite source-buffer universe.
-possibleLengths :: LTA.LTAGen LengthResult
+possibleLengths :: LTAGen.LTAGen LengthResult
 possibleLengths =
-    LTA.pool
+    LTAGen.pool
         [ result length_
         | length_ <- [0, 1, 2, 3, 4, 6] :: [Int]
         ]
   where
     result length_ =
         let refinement = value .==. length_
-         in LTA.Refined
+         in LTAGen.Refined
                 (LengthResult refinement)
                 (fromString $ "length-" <> show length_)
                 refinement
 
 -- | A two-argument dependent append operation whose output length is @n + m@.
-appendFunction :: LTA.LTAGen ()
-appendFunction = LTA.node "append-function" unconstrained $ LTA.do
-    _leftFormal <- LTA.leaf () "n" nonNegative
-    _rightFormal <- LTA.leaf () "m" nonNegative
-    _output <- LTA.leaf () "sum-length" (value .==. (variable "n" .+. variable "m"))
-    LTA.pure ()
+appendFunction :: LTAGen.LTAGen ()
+appendFunction = LTAGen.node "append-function" unconstrained $ LTAGen.do
+    _leftFormal <- LTAGen.leaf () "n" nonNegative
+    _rightFormal <- LTAGen.leaf () "m" nonNegative
+    _output <- LTAGen.leaf () "sum-length" (value .==. (variable "n" .+. variable "m"))
+    LTAGen.pure ()
 
 -- | Substitute both selected operand lengths into append's result refinement.
 validAppend :: Position -> Position -> Position -> Position -> LiquidConstraint
@@ -209,22 +209,22 @@ validAppend result function left right =
         (descendant function [2] `isSubtypeOf` result)
 
 -- | Safe head reads over both source and solver-checked appended buffers.
-safeHeads :: LTA.LTAGen Program
-safeHeads = LTA.node "head" hasElement $ LTA.do
+safeHeads :: LTAGen.LTAGen Program
+safeHeads = LTAGen.node "head" hasElement $ LTAGen.do
     buffer <- allBuffers
-    LTA.pure $ ReadHead $ bufferExpression buffer
+    LTAGen.pure $ ReadHead $ bufferExpression buffer
 
 -- | Require the chosen buffer to prove that a head element exists.
 hasElement :: Position -> LiquidConstraint
 hasElement buffer = buffer `requires` positive
 
 -- | Source and solver-checked appended buffers available to later operations.
-allBuffers :: LTA.LTAGen RefinedBuffer
-allBuffers = LTA.oneof [sourceBuffers, appendedBuffers]
+allBuffers :: LTAGen.LTAGen RefinedBuffer
+allBuffers = LTAGen.oneof [sourceBuffers, appendedBuffers]
 
 -- | The complete safe program language used by the QuickCheck example.
-safePrograms :: LTA.LTAGen Program
-safePrograms = LTA.oneof [safeReads, safeHeads]
+safePrograms :: LTAGen.LTAGen Program
+safePrograms = LTAGen.oneof [safeReads, safeHeads]
 
 -- | Interpret a buffer expression.
 evaluateBuffer :: BufferExpression -> [Int]

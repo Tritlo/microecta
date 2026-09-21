@@ -17,7 +17,6 @@ import qualified Data.CFTA as FTA
 import qualified Data.CFTA.Equality as Automaton
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import qualified Data.CFTA.Equality.Constraint as Paths
-import qualified Data.CFTA.Gen.Equality as Core
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Interned
@@ -36,13 +35,13 @@ spec = do
         it "counts and samples equal fields without rebuilding their datatype" $ do
             datatype <- either (fail . show) pure $ Datatype.deriveFTA @(Bool, Bool)
             let annotated = Datatype.annotateDatatype (equalFields [[0], [1]]) datatype
-                generator = Core.fromDatatypeUpToDepth 1 annotated :: Core.ECTAGen (Bool, Bool)
-            Core.cardinality generator `shouldBe` Right 2
-            fmap sort (traverse (Core.unrank generator) [0, 1])
+                generator = ECTAGen.fromDatatypeUpToDepth 1 annotated :: ECTAGen.ECTAGen (Bool, Bool)
+            ECTAGen.cardinality generator `shouldBe` Right 2
+            fmap sort (traverse (ECTAGen.unrank generator) [0, 1])
                 `shouldBe` Right [(False, False), (True, True)]
-            runExact (Core.lowerWithRankVia generator)
-                `shouldBe` [(1 % 2, fmap (rank,) $ Core.unrank generator rank) | rank <- [0, 1]]
-            map (Core.unrank generator) (Core.shrinkRank generator 1)
+            runExact (ECTAGen.lowerWithRankVia generator)
+                `shouldBe` [(1 % 2, fmap (rank,) $ ECTAGen.unrank generator rank) | rank <- [0, 1]]
+            map (ECTAGen.unrank generator) (ECTAGen.shrinkRank generator 1)
                 `shouldSatisfy` all (`elem` [Right (False, False), Right (True, True)])
 
         it "combines intersecting equality classes over three fields" $ do
