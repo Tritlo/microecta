@@ -108,7 +108,7 @@ workspace root and run:
 
 ```sh
 cabal build microcfta-generator
-cabal exec -- runghc -package=microcfta -package=microcfta-generator Main.hs
+cabal exec -- ghc -package microcfta -package microcfta-generator -e main Main.hs
 ```
 
 The output is:

@@ -124,7 +124,7 @@ checkout, save it as `Main.hs` at the workspace root and run:
 
 ```sh
 cabal build microcfta
-cabal exec -- runghc -package=microcfta Main.hs
+cabal exec -- ghc -package microcfta -e main Main.hs
 ```
 
 The output is:
@@ -843,7 +843,7 @@ the workspace root:
 
 ```sh
 cabal build microcfta
-cabal exec -- runghc -package=microcfta -package=liquid-fixpoint Main.hs
+cabal exec -- ghc -package microcfta -package liquid-fixpoint -e main Main.hs
 ```
 
 This program prints:
