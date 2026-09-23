@@ -49,6 +49,11 @@ jobs:
           cabal-version: "3.16.1.0"
           cabal-update: true
 
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
+
       - name: Configure build plan
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
 

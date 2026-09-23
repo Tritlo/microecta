@@ -25,3 +25,6 @@ package random
 
 package QuickCheck
   optimization: True
+
+package liquid-fixpoint
+  optimization: True
