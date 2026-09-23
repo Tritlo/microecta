@@ -32,8 +32,30 @@ tree automata of `microcfta`, with QuickCheck integration.
   `support` and `termAt` return graphs and terms over `Data.CFTA.Gen.Label`,
   which wraps user symbols in `Label` and types the private labels;
   `surface` reads the user's term back.
+- `Data.CFTA.Gen.Refinement`: `LTAGen` with sources (`elements`, which infers
+  the exact refinement of each integer; `pool`, of values with hand-written
+  refinements; `namedPool`; `leaf`; and `checkPool`, which asks the solver to
+  prove the refinements of a pool), conditions on a drawn child with
+  `satisfying`, constructors (`node`; `guarded`, whose contract relates the
+  children; and `refinedNode` and `refinedNodeByRoots` for the paper's
+  positional guards and result refinements), liquid automaton and datatype
+  imports, `minimizePoolBy`, `compile` with Z3, `compileAssuming`,
+  `compileWith`, and `validOutcomes`. A constructor that needs the solver,
+  and an import whose guards the engine cannot count, defer the generator;
+  `compile`
+  folds the generator's recipe once with the solver: child languages are
+  grouped by the observations a guard reads, the solver decides each guard
+  once per tuple of groups, imports are pruned and split by the same
+  observations without enumerating terms, and the result is an ordinary
+  finite generator with exact counts, source-ordered ranks, structural
+  shrinking, and no solver at sampling time.
+- `Data.CFTA.Constraint` gains `indicators`, a constraint read as a signed
+  sum of equality indicators, so the symbolic counter handles Boolean
+  equality guards of the liquid theory without the solver.
 - `Data.CFTA.Ranked`: finite ranks, weighted sampling, replay, and structural
   shrinking, independent of automata, with `Data.CFTA.Ranked.QuickCheck`.
 - The engine modules `Data.CFTA.Gen.Internal.*` and the ranked internals
   `Data.CFTA.Ranked.Internal.*` are exposed for integration and stay outside
   the PVP contract.
+- Two test suites, `gen-tests` and `refinement-tests` (needs `z3`), and one
+  copy of the generator benchmark harness.
