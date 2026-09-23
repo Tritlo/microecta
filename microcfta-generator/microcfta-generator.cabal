@@ -71,6 +71,11 @@ library
   import: warnings, extensions
   hs-source-dirs: src
   exposed-modules:
+    Data.CFTA.Gen.Error
+    Data.CFTA.Gen.Internal.Inspection
+    Data.CFTA.Gen.Internal.Support
+    Data.CFTA.Gen.Label
+    Data.CFTA.Gen.Sig
     Data.CFTA.Ranked
     Data.CFTA.Ranked.Internal
     Data.CFTA.Ranked.Internal.Decoder
@@ -83,8 +88,11 @@ library
     array >=0.5 && <0.6,
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
     microcfta >=0.1.0.0 && <0.2,
+    mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
 
 test-suite gen-tests
   import: warnings, extensions
