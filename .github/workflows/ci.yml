@@ -119,6 +119,7 @@ jobs:
         run: |
           cabal v2-run cfta-pairs
           cabal v2-run cfta-finite-languages
+          cabal v2-run cfta-draw-typed-expressions
 
       # The release check builds every dependency again, with documentation,
       # and takes about 30 minutes. It runs only on pull requests into main.
