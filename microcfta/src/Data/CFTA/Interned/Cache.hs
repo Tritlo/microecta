@@ -62,8 +62,9 @@ type Id = Int
 
 The supply is one counter that takes atomic fetch-and-add increments, so
 threads draw distinct identities and never retry, as an 'IORef' update can.
-One thread draws 0, 1, 2, and so on, in the order that it interns values. Nodes order their edges by identity, so this order makes
-enumeration and sampling deterministic in a single-threaded program.
+One thread draws 0, 1, 2, and so on, in the order that it interns values.
+Nodes order their edges by identity, so this order makes enumeration and
+sampling deterministic in a single-threaded program.
 -}
 newtype IdSupply = IdSupply (MutableByteArray RealWorld)
 
@@ -124,7 +125,8 @@ freshCacheWith ids = Cache ids <$> newTable 8
 The first writer wins and nothing forces the value: forcing it may build a
 value that interns or memoizes, which would re-enter this update and
 diverge. The winner is read back outside the update. The pragma matters:
-callers lose their specialization when this is a separate function.
+without it, the core benchmark @micro-bench@ runs 1.6% more instructions.
+@INLINABLE@ gives the same instruction counts as @INLINE@.
 -}
 insertKeepingFirst :: (Hashable key) => Table key value -> key -> value -> IO value
 {-# INLINE insertKeepingFirst #-}
@@ -146,9 +148,12 @@ insertHashed table key value = do
 {- | Return the canonical interned representative for an uninterned value.
 
 The uninterned value is the cache key. The identify function attaches a fresh
-identity when the value is new. The pragma matters: when 'intern' is only
-inlinable, the call sites of theories other than the equality theory hash the
-key through class dictionaries.
+identity when the value is new. The pragma matters: with @INLINABLE@ instead,
+the benchmark cell @lta-automaton@ runs 5.6% more instructions, and the other
+cells do not change. The cause is not class dictionaries. In the optimized Core
+of that build, the refinement modules call copies of 'intern' that are
+specialized to their key types. The difference is that these calls are not
+inlined.
 -}
 intern :: (Hashable key) => Cache key value -> (Id -> key -> value) -> key -> value
 {-# INLINE intern #-}
@@ -162,33 +167,37 @@ intern cache identify !key = unsafeDupablePerformIO $ do
   where
     hashedKey = hashed key
 
-{- | A small set of caches, one for each symbol and constraint type.
+{- | A small set of caches, one for each symbol type.
 
-A family belongs to one operation, and the symbol and constraint types
-determine the type of its cache. The key is the pair of their type
-representations. The caller already has both, so selecting a cache builds
-no type representation and computes no fingerprint.
+A family belongs to one operation, and the symbol type determines the type
+of its cache. The key is the type representation of the symbol. The caller
+already has it, so selecting a cache builds no type representation and
+computes no fingerprint: in the optimized Core, 'selectCache' reads the
+representation from its 'Typeable' dictionary and compares stored
+fingerprints through the 'Eq' instance of 'SomeTypeRep'.
 -}
-newtype CacheFamily = CacheFamily (IORef [(SomeTypeRep, SomeTypeRep, Any)])
+newtype CacheFamily = CacheFamily (IORef [(SomeTypeRep, Any)])
 
 -- | Allocate an empty family.
 newCacheFamily :: IO CacheFamily
 newCacheFamily = CacheFamily <$> newIORef []
 
-{- | Get the cache for one symbol and constraint type. Concurrent allocations
-keep the first cache.
+{- | Get the cache for one symbol type. Concurrent allocations keep the first
+cache.
 
-The caller guarantees that, in this family, the symbol and constraint types
-determine the cache type. The stored cache is coerced back on that
+The caller guarantees that, in this family, the symbol type determines the
+cache type. The stored cache is coerced back on that
 guarantee. Every intern and memo call selects a cache, so the selection must
 not use 'System.IO.Unsafe.unsafePerformIO': with more than one capability, its
-protection against duplication walks the thread's stack on each call. A
-duplicated selection is harmless, because the atomic update keeps the first
-cache.
+protection against duplication walks the thread's stack on each call. On a
+threaded build with four capabilities, 'System.IO.Unsafe.unsafePerformIO' here
+makes @micro-bench@ run 1.0% more instructions. With one capability, the
+counts do not change. A duplicated selection is harmless, because the atomic
+update keeps the first cache.
 -}
 selectCache ::
-    forall symbol constraint cache.
-    (Typeable symbol, Typeable constraint) =>
+    forall symbol cache.
+    (Typeable symbol) =>
     CacheFamily ->
     IO cache ->
     cache
@@ -201,14 +210,12 @@ selectCache (CacheFamily ref) allocate = unsafeDupablePerformIO $ do
             candidate <- allocate
             atomicModifyIORef' ref $ \entries -> case findCache entries of
                 Just found -> (entries, found)
-                Nothing -> ((symbolKey, constraintKey, unsafeCoerce candidate) : entries, candidate)
+                Nothing -> ((symbolKey, unsafeCoerce candidate) : entries, candidate)
   where
     symbolKey = SomeTypeRep (typeRep @symbol)
-    constraintKey = SomeTypeRep (typeRep @constraint)
     findCache entries =
         listToMaybe
             [ unsafeCoerce cache
-            | (symbolType, constraintType, cache) <- entries
+            | (symbolType, cache) <- entries
             , symbolType == symbolKey
-            , constraintType == constraintKey
             ]
