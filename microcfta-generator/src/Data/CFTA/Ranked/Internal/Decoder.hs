@@ -27,6 +27,7 @@ module Data.CFTA.Ranked.Internal.Decoder (
     sharedChoiceBound,
 ) where
 
+import Data.IntSet (IntSet)
 import qualified Data.Map.Lazy as Map
 import GHC.Arr (listArray, unsafeAt)
 
@@ -133,14 +134,20 @@ data SizeIndex a = SizeIndex
     -}
     , minimumMemberSize :: MinimumSize
     -- ^ Smallest live size, or 'NoFiniteMember' when no finite member is known.
-    , unguardedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' can be reached without passing through a
-    product. Counting such an index would consult its own size, so a
-    recursive definition shaped this way has no smallest member.
+    , largestMemberSize :: LargestSize
+    {- ^ A size that no member exceeds, when the sizes end. A tied recursion
+    gives 'SizesDoNotEnd'.
     -}
-    , usedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
-    whose body never reaches its own occurrence is not recursive.
+    , unguardedOccurrences :: IntSet
+    {- ^ The recursions whose probe can be reached without passing through a
+    product. Counting such an index would consult its own size, so a
+    recursive definition shaped this way has no smallest member. Each
+    element is the 'Int' of an occurrence token.
+    -}
+    , usedOccurrences :: IntSet
+    {- ^ The recursions whose probe is reachable at all. A recursive definition
+    whose body never reaches its own occurrence is not recursive. Each
+    element is the 'Int' of an occurrence token.
     -}
     }
 

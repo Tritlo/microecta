@@ -1,0 +1,296 @@
+{- | The flat layer: sources, imported automata, choices, and joins over one
+generator at a time.
+
+The grouped layer lives in "Data.CFTA.Gen.Internal.Grouped" and
+recursion in "Data.CFTA.Gen.Internal.Recur".
+-}
+module Data.CFTA.Gen.Internal.Flat (
+    -- * Sources
+    fromIndexed,
+    fromGen,
+    elements,
+    namedElements,
+
+    -- * Imported automata
+    fromAutomaton,
+    fromAutomatonUpToDepth,
+
+    -- * Choices
+    frequency,
+    oneof,
+    uniformly,
+
+    -- * Joins
+    match,
+    relate,
+    relateM,
+) where
+
+import qualified Data.Array as Array
+import Data.Hashable (Hashable)
+import qualified Data.Text as Text
+import qualified Data.Tree as Tree
+import Data.Typeable (Typeable)
+import qualified Test.QuickCheck as QC
+
+import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
+import Data.CFTA.Gen.Internal.Grouped (groupOn, relateGroupsM, ungroup)
+import Data.CFTA.Gen.Internal.Inspection
+import Data.CFTA.Gen.Internal.Join
+import Data.CFTA.Gen.Internal.Query (cardinality)
+import Data.CFTA.Gen.Internal.Recursive
+import Data.CFTA.Gen.Internal.Static
+import Data.CFTA.Gen.Internal.Support (relabel)
+import Data.CFTA.Gen.Internal.Types
+import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Sig (On (..))
+import Data.CFTA.Index (Depth, Weight, countWeight)
+import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Ranked.Internal (Indexed (..))
+import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
+import Data.CFTA.Ranked.Internal.Size (choiceIndex, mapIndex)
+import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
+
+-- | Interpret a reified condition as one key projection per side.
+withKeys ::
+    On left right ->
+    (forall key. (Ord key) => (left -> key) -> (right -> key) -> t) ->
+    t
+withKeys (leftKey :==: rightKey) continue = continue leftKey rightKey
+withKeys (first :&&: second) continue =
+    withKeys first $ \leftKey rightKey ->
+        withKeys second $ \otherLeftKey otherRightKey ->
+            continue
+                (\left -> (leftKey left, otherLeftKey left))
+                (\right -> (rightKey right, otherRightKey right))
+
+-- | Lift one finite indexed source into transparent ECTA structure.
+fromIndexed :: (Hashable symbol, Typeable symbol) => Indexed a -> Gen symbol a
+fromIndexed indexed
+    | indexedCardinality indexed <= 0 = Transparent $ Left EmptyGenerator
+    | otherwise = Transparent $ Right $ indexedStatic indexed
+
+-- | Embed an ordinary QuickCheck generator as an opaque region.
+fromGen :: QC.Gen a -> Gen symbol a
+fromGen generated = Opaque $ Right <$> generated
+
+{- | Read an automaton as a generator of the terms it accepts.
+
+An acyclic automaton gives a finite generator with one rank per distinct term.
+Symbolic counts are used where alternatives overlap or an equality reaches
+below direct children. Every path orders the constructors at a node by arity,
+then by the key. Alternatives with the same symbol are then ordered by the
+structure of their children. Other alternatives with the same arity and key
+keep the order in which their edges were interned. 'Symbol' orders by text, so
+with the symbol as the key, the ranks do not depend on the order in which the
+process interned its symbols and edges. A cyclic automaton gives a recursive
+generator counted by size; it must be unambiguous and carry no equality
+constraints, because its count sums over accepting runs.
+-}
+fromAutomaton ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> Gen symbol (Tree.Tree symbol)
+fromAutomaton order root = withRecipe (Imported Nothing order root) $ readAutomaton order root
+
+-- | Read the terms an automaton accepts up to a constructor-depth bound. A leaf has depth zero.
+fromAutomatonUpToDepth ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Depth -> Node symbol -> Gen symbol (Tree.Tree symbol)
+fromAutomatonUpToDepth order depth graph =
+    withRecipe (Imported (Just depth) order graph) $ readAutomaton order $ Common.boundDepth depth graph
+
+-- | The language of an automaton: finite when acyclic, counted by size otherwise.
+readAutomaton ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> Gen symbol (Tree.Tree symbol)
+readAutomaton order root
+    | Common.numNestedMu root == 0 = Transparent $ finiteAutomaton order root
+    | otherwise = Cyclic $ do
+        index <- automatonIndex order root
+        pure $
+            Recursive
+                supportNode
+                index
+                (uniformSampleIndex index)
+                False
+                (Just $ mapIndex (fmap Label) index)
+                (plainInspection supportNode)
+  where
+    supportNode = relabel Label root
+
+-- | Choose uniformly from a finite non-empty list.
+elements :: (Hashable symbol, Typeable symbol) => [a] -> Gen symbol a
+elements values =
+    fromIndexed $
+        Indexed
+            (toEnum total)
+            ((indexed Array.!) . fromEnum)
+  where
+    total = length values
+    indexed = Array.listArray (0, total - 1) values
+
+-- | Choose uniformly from named source values.
+namedElements ::
+    (Hashable symbol, Typeable symbol) => [(Text.Text, a)] -> Gen symbol a
+namedElements values
+    | total <= 0 = Transparent $ Left EmptyGenerator
+    | otherwise =
+        Transparent
+            $ Right
+            $ indexedStaticWithLabels
+                (Just . fst . entry)
+                (Indexed (toEnum total) (snd . entry))
+  where
+    total = length values
+    indexed = Array.listArray (0, total - 1) values
+    entry index = indexed Array.! fromEnum index
+
+-- | Choose one generator with the supplied positive relative weight.
+frequency ::
+    (Hashable symbol, Typeable symbol) =>
+    [(Weight, Gen symbol a)] -> Gen symbol a
+frequency alternatives = withRecipe (Chosen alternatives) $ chooseLanguage alternatives
+
+-- | The language of a weighted choice.
+chooseLanguage ::
+    (Hashable symbol, Typeable symbol) =>
+    [(Weight, Gen symbol a)] -> Gen symbol a
+chooseLanguage weighted
+    | Just badWeight <- firstNonPositiveWeight weighted =
+        Transparent $ Left $ NonPositiveWeight badWeight
+    | Just err <- firstError weighted = Transparent $ Left err
+    | null alternatives = Transparent $ Left EmptyGenerator
+    | Just staticAlternatives <- traverse getStatic alternatives =
+        Transparent $ Right $ frequencyStatic staticAlternatives
+    | any (isRecursive . snd) alternatives =
+        Cyclic $ do
+            views <- traverse (recursiveView . snd) alternatives
+            if allWeightsEqual alternatives
+                then
+                    pure $
+                        Recursive
+                            ( Node
+                                [ Edge (Choice index) [recursiveSupport view]
+                                | (index, view) <- zip [0 ..] views
+                                ]
+                            )
+                            (choiceIndex $ map recursiveIndex views)
+                            ( choiceSampleIndex
+                                [ (recursiveIndex view, recursiveSampling view)
+                                | view <- views
+                                ]
+                            )
+                            (any recursiveWeighted views)
+                            Nothing
+                            (choiceInspection $ map recursiveInspection views)
+                else Left WeightedRecursiveAlternatives
+    | otherwise =
+        Opaque $ case frequencyGen [(weight, QuickCheckBackend $ lower generator) | (weight, generator) <- alternatives] of
+            QuickCheckBackend generated -> generated
+  where
+    -- An empty alternative has no member to choose; it is not a failure.
+    alternatives = filter (not . emptyAlternative . snd) weighted
+      where
+        emptyAlternative (Transparent (Left EmptyGenerator)) = True
+        emptyAlternative (Cyclic (Left EmptyGenerator)) = True
+        emptyAlternative _ = False
+    firstError = go
+      where
+        go [] = Nothing
+        go ((_, Transparent (Left EmptyGenerator)) : rest) = go rest
+        go ((_, Transparent (Left err)) : _) = Just err
+        go (_ : rest) = go rest
+
+    getStatic (weight, Transparent (Right static)) = Just (weight, static)
+    getStatic _ = Nothing
+
+-- | Choose uniformly among generators.
+oneof ::
+    (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
+oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
+
+{- | Choose among generators so that every member of the combined language is
+equally likely. If all alternatives are finite, each alternative is weighted by
+its cardinality. If any alternative is recursive, this is 'oneof', whose
+recursive choice draws each alternative in proportion to its members at the
+drawn size. A member of several alternatives counts once for each.
+-}
+uniformly ::
+    (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
+uniformly alternatives
+    | any isRecursive alternatives = oneof alternatives
+    | otherwise = case traverse liveCardinality alternatives of
+        Left err -> Transparent $ Left err
+        Right counts ->
+            frequency
+                [ (countWeight count, alternative)
+                | (Just count, alternative) <- zip counts alternatives
+                ]
+  where
+    liveCardinality alternative = case cardinality alternative of
+        Left EmptyGenerator -> Right Nothing
+        Left err -> Left err
+        Right count -> Right $ if count > 0 then Just count else Nothing
+
+-- | Generate two values whose projected keys agree.
+match ::
+    (Hashable symbol, Typeable symbol) =>
+    On left right ->
+    Gen symbol left ->
+    Gen symbol right ->
+    Gen symbol (left, right)
+match _ (Transparent (Left err)) _ = Transparent $ Left err
+match _ _ (Transparent (Left err)) = Transparent $ Left err
+match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
+match _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
+match condition (Transparent (Right left)) (Transparent (Right right)) =
+    withKeys condition $ \leftKey rightKey ->
+        Transparent $ joinStatic leftKey rightKey left right
+match condition left right =
+    withKeys condition $ \leftKey rightKey ->
+        let generatedPairs = liftA2 (liftA2 (,)) (lower left) (lower right)
+            matches (Left _) = True
+            matches (Right (leftValue, rightValue)) =
+                leftKey leftValue == rightKey rightValue
+         in Opaque $ generatedPairs `QC.suchThat` matches
+
+-- | Generate two values whose projected keys satisfy a relation.
+relate ::
+    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> Bool) ->
+    Gen symbol left ->
+    Gen symbol right ->
+    Gen symbol (left, right)
+relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
+relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
+relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
+relate _ _ _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
+relate leftKey rightKey relation (Transparent (Right left)) (Transparent (Right right)) =
+    Transparent $ relateStatic leftKey rightKey relation left right
+relate leftKey rightKey relation left right =
+    let generatedPairs = liftA2 (liftA2 (,)) (lower left) (lower right)
+        related (Left _) = True
+        related (Right (leftValue, rightValue)) =
+            relation (leftKey leftValue) (rightKey rightValue)
+     in Opaque $ generatedPairs `QC.suchThat` related
+
+-- | Compile an effectful relation between two finite inspectable languages.
+relateM ::
+    (Ord leftKey, Ord rightKey, Hashable symbol, Typeable symbol) =>
+    (left -> leftKey) ->
+    (right -> rightKey) ->
+    (leftKey -> rightKey -> IO (Either relationError Bool)) ->
+    Gen symbol left ->
+    Gen symbol right ->
+    IO (Either relationError (Gen symbol (left, right)))
+relateM leftKey rightKey relation left right =
+    fmap (fmap ungroup) $
+        relateGroupsM
+            relation
+            (\_ _ -> ())
+            (groupOn leftKey left)
+            (groupOn rightKey right)

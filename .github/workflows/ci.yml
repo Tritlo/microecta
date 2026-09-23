@@ -115,6 +115,10 @@ jobs:
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
+      - name: Test the generator examples
+        run: |
+          cabal v2-run cfta-pairs
+
       # The release check builds every dependency again, with documentation,
       # and takes about 30 minutes. It runs only on pull requests into main.
       - name: Validate release artifacts
