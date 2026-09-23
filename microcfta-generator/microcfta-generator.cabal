@@ -72,8 +72,12 @@ library
   hs-source-dirs: src
   exposed-modules:
     Data.CFTA.Gen.Error
+    Data.CFTA.Gen.Internal.Automaton
     Data.CFTA.Gen.Internal.Inspection
+    Data.CFTA.Gen.Internal.Static
     Data.CFTA.Gen.Internal.Support
+    Data.CFTA.Gen.Internal.Symbolic
+    Data.CFTA.Gen.Internal.Table
     Data.CFTA.Gen.Label
     Data.CFTA.Gen.Sig
     Data.CFTA.Ranked
