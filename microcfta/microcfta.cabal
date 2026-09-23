@@ -77,8 +77,11 @@ library
     Data.CFTA.Equality.Constraint
     Data.CFTA.Generic
     Data.CFTA.Internal.UnionFind
+    Data.CFTA.Interned
     Data.CFTA.Interned.Cache
     Data.CFTA.Interned.Memo
+    Data.CFTA.Interned.Operations
+    Data.CFTA.Interned.Type
     Data.CFTA.Path
     Data.CFTA.Symbol
 
