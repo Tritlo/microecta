@@ -72,8 +72,10 @@ library
   import: warnings, extensions
   hs-source-dirs: src
   exposed-modules:
+    Data.CFTA
     Data.CFTA.Constraint
     Data.CFTA.Equality.Constraint
+    Data.CFTA.Generic
     Data.CFTA.Index
     Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned.Cache
@@ -89,9 +91,10 @@ library
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
-    intern >=0.9 && <0.10,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
+    transformers >=0.6 && <0.7,
     unordered-containers >=0.2 && <0.3,
 
 test-suite unit-tests
@@ -110,6 +113,7 @@ test-suite unit-tests
   other-modules:
     Data.CFTA.Equality.ConstraintSpec
     Data.CFTA.Internal.UnionFindSpec
+    Data.CFTASpec
 
   build-depends:
     base >=4.22 && <4.23,

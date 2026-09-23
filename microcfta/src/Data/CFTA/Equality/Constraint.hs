@@ -23,6 +23,7 @@ module Data.CFTA.Equality.Constraint (
     combineEqConstraints,
     eqConstraintsDescend,
     constraintsAreContradictory,
+    fitsArity,
     subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
 ) where
@@ -229,13 +230,23 @@ hasSubsumingMember pec1 pec2 = go (getPathTrie pec1) (getPathTrie pec2)
     go (PathTrie children1) (PathTrie children2) =
         or $ IntMap.intersectionWith go children1 children2
 
-{- | Total ordering used when choosing constraint-propagation order.
+{- | Ordering used when choosing constraint-propagation order.
 
 Strict subsumption comes first: if one equality class contains a path that is a
 strict prefix of a path in another class, the shorter one must be processed
-before the longer one. Incomparable classes use the reversed trie ordering.
-That tie-break keeps term-search-shaped workloads in the old left-to-right
-propagation order, which avoids extra reduction work in practice.
+before the longer one. Incomparable classes use the reversed order of their
+sorted path lists. That tie-break keeps term-search-shaped workloads in
+left-to-right propagation order. With the forward order, the term-search
+benchmark @micro-bench@ runs 0.6% more instructions, and the other benchmarks
+do not change.
+
+'hasSubsumingMember' is transitive on every class list that 'mkEqConstraints',
+'combineEqConstraints', or 'eqConstraintsDescend' returns. If a path @a@ of @A@
+has the extension @a ++ s@ in @B@, and a path @b@ of @B@ has the extension
+@b ++ t@ in @C@, the congruence closure puts @(a ++ s) ++ t@ in @C@. The check
+for contradictions makes the relation irreflexive, so it has no cycle, and
+'sortBy' puts a class before every class that it subsumes. A class list built
+with the 'EqConstraints' constructor has no such guarantee.
 -}
 completedSubsumptionOrdering :: PathEClass -> PathEClass -> Ordering
 completedSubsumptionOrdering pec1 pec2
@@ -249,7 +260,9 @@ completedSubsumptionOrdering pec1 pec2
 
 -- | Equality constraints attached to an ECTA edge.
 data EqConstraints
-    = -- | Equality classes over paths into the edge's children. Sorted.
+    = {- | Equality classes over paths into the edge's children. Sorted by
+      'mkEqConstraints'; the constructor itself does not sort.
+      -}
       EqConstraints [PathEClass]
     | -- | The classes forced a path to equal one of its strict subpaths.
       EqContradiction
@@ -271,6 +284,18 @@ unsafeGetEclasses :: EqConstraints -> [PathEClass]
 unsafeGetEclasses EqContradiction = error "unsafeGetEclasses: Illegal argument 'EqContradiction'"
 unsafeGetEclasses (EqConstraints eclasses) = eclasses
 
+{- | Whether an edge with this many children can meet the classes. The
+classes must not be contradictory, no path can have a negative index, and
+every path must start at an existing child. A deeper index is checked where
+the path meets the edges of the child.
+-}
+fitsArity :: Int -> EqConstraints -> Bool
+fitsArity _ EqContradiction = False
+fitsArity arity constraints = all (all fits . unPathEClass) (unsafeGetEclasses constraints)
+  where
+    fits (Path []) = True
+    fits (Path indices@(ChildIndex first : _)) = first < arity && all (>= 0) indices
+
 -- | Check whether a constraint set is already contradictory.
 constraintsAreContradictory :: EqConstraints -> Bool
 constraintsAreContradictory = (== EqContradiction)
@@ -280,9 +305,12 @@ constraintsAreContradictory = (== EqContradiction)
 {- | Check whether a normalized path class forces a path equal to its subpath.
 
 After congruence closure, every subsumption cycle appears as an equality class
-containing both a path and one of its strict prefixes. Such a class is
+containing both a path and one of its strict prefixes: subsumption is transitive
+on a closed class list (see 'completedSubsumptionOrdering'), so a cycle through
+a class @A@ gives @A@ a path and one of its strict extensions. Such a class is
 unsatisfiable for finite trees: it would require a subterm to be equal to a
-proper descendant of itself.
+proper descendant of itself. The congruence step checks the closed classes of
+every step, so the last check sees the fixed point.
 -}
 isContradicting :: [Set Path] -> Bool
 isContradicting = any (\paths -> any (\p -> any (isStrictSubpath p) paths) paths)
@@ -292,8 +320,17 @@ isContradicting = any (\paths -> any (\p -> any (isStrictSubpath p) paths) paths
 This performs equality-class completion, adds path congruences, and detects
 contradictions caused by a path being forced equal to one of its strict
 subpaths. The implementation is intentionally direct rather than clever because
-constraint construction is not the main API boundary; class completion is a
-small union-find and the congruence step is the quadratic part.
+constraint construction is not the main API boundary. Class completion is a
+small union-find. The congruence step is the most expensive part, and it
+repeats until it reaches a fixed point.
+
+One congruence step is polynomial in the number of paths of the current
+classes. The closure itself can be exponentially larger than the input: the
+classes @[0^j, 0^(j-1) ++ [1]]@ for @j@ from 1 to @n@ have @2n@ paths, and
+their closure has @2^(n+1) - 2@ paths (measured for @n@ up to 9). So the cost is
+polynomial in the size of the closure, not in the size of the input. A set
+in which no path is a strict prefix of another is already closed, and the
+congruence step then adds nothing.
 -}
 mkEqConstraints :: [[Path]] -> EqConstraints
 mkEqConstraints = normalize . map Set.fromList
@@ -306,7 +343,7 @@ normalize initialConstraints = case completedConstraints of
   where
     -- Reason for the extra "complete" in this line:
     -- The first simplification done to the constraints is eclass-completion,
-    -- to remove redundancy and shrink things before the very inefficient
+    -- to remove redundancy and shrink the constraints before the very inefficient
     -- addCongruences step (important in tests; less so in realistic input).
     -- The last simplification must also be completion, to give a valid value.
     completedConstraints = fixMaybe congruenceStep $ complete $ removeTrivial initialConstraints
