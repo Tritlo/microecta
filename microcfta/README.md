@@ -318,6 +318,307 @@ graph directly and does not validate symbol arities. Neither view enumerates
 the accepted values. Add `containers` to your component's `build-depends` when
 you import `Data.Tree` directly.
 
+## Equality constraints
+
+The main entry point is `Data.CFTA.Equality`.
+
+```haskell
+import Data.CFTA.Equality
+import qualified Data.Tree as Tree
+```
+
+An equality-constrained automaton is a `Node symbol EqConstraints`, which is a
+set of outgoing `Edge symbol EqConstraints`s. An edge
+has a symbol, child nodes, and optional equality constraints over paths into
+those children. `Symbol` is the supplied interned text alphabet; its `IsString`
+instance keeps the usual `OverloadedStrings` syntax. The `Node`, `Edge`, and
+`Mu` patterns are the ones every theory shares; a signature such as
+`Node Symbol EqConstraints` fixes the theory.
+
+```haskell
+intType :: Node Symbol EqConstraints
+intType = Node [Edge "Int" []]
+
+maybeIntType :: Node Symbol EqConstraints
+maybeIntType = Node [Edge "Maybe" [intType]]
+
+sameChildren :: Edge Symbol EqConstraints
+sameChildren =
+  mkEdge
+    "Pair"
+    [intType, intType]
+    (mkEqConstraints [[path [0], path [1]]])
+```
+
+The alphabet can instead be an ordinary datatype. Edge construction needs
+`Hashable` and `Typeable` for type-safe hash-consing; building a node from
+existing edges needs only `Typeable`, and inspecting an existing node needs
+neither. Operations that rebuild edges, such as intersection and reduction,
+therefore carry both constraints. `termsWith` takes the value to use when
+recursion is truncated, so the datatype does not need an `IsString` instance:
+
+```haskell
+import Data.Hashable (Hashable)
+import GHC.Generics (Generic)
+
+data NatSymbol = Zero | Succ | Recursion
+  deriving (Eq, Generic, Show)
+
+instance Hashable NatSymbol
+
+zeroOrOne :: Node NatSymbol EqConstraints
+zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
+
+terms :: [Tree.Tree NatSymbol]
+terms = termsWith Recursion zeroOrOne
+```
+
+Useful operations:
+
+- `union` combines alternatives.
+- `intersect` keeps terms accepted by both automata.
+- `reducePartially` propagates equality constraints and removes the
+  alternatives those constraints locally rule out. It does not decide
+  emptiness: a fully reduced automaton can still accept nothing.
+- `withoutRedundantEdges` removes alternatives implied by other alternatives.
+- `accepts` checks concrete term membership.
+- `matchesTemplate` checks a concrete term against an explicit `Template`.
+- `termsMatching` restricts a node to the accepted terms matching a template,
+  while preserving its equality constraints.
+- `terms` and `termsPrune` enumerate accepted terms. Both stop at
+  an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
+  `unfoldBounded` first to see past the recursion.
+
+`terms` lists each term once even when several runs accept it; `runs` lists
+one entry per accepting run together with the obligations that run must
+satisfy. A constraint whose paths descend into a truncated `Mu` is dropped
+rather than checked, so a term containing the `Mu` marker is not evidence that
+the language below it is non-empty.
+
+Templates do not overload ordinary symbols. `Hole` matches a complete
+subtree, `TemplateNode` and `AnyNode` require exact arity, and
+`TemplatePrefix` and `AnyPrefix` constrain only the leading children:
+
+```haskell
+unaryF = TemplateNode "f" [Hole] :: Template Symbol
+anyF = TemplatePrefix "f" [] :: Template Symbol
+```
+
+### Visualize an equality automaton
+
+`toTree` retains the original nodes and edges in typed labels:
+
+```haskell
+toTree ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol EqConstraints ->
+    Either (FTAViewError symbol)
+        (Tree (Either (StateView (Node symbol EqConstraints)) (Edge symbol EqConstraints)))
+```
+
+`Left` contains an expanded node or a recursive or shared reference. `Right`
+contains an original edge, including its equality constraints. Map the labels
+to strings with `fmap (either renderNode renderEdge)` before using `drawTree`.
+The renderer can choose domain names because node labels retain the nodes:
+
+```haskell
+module Main (main) where
+
+import Data.List (intercalate)
+import Data.Tree (drawTree)
+
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality (EqConstraints, mkEqConstraints, path, subsumptionOrderedEclasses, unPath, unPathEClass)
+
+-- | The one literal state in this example.
+leaf :: ECTA.Node String EqConstraints
+leaf = ECTA.Node [ECTA.Edge "Int" []]
+
+-- | Equal pairs and recursive wrappers share the same expression state.
+graph :: ECTA.Node String EqConstraints
+graph = ECTA.createMu $ \self ->
+    ECTA.Node
+        [ ECTA.mkEdge "Pair" [leaf, leaf] (mkEqConstraints [[path [0], path [1]]])
+        , ECTA.Edge "Again" [self]
+        ]
+
+-- | Use application-specific names for the original nodes.
+renderNode :: ECTA.StateView (ECTA.Node String EqConstraints) -> String
+renderNode view = case fmap (\node -> name node <> " @" <> renderViewPath (ECTA.viewPath view)) view of
+    ECTA.Expanded _ label -> label
+    ECTA.Recursive _ label -> "mu " <> label
+    ECTA.Shared _ label -> "ref " <> label
+  where
+    name node
+        | node == leaf = "literal"
+        | otherwise = "expression"
+
+-- | Identify the alternative and child at each step from the view root.
+renderViewPath :: ECTA.ViewPath -> String
+renderViewPath [] = "root"
+renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | (alternative, child) <- steps]
+
+-- | Keep equality paths while omitting empty constraints.
+renderEdge :: ECTA.Edge String EqConstraints -> String
+renderEdge edge = ECTA.edgeSymbol edge <> constraints
+  where
+    constraints = case subsumptionOrderedEclasses $ ECTA.edgeConstraint edge of
+        Nothing -> " [false]"
+        Just [] -> ""
+        Just classes -> " [" <> intercalate ", " (map renderClass classes) <> "]"
+    renderClass = intercalate " = " . map renderPath . unPathEClass
+    renderPath target = case unPath target of
+        [] -> "root"
+        indexes -> intercalate "." $ map show indexes
+
+-- | Choose labels after constructing the typed graph view.
+main :: IO ()
+main = do
+    tree <- either (fail . show) pure $ ECTA.toTree graph
+    putStr $ drawTree $ fmap (either renderNode renderEdge) tree
+```
+
+This program prints:
+
+```text
+expression @root
+|
++- Pair [0 = 1]
+|  |
+|  +- literal @0:0
+|  |  |
+|  |  `- Int
+|  |
+|  `- ref literal @0:1
+|
+`- Again
+   |
+   `- mu expression @1:0
+```
+
+`Expanded`, `Recursive`, and `Shared` identify node definitions and references.
+The example chooses the names `expression` and `literal`, and prints equality
+paths instead of their internal trie representation. The renderer preserves
+contradictions as `[false]` and omits only empty equality constraints.
+
+`viewNode` retains the original node. `viewPath :: ViewPath` locates each
+occurrence, including recursive and shared references. `ViewPath` is
+`[(Int, Int)]`; each pair selects a zero-based edge alternative and then its
+zero-based child. The root is `[]`, displayed as `@root`. For example,
+`@0:1/2:0` follows child 1 of alternative 0, then child 0 of alternative 2.
+References have their own occurrence paths and retain the node of their
+definition.
+
+These paths locate occurrences in one graph view. They are not persistent
+node identities or the child-only `Path` used by equality constraints.
+`map snd` extracts the child-only route for one occurrence. The finite view
+does not list every route through a shared or recursive graph. Paths are built
+only when `toTree` is requested; normal generation does not build them.
+
+The view traverses the interned graph directly. Unlike `toFTA`, it does not
+require a ranked alphabet. An open recursive variable returns `Left OpenNode`.
+It does not enumerate terms or solve constraints. Add `containers` to your
+component's `build-depends` when you import `Data.Tree` directly.
+
+For the actual typed-expression generator, see
+[`DrawTypedExpressions.hs`](../microcfta-generator/examples/DrawTypedExpressions.hs).
+Run `cabal run cfta-draw-typed-expressions` from the workspace root. It draws
+finite and recursive diagnostic graphs with local state names, occurrence
+locations, source names, function signatures, and type-group witnesses.
+The generator retains these names through `namedElements` and `nameGroups`.
+`Gen.inspect` returns this diagnostic graph; `Gen.support` retains the original
+semantic support. Each diagnostic symbol also retains its original symbol.
+See [generator inspection](../microcfta-generator/README.md#inspect-a-generator)
+for the API and its limits. The [ASCII reading guide](../microcfta-generator/README.md#read-the-ascii-tree)
+walks through `@1:0/0:1`, shared references, and equality paths.
+
+### Pruning API
+
+`termsPrune` lets a caller drop branches of the enumeration before they
+are explored. It calls an oracle twice around every UVar it expands, passing
+the caller's own state, the UVar, and either:
+
+- `Right node`, before that ECTA node is expanded
+- `Left fragment`, after a `TermFragment` has been produced
+
+A bare unconstrained `Mu` stops enumeration without being expanded and
+therefore produces neither callback.
+
+Return `True` to discard the current nondeterministic branch, or `False` to
+keep enumerating with updated state.
+
+What makes a term worth rejecting is entirely the caller's business.
+The library supplies the callbacks, `expandPartialTermFrag` to read a partial
+term, and no opinion about which shapes matter. Its `PartialSymbol` alphabet
+keeps concrete symbols, unexpanded `UVarHole`s, and `TruncatedRecursion`
+distinct; no placeholder can collide with a real symbol. `Tree.Tree` is a functor,
+so a caller that deliberately wants one concrete alphabet can materialize a
+partial term with `fmap resolvePartial`.
+
+```haskell
+-- Drop any branch whose partial term already contains a forbidden symbol.
+prunedTerms :: [Symbol] -> Node Symbol EqConstraints -> [Tree.Tree Symbol]
+prunedTerms forbidden =
+  termsPrune () $ \() _ event ->
+    case event of
+      Right _ -> pure (False, ())
+      Left fragment -> do
+        partial <- expandPartialTermFrag fragment
+        pure (any (`occursIn` partial) forbidden, ())
+  where
+    occursIn s (Tree.Node (ConcreteSymbol s') ts) =
+      s == s' || any (occursIn s) ts
+    occursIn s (Tree.Node _ ts) = any (occursIn s) ts
+```
+
+A `Right node` decision covers a whole UVar, so it removes every term under
+that hole at once. The fact that `termsMatching template node` is non-empty
+only proves that some terms match; it does not justify dropping the whole
+node. Use `Left fragment` when the choice has to be made per branch.
+
+The oracle's state is threaded down each nondeterministic branch separately,
+which is what makes deferred checks work. When a check cannot be settled
+because the fragment still holds an unexpanded hole, park it in that state
+under the hole's `getUVarRepresentative` and settle it when the oracle is
+called with `Left fragment` for that UVar — which is guaranteed to happen
+before the branch completes.
+
+`termsPruneWith` takes the truncated-recursion symbol explicitly, as
+`termsWith` does, so an alphabet without an `IsString` instance can prune
+too. It also adds a say in which hole is expanded next, so a parked check can
+be settled before the branch it will kill is enumerated:
+
+```haskell
+-- Expand a hole some parked check is waiting on, if one is available.
+resolveParkedFirst :: ExpansionOrder (IntMap [Tree.Tree Symbol])
+resolveParkedFirst parked candidates =
+  listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
+
+-- The recursion symbol comes first, so a datatype alphabet can prune too.
+prunedNats oracle =
+  termsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
+```
+
+This steers order only. It cannot make a hole expandable early, and a UVar
+that is not among the candidates is ignored. For an oracle whose rejections
+are monotone — once a branch can be rejected it stays rejectable — it changes
+how much work is done, not which terms come out.
+
+A partial term reports an unexpanded hole as `UVarHole` and a recursive node
+enumeration has finished with as `TruncatedRecursion`. A recursive node whose
+equality constraints are still pending is a hole, not truncated recursion,
+because it may still be expanded.
+
+For repeated reduction, downstream code usually wants:
+
+```haskell
+reduceFully :: Node Symbol EqConstraints -> Node Symbol EqConstraints
+reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
+```
+
+The test and benchmark support module `Data.CFTA.TermSearch.TermSearch`
+defines that helper.
+
 ## Module guide
 
 | Module | Use it for |
@@ -329,8 +630,10 @@ you import `Data.Tree` directly.
 | `Data.CFTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
 | `Data.CFTA.Symbol` | Interned text symbols that compare and hash by identity. |
 | `Data.CFTA.Constraint` | Conjunction, the unconstrained value, and known contradictions. |
+| `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
 | `Data.CFTA.Equality.Constraint` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
+| `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 
 The interned engine has a symbol type and a constraint type. A `Constraint`
@@ -354,3 +657,185 @@ There is no safe public reset operation. Interned equality and hashing use
 canonical identities. Removing a live node from its table can give a later
 copy of the same structure a different identity. Account for this retention
 when using the interned API in a long-running process.
+
+## Performance notes
+
+The core still uses the original hash-consing, memoization, union-find,
+recursive-node, and path/equality-constraint machinery. Those are the hard parts
+of ECTA and are intentionally kept.
+
+Building ECTAs is safe from any thread. The hash-consing and memoization
+tables are immutable maps in `IORef`s: reads never block, and atomic updates
+retain the winning interned value, so one structure keeps one identity however
+many threads raced for it. Each hash-consing table is split into 256 such
+maps by the high bits of the key's hash, so each map is a shallow tree and
+writers to different maps do not retry each other's updates. New identities
+come from one atomic counter, so a single thread draws them in the order that
+it interns values. Nodes order their edges by identity, so in a single-threaded
+program enumeration and sampling do not depend on scheduling. When several
+threads intern at the same time, their identities interleave, and edge order
+can change from run to run. The default allocation area makes parallel garbage
+collection the limit; with `+RTS -A64m`, eight capabilities built different
+automata about four times as fast as one. Threads that build the same
+structures at the same time wait for each other's unfinished values, and in a
+probe such work got no faster beyond four capabilities.
+
+It was not always so. In `microecta` 0.1.0.0 the tables were mutable and unsynchronized,
+and building one structurally identical node from several threads on four
+capabilities produced two different identities in 16 runs out of 20 -- no
+exception, no crash, just two values that are structurally equal and compare
+unequal, after which `Eq`, `Ord`, `Set` membership, memoization and `intersect`
+were all quietly wrong. That mattered most for a parallel test runner: `tasty`
+runs independent tests concurrently by default when the test binary is linked
+with `-threaded` and run with `+RTS -N`, and `hspec` does under `parallel`, so
+a property could be run that way without anything in the user's code looking
+concurrent. The same probe now reports no disagreement in 25 runs.
+
+Recursive-node shapes are computed before entering the interning cache and
+stored in the uninterned description. Hashing and equality reuse that shape,
+while the candidate value remains lazy during the atomic update; forcing it
+there could build and intern further nodes.
+
+The replacement is not a novel design. The `intern` package, already a
+dependency here for interned text, has kept its caches as immutable maps in
+`IORef`s updated atomically for years, and it shards them 1024 ways.
+
+### Memory
+
+Those tables never evict. Retained memory is proportional to the number of
+*distinct* nodes, edges and symbols the process has ever constructed, and to
+the memoized operations run over them. It is not proportional to the amount of
+work done: repeating operations on values that already exist retains nothing
+further.
+
+Measured on the maintainer machine, holding the shape of the work fixed and
+scaling only the count:
+
+| workload | 4k iterations | 16k | 64k |
+| --- | --- | --- | --- |
+| intersect + reduce over a fixed symbol set | 0.1 MB | 0.1 MB | 0.1 MB |
+| building fresh nodes, no memoized operations | 1.9 MB | 6.2 MB | 27.2 MB |
+| both: fresh nodes, intersect + reduce | 5.3 MB | 30.5 MB | 105.8 MB |
+
+Those last two rows are roughly half again what the mutable tables of
+`microecta` 0.1.0.0 retained, which is what the immutable maps cost: a HAMT node carries more
+overhead per entry than a slot in a flat mutable table. It buys thread safety
+and, on the core benchmark, less of everything else: 0.77s and 4,765 MB in
+`microecta` 0.1.0.0 against 0.30s and 2,161 MB now. Holding the cache fixed and adding only
+the stored shape accounts for 0.69s and 4,317 MB of that, so the swap away from
+the mutable table is the larger half. The tables are read far more often than
+written, and a pure lookup in a HAMT beats an IO-boxed probe into a cuckoo
+table.
+
+The first row is the case to aim for. The others grow without bound, and there
+is no way to release them: a long-running process that keeps building
+*distinct* ECTAs will grow until it runs out of memory. This is the trade
+hash-consing makes -- it is what buys O(1) equality and the memoized graph
+algorithms -- but it makes the interned API a poor fit for a long-lived service that
+constructs unboundedly many unrelated automata. Batch work in a process that
+exits, or keep the set of distinct nodes bounded.
+
+#### Why there is no `clearCaches`
+
+Two escape hatches were tried and rejected on measurement.
+
+Emptying the memo tables while keeping the intern cache is *safe* -- every
+memoized function here is pure, so dropping entries costs recomputation and
+nothing else -- but it recovers almost nothing. Most of what those tables hold
+is interned nodes, which the intern cache retains regardless, and the registry
+needed to find the tables is itself unbounded. Clearing every 1000 iterations
+of the third workload above moved live bytes by about 3%.
+
+Emptying the intern cache is not safe at all. Identity comes from it: two
+structurally equal nodes interned either side of a clear get different `Id`s
+and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
+`Symbol` from before the clear is still reachable, which nothing can check.
+
+The standard remedy for that retention is a cache that holds its entries
+weakly, so unreferenced nodes are collected and their table entries go with
+them. [Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
+(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) build exactly
+that on OCaml's weak arrays. In Haskell the mechanism is weak pointers and
+finalisers, from [Peyton Jones, Marlow and Elliott, *Stretching the Storage
+Manager: Weak Pointers and Stable Names in Haskell*, IFL
+1999](https://doi.org/10.1007/10722298_3).
+
+Haskell's one shipped attempt at a weak intern table was
+[`intern`](https://hackage.haskell.org/package/intern) 0.6, and 0.8 reverted it
+four days later: removing an entry from a finaliser races with a comparison
+already in flight over that entry. No maintained Haskell library ships weak
+hash-consing today. This package does not do it, and neither does the `intern`
+package it depends on for symbols, whose cache is strong and monotonic. Moving
+to weak caches is a design change rather than a patch, so it is not in this
+release.
+
+The old dense `PathTrie` representation compiled poorly at `-O2`, to the point of
+exhausting small development machines. The package uses a sparse `PathTrie` with
+a compact single-child fast path. In the current benchmark suite this preserves
+the important runtime shape while letting the library and benchmark build at
+`-O2` inside a 512M compiler heap. CI enforces that budget so a regression fails
+there rather than in a downstream build; the cap is deliberately not baked into
+the library's `ghc-options`, where it would cap GHC for everyone who depends on
+this package.
+
+### Limits
+
+Measured by scaling one dimension at a time until it stopped being practical,
+on the maintainer machine with a 20-second budget per point.
+
+Two things have a ceiling worth knowing about.
+
+**Enumerating an unfolded recursive automaton.** For a three-edge recursive
+type, `terms (unfoldBounded k t)` gives 677 terms at `k = 5` in a
+millisecond, 458,330 at `k = 6` in a second, and does not finish `k = 7` in
+twenty. The language grows faster than exponentially in the unfolding depth, so
+this is the shape of the problem rather than a defect: reach for
+`countAtSize` and `unrank` from `microcfta-generator` when you want to work
+with a large language without materializing it.
+
+**Equality constraints whose paths nest.** Congruence saturation in
+`mkEqConstraints` is quadratic per round and iterates to a fixpoint, so classes
+that pair paths which are prefixes of one another cost several times more per
+level added. Class completion itself is a small union-find; the congruence
+step is the quadratic part.
+
+The cost is in the nesting, not the count. A thousand independent classes over
+depth-two paths -- the shape term search and `apply` actually produce -- take
+0.04s, and both use depth two with a handful of classes. If you are building
+constraints by hand and they nest more than about ten deep, that is the wall.
+
+Everything else measured flat over the range tried: intersecting two recursive
+types up to ten branches each, intersecting two 12,800-edge finite nodes,
+2,560 disjoint constraint classes, reducing a 64-link constrained chain, and
+counting or unranking a bounded recursive generator.
+
+Run the core benchmark suite with:
+
+```sh
+cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='1 +RTS -s -M512M -RTS'
+```
+
+The benchmark harness is deliberately dependency-light and prints CSV:
+
+```text
+benchmark,cpu_seconds,repeats,checksum
+```
+
+The suite covers the current high-risk core paths:
+
+- path lookup in term-search-shaped nodes
+- equality-constraint construction and descent
+- finite and recursive intersection
+- recursive-path reduction
+- filtered term-search reduction and enumeration
+
+The current optimized local snapshot, using GHC 9.12.2, multiplier `1`, and
+`+RTS -s -M512M -RTS`, is about 2.16 GB allocated, 4.34 MB maximum residency,
+and roughly 0.30s elapsed on the maintainer machine. Treat that as a
+regression guard, not a portable absolute number.
+
+Use a larger first argument for longer runs:
+
+```sh
+cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3 +RTS -s -M512M -RTS'
+```
