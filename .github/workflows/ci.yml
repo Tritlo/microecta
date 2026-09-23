@@ -8,6 +8,31 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check formatting
+        uses: haskell-actions/run-fourmolu@v13
+        with:
+          version: "0.20.1.0"
+          pattern: |
+            microcfta/**/*.hs
+
+      - name: Set up hlint
+        uses: haskell-actions/hlint-setup@v2
+        with:
+          version: "3.10"
+
+      - name: Run hlint
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: '["microcfta"]'
+          fail-on: warning
+
   build-test-bench:
     name: GHC 9.14.1
     runs-on: ubuntu-latest
@@ -50,6 +75,7 @@ jobs:
 
       - name: Check package metadata
         run: |
+          (cd microcfta && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -62,6 +88,9 @@ jobs:
       # cap is not baked into the library's ghc-options.
       - name: Guard compile-time memory of the optimized core
         run: |
+          cabal v2-build lib:microcfta \
+            --enable-optimization=2 \
+            --ghc-options='-Werror +RTS -K512M -M512M -RTS'
           cabal v2-build lib:microecta \
             --enable-optimization=2 \
             --ghc-options='-Werror +RTS -K512M -M512M -RTS'
@@ -74,11 +103,13 @@ jobs:
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
       - name: Validate release artifacts
         run: |
+          scripts/release.sh microcfta --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
 
