@@ -5,6 +5,10 @@
 # not once per partial application.
 - ignore: {name: "Eta reduce"}
 - ignore: {name: "Avoid lambda"}
+- ignore: {name: "Use <$>"}
+# A refinement may use an explicit value binder, as in \v -> v ./= 0, or a
+# section such as (./= 0).
+- ignore: {name: "Avoid lambda using `infix`"}
 - ignore: {name: "Redundant bracket"}
 
 # This constructor delays recursive substitution work until after memoization.
