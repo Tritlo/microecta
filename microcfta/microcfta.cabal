@@ -74,6 +74,7 @@ library
   exposed-modules:
     Data.CFTA
     Data.CFTA.Constraint
+    Data.CFTA.Enumeration
     Data.CFTA.Equality.Constraint
     Data.CFTA.Generic
     Data.CFTA.Index
@@ -85,6 +86,7 @@ library
     Data.CFTA.Interned.Type
     Data.CFTA.Path
     Data.CFTA.Symbol
+    Data.CFTA.Template
 
   other-modules:
     Data.CFTA.Internal.Tree
@@ -122,7 +124,19 @@ test-suite unit-tests
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
+
+benchmark enumeration-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: EnumerationSpeed.hs
+  hs-source-dirs: benchmarks
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
