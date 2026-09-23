@@ -6,8 +6,13 @@ import Test.Hspec (hspec)
 
 import qualified Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
 import qualified Data.CFTA.Gen.Refinement.CompileSpec
+import qualified Data.CFTA.Gen.Refinement.DependentApplicationSpec
 import qualified Data.CFTA.Gen.Refinement.OracleSpec
+import qualified Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
+import qualified Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
 import qualified Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
+import qualified Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
+import qualified Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
 
 main :: IO ()
 main = do
@@ -16,7 +21,12 @@ main = do
         Nothing -> die "The test suite needs the z3 executable on PATH; enter nix-shell or install Z3."
         Just _ -> pure ()
     hspec $ do
+        Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec.spec
         Data.CFTA.Gen.Refinement.CompileSpec.spec
         Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec.spec
         Data.CFTA.Gen.Refinement.BoundedGeneratorSpec.spec
+        Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec.spec
+        Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec.spec
+        Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec.spec
+        Data.CFTA.Gen.Refinement.DependentApplicationSpec.spec
         Data.CFTA.Gen.Refinement.OracleSpec.spec

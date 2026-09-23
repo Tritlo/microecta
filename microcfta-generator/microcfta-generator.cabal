@@ -257,10 +257,16 @@ test-suite refinement-tests
   other-modules:
     Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
     Data.CFTA.Gen.Refinement.CompileSpec
+    Data.CFTA.Gen.Refinement.DependentApplicationSpec
     Data.CFTA.Gen.Refinement.ExampleSupport
     Data.CFTA.Gen.Refinement.OracleSpec
+    Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
+    Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
     Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
+    Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
+    Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
     Data.CFTA.Gen.Refinement.TestSupport
+    Data.CFTA.Gen.Refinement.TypedExpressionLanguage
 
   build-depends:
     base >=4.22 && <4.23,
@@ -315,6 +321,36 @@ benchmark typed-expression-speed
 
   build-depends:
     base >=4.22 && <4.23,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+    text >=2.1 && <2.2,
+
+benchmark typed-expression-constraint-cost
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionConstraintCost.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  default-language: Haskell2010
+  default-extensions: NamedFieldPuns
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage
+    Data.CFTA.Gen.TypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
     microcfta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
