@@ -268,6 +268,8 @@ test-suite refinement-tests
     Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
     Data.CFTA.Gen.Refinement.SizedVectorLanguage
     Data.CFTA.Gen.Refinement.SizedVectorSpec
+    Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
+    Data.CFTA.Gen.Refinement.StateMachineTraceSpec
     Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
     Data.CFTA.Gen.Refinement.TestSupport
     Data.CFTA.Gen.Refinement.TypedExpressionLanguage
@@ -330,6 +332,35 @@ benchmark typed-expression-speed
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
     text >=2.1 && <2.2,
+
+benchmark state-machine-trace-speed
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: StateMachineTraceSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  default-language: Haskell2010
+  default-extensions: NamedFieldPuns
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.ExampleSupport
+    Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
 
 benchmark typed-expression-constraint-cost
   import: warnings
