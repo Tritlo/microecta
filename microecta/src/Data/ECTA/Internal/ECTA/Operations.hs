@@ -742,9 +742,15 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
             (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
--- | Apply local and inherited equality constraints to a child list.
+{- | Apply local and inherited equality constraints to a child list.
+
+One pass over the classes is not always enough: the intersection for one class
+can narrow a node that a class earlier in the pass already read. The reduction
+repeats the pass until the children stop changing, so the result is a
+fixpoint.
+-}
 reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
-reduceEqConstraints = go
+reduceEqConstraints local inherited = fixUnbounded (go local inherited)
   where
     propagateEmptyNodes :: [Node symbol] -> [Node symbol]
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns

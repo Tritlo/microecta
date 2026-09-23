@@ -28,6 +28,12 @@ reduces them, or enumerates them needs no migration.
 * Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
   matched, so a negative count decremented without end. Zero or less now
   unfolds nothing, which is what the bound already meant.
+* Fix `reduceEqConstraints` returning children that a second call could
+  narrow further. In one pass over the equivalence classes, the intersection
+  for one class could narrow a node that an earlier class had already read, so
+  the result was not a fixpoint. The reduction now repeats the pass until the
+  children stop changing. The fixture for this bug, open since 2021-06-29,
+  now passes.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.

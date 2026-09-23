@@ -246,15 +246,12 @@ spec = do
                      in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
         it "reducing a constraint is idempotent: buggy input 6/27/21" $ do
-            pendingWith
-                "Known non-idempotent reduction, open since 2021-06-29. The \
-                \fixture below reproduces it; processing the eclasses in the \
-                \reverse order makes no difference."
             let (ecs, ns) = bug062721NonIdempotentEqConstraintReduction
                 ns' = reduceEqConstraints ecs EmptyConstraints ns
             ns' `shouldBe` reduceEqConstraints ecs EmptyConstraints ns'
 
-        -- This is not obviously doable in one pass, but the test passes.
+        -- One pass does not establish this. The reduction repeats its pass
+        -- until the children stop changing, and that fixpoint does.
         it "leaf reduction means, for everything at a path, there is something matching at the other paths" $
             let liveConstrainedEdge :: Gen (Edge Symbol)
                 liveConstrainedEdge =
