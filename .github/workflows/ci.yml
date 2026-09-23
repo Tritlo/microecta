@@ -118,6 +118,7 @@ jobs:
       - name: Test the generator examples
         run: |
           cabal v2-run cfta-pairs
+          cabal v2-run cfta-finite-languages
 
       # The release check builds every dependency again, with documentation,
       # and takes about 30 minutes. It runs only on pull requests into main.
