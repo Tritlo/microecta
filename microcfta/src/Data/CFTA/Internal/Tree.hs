@@ -17,6 +17,8 @@ module Data.CFTA.Internal.Tree (
 import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
 import Data.Containers.ListUtils (nubOrd)
+import qualified Data.HashSet as HashSet
+import Data.Hashable (Hashable)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -109,14 +111,14 @@ finite list. Each key lists a term once per depth: rows whose alternatives
 all carry distinct symbols cannot repeat a term, and the others are
 deduplicated per level. Every child key must have a row.
 -}
-termsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
+termsBy :: (Ord key, Ord symbol, Hashable symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
 termsBy rows root = concat $ termLevelsBy rows root
 
 {- | The terms of 'termsBy' grouped by depth: the terms of depth zero first,
 then the terms of depth one, and so on. The list of levels is lazy, so a
 prefix of it bounds the depth without building the deeper terms.
 -}
-termLevelsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [[Tree symbol]]
+termLevelsBy :: (Ord key, Ord symbol, Hashable symbol) => [(key, [(symbol, [key])])] -> key -> [[Tree symbol]]
 termLevelsBy rows root
     | Map.member root table = map (Map.! root) $ takeWhile (not . all null) $ map exactly levels
     | otherwise = []
@@ -150,7 +152,7 @@ candidate is never a child. Each key lists a term once per depth, as in
 'termsBy'.
 -}
 termsUpToBy ::
-    (Monad m, Ord key, Ord symbol) =>
+    (Monad m, Ord key, Ord symbol, Hashable symbol) =>
     (alternative -> symbol) ->
     (alternative -> [key]) ->
     (key -> alternative -> Tree symbol -> m Bool) ->
@@ -192,15 +194,17 @@ distinctSymbols symbols = length (nubOrd symbols) == length symbols
 
 {- | Deduplicate a level unless it cannot contain duplicates.
 
-A set beats hashing here by a factor of four to six: comparing two different
-terms stops at the first differing node, while a hash visits every node, and
-hashing one small term with the standard instances costs microseconds. The
-order within a level is not specified.
+With an optimized @hashable@, a hash set does this in less than half the
+time of an ordered set. An ordered set compares each new term with about
+log n terms of the level, and terms of one level often share long prefixes.
+A hash set visits each term once to hash it and compares terms only when the
+hashes match. An unoptimized @hashable@ makes the hash set slower than the
+ordered set. The order within a level is not specified.
 -}
-dedupUnless :: (Ord a) => Bool -> [a] -> [a]
+dedupUnless :: (Hashable a) => Bool -> [a] -> [a]
 dedupUnless unambiguous
     | unambiguous = id
-    | otherwise = Set.toList . Set.fromList
+    | otherwise = HashSet.toList . HashSet.fromList
 
 -- | Apply a function to the element at an index, if it exists.
 adjustAt :: Int -> (a -> a) -> [a] -> [a]
