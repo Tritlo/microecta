@@ -118,6 +118,7 @@ jobs:
       - name: Test the generator examples
         run: |
           cabal v2-run cfta-pairs
+          cabal v2-run cfta-finite-languages
 
       - name: Validate release artifacts
         run: |

@@ -9,3 +9,4 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
 fi
 
 cabal bench microcfta-generator:untyped-expression-speed --enable-optimization=2
+cabal bench microcfta-generator:typed-expression-speed --enable-optimization=2
