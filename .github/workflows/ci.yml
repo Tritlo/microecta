@@ -115,6 +115,10 @@ jobs:
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
+      - name: Test the generator examples
+        run: |
+          cabal v2-run cfta-pairs
+
       - name: Validate release artifacts
         run: |
           scripts/release.sh microcfta --check-only
