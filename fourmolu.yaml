@@ -1,0 +1,2 @@
+# Fourmolu defaults, except for the line length.
+column-limit: 120
