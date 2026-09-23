@@ -123,8 +123,6 @@ module Data.CFTA.Gen (
 ) where
 
 import Data.Hashable (Hashable)
-import qualified Data.Map.Strict as Map
-import Data.Maybe (listToMaybe)
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -134,6 +132,7 @@ import Data.Typeable (Typeable)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (Constraint)
 import Data.CFTA.Gen.Error
+import Data.CFTA.Gen.Internal.Automaton (declarationOrder, undecodableConstructor)
 import Data.CFTA.Gen.Internal.Flat hiding (fromAutomaton, fromAutomatonUpToDepth)
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Grouped
@@ -224,10 +223,8 @@ fromDatatypeUpToDepth depth datatype =
 
 {- | Import the grammar of a datatype and decode its terms as values.
 
-The key orders constructors by their position in the row of their type,
-which is declaration order for constructors and domain order for atomic
-literals. The symbol text breaks ties between rows. The import orders by
-arity before it uses the key.
+The key is 'declarationOrder'. The import orders by arity before it uses
+the key.
 -}
 importDatatype ::
     TypedFTA Constraint a ->
@@ -243,66 +240,12 @@ importDatatype datatype readAutomaton =
             | Just constructor <-
                 undecodableConstructor (null . datatypeDecode datatype) (datatypeFTA datatype) ->
                 Transparent $ Left $ UndecodableConstructor $ constructorName constructor
-            | otherwise -> decode <$> readAutomaton declarationOrder (Common.fromFTA graph)
+            | otherwise -> decode <$> readAutomaton (\(Symbol name) -> order name) (Common.fromFTA graph)
   where
-    positions =
-        Map.fromList
-            [ (Text.pack $ constructorLabel $ FTA.transitionSymbol transition, position)
-            | row <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
-            , (position, transition) <- zip [0 ..] row
-            ]
-    declarationOrder (Symbol name) = (Map.findWithDefault 0 name positions, name)
+    order = declarationOrder datatype
     decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
         Just value -> value
         Nothing ->
             error
                 "microcfta-generator bug in Data.CFTA.Gen.importDatatype: \
                 \the derived codec rejected a term of its own grammar"
-
-{- | Find a constructor that is in a term the codec rejects.
-
-Each transition of a reachable state gets one term of the initial state that
-contains it. The other positions of that term hold one fixed term of their
-state. So the check decodes one term per transition and does not enumerate
-the language. An atomic literal whose 'Show' text 'Read' does not accept makes
-its term fail.
--}
-undecodableConstructor :: (Ord state) => (Tree.Tree symbol -> Bool) -> FTA.FTA state symbol constraint -> Maybe symbol
-undecodableConstructor rejects automaton =
-    listToMaybe
-        [ symbol
-        | (state, context) <- Map.toList contexts
-        , FTA.Transition symbol children _ <- FTA.transitionsFrom automaton state
-        , Just arguments <- [traverse (`Map.lookup` witnesses) children]
-        , rejects $ context $ Tree.Node symbol arguments
-        ]
-  where
-    -- One term for each productive state, as a least fixed point.
-    witnesses = converge Map.empty
-    converge known =
-        let next = Map.foldrWithKey addWitness known $ FTA.transitionTable automaton
-         in if Map.size next == Map.size known then known else converge next
-    addWitness state transitions known
-        | Map.member state known = known
-        | otherwise =
-            case [ Tree.Node symbol arguments
-                 | FTA.Transition symbol children _ <- transitions
-                 , Just arguments <- [traverse (`Map.lookup` known) children]
-                 ] of
-                term : _ -> Map.insert state term known
-                [] -> known
-    -- One context for each state that a term of the initial state reaches.
-    contexts = reach (Map.singleton (FTA.initialState automaton) id) [FTA.initialState automaton]
-    reach found [] = found
-    reach found (state : pending) =
-        let added =
-                Map.fromList
-                    [ ( child
-                      , \hole -> (found Map.! state) $ Tree.Node symbol $ take position arguments <> [hole] <> drop (position + 1) arguments
-                      )
-                    | FTA.Transition symbol children _ <- FTA.transitionsFrom automaton state
-                    , Just arguments <- [traverse (`Map.lookup` witnesses) children]
-                    , (position, child) <- zip [0 ..] children
-                    ]
-                    `Map.difference` found
-         in reach (Map.union found added) (pending <> Map.keys added)
