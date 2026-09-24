@@ -13,8 +13,18 @@ theory:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: the `EqConstraints` theory, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, conditions with `satisfying`, contracts with `guarded`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
+
+An ordinary generator is `FTAGen symbol a`, that is `Gen symbol ()`. The
+equality facade fixes the theory in `ECTAGen a`, the refinement facade in
+`LTAGen a`; both re-export
+`Data.CFTA.Gen`, so `node`, `oneof`, `cardinality`, `unrank`, and `forAll`
+are the same functions in every theory. See
+[`docs/automata-syntax.md`](../docs/automata-syntax.md) for the side-by-side
+forms. The core package does not depend on this package or on QuickCheck.
 
 ## Ordinary generators
 
@@ -805,6 +815,489 @@ sampling alone, without shrinking. There is deliberately no `Monad` or
 This keeps inspectable applicative regions inside ECTA and makes the loss of
 structure explicit.
 
+
+## Refinement-constrained generators
+
+A refinement generator is `Gen LiquidSymbol LiquidConstraint`, written
+`LTAGen`. Each value carries a refinement, a formula that the solver knows
+about it. A condition on one child goes where the child is drawn, with
+`satisfying`. A relation between children is the contract of a `guarded`
+node. Call `compile` once, then use pure sampling, replay, and shrinking.
+Compilation keeps symbolic counts and constructs selected values on demand.
+
+### A complete first program
+
+This program generates safe divisions. The solver removes the zero
+denominator before the division is evaluated.
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QualifiedDo #-}
+
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
+import Data.CFTA.Refinement.Expression ((./=))
+import qualified Test.QuickCheck as QC
+
+divisions :: LTAGen.LTAGen (Integer, Integer)
+divisions = LTAGen.node "divide" $ LTAGen.do
+    d <- LTAGen.elements [0 .. 5] `LTAGen.satisfying` (\v -> v ./= 0)
+    LTAGen.pure (d, 12 `div` d)
+
+main :: IO ()
+main = do
+    gen <- LTAGen.compile divisions
+    print (LTAGen.values gen)
+    QC.quickCheck $ LTAGen.forAll gen $ \(d, q) -> d /= 0 && q == 12 `div` d
+```
+
+Use the packages `base`, `microcfta`, `microcfta-generator`, and `QuickCheck`.
+Install Z3 and put it on `PATH`. The program prints
+`Right [(1,12),(2,6),(3,4),(4,3),(5,2)]`.
+
+A refinement is a Haskell function of the value, such as `\v -> v ./= 0`. Its
+terms take integer literals and arithmetic, as in `\v -> v .== 2 * n + 1`. The
+logic has the comparisons `.==`, `./=`, `.<`, `.<=`, `.>`, and `.>=`, and the
+connectives `.&&`, `.||`, and `lnot`. `elements` gives each integer `x` the
+refinement `\v -> v .== literal x`, so the solver knows each value exactly.
+`satisfying` keeps the terms whose refinement implies the condition. The
+solver declares every free name as an integer.
+
+Run the checked introductory example from the workspace:
+
+```sh
+nix-shell --run 'cabal run cfta-safe-division'
+```
+
+### Refined pools and contracts
+
+A pool can say less than the value. Then the solver knows only what the pool
+says:
+
+```haskell
+ranged :: [(Integer, Refinement)]
+ranged =
+    [ (1, \v -> 0 .<= v .&& v .< 2)
+    , (3, \v -> 2 .<= v .&& v .< 4)
+    , (5, \v -> 4 .<= v .&& v .< 6)
+    ]
+
+below :: Expr -> Expr -> Formula
+below left right = left .< right
+
+pairs :: LTAGen.LTAGen (Integer, Integer)
+pairs = LTAGen.guarded "pair" below $ LTAGen.do
+    left <- LTAGen.pool ranged
+    right <- LTAGen.pool ranged
+    LTAGen.pure (left, right)
+```
+
+`pool` takes values with their refinements and names each entry by `show`.
+`guarded` closes the block with a contract: a function with one term for each
+child, in order. The solver assumes each child's refinement for its term and
+proves the contract. Here the ranges order three pairs: `(1,3)`, `(1,5)`, and
+`(3,5)`. The contract names the children as a function signature names its
+parameters, and the do-block binds their values.
+
+The generator trusts a pool's refinements. It does not inspect a Haskell value
+to prove its refinement. `checkPool solver ranged` asks the solver to prove
+each refinement for its value, and returns the values that it cannot prove.
+[`LiquidPairs.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/LiquidPairs.hs)
+runs this program with `checkPool`, and CI runs it with the other examples.
+`compileAssuming` adds ambient facts, such as `[variable "input" .== 2]`, that
+the solver may assume. `compileWith` takes a solver from `withZ3`, to share one
+solver between several generators, and returns the error instead of failing.
+Mapping a generator changes its Haskell value and retains the term and
+refinement that justify its conditions.
+
+### Construction and compilation
+
+`elements` and `pool` choose uniformly. `namedPool` takes
+`Refined value symbol refinement` atoms with explicit symbols, and `leaf` is one
+such atom. Repeated entries are repeated ranks. `oneof` and `frequency` are the
+generic choices: `frequency` weights its branches as QuickCheck's does, and
+skips an empty branch.
+
+Each qualified do-block describes independent direct children, and its
+adjacent `node` or `guarded` supplies the constructor. A contract must take
+exactly one argument per child; write `_` for an unused child. An
+argument-count mismatch is a construction error, including when the source is
+empty. `satisfying` applies to the root of the generator it follows: a pool, a
+leaf, a node, a bounded import, a choice of these, or a mapped generator. A
+condition names only `v` and ambient names; a relation between children
+belongs in a contract.
+
+`node` and `guarded` use the universal result refinement. `refinedNode`
+supplies a fixed result refinement, and `refinedNodeByRoots` computes one from
+the labels of the children, a list of `LiquidSymbol`. Both take a positional
+guard from `Data.CFTA.Refinement.Guard`. That is the form of the paper's
+encodings, where a function type is a subtree of the term: for example
+``actual `isSubtypeOf` expected``, ``argument `requires` refinement``, or
+`withActualFor actual formal dependentResultCheck`. `descendant argument [1]`
+selects the argument's second child. Raw `LiquidConstraint` values remain
+available and retain the paper's Boolean meaning for missing paths.
+
+A constructor without a condition or a contract is built at once, like any
+other generator. A constructor that needs the solver defers the generator: `cardinality`,
+`unrank`, and `support` report `SourceRequiresCompilation` until `compile`
+has decided every guard. `compile` folds the generator's construction once,
+with the solver. Each child language is grouped by the observations its
+parent guard reads: the label at the child's root, and at deeper paths the
+guard names. The solver decides the guard once per tuple of child groups,
+and the accepted tuples become one join per constructor. No candidate is
+built to decide a guard, so the accepted language can be larger than a
+machine integer. Groups are ordered by the first member that has their
+observations, so ranks keep source order.
+
+`isSameTermAs` normally requires exact subtree equality. Inside `withActualFor`,
+it compares views with the formal symbol replaced by the actual symbol,
+including free variables in refinement annotations. The generated terms and
+values stay unchanged. Several replacements in `withActualsFor` apply
+simultaneously. Compilation can decide this scoped equality on observed leaves.
+Scoped equality on compound subtrees remains unsupported by the compiler.
+
+The result of `compile` is an ordinary finite generator: `cardinality`,
+`unrank`, `termAt`, `support`, `shrinkRank`, and `smallerMembers` work on it,
+and sampling, replay, and shrinking make no solver calls. `termAt` returns
+the engine's labelled term; `surface` reads the accepted liquid term under
+it. An undecidable guard, a guard the observations cannot decide, and a
+guard the symbolic counter cannot count are compile failures, each
+explained by `explain`; an empty language is not a failure. Ranks are
+deterministic for a fixed generator. A changed pool, bound, or
+specification can change them.
+
+### Import an LTA
+
+`fromAutomaton` reads a liquid automaton, and `fromAutomatonUpToDepth` bounds
+it first by tree height, leaves having height zero. An automaton whose guards
+the engine can count is read at once, with one rank per distinct accepted
+term: Boolean equality between subterms, nested equalities, negation,
+disjunction, and overlapping alternatives are counted symbolically. An
+automaton with guards that need the solver waits for `compile`, which prunes
+it first. Both compose with ordinary sources:
+
+```haskell
+boundedTerms = LTAGen.fromAutomatonUpToDepth 6 automaton
+
+wrapped = LTAGen.node "wrap" $ LTAGen.do
+  term <- boundedTerms `LTAGen.satisfying` desiredRefinement
+  LTAGen.pure (decode term)
+
+compiled <- LTAGen.compile wrapped
+```
+
+Under a guard, the pruned automaton is split by the observations the guard
+reads, so an import stays a graph until one rank is selected. An empty or
+negative-bound import is an empty source and can occur beside a nonempty
+alternative. A guard that remains after pruning and that the symbolic
+counter cannot count is reported as `ResidualGuard`. Core `denotationAtMost`
+remains an explicit bounded reference evaluator.
+
+`fromDatatypeUpToDepth` accepts a derived
+`TypedFTA (Refinement, LiquidConstraint) a`. Use `annotateDatatype`, or
+`annotateConstructors` to annotate constructors by name, to supply the
+refinement and constraint for each constructor. The datatype supplies its
+fields and recursive structure; the retained codec supplies `a`. The caller
+must still justify the refinements assigned to each constructor.
+[`AutomatonInterop.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/AutomatonInterop.hs) derives a recursive
+natural-number grammar, annotates it, imports it with `fromDatatypeUpToDepth`,
+keeps its positive terms with `satisfying`, and composes them with
+`elements`:
+
+```sh
+nix-shell --run 'cabal run cfta-automaton-interop'
+```
+
+`validOutcomes` is the explicit oracle. It enumerates every candidate the
+construction describes, checks each complete witness with the solver, and
+returns the accepted values in source order. It has no materialization
+limit, so use it on small diagnostic inputs.
+
+### Frozen native pools
+
+A pool need not be part of a long-lived specification. Draw it once from a
+native QuickCheck generator of values with their refinements:
+
+```haskell
+lefts  = LTAGen.pool <$> QC.vectorOf 32 nativeRefinedInt
+rights = LTAGen.pool <$> QC.vectorOf 8  nativeRefinedInt
+```
+
+Sample once and use the same `LTAGen` at both child positions when they
+should share a universe. The pools stay fixed inside the compiled generator;
+changing them for each individual test would make ranks, replay, and
+shrinking unstable and would also invoke Z3 per test. Independent pool sizes
+multiply: the example describes 32 x 8 candidate pairs. For replay across
+process runs, fix the draws with a seed through `Test.QuickCheck.FTAGen.unGen`,
+as `freeze` does for unrefined values.
+
+### What the LTA adds
+
+An FTA says which constructor shapes exist. An ECTA additionally says that two
+paths must contain the same term. An LTA can say that one path's refinement
+implies another predicate, including after substituting actual argument names
+for formal parameters. That permits constraints such as:
+
+```haskell
+safeDivision =
+  LTAGen.node "divide" $ LTAGen.do
+    numerator   <- integers
+    denominator <- integers `LTAGen.satisfying` (\v -> v ./= 0)
+    LTAGen.pure (Divide numerator denominator)
+
+safeReads =
+  LTAGen.guarded "read-at" (\n i -> 0 .<= i .&& i .< n) $ LTAGen.do
+    buffer <- buffers
+    index  <- indexes
+    LTAGen.pure (ReadAt buffer index)
+```
+
+For dependent application with a generated function, put the result type,
+function, and argument in the term exactly as the paper does, and give names
+to the nested type positions with a positional guard:
+
+```haskell
+applicationGuard result function argument =
+  allOf
+    [ argument `isSubtypeOf` descendant function [1] -- input type
+    , withActualFor argument (descendant function [0]) $
+        descendant function [2] `isSubtypeOf` result -- output type
+    ]
+```
+
+The compiler checks these contracts through grouped observations. A
+contract that needs complete candidates is reported, not guessed.
+
+### Flagship: typed state-machine traces
+
+[`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)
+is the LTA step in the repository's worked progression. The FTA example has
+only integer expression shapes; the ECTA example adds Boolean result types;
+this example carries those types through time as a stack-machine state.
+
+The abstract contract is the familiar typed reverse-Polish calculator:
+
+```text
+Push TInt  : Stack s                   -> Stack (TInt  ': s)
+Add        : Stack (TInt ': TInt ': s) -> Stack (TInt  ': s)
+Equal      : Stack (a    ': a    ': s) -> Stack (TBool ': s)
+Pop        : Stack (a    ': s)         -> (a, Stack s)
+```
+
+Those are explanatory signatures, not GADT constructors. The public Haskell
+values stay ordinary. The surface specification recursively builds a prefix
+and one command, grouped by their root refinements. The liquid guard decides
+which group tuples survive, and `refinedNodeByRoots` propagates the resulting
+output state without decoding the traces hidden inside those groups:
+
+```haskell
+extendTrace prefixes =
+  LTAGen.refinedNodeByRoots
+    "step"
+    stepRefinementFromRoots
+    validStep $ LTAGen.do
+      prefix  <- prefixes
+      command <- commandContracts
+      LTAGen.pure (predictPrefixStep prefix command)
+
+validStep previous command =
+  allOf
+    [ previous `isSubtypeOf` command
+    , withActualFor previous (descendant command [0]) $
+        descendant command [1] `isSubtypeOf` root
+    ]
+
+Right compiled <- LTAGen.compileWith solver (tracesOfLength length)
+```
+
+The first guard says that the preceding trace's output state inhabits the next
+command's input space. The second substitutes that actual state for the
+command's formal `model` and proves its output formula implies the new trace
+root. These are the paper's positional guards, not a contract: each command is
+generated data that carries its stack types as refinements, so the step relates
+refinements rather than values. With the top stack type in the low bits, for example, pushing an integer
+has output `v = 2 * model + 1`, while `Add` accepts two leading integer tags and
+has output relation `model = 2 * v + 1`.
+
+The stack depth is bounded only to keep the refinement-key space finite. There
+is one liquid schema per operation; each compilation layer relates the live
+prefix-state and command-contract groups instead of expanding complete command
+sequences. This is where the LTA is materially clearer than an ECTA: a bounded
+ECTA could tabulate every valid state pair, but it cannot state and reuse the
+dependent arithmetic transition itself.
+
+Following the
+[quickcheck-state-machine workflow](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the whole trace is generated before execution. Every retained event predicts
+its before-state, response space, and after-state. The specs ask Z3 to prune the
+LTA, check its independently computed cardinalities, enumerate all 132 accepted
+traces of length three, and replay each through an independent abstract model
+and a separate concrete integer/Boolean interpreter. A smaller surface-DSL
+variant also verifies guarded shrinking. The final QuickCheck property needs no
+implication or `suchThat` filter.
+
+### LTA-biased case study: sized-vector pipelines
+
+The stack machine is a good stateful progression, but its bounded stack shapes
+can still be tabulated by a sufficiently patient FTA author. The more
+LTA-native example is
+[`Data.CFTA.Gen.Refinement.SizedVectorLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/SizedVectorLanguage.hs): a
+dependent vector-expression language in which result sizes are arithmetic
+refinements rather than finite type tags.
+
+```text
+append xs ys    : Vector n -> Vector m -> Vector (n + m)
+take k xs       : 0 <= k <= n => Vector n -> Vector k
+zipWith (+) x y : Vector n -> Vector n -> Vector n
+index i xs      : 0 <= i < n => Vector n -> Int
+```
+
+One operation layer is ordinary applicative LTA syntax with a contract:
+
+```haskell
+takenVectors maximumLength children =
+  LTAGen.refinedNodeByRoots "take" (const . resultRefinement) (contract takeContract) $ LTAGen.do
+    result <- possibleLengths maximumLength
+    count  <- possibleLengths maximumLength
+    input  <- children
+    LTAGen.pure $ SizedVector
+      (Take (numberValue count) $ vectorExpression input)
+      (numberRefinement result)
+
+takeContract :: Expr -> Expr -> Expr -> Formula
+takeContract result k n = 0 .<= k .&& k .<= n .&& result .== k
+```
+
+A vector's own refinement is its exact length, so the contract names the
+length of the input vector by the child's term `n`. The contract of `append` is
+`result .== n + m`, and that of `zipWith` is `m .== n .&& result .== n`. Each
+constructor proposes its result length as its first child, and
+`refinedNodeByRoots` makes that child's refinement the node's own, so the
+proofs compose at the next expression layer without a refinement wrapper in
+`Program`.
+
+The one-layer language contains 20 pipelines and exactly 44 safe indexing
+programs. The tests enumerate them, check every result refinement against an
+independent list interpreter, and execute the deliberately partial indexer over
+every accepted program.
+
+This is the specification-leverage example. A handwritten exact-uniform
+generator must group every recursive sublanguage by result length, derive the
+append, take, and zip cardinality recurrences for those groups, weight each
+constructor by its number of valid completions, and repeat the bookkeeping for
+the final index. The LTA source states the four dependent contracts once. This
+small surface compiler is intentionally an executable clarity example; large
+recursive languages should be compiled as automata so terms stay symbolic.
+
+### A second dependent example: safe buffer programs
+
+[`Data.CFTA.Gen.Refinement.SafeBufferLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/SafeBufferLanguage.hs) gives
+buffers and indexes symbolic integer names, records the surrounding Liquid
+environment as solver assumptions, and generates two deliberately partial
+operations:
+
+```haskell
+safeReads = LTAGen.guarded "read-at" inBounds $ LTAGen.do
+  buffer <- sourceBuffers
+  ~(_, index) <- indexes
+  LTAGen.pure (ReadAt (bufferExpression buffer) index)
+
+inBounds :: Expr -> Expr -> Formula
+inBounds n i = 0 .<= i .&& i .< n
+```
+
+A buffer's refinement is `v == tripleLength` for the triple, and an index's is
+`v == indexTwo` for index two. Z3 assumes those refinements for `n` and `i`,
+uses facts such as `tripleLength = 3` from the environment, and retains indexes
+0, 1, and 2 while rejecting -1 and 3.
+
+The same module demonstrates a dependent result. Append proposes a result
+length as its first child, its contract is `result .== n + m`, and
+`refinedNodeByRoots` keeps the proven result refinement. A later `head` node
+draws a buffer with ``allBuffers `satisfying` (\v -> v .>= 1)``, so it can prove
+the appended buffer non-empty. The property itself needs no precondition:
+
+```haskell
+withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+  Right compiled <- LTAGen.compileWith solver safePrograms
+  quickCheck $ LTAGen.forAll compiled $ \program ->
+    programIsSafe program && safeResult program == Just (runProgram program)
+```
+
+The specs enumerate all 14 accepted programs, verify exact append lengths, and
+run the partial interpreter through QuickCheck. This is the distinction from
+an ECTA key: the accepted combinations depend on arithmetic implication under
+an environment, not equality of a finite classification tag.
+
+### Shrinking, similarity, and pools
+
+A compiled generator shrinks structurally, as every generator does.
+`shrinkRank` jumps to the smallest member of an earlier alternative and
+shrinks each product component independently; every candidate is a member
+of the compiled language with a smaller rank, so a shrink never leaves the
+accepted language. `smallerMembers` streams every member of strictly smaller
+size, and `forAll` searches it first, so the reported counterexample is
+size-minimal whenever that search reaches one.
+
+For a two-entry pool ordered as `[nonNegative, exactOne]` and a pair guard
+``left `isSubtypeOf` right``, the raw product is:
+
+```text
+(0,0)  accepted
+(0,1)  rejected: non-negative does not entail exactly-one
+(1,0)  accepted
+(1,1)  accepted
+```
+
+The compiled generator holds the three accepted pairs at ranks 0, 1, and 2,
+and `(1,1)` shrinks toward `(1,0)` and `(0,0)`; `(0,1)` is never handed to
+QuickCheck.
+
+The refinement is a trusted annotation on the Haskell value. The library can
+prove it only for a type with a `Literal` encoding: `elements` infers the exact
+refinement of each value, and `checkPool` proves hand-written ones. For another
+type, the caller must justify the refinements before constructing the pool.
+
+Similarity minimisation remains separate and opt-in because dropping a
+syntactically different value is often the wrong trade-off for testing. Declare
+the non-liquid type class when semantic representatives are what you want:
+
+```haskell
+Right representatives <-
+  LTAGen.minimizePoolBy solver operationKind candidates
+```
+
+`minimizePoolBy` represents the entries as a one-state LTA, invokes the core
+`similarity` and `minimize` procedures, then turns the retained transitions back
+into a pool. Within each class, a subtype replaces its supertype, equivalent
+entries keep the earlier rank, and incomparable entries remain. The generator
+therefore does not carry a second imitation of LTA minimization; it is an
+adapter over the automaton operation. Ordinary pools are never reduced
+implicitly.
+
+### Recursive LTAs
+
+The core accepts recursive LTAs as long as guards do not point into cyclic
+states. QuickCheck needs a finite language, so bound the import by tree
+height before compiling:
+
+```haskell
+Right compiled <- LTAGen.compileWith solver (LTAGen.fromAutomatonUpToDepth 6 recursiveLTA)
+```
+
+Depth zero keeps nullary transitions. Every parent-to-child edge consumes one
+unit, including edges outside a cycle. A negative bound or empty language
+gives `EmptyGenerator`. Ranks remain deterministic inside the bounded
+language. A recursive LTA without solver guards can also be read unbounded
+with `fromAutomaton`, as a recursive generator counted by size.
+
+Enter the repository's `nix-shell` to place Z3 on `PATH`, then run the complete
+example, which bounds a recursive datatype grammar:
+
+```sh
+cabal run cfta-automaton-interop
+```
+
 ## Sampling performance
 
 The flagship FTA and ECTA languages each have three exact-uniform generators:
@@ -894,6 +1387,169 @@ cabal bench microcfta-generator:typed-expression-speed --enable-optimization=2
 ./scripts/benchmark-generators.sh
 ```
 
+### Refinement generators: typed state-machine traces
+
+The recorded measurements in this section and the equality-theory comparison
+below predate the standard-tree migration. They used the earlier `LiquidTerm`
+representation. Run the benchmark commands below to measure the current code.
+
+The typed stack-machine benchmark separates five useful paths:
+
+- **naive** draws uniformly from all nine raw commands at every position and
+  rejects the complete sequence if abstract replay fails;
+- **QSM online** follows the normal state-machine-testing shape: choose a
+  command admitted by the current model, advance the model, and continue;
+- **bespoke** is ordinary compositional QuickCheck code which weights every
+  valid next command by its number of complete suffixes;
+- **ranked** is the strongest handwritten control: it duplicates the count and
+  global-unrank algorithm in application code and constructs `Trace` directly;
+- **LTA do** compiles the qualified-do surface: it groups the live refinement
+  observations and lowers solver-approved tuples through the engine's joins;
+- **LTA automaton** compiles the hand-built trace automaton, prunes it, and
+  decodes each selected `Tree LiquidSymbol` to a `Trace`. The table below
+  lists this row twice, as the earlier materialized and fused decoders.
+
+Naive rejection, bespoke, ranked, and the LTA rows are uniform over the
+same exact trace language. QSM online has the same support but intentionally has
+a different distribution: choosing uniformly at each prefix gives extra
+probability to traces passing through states with fewer valid continuations.
+That is usually the right engineering trade in state-machine testing. As in
+[quickcheck-state-machine](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the complete trace is generated before execution; after a failure,
+`qsmTraceShrinks` removes commands and replays the remainder so dependencies
+whose producers disappeared are rejected.
+
+Each successful cell draws 20,000 traces. It runs in a fresh process with a
+30-second wall-clock limit and is the median of three runs. The first-sample
+column includes all setup—in an LTA row, that includes starting Z3, compiling
+the semantic constraints, building the rank index, and drawing once.
+Steady-state sampling is pure. After an engine times out at one length, the
+harness skips its larger cells and reports `after timeout`.
+
+The crossover and deep-scaling rows are:
+
+| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 342,136 | naive | 0.07 ms | 6,280 | 1.23 MB | 33.3 KB | 35.3 KB |
+| 8 | 342,136 | QSM online | 0.02 ms | 179,795 | 42.6 KB | 32.7 KB | 34.7 KB |
+| 8 | 342,136 | bespoke | 0.07 ms | 127,266 | 37.5 KB | 47.6 KB | 32.91 MB |
+| 8 | 342,136 | ranked | 0.06 ms | 394,719 | 11.7 KB | 41.4 KB | 43.4 KB |
+| 8 | 342,136 | LTA do | 71.08 ms | 277,200 | 19.4 KB | 1.18 MB | 1.20 MB |
+| 8 | 342,136 | LTA materialized | 356.54 ms | 112,936 | 58.0 KB | 199.4 KB | 175.8 KB |
+| 8 | 342,136 | LTA fused | 355.83 ms | 111,456 | 56.3 KB | 199.6 KB | 176.0 KB |
+| 10 | 8,567,224 | naive | 0.20 ms | 1,913 | 3.97 MB | 33.4 KB | 35.5 KB |
+| 10 | 8,567,224 | QSM online | 0.03 ms | 139,808 | 53.6 KB | 32.7 KB | 34.7 KB |
+| 10 | 8,567,224 | bespoke | 0.10 ms | 69,854 | 57.5 KB | 54.3 KB | 74.04 MB |
+| 10 | 8,567,224 | ranked | 0.07 ms | 302,517 | 14.3 KB | 43.2 KB | 45.3 KB |
+| 10 | 8,567,224 | LTA do | 88.30 ms | 233,495 | 23.6 KB | 1.47 MB | 1.52 MB |
+| 10 | 8,567,224 | LTA materialized | 430.83 ms | 89,208 | 72.1 KB | 227.4 KB | 203.8 KB |
+| 10 | 8,567,224 | LTA fused | 422.05 ms | 91,050 | 69.3 KB | 227.6 KB | 203.9 KB |
+| 12 | 215,809,688 | naive | **timeout (30s)** | — | — | — | — |
+| 12 | 215,809,688 | QSM online | 0.03 ms | 118,229 | 64.5 KB | 32.7 KB | 34.7 KB |
+| 12 | 215,809,688 | bespoke | 0.10 ms | 52,289 | 77.4 KB | 56.6 KB | 118.24 MB |
+| 12 | 215,809,688 | ranked | 0.08 ms | 253,498 | 16.0 KB | 45.1 KB | 47.1 KB |
+| 12 | 215,809,688 | LTA do | 101.66 ms | 191,694 | 26.9 KB | 1.78 MB | 1.84 MB |
+| 12 | 215,809,688 | LTA materialized | 486.62 ms | 74,372 | 85.4 KB | 255.1 KB | 231.5 KB |
+| 12 | 215,809,688 | LTA fused | 490.85 ms | 76,824 | 81.5 KB | 255.2 KB | 231.6 KB |
+| 20 | 90,356,263,022,904 | QSM online | 0.04 ms | 68,492 | 108.4 KB | 32.7 KB | 34.7 KB |
+| 20 | 90,356,263,022,904 | bespoke | 0.15 ms | 23,546 | 157.6 KB | 73.9 KB | 303.87 MB |
+| 20 | 90,356,263,022,904 | ranked | 0.12 ms | 140,412 | 25.1 KB | 52.5 KB | 54.6 KB |
+| 20 | 90,356,263,022,904 | LTA do | 167.76 ms | 121,021 | 42.6 KB | 3.02 MB | 3.13 MB |
+| 20 | 90,356,263,022,904 | LTA materialized | 748.54 ms | 45,329 | 143.6 KB | 372.8 KB | 349.2 KB |
+| 20 | 90,356,263,022,904 | LTA fused | 758.00 ms | 46,578 | 132.7 KB | 373.0 KB | 349.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | QSM online | 0.05 ms | 34,359 | 218.0 KB | 32.7 KB | 34.7 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | bespoke | 0.32 ms | 8,494 | 365.0 KB | 122.1 KB | 778.94 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | ranked | 0.23 ms | 57,282 | 50.7 KB | 76.4 KB | 78.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA do | 333.75 ms | 59,187 | 84.0 KB | 6.15 MB | 6.41 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA materialized | 1,411.81 ms | 21,378 | 307.7 KB | 653.1 KB | 629.5 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA fused | 1,416.92 ms | 22,158 | 263.8 KB | 653.2 KB | 629.6 KB |
+
+The ordinary bespoke generator wins at very short lengths, but LTA do overtakes
+it after length four. At length 40 the generic relational compiler produces
+59,187 traces/s versus 8,494/s: a 7.0x throughput win, while retaining 6.41 MB
+rather than 778.94 MB after the fixed workload. It pays 334 ms once, then reuses
+the compiled ECTA rank plan instead of rebuilding weighted QuickCheck choices
+through every generated suffix.
+
+The hand-ranked row remains the specialization ceiling. At length 40 it is
+within 4% of LTA do in throughput and allocates only 50.7 KB per trace versus
+84.0 KB. Treat that throughput difference as a tie, not a claim that a generic
+compiler has defeated its own hand-coded algorithm. QSM online is the pragmatic
+state-machine baseline: LTA do is 1.7x faster in this run and remains uniform
+over complete traces, at the cost of a solver-backed setup phase and a larger
+retained rank index.
+
+Naive rejection cracks at length 12 for the 20,000-sample workload. At length
+10 it is already 122x slower than LTA do and allocates 3.97 MB per accepted
+trace.
+
+The first benchmark run made repeated solver work visible: length four took
+6.50 seconds to compile and length five timed out, despite only 115 distinct
+entailment requests among 34,073 requests at length four. Caching exact
+obligations for one compile and checking a generated witness directly, rather
+than first turning it into a singleton automaton, cut length-four setup to 188
+ms and made length five complete in 1.94 seconds.
+
+Replacing the outcome lists with `PlanAp` removed product allocation but did
+not remove the work: the old surface compiler still visited `11^6 = 1,771,561`
+ranks to discover 13,760 valid traces. Retaining the applicative recipe changes
+that algorithm. Children are grouped by only the refinements their parent
+observes; the solver selects live key tuples, and the equality counter counts
+their products
+without visiting members. The same qualified-do source now reaches length 40.
+
+The direct automaton rows isolate decoding cost. At length 40, fusing the
+bottom-up `Trace` decoder saves 43.9 KB per sample—14.3%—and gives a small
+throughput improvement over materializing and immediately traversing the
+earlier `LiquidTerm`. The remaining gap is in generic automaton unranking. Conversely,
+LTA do's retained relational index uses 6.15 MB of setup memory versus about
+653 KB for the direct automaton; reducing that compact-index constant and using
+a persistent worklist in automaton pruning are the next focused opportunities.
+
+### Equality theory cost: ECTA versus LTA
+
+The typed-expression flagship also has a deliberately equivalent liquid
+encoding in
+[`Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/EqualityTypedExpressionLanguage.hs).
+`TInt` is the refinement `v = 0` and `TBool` is `v = 1`. Each application LTA
+contains candidate ground child states, and Z3 retains precisely those whose
+refinements imply the operation's expected input equalities. This expresses the
+same language as the ECTA's path-equality join without adding LTA-only power.
+
+This control uses the same rank order and fixed QuickCheck seed for both
+engines, draws 20,000 values per cell, and forces the complete expression tree.
+The checksum matched at every depth, in addition to the LTA cardinality being
+checked against the independent ECTA count.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | ECTA | 0.05 ms | 2,158,429 | 3.6 KB | 36.9 KB | 37.7 KB |
+| 1 | 42 | LTA equality | 4.16 ms | 1,082,720 | 6.9 KB | 61.7 KB | 38.1 KB |
+| 2 | 27,054 | ECTA | 0.06 ms | 1,719,247 | 3.8 KB | 47.3 KB | 58.4 KB |
+| 2 | 27,054 | LTA equality | 5.08 ms | 427,881 | 15.7 KB | 63.4 KB | 39.8 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.08 ms | 878,966 | 5.8 KB | 61.9 KB | 137.3 KB |
+| 3 | 8,887,065,932,466 | LTA equality | 5.25 ms | 143,836 | 44.8 KB | 65.2 KB | 41.6 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.16 ms | 323,076 | 12.8 KB | 98.6 KB | 334.3 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 5.28 ms | 53,521 | 134.1 KB | 66.9 KB | 43.3 KB |
+
+For equality alone, the ECTA is the right tool. Its setup stays below 0.2 ms;
+the LTA pays about 4–5.3 ms to start Z3 and prune the guarded graph. The LTA
+sampler is 2.0x slower at depth one and 6.0x slower at depth four, with 10.5x
+the per-sample allocation at depth four. That allocation is the cost of
+constructing an annotated `LiquidTerm` and decoding it to the same Haskell AST.
+The language itself remains symbolic: even the roughly 4.95e38-member
+depth-four language occupies only about 67 KB of LTA setup memory.
+
+Measured with GHC 9.12.2 and `-O2` on the maintainer's Apple Silicon machine on
+2026-09-03. Reproduce either LTA table, or all four repository tables, from the
+repository root with:
+
+```sh
+cabal bench microcfta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microcfta-generator:typed-expression-constraint-cost --enable-optimization=2
+./scripts/benchmark-generators.sh
+```
+
 ## Concurrency
 
 Safe. Generators build automata, and `microcfta` interns nodes through
@@ -906,3 +1562,22 @@ and `hspec` does under `parallel`. A property drawing from an
 `ECTAGen` can be run that way without anything in your code looking
 concurrent. Against `microecta` 0.1.0.0 that was silent corruption rather than
 a crash; see the concurrency note in the `microcfta` README.
+
+## Dependencies
+
+The library depends on `microcfta`, `QuickCheck`, `array`, `containers`,
+`hashable`, `mtl`, and `text`; the benchmarks additionally use `random` and
+`process`. The refinement generator and its tests need `z3` on `PATH`.
+
+## Build
+
+From the repository root:
+
+```sh
+cabal build microcfta-generator
+cabal test microcfta-generator
+```
+
+The package has two test suites, `gen-tests` and `refinement-tests`; the
+second needs `z3`. `-j1` keeps an optimized build of the core inside a small
+machine's memory.

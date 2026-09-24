@@ -1,0 +1,824 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QualifiedDo #-}
+
+{- | Solver-checked generation of typed stack-machine traces.
+
+This is the liquid-tree analogue of the symbolic trace generation described in
+<https://well-typed.com/blog/2019/01/qsm-in-depth/ the quickcheck-state-machine tutorial>.
+The complete trace is generated before it is executed, but every command is
+checked against the abstract stack established by the preceding prefix.
+
+The stack shape is the state-machine type. Its compact integer encoding makes
+the dependent transition contracts visible to Liquid Fixpoint:
+
+@Push TInt@ maps @Stack s@ to @Stack (TInt ': s)@.
+@Add@ maps @Stack (TInt ': TInt ': s)@ to @Stack (TInt ': s)@.
+@Equal@ maps @Stack (a ': a ': s)@ to @Stack (TBool ': s)@.
+@Pop@ maps @Stack (a ': s)@ to @Stack s@ and returns @a@.
+
+The result refinement of every trace node is its output stack. Extending the
+trace therefore feeds the previous output space directly into the next
+command's input space. Z3 removes ill-typed prefixes before QuickCheck samples
+or shrinks the compiled language.
+
+The step keeps the paper's positional guards. Each command is generated data
+that carries its own input and output stack types as refinements, so a step
+relates refinements, not values: the prefix's output type must be a subtype
+of the command's input type. A contract relates values, and fits a fixed
+operation instead, as in the sized-vector language.
+-}
+module Data.CFTA.Gen.Refinement.StateMachineTraceLanguage (
+    ValueType (..),
+    Value (..),
+    StackState (..),
+    Command (..),
+    Response (..),
+    ActualResponse (..),
+    Event (..),
+    Trace (..),
+    maximumStackDepth,
+    encodeState,
+    variable,
+    stateRefinement,
+    solverDeclarations,
+    solverAssumptions,
+    tracesOfLength,
+    traceAutomaton,
+    compileTracesOfLength,
+    compileTraceAutomaton,
+    tracesUpTo,
+    naiveTraceGen,
+    qsmTraceGen,
+    qsmTraceShrinks,
+    handwrittenTraceGen,
+    rankedTraceGen,
+    traceCount,
+    modelStep,
+    replayTrace,
+    executeTrace,
+    traceIsValid,
+) where
+
+import Control.Monad (foldM, guard)
+import qualified Data.Map.Lazy as LazyMap
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, mapMaybe)
+import Data.String (fromString)
+import qualified Data.Tree as Tree
+import qualified Language.Fixpoint.Types as Fixpoint
+import qualified Test.QuickCheck as QC
+
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
+import Data.CFTA.Refinement (
+    Automaton,
+    AutomatonError,
+    Entailment,
+    Formula,
+    LiquidConstraint,
+    LiquidSymbol (..),
+    Node (Node),
+    Symbol,
+    unconstrainedConstraint,
+    validate,
+    pattern Transition,
+ )
+import Data.CFTA.Refinement.Expression (variable, (.<=), (.==), (.>=))
+import Data.CFTA.Refinement.Guard (
+    Position,
+    allOf,
+    argument,
+    descendant,
+    isSubtypeOf,
+    root,
+    unconstrained,
+    withActualFor,
+ )
+import Data.List (elemIndex)
+
+-- | Ground value types shared with the typed-expression example.
+data ValueType = TInt | TBool
+    deriving (Bounded, Enum, Eq, Ord, Show)
+
+-- | Concrete values understood by the tiny stack-machine interpreter.
+data Value
+    = IntValue !Int
+    | BoolValue !Bool
+    deriving (Eq, Ord, Show)
+
+-- | The abstract QSM model: stack types, with the top at the head.
+newtype StackState = StackState {stackTypes :: [ValueType]}
+    deriving (Eq, Ord, Show)
+
+-- | Commands accepted by the typed stack machine.
+data Command
+    = Push !Value
+    | Add
+    | And
+    | Equal
+    | Not
+    | Pop
+    deriving (Eq, Ord, Show)
+
+-- | The response space predicted by the abstract model.
+data Response
+    = Accepted
+    | Popped !ValueType
+    deriving (Eq, Ord, Show)
+
+-- | Concrete responses returned by the executable stack machine.
+data ActualResponse
+    = Completed
+    | Returned !Value
+    deriving (Eq, Ord, Show)
+
+-- | One fully predicted state-machine event.
+data Event = Event
+    { eventBefore :: !StackState
+    , eventCommand :: !Command
+    , eventResponse :: !Response
+    , eventAfter :: !StackState
+    }
+    deriving (Eq, Ord, Show)
+
+-- | A symbolic trace and the model state established by its final event.
+data Trace = Trace
+    { traceEvents :: ![Event]
+    , traceFinalState :: !StackState
+    }
+    deriving (Eq, Ord, Show)
+
+-- | The finite generation boundary; the transition formulae are not unrolled.
+maximumStackDepth :: Int
+maximumStackDepth = 3
+
+-- | Encode a type stack as a binary cons-list with the top in the low bits.
+encodeState :: StackState -> Int
+encodeState (StackState types) = foldr encodeType 0 types
+  where
+    encodeType type_ rest = 2 * rest + typeTag type_
+
+-- | Give one stack state an exact symbolic refinement.
+stateRefinement :: StackState -> Formula
+stateRefinement state = variable "v" .== variable (stateName state)
+
+-- | Integer symbols that can occur in a stack-machine solver query.
+solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
+solverDeclarations =
+    [ (Fixpoint.symbol name, Fixpoint.FInt)
+    | name <- ["v", "model", "start", "step"] <> map stateName stackStates
+    ]
+
+-- | Facts assigning each finite stack shape its compact integer encoding.
+solverAssumptions :: [Formula]
+solverAssumptions =
+    [ variable (stateName state) .== fromIntegral (encodeState state)
+    | state <- stackStates
+    ]
+
+-- | Internal difference-list form used while composing trace generators.
+data TracePrefix = TracePrefix
+    { prefixEvents :: [Event] -> [Event]
+    , prefixFinalState :: !StackState
+    }
+
+-- | Empty trace prefix before the public value is decoded.
+initialTracePrefix :: LTAGen.LTAGen TracePrefix
+initialTracePrefix =
+    LTAGen.refinedNode "start" (const $ stateRefinement emptyState) unconstrained start
+  where
+    start = LTAGen.pure (TracePrefix id emptyState) :: LTAGen.LTAGen TracePrefix
+
+{- | Generate traces with exactly the requested number of commands through
+the compositional surface DSL.
+
+This is the source of truth for the relational qualified-do benchmark.
+'compileTracesOfLength' retains this applicative recipe, groups prefixes by
+their output-state refinement, and never scans the Cartesian command language.
+-}
+tracesOfLength :: Int -> LTAGen.LTAGen Trace
+tracesOfLength = fmap finishTracePrefix . tracePrefixesOfLength
+
+-- | Build exact-length prefixes without repeatedly appending event lists.
+tracePrefixesOfLength :: Int -> LTAGen.LTAGen TracePrefix
+tracePrefixesOfLength length_
+    | length_ <= 0 = initialTracePrefix
+    | otherwise = extendTrace $ tracePrefixesOfLength (length_ - 1)
+
+-- | Decode the internal difference-list representation once at the root.
+finishTracePrefix :: TracePrefix -> Trace
+finishTracePrefix TracePrefix{prefixEvents, prefixFinalState} =
+    Trace (prefixEvents []) prefixFinalState
+
+{- | Build the unpruned LTA for one exact trace length.
+
+Nodes are shared by @(prefix length, output stack)@ through a lazy map. Each
+candidate @step@ transition combines one preceding node, one reusable liquid
+command schema, and one possible output state. The liquid guard, not the
+Haskell model, decides which transitions survive. The graph grows linearly
+with trace length.
+-}
+traceAutomaton :: Int -> Either AutomatonError Automaton
+traceAutomaton requestedLength = validate rootNode >> pure rootNode
+  where
+    traceLength = max 0 requestedLength
+    rootNode
+        | traceLength == 0 = Node [start]
+        | otherwise = Node $ concatMap (stepTransitions traceLength) stackStates
+    start = Transition "start" (stateRefinement emptyState) [] unconstrainedConstraint
+    nodes =
+        LazyMap.fromList $
+            [ ( TraceNode prefixLength output
+              , Node $
+                    if prefixLength == 0
+                        then [start | output == emptyState]
+                        else stepTransitions prefixLength output
+              )
+            | prefixLength <- [0 .. traceLength - 1]
+            , output <- stackStates
+            ]
+                <> [ (CommandNode contractRank, Node [contractTransition contract])
+                   | (contractRank, contract) <- zip [0 ..] commandContractValues
+                   ]
+                <> [(FormalNode, Node [Transition "model" stateRange [] unconstrainedConstraint])]
+                <> [ ( PostNode contractRank
+                     , Node [Transition "post-state" (contractPostState contract) [] unconstrainedConstraint]
+                     )
+                   | (contractRank, contract) <- zip [0 ..] commandContractValues
+                   ]
+
+    stepTransitions prefixLength output =
+        [ Transition
+            "step"
+            (stateRefinement output)
+            [ nodes LazyMap.! TraceNode (prefixLength - 1) input
+            , nodes LazyMap.! CommandNode contractRank
+            ]
+            (validStep (argument 0) (argument 1))
+        | input <- stackStates
+        , (contractRank, _) <- zip [0 ..] commandContractValues
+        ]
+
+    contractTransition contract =
+        Transition
+            (contractSymbol contract)
+            (contractInputSpace contract)
+            [nodes LazyMap.! FormalNode, nodes LazyMap.! PostNode (findContractIndex contract)]
+            unconstrainedConstraint
+
+    findContractIndex selected =
+        case elemIndex selected commandContractValues of
+            Just index -> index
+            Nothing -> error "traceAutomaton: unknown command contract"
+
+-- | The shared nodes of the exact-length trace LTA.
+data TraceNodeKey
+    = TraceNode !Int !StackState
+    | CommandNode !Int
+    | FormalNode
+    | PostNode !Int
+    deriving (Eq, Ord)
+
+{- | Compile one exact trace surface language as relational ECTA joins.
+
+Z3 decides compatibility once per live tuple of prefix and command groups.
+Dynamic counting and unranking stay in the ECTA generator layer; complete
+traces are not visited during compilation.
+-}
+compileTracesOfLength ::
+    Entailment ->
+    Int ->
+    IO (Either LTAGen.GenError (LTAGen.LTAGen Trace))
+compileTracesOfLength entailment traceLength =
+    LTAGen.compileWith entailment $ tracesOfLength traceLength
+
+-- | Compile the finite-state trace LTA and decode its accepted terms.
+compileTraceAutomaton ::
+    Entailment ->
+    Int ->
+    IO (Either LTAGen.GenError (LTAGen.LTAGen Trace))
+compileTraceAutomaton entailment traceLength =
+    case traceAutomaton traceLength of
+        Left err -> pure $ Left $ LTAGen.InvalidSupport err
+        Right automaton ->
+            LTAGen.compileWith entailment $ decodeTrace <$> LTAGen.fromAutomaton automaton
+  where
+    decodeTrace term =
+        case traceFromLiquidTerm term of
+            Just trace -> trace
+            Nothing -> error "compileTraceAutomaton: invalid trace term"
+
+-- | Constructor labels for the reusable command schemas.
+commandSymbols :: [(Symbol, Command)]
+commandSymbols =
+    [ (contractSymbol contract, contractCommand contract)
+    | contract <- commandContractValues
+    ]
+
+-- | Generate every trace up to a maximum length, shortest first for shrinking.
+tracesUpTo :: Int -> LTAGen.LTAGen Trace
+tracesUpTo maximumLength =
+    LTAGen.oneof [tracesOfLength length_ | length_ <- [0 .. maximumLength]]
+
+{- | Generate an untyped command sequence and reject the complete sequence
+unless the model accepts every transition.
+
+The raw sequence generator is uniform, so conditioning it on validity leaves a
+uniform distribution over all valid traces of the requested length.
+-}
+naiveTraceGen :: Int -> QC.Gen Trace
+naiveTraceGen length_ =
+    QC.suchThatMap
+        (QC.vectorOf (max 0 length_) $ QC.elements commandValues)
+        traceFromCommands
+
+{- | Generate a valid trace in the usual state-machine-testing style.
+
+The next command is chosen uniformly from those admitted by the current model,
+then the model is advanced before generating the suffix. This is deliberately
+not uniform over complete traces: prefixes with fewer later continuations get
+more probability than they do in the exact-uniform generators. Its advantage
+is that it needs neither rejection nor suffix counts.
+-}
+qsmTraceGen :: Int -> QC.Gen Trace
+qsmTraceGen length_ = generateFrom (max 0 length_) emptyState
+  where
+    generateFrom 0 state = pure $ Trace [] state
+    generateFrom remaining before = do
+        (command, response, after) <-
+            QC.elements
+                [ (command, response, after)
+                | command <- commandValues
+                , Just (response, after) <- [modelStep before command]
+                ]
+        suffix <- generateFrom (remaining - 1) after
+        pure $
+            suffix
+                { traceEvents =
+                    Event before command response after : traceEvents suffix
+                }
+
+{- | Dependency-aware deletion candidates for a QSM-style failing trace.
+
+QuickCheck-state-machine generates a complete trace before execution. On a
+failure it removes commands, replays the remaining sequence from the initial
+model, and retains only candidates whose preconditions still hold. This small
+version has no command-local shrinker, so it isolates that structural step.
+-}
+qsmTraceShrinks :: Trace -> [Trace]
+qsmTraceShrinks =
+    mapMaybe traceFromCommands
+        . QC.shrinkList (const [])
+        . map eventCommand
+        . traceEvents
+
+{- | Generate only valid commands while tracking the abstract stack state.
+
+Each command is weighted by the number of valid suffixes following its output
+state. The resulting handwritten generator is therefore uniform over complete
+traces, not merely uniform at each individual transition.
+-}
+handwrittenTraceGen :: Int -> QC.Gen Trace
+handwrittenTraceGen length_ = generateFrom (max 0 length_) emptyState
+  where
+    generateFrom 0 state = pure $ Trace [] state
+    generateFrom remaining before =
+        frequencyInteger
+            [ ( traceCount (remaining - 1) after
+              , do
+                    suffix <- generateFrom (remaining - 1) after
+                    pure $
+                        suffix
+                            { traceEvents =
+                                Event before command response after : traceEvents suffix
+                            }
+              )
+            | command <- commandValues
+            , Just (response, after) <- [modelStep before command]
+            ]
+
+{- | Handwritten exact-uniform generation through one global rank.
+
+This is the strongest bespoke control: it manually duplicates the LTA
+adapter's count-and-unrank strategy, but constructs 'Trace' directly without a
+liquid witness. It is less idiomatic than 'handwrittenTraceGen' and makes the
+automaton library's compilation algorithm part of application code.
+-}
+rankedTraceGen :: Int -> QC.Gen Trace
+rankedTraceGen requestedLength = do
+    rank <- QC.chooseInteger (0, traceCount length_ emptyState - 1)
+    pure $ decode length_ emptyState rank
+  where
+    length_ = max 0 requestedLength
+
+    decode 0 state _ = Trace [] state
+    decode remaining before rank =
+        case select rank alternatives of
+            Just (command, response, after, suffixRank) ->
+                let suffix = decode (remaining - 1) after suffixRank
+                 in suffix
+                        { traceEvents =
+                            Event before command response after : traceEvents suffix
+                        }
+            Nothing -> error "rankedTraceGen: rank outside the counted trace language"
+      where
+        alternatives =
+            [ ( command
+              , response
+              , after
+              , traceCount (remaining - 1) after
+              )
+            | command <- commandValues
+            , Just (response, after) <- [modelStep before command]
+            ]
+
+    select _ [] = Nothing
+    select rank ((command, response, after, count) : rest)
+        | rank < count = Just (command, response, after, rank)
+        | otherwise = select (rank - count) rest
+
+-- | Count valid command traces of one remaining length from an abstract state.
+traceCount :: Int -> StackState -> Integer
+traceCount remaining before
+    | remaining <= 0 = 1
+    | otherwise = Map.findWithDefault 0 before $ traceCountTables !! remaining
+
+-- | Dynamic-programming tables shared by counting and bespoke generation.
+traceCountTables :: [Map.Map StackState Integer]
+traceCountTables = iterate nextCounts initialCounts
+  where
+    initialCounts = Map.fromList [(state, 1) | state <- stackStates]
+    nextCounts counts =
+        Map.fromList
+            [ ( state
+              , sum
+                    [ Map.findWithDefault 0 after counts
+                    | command <- commandValues
+                    , Just (_, after) <- [modelStep state command]
+                    ]
+              )
+            | state <- stackStates
+            ]
+
+-- | Replay an untyped command sequence into a fully predicted trace.
+traceFromCommands :: [Command] -> Maybe Trace
+traceFromCommands commands = do
+    (events, finalState) <- foldM appendCommand ([], emptyState) commands
+    pure $ Trace (reverse events) finalState
+  where
+    appendCommand (events, before) command = do
+        (response, after) <- modelStep before command
+        pure (Event before command response after : events, after)
+
+-- | Decode one accepted liquid witness into the ordinary QSM trace value.
+traceFromLiquidTerm :: Tree.Tree LiquidSymbol -> Maybe Trace
+traceFromLiquidTerm (Tree.Node (LiquidSymbol "start" liquidRefinement) [])
+    | liquidRefinement == stateRefinement emptyState = Just initialTraceValue
+traceFromLiquidTerm (Tree.Node (LiquidSymbol "step" liquidRefinement) [previousTerm, commandTerm]) = do
+    previous <- traceFromLiquidTerm previousTerm
+    command <- commandFromLiquidTerm commandTerm
+    let before = traceFinalState previous
+    (response, after) <- modelStep before command
+    guard $ liquidRefinement == stateRefinement after
+    pure $
+        Trace
+            (traceEvents previous <> [Event before command response after])
+            after
+traceFromLiquidTerm _ = Nothing
+
+-- | Recover the command represented by one reusable liquid schema.
+commandFromLiquidTerm :: Tree.Tree LiquidSymbol -> Maybe Command
+commandFromLiquidTerm (Tree.Node (LiquidSymbol liquidSymbol _) [_, _]) =
+    lookup
+        liquidSymbol
+        [ (contractSymbol contract, contractCommand contract)
+        | contract <- commandContractValues
+        ]
+commandFromLiquidTerm _ = Nothing
+
+-- | Concrete value represented by the nullary initial transition.
+initialTraceValue :: Trace
+initialTraceValue = Trace [] emptyState
+
+-- | Every distinct raw command value in the example alphabet.
+commandValues :: [Command]
+commandValues = map Push literalValues <> [Add, And, Equal, Not, Pop]
+
+-- | Preserve exact relative weights, using an Integer draw when needed.
+frequencyInteger :: [(Integer, QC.Gen a)] -> QC.Gen a
+frequencyInteger [] = error "frequencyInteger: empty alternatives"
+frequencyInteger alternatives
+    | totalWeight <= toInteger (maxBound :: Int) =
+        QC.frequency
+            [ (fromInteger weight, generator)
+            | (weight, generator) <- reduced
+            ]
+    | otherwise = do
+        selected <- QC.chooseInteger (1, totalWeight)
+        pick selected reduced
+  where
+    commonFactor = foldl' gcd 0 $ map fst alternatives
+    reduced = [(weight `div` commonFactor, generator) | (weight, generator) <- alternatives]
+    totalWeight = sum $ map fst reduced
+
+    pick _ [] = error "frequencyInteger: selected past the alternatives"
+    pick selected ((weight, generator) : remaining)
+        | selected <= weight = generator
+        | otherwise = pick (selected - weight) remaining
+
+{- | Advance the pure abstract model when a command's stack type permits it.
+
+This function is deliberately independent of the LTA guard. The specs replay
+all accepted witnesses through it so a mistake in the liquid encoding cannot
+silently bless an invalid trace.
+-}
+modelStep :: StackState -> Command -> Maybe (Response, StackState)
+modelStep (StackState stack) (Push pushed)
+    | length stack < maximumStackDepth =
+        Just (Accepted, StackState $ valueType pushed : stack)
+    | otherwise = Nothing
+modelStep (StackState (TInt : TInt : rest)) Add =
+    Just (Accepted, StackState $ TInt : rest)
+modelStep (StackState (TBool : TBool : rest)) And =
+    Just (Accepted, StackState $ TBool : rest)
+modelStep (StackState (left : right : rest)) Equal
+    | left == right = Just (Accepted, StackState $ TBool : rest)
+modelStep state@(StackState (TBool : _)) Not = Just (Accepted, state)
+modelStep (StackState (top : rest)) Pop = Just (Popped top, StackState rest)
+modelStep _ _ = Nothing
+
+-- | Replay a predicted trace through the independent abstract transition model.
+replayTrace :: Trace -> Maybe StackState
+replayTrace Trace{traceEvents} = foldM replay emptyState traceEvents
+  where
+    replay current Event{eventBefore, eventCommand, eventResponse, eventAfter} = do
+        guard $ current == eventBefore
+        (actualResponse, actualAfter) <- modelStep current eventCommand
+        guard $ actualResponse == eventResponse
+        guard $ actualAfter == eventAfter
+        pure actualAfter
+
+{- | Execute a generated trace against a separate concrete stack machine.
+
+The LTA only sees abstract stack types. This interpreter sees integer and
+Boolean values and checks that its concrete responses have the shapes predicted
+by the generated trace.
+-}
+executeTrace :: Trace -> Maybe [ActualResponse]
+executeTrace Trace{traceEvents, traceFinalState} = do
+    (responses, finalStack) <- foldM execute ([], []) traceEvents
+    guard $ StackState (map valueType finalStack) == traceFinalState
+    pure $ reverse responses
+  where
+    execute (responses, stack) Event{eventBefore, eventCommand, eventResponse, eventAfter} = do
+        guard $ StackState (map valueType stack) == eventBefore
+        (actualResponse, nextStack) <- executeCommand stack eventCommand
+        guard $ responseType actualResponse == eventResponse
+        guard $ StackState (map valueType nextStack) == eventAfter
+        pure (actualResponse : responses, nextStack)
+
+-- | Whether both the abstract and concrete machines accept a predicted trace.
+traceIsValid :: Trace -> Bool
+traceIsValid trace =
+    replayTrace trace == Just (traceFinalState trace)
+        && case executeTrace trace of
+            Just _ -> True
+            Nothing -> False
+
+-- | Add one solver-checked transition to an existing trace language.
+extendTrace :: LTAGen.LTAGen TracePrefix -> LTAGen.LTAGen TracePrefix
+extendTrace previousTraces =
+    LTAGen.refinedNodeByRoots
+        "step"
+        (const . stepRefinementFromRoots)
+        validStep
+        $ LTAGen.do
+            previous <- previousTraces
+            command <- commandContracts
+            LTAGen.pure $ predictPrefixStep previous command
+
+-- | Compute the next state tag from the two direct child relation groups.
+stepRefinementFromRoots :: [LiquidSymbol] -> Formula
+stepRefinementFromRoots [LiquidSymbol _ previous, LiquidSymbol command _] =
+    case (stateForRefinement previous, lookup command commandSymbols) of
+        (Just before, Just selectedCommand) ->
+            case modelStep before selectedCommand of
+                Just (_, after) -> stateRefinement after
+                Nothing -> stateRefinement before
+        _ -> error "stepRefinementFromRoots: malformed trace relation group"
+stepRefinementFromRoots _ =
+    error "stepRefinementFromRoots: a step must have previous-trace and command children"
+
+-- | Recover the finite stack state represented by one exact root refinement.
+stateForRefinement :: Formula -> Maybe StackState
+stateForRefinement refinement =
+    lookup refinement [(stateRefinement state, state) | state <- stackStates]
+
+{- | Check one dependent state transition.
+
+The previous trace root is both the selected input state and the actual value
+substituted for the command's formal @model@. The command's post-state formula
+must then imply the new trace root. No numeric child indices leak into the
+constructor call.
+-}
+validStep :: Position -> Position -> LiquidConstraint
+validStep previous command =
+    allOf
+        [ previous `isSubtypeOf` command
+        , withActualFor previous (descendant command [0]) $
+            descendant command [1] `isSubtypeOf` root
+        ]
+
+-- | Extend a trace prefix in O(1), using a placeholder for rejected candidates.
+predictPrefixStep :: TracePrefix -> Command -> TracePrefix
+predictPrefixStep previous command =
+    let before = prefixFinalState previous
+        (response, after) = fromMaybe (Accepted, before) (modelStep before command)
+     in TracePrefix
+            (prefixEvents previous . (Event before command response after :))
+            after
+
+{- | Dependent command contracts over the formal input state @model@.
+
+Each command root is its admissible input-state space. Child zero names the
+formal input; child one is the output-state refinement. The command alternatives
+are schemas, not one transition per concrete pair of stack states.
+-}
+commandContracts :: LTAGen.LTAGen Command
+commandContracts =
+    LTAGen.oneof (map contractGenerator commandContractValues)
+
+-- | One reusable liquid input/output schema for a stack-machine command.
+data CommandContract = CommandContract
+    { contractSymbol :: !Symbol
+    , contractCommand :: !Command
+    , contractInputSpace :: !Formula
+    , contractPostState :: !Formula
+    }
+    deriving (Eq)
+
+-- | The eleven schemas from which every trace layer is constructed.
+commandContractValues :: [CommandContract]
+commandContractValues =
+    map pushContract literalValues
+        <> [ popContract TInt
+           , popContract TBool
+           , CommandContract "add" Add (stacksStartingWith [TInt, TInt]) popIntOutput
+           , CommandContract "and" And (stacksStartingWith [TBool, TBool]) popBoolOutput
+           , CommandContract "equal-int" Equal (stacksStartingWith [TInt, TInt]) equalIntOutput
+           , CommandContract "equal-bool" Equal (stacksStartingWith [TBool, TBool]) equalBoolOutput
+           , CommandContract "not" Not (stacksStartingWith [TBool]) unchangedOutput
+           ]
+
+-- | Build the dependent transition contract for one pushed literal.
+pushContract :: Value -> CommandContract
+pushContract pushed =
+    CommandContract
+        (fromString $ "push-" <> valueName pushed)
+        (Push pushed)
+        stacksWithRoom
+        (variable "v" .== (2 * variable "model" + fromIntegral (typeTag (valueType pushed))))
+
+-- | Build one of the two typed pop transition contracts.
+popContract :: ValueType -> CommandContract
+popContract type_ =
+    CommandContract
+        (fromString $ "pop-" <> typeName type_)
+        Pop
+        (stacksStartingWith [type_])
+        (popOutput type_)
+
+-- | Output relation for removing one leading stack-type tag.
+popOutput :: ValueType -> Formula
+popOutput TInt = popIntOutput
+popOutput TBool = popBoolOutput
+
+-- | Present one command schema through the compositional generator DSL.
+contractGenerator :: CommandContract -> LTAGen.LTAGen Command
+contractGenerator CommandContract{contractSymbol, contractCommand, contractInputSpace, contractPostState} =
+    LTAGen.refinedNode contractSymbol (const contractInputSpace) unconstrained $ LTAGen.do
+        _formalState <- LTAGen.leaf () "model" (const stateRange)
+        _postState <- LTAGen.leaf () "post-state" (const contractPostState)
+        LTAGen.pure contractCommand
+
+-- | States in which another value can be pushed.
+stacksWithRoom :: Formula
+stacksWithRoom = oneOfStates ((< maximumStackDepth) . length . stackTypes)
+
+-- | States whose top prefix has the requested sequence of types.
+stacksStartingWith :: [ValueType] -> Formula
+stacksStartingWith prefix = oneOfStates (prefix `isPrefixOf`)
+  where
+    isPrefixOf expected state = expected == take (length expected) (stackTypes state)
+
+-- | Describe a non-empty subset of the bounded abstract state space.
+oneOfStates :: (StackState -> Bool) -> Formula
+oneOfStates predicate =
+    Fixpoint.pOr
+        [ variable "v" .== fromIntegral (encodeState state)
+        | state <- stackStates
+        , predicate state
+        ]
+
+-- | The bounded range accepted at the command's formal state position.
+stateRange :: Formula
+stateRange =
+    Fixpoint.pAnd
+        [ variable "v" .>= 0
+        , variable "v" .<= fromIntegral maximumEncodedState
+        ]
+
+-- | @Add@ and @Pop Int@ both remove one leading integer tag.
+popIntOutput :: Formula
+popIntOutput = variable "model" .== (2 * variable "v" + 1)
+
+-- | @And@ and @Pop Bool@ both remove one leading Boolean tag.
+popBoolOutput :: Formula
+popBoolOutput = variable "model" .== (2 * variable "v" + 2)
+
+-- | Replacing two integers with a Boolean relates input to output by this law.
+equalIntOutput :: Formula
+equalIntOutput = variable "model" .== (2 * variable "v" - 1)
+
+-- | Replacing two Booleans with one Boolean relates input and output by this law.
+equalBoolOutput :: Formula
+equalBoolOutput = variable "model" .== (2 * variable "v" + 2)
+
+-- | Operations such as Boolean negation preserve the complete stack type.
+unchangedOutput :: Formula
+unchangedOutput = variable "v" .== variable "model"
+
+-- | Every stack type inside the finite generation boundary.
+stackStates :: [StackState]
+stackStates =
+    [ StackState types
+    | depth <- [0 .. maximumStackDepth]
+    , types <- typeLists depth
+    ]
+  where
+    typeLists 0 = [[]]
+    typeLists depth = (:) <$> [TInt, TBool] <*> typeLists (depth - 1)
+
+-- | The empty abstract stack.
+emptyState :: StackState
+emptyState = StackState []
+
+-- | Largest state code inside 'maximumStackDepth'.
+maximumEncodedState :: Int
+maximumEncodedState = maximum $ map encodeState stackStates
+
+-- | The solver and LTA symbol name for one stack state.
+stateName :: StackState -> String
+stateName state = "stack" <> show (encodeState state)
+
+-- | Ground literals shared conceptually with the FTA and ECTA examples.
+literalValues :: [Value]
+literalValues =
+    [ IntValue 0
+    , IntValue 1
+    , BoolValue False
+    , BoolValue True
+    ]
+
+-- | The type of a concrete stack-machine value.
+valueType :: Value -> ValueType
+valueType (IntValue _) = TInt
+valueType (BoolValue _) = TBool
+
+-- | Small stable suffix used in public constructor labels.
+valueName :: Value -> String
+valueName (IntValue integer) = "int-" <> show integer
+valueName (BoolValue boolean) = "bool-" <> show boolean
+
+-- | Numeric tag used by the binary type-stack encoding.
+typeTag :: ValueType -> Int
+typeTag TInt = 1
+typeTag TBool = 2
+
+-- | Human-readable type name used by constructor labels.
+typeName :: ValueType -> String
+typeName TInt = "int"
+typeName TBool = "bool"
+
+-- | Execute one command against the concrete stack-machine implementation.
+executeCommand :: [Value] -> Command -> Maybe (ActualResponse, [Value])
+executeCommand stack (Push pushed)
+    | length stack < maximumStackDepth = Just (Completed, pushed : stack)
+    | otherwise = Nothing
+executeCommand (IntValue right : IntValue left : rest) Add =
+    Just (Completed, IntValue (left + right) : rest)
+executeCommand (BoolValue right : BoolValue left : rest) And =
+    Just (Completed, BoolValue (left && right) : rest)
+executeCommand (left : right : rest) Equal
+    | valueType left == valueType right =
+        Just (Completed, BoolValue (left == right) : rest)
+executeCommand (BoolValue boolean : rest) Not =
+    Just (Completed, BoolValue (not boolean) : rest)
+executeCommand (top : rest) Pop = Just (Returned top, rest)
+executeCommand _ _ = Nothing
+
+-- | Forget a concrete response value while retaining its QSM response space.
+responseType :: ActualResponse -> Response
+responseType Completed = Accepted
+responseType (Returned returned) = Popped $ valueType returned
