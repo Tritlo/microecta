@@ -195,6 +195,17 @@ executable cfta-bounded-reads
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
+executable cfta-typed-values
+  import: warnings
+  main-is: TypedValues.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
 executable cfta-automaton-interop
   import: warnings
   main-is: AutomatonInterop.hs

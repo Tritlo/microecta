@@ -35,7 +35,9 @@ tree automata of `microcfta`, with QuickCheck integration.
 - `Data.CFTA.Gen.Refinement`: `LTAGen` with sources (`elements`, which infers
   the exact refinement of each integer; `integers`, a leaf of all integers
   that conditions narrow and that `compile` counts without enumeration, also
-  under a linear contract over several integer children; `pool`, of values with hand-written
+  under a linear contract over several integer children; `every`, the same for
+  every value of a type with a `Literal` instance, such as `Word8`, `Char`,
+  `Bool`, or an enumeration; `pool`, of values with hand-written
   refinements; `namedPool`; `leaf`; and `checkPool`, which asks the solver to
   prove the refinements of a pool), conditions on a drawn child with
   `satisfying`, constructors (`node`; `guarded`, whose contract relates the

@@ -36,9 +36,10 @@ integers.
 - Real numbers do not fit. They have no count and no rank.
 - A contract reads a `Bool` child as an integer, so it compares the child with
   `literal True`.
-- A formula with many disjunctions makes the inclusion-exclusion sum large. A
-  BDD or d-DNNF counter is the second backend if a language needs one. It
-  goes where `compile` closes a group of open variables.
+- A formula with many disjunctions or `./=` atoms makes the
+  inclusion-exclusion sum large. A BDD or d-DNNF counter is the second
+  backend if a language needs one. It goes where `compile` counts the integer
+  points of a formula.
 
 ## Discussion points
 
