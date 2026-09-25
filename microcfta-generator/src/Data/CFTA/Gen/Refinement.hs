@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | Generators over liquid tree automata.
 
@@ -23,6 +24,7 @@ module Data.CFTA.Gen.Refinement (
     -- * Refined sources
     elements,
     integers,
+    every,
     pool,
     Refined (..),
     namedPool,
@@ -95,7 +97,16 @@ import Data.CFTA.Refinement (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Literal (literal), Refinement, refinementFormula, true, (.==))
+import Data.CFTA.Refinement.Expression (
+    Literal (..),
+    Refinement,
+    literal,
+    refinementFormula,
+    true,
+    (.&&),
+    (.<=),
+    (.==),
+ )
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
@@ -134,6 +145,33 @@ condition must be linear in @v@.
 -}
 integers :: LTAGen Integer
 integers = withRecipe (Integers unconstrainedConstraint) $ Transparent $ Left SourceRequiresCompilation
+
+{- | Choose uniformly from every value of a type that integers stand for.
+
+Each value is refined as itself, @\\v -> v .== literal x@, as 'elements'
+refines its members. A bounded type, such as 'Word8', 'Char', 'Bool', or an
+enumeration that derives 'Literal' via 'Enumerated', needs no condition. An
+unbounded type, such as 'Integer', needs conditions that bound it. As on
+'integers', a condition narrows the values and a contract relates them:
+
+@d <- every @Word8 `satisfying` (./= 0)@
+
+A condition and a contract read a value as its integer, 'toLiteral', so
+compare it with a 'literal', as in @\\c -> c ./= literal Red@. Arithmetic on
+these integers is exact: it does not wrap around. A term names each value by
+its integer.
+-}
+every :: forall a. (Literal a) => LTAGen a
+every = case literalRange :: (Maybe a, Maybe a) of
+    (Nothing, Nothing) -> fromLiteral <$> integers
+    (least, greatest) ->
+        fromLiteral
+            <$> integers
+                `satisfying` \v ->
+                    foldr
+                        (.&&)
+                        true
+                        ([literal low .<= v | Just low <- [least]] <> [v .<= literal high | Just high <- [greatest]])
 
 {- | Choose uniformly from values with their refinements.
 
