@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -23,6 +24,7 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 
 import Control.Exception (handle)
 import Data.Bifunctor (first)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (mapAccumL, nub, partition, sortOn)
 import qualified Data.Map.Strict as Map
@@ -31,6 +33,8 @@ import Data.Ratio (denominator, numerator)
 import qualified Data.Set as Set
 import Data.String (fromString)
 import qualified Data.Tree as Tree
+import System.Mem.StableName (StableName, eqStableName, hashStableName, makeStableName)
+import Unsafe.Coerce (unsafeCoerce)
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
@@ -166,6 +170,18 @@ rootCount generator = case genRecipe generator of
         CyclicLanguage (Left _) -> RootCount 1
         _ -> NoCommonCount
 
+-- | What one compilation shares: the cached solver, and the groups compiled so far.
+data Compiler = Compiler
+    { compilerEntailment :: !Entailment
+    , compilerMemo :: !(IORef (IntMap.IntMap [Compiled]))
+    }
+
+{- | One compiled generator: its stable name, the paths requested of it, and
+its groups. A stable name identifies one heap object, so the groups have the
+type of that object.
+-}
+data Compiled = forall a. Compiled !(StableName (LTAGen a)) ![Path] !(Either GenError (LTAGrouped ObservationKey a))
+
 -- | Whether a generator waits for 'compile'.
 deferred :: Gen symbol a -> Bool
 deferred generator = case genLanguage generator of
@@ -186,16 +202,33 @@ compile uncachedEntailment generator
     | not (deferred generator) = pure $ Right generator
     | otherwise = reportTimeLimit $ do
         entailment <- cacheEntailment uncachedEntailment
-        fmap ungroup <$> compileGen entailment [path []] generator
+        memo <- newIORef IntMap.empty
+        fmap ungroup <$> compileGen (Compiler entailment memo) [path []] generator
 
 -- | Compile one generator, grouped by the observations its parent needs.
-compileGen :: Entailment -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
-compileGen entailment requested generator
+compileGen :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGen compiler requested generator = do
+    name <- makeStableName $! generator
+    known <- readIORef $ compilerMemo compiler
+    case [ unsafeCoerce result
+         | Compiled other paths result <- IntMap.findWithDefault [] (hashStableName name) known
+         , eqStableName name other
+         , paths == requested
+         ] of
+        result : _ -> pure result
+        [] -> do
+            result <- compileGenOnce compiler requested generator
+            modifyIORef' (compilerMemo compiler) $ IntMap.insertWith (<>) (hashStableName name) [Compiled name requested result]
+            pure result
+
+-- | Compile one generator that the memo does not hold.
+compileGenOnce :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGenOnce compiler requested generator
     | not (deferred generator) && null requested = pure $ Right $ keyed noObservations generator
     | otherwise = case genRecipe generator of
         Built -> pure $ groupBuilt requested generator
         Lifted value -> pure $ Right $ keyed noObservations $ pure value
-        Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen entailment requested inner
+        Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen compiler requested inner
         Applied _ _
             -- A product whose one term comes from one part, such as @elements [2] <* pure ()@,
             -- answers the requested paths of that part. Another product observes nothing.
@@ -204,19 +237,19 @@ compileGen entailment requested generator
             , all (`elem` [RootCount 0, RootCount 1]) counts
             , [position] <- [index | (index, RootCount 1) <- zip [0 ..] counts] ->
                 fmap (regroupOn (!! position))
-                    <$> compileSpine entailment [if index == position then requested else [] | index <- [0 .. length counts - 1]] generator
+                    <$> compileSpine compiler [if index == position then requested else [] | index <- [0 .. length counts - 1]] generator
             | otherwise ->
                 fmap (regroupOn (const noObservations))
-                    <$> compileSpine entailment (replicate (fromEnum $ spineArity generator) []) generator
+                    <$> compileSpine compiler (replicate (fromEnum $ spineArity generator) []) generator
         Chosen alternatives -> do
-            compiled <- traverse (compileGen entailment requested . snd) alternatives
+            compiled <- traverse (compileGen compiler requested . snd) alternatives
             pure $ choose (map fst alternatives) <$> sequence compiled
         Uniform alternatives -> do
-            compiled <- traverse (compileGen entailment requested) alternatives
+            compiled <- traverse (compileGen compiler requested) alternatives
             pure $ (\groups -> choose (uniformWeights groups) groups) <$> sequence compiled
-        Closed symbol constraint child -> compileNode entailment requested (FixedLabel symbol) constraint child
-        ClosedBy symbolOf constraint child -> compileNode entailment requested (ComputedLabel (Right . symbolOf)) constraint child
-        Imported bound order automaton -> compileImport entailment requested bound order automaton
+        Closed symbol constraint child -> compileNode compiler requested (FixedLabel symbol) constraint child
+        ClosedBy symbolOf constraint child -> compileNode compiler requested (ComputedLabel (Right . symbolOf)) constraint child
+        Imported bound order automaton -> compileImport (compilerEntailment compiler) requested bound order automaton
         Integers constraint -> pure $ compileIntegers constraint
   where
     -- A choice of the compiled alternatives, with one weight for each.
@@ -304,6 +337,7 @@ groupBuilt requested generator
     | null requested = Right $ keyed noObservations generator
     -- A member without a root has no observation, so all members form one group.
     | rootCount generator == RootCount 0 = Right $ keyed noObservations generator
+    | Left EmptyGenerator <- cardinality generator = Right $ frequencies []
     | otherwise = do
         total <- cardinality generator
         members <- traverse member $ everyRank total
@@ -348,25 +382,25 @@ Each position of the applicative spine is compiled with the observations its
 parent requests at that position, and the positions are joined left to
 right. An empty position empties the product without compiling the rest.
 -}
-compileSpine :: Entailment -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
-compileSpine entailment requirements generator = case genRecipe generator of
+compileSpine :: Compiler -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
+compileSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure value
-    Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine entailment requirements inner
+    Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (fromEnum $ spineArity functions) requirements
-        compiledFunctions <- compileSpine entailment functionRequirements functions
+        compiledFunctions <- compileSpine compiler functionRequirements functions
         case compiledFunctions of
             Left err -> pure $ Left err
             Right functionGroups
                 | emptyGroups functionGroups -> pure $ Right $ frequencies []
                 | otherwise -> do
-                    compiledArguments <- compileSpine entailment argumentRequirements arguments
+                    compiledArguments <- compileSpine compiler argumentRequirements arguments
                     case compiledArguments of
                         Left err -> pure $ Left err
                         Right argumentGroups -> do
                             related <- relateGroupsM (\_ _ -> pure $ Right True) (<>) functionGroups argumentGroups
                             pure $ mapWithKey (\_ (function, argument) -> function argument) <$> related
-    _ -> fmap (regroupOn pure) <$> compileGen entailment (concat $ take 1 requirements) generator
+    _ -> fmap (regroupOn pure) <$> compileGen compiler (concat $ take 1 requirements) generator
 
 {- | How a constructor gets its label: a fixed label, or a label that a
 function computes from the root labels of the children.
@@ -384,20 +418,20 @@ groups; the accepted tuples are closed with the constructor and regrouped by
 the parent's observations.
 -}
 compileNode ::
-    Entailment ->
+    Compiler ->
     [Path] ->
     Labelling ->
     Constraint ->
     LTAGen a ->
     IO (Either GenError (LTAGrouped ObservationKey a))
-compileNode entailment requested labelling constraint child
-    | any isJust positions = compileIntegerNode entailment requested labelling constraint child positions
+compileNode compiler requested labelling constraint child
+    | any isJust positions = compileIntegerNode compiler requested labelling constraint child positions
   where
     positions = integerPositions child
-compileNode entailment requested labelling constraint child
+compileNode compiler requested labelling constraint child
     | not (all null childRequirements) && not (alignedSpine child) = pure $ Left ChildNotOneTerm
     | otherwise = do
-        compiledChild <- compileSpine entailment childRequirements child
+        compiledChild <- compileSpine compiler childRequirements child
         case compiledChild of
             Left err -> pure $ Left err
             Right childGroups -> do
@@ -430,7 +464,7 @@ compileNode entailment requested labelling constraint child
         maybe (Left MissingRootObservation) (\(Observed label _) -> Right label) $ Map.lookup (path []) $ keyObservations key
     decide childKeys = case labelOf childKeys of
         Left err -> pure $ Left err
-        Right label -> constraintDecision entailment label leafness constraint childKeys
+        Right label -> constraintDecision (compilerEntailment compiler) label leafness constraint childKeys
     -- Only accepted tuples are closed, and their labels were computed to accept them.
     closeLabel childKeys = case labelOf childKeys of
         Right label -> label
@@ -450,20 +484,20 @@ children that the parts name give one linear formula. Its integer points,
 counted without enumeration, fill the placeholders.
 -}
 compileIntegerNode ::
-    Entailment ->
+    Compiler ->
     [Path] ->
     Labelling ->
     Constraint ->
     LTAGen a ->
     [Maybe Constraint] ->
     IO (Either GenError (LTAGrouped ObservationKey a))
-compileIntegerNode entailment requested labelling constraint child positions
+compileIntegerNode compiler requested labelling constraint child positions
     | not (all null childRequirements) && not (alignedSpine child) = pure $ Left ChildNotOneTerm
     | needsRoots || any readsInteger requested || any readsInteger equalityPaths =
         pure $ Left $ IntegerLeafRead Nothing
     | reader : _ <- filter (not . countable) integerParts = pure $ Left $ IntegerLeafRead $ Just reader
     | otherwise = do
-        compiledChild <- compileSpine entailment childRequirements $ placeholderSpine child
+        compiledChild <- compileSpine compiler childRequirements $ placeholderSpine child
         case compiledChild of
             Left err -> pure $ Left err
             Right childGroups -> do
@@ -516,7 +550,7 @@ compileIntegerNode entailment requested labelling constraint child positions
                     <> [target | Holds targets _ <- integerParts, target <- targets, not $ readsInteger target]
     decide childKeys = case labelOf childKeys of
         Left err -> pure $ Left err
-        Right label -> constraintDecision entailment label leafness finiteConstraint childKeys
+        Right label -> constraintDecision (compilerEntailment compiler) label leafness finiteConstraint childKeys
     -- Only accepted tuples are closed, and their labels were computed to accept them.
     closeLabel childKeys = case labelOf childKeys of
         Right label -> label
