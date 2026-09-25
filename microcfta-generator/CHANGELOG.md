@@ -33,11 +33,11 @@ tree automata of `microcfta`, with QuickCheck integration.
   which wraps user symbols in `Label` and types the private labels;
   `surface` reads the user's term back.
 - `Data.CFTA.Gen.Refinement`: `LTAGen` with sources (`elements`, which infers
-  the exact refinement of each integer; `integers`, a leaf of all integers
-  that conditions narrow and that `compile` counts without enumeration, also
-  under a linear contract over several integer children; `every`, the same for
-  every value of a type with a `Literal` instance, such as `Word8`, `Char`,
-  `Bool`, or an enumeration; `pool`, of values with hand-written
+  the exact refinement of each integer; `every`, a leaf of every value of a
+  type with a `Literal` instance, such as `Integer`, `Word8`, `Char`, `Bool`,
+  or an enumeration, that conditions narrow and that `compile` counts without
+  enumeration, also under a linear contract over several such children;
+  `pool`, of values with hand-written
   refinements; `namedPool`; `leaf`; and `checkPool`, which asks the solver to
   prove the refinements of a pool), conditions on a drawn child with
   `satisfying`, constructors (`node`; `guarded`, whose contract relates the
