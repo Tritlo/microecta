@@ -136,14 +136,16 @@ pointAt (Points dimension levels _) (Rank start) = go 0 IntMap.empty start
         | variable == VarIndex dimension = IntMap.elems prefix
         | otherwise =
             let candidates =
-                    [ (low, high, substitute prefix polynomial)
+                    [ (low, high, sumOver variable (constant low) upTo $ substitute prefix polynomial)
                     | Piece region polynomial <- levels !! (fromEnum variable + 1)
                     , Just (low, high) <- [interval variable prefix region]
                     ]
+                -- The sum from the low end up to the variable itself, once for each piece.
+                upTo = Linear (IntMap.singleton (fromEnum variable) 1) 0
                 through bound =
                     sum
-                        [ polynomialValue $ sumOver variable (constant low) (constant $ min high bound) polynomial
-                        | (low, high, polynomial) <- candidates
+                        [ polynomialValue $ substitute (IntMap.singleton (fromEnum variable) $ min high bound) cumulative
+                        | (low, high, cumulative) <- candidates
                         , min high bound >= low
                         ]
                 value =
