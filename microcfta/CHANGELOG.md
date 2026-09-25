@@ -28,8 +28,8 @@ remains a separate ECTA-only package.
   shared enumerator, and the Z3 entailment in
   `Data.CFTA.Refinement.LiquidFixpoint`, which declares every free name as an
   integer. `Data.CFTA.Refinement.Guard` builds transitions from guards that
-  name the constructor arguments, and `contract` states a formula about the
-  children's values.
+  name the constructor arguments, `contract` states a formula about the
+  children's values, and `resultTerm` reads a result term of the children.
 - `Data.CFTA.Refinement.Expression`: the refinement logic. A refinement is a
   Haskell function of the value, as in `\v -> v ./= 0`. Terms take integer
   literals and arithmetic through `Num`; the comparisons are `.==`, `./=`,
@@ -37,14 +37,16 @@ remains a separate ECTA-only package.
   `lnot`. `Formula` is the closed formula that the engine stores, and
   `refinementFormula` gives the formula of a refinement about `v`. `Literal`
   gives the integer that stands for each value of a type, the value of each
-  integer, and the range of a bounded type, for integral types, `Bool`,
-  `Char`, `Ordering`, `()`, and enumerations through `Enumerated`; `literal`
-  writes a value as a term, and `substitute` replaces named values by terms.
+  integer, and the range of a bounded type. It has instances for integral
+  types, `Bool`, `Char`, `Ordering`, and `()`, and for enumerations through
+  `Enumerated`. `literal` writes a value as a term. `substitute` replaces named values by terms,
+  `definingTerm` reads the term of a formula `v .== t`, and `freeNames` lists
+  the names of a formula.
 - `Data.CFTA.Refinement.Lattice`: the exact number of integer points of a
   linear formula over bounded variables, and the point at each rank in
   lexicographic order, without enumeration. The formula becomes a signed sum
   of conjunctions, and the variables are summed out with Faulhaber
-  polynomials.
+  polynomials. `onlyPoint` reads the one integer that a formula admits.
   `latticeEntailment` is an `Entailment` without a solver: it counts the
   integer points that satisfy the antecedent and falsify the consequent, and
   answers `Unknown` for a formula it cannot count.

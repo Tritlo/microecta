@@ -26,33 +26,40 @@ tree automata of `microcfta`, with QuickCheck integration.
   alternatives overlap or equalities reach below direct children, and a
   cyclic automaton as a recursive generator counted by size.
   `fromAutomatonUpToDepth` bounds first. `fromDatatype` and
-  `fromDatatypeUpToDepth` read derived grammars of any theory.
-- `Data.CFTA.Gen.Equality`: `ECTAGen`, symbol-text rank order for imports,
+  `fromDatatypeUpToDepth` read derived grammars of any theory, and report
+  `UndecodableConstructor` when the codec rejects a term of the grammar.
+  Ranks order the constructors at each node by arity, then by the symbol,
+  or in declaration order for a datatype, so they are the same in every run.
+- `Data.CFTA.Gen.Equality`: `ECTAGen`, symbol-text order for imports,
   and equality constraints from `Data.CFTA.Equality`. The engine's
   `support` and `termAt` return graphs and terms over `Data.CFTA.Gen.Label`,
   which wraps user symbols in `Label` and types the private labels;
   `surface` reads the user's term back.
-- `Data.CFTA.Gen.Refinement`: `LTAGen` with sources (`elements`, which infers
-  the exact refinement of each integer; `every`, a leaf of every value of a
-  type with a `Literal` instance, such as `Integer`, `Word8`, `Char`, `Bool`,
-  or an enumeration, that conditions narrow and that `compile` counts without
-  enumeration, also under a linear contract over several such children;
-  `pool`, of values with hand-written
-  refinements; `namedPool`; `leaf`; and `checkPool`, which asks the solver to
-  prove the refinements of a pool), conditions on a drawn child with
-  `satisfying`, constructors (`node`; `guarded`, whose contract relates the
-  children; and `refinedNode` and `refinedNodeByRoots` for the paper's
-  positional guards and result refinements), liquid automaton and datatype
-  imports, `minimizePoolOn`, `compile` with Z3, `compileAssuming`,
-  `compileWith`, and `validOutcomes`. A constructor that needs the solver,
-  and an import whose guards the engine cannot count, defer the generator;
-  `compile`
-  folds the generator's recipe once with the solver: child languages are
-  grouped by the observations a guard reads, the solver decides each guard
-  once per tuple of groups, imports are pruned and split by the same
-  observations without enumerating terms, and the result is an ordinary
-  finite generator with exact counts, source-ordered ranks, structural
-  shrinking, and no solver at sampling time.
+- `Data.CFTA.Gen.Refinement`: `LTAGen`. Its sources are `elements`, which
+  infers the exact refinement of each integer; `every`, a leaf of every value
+  of a type with a `Literal` instance, such as `Integer`, `Word8`, `Char`,
+  `Bool`, or an enumeration; `pool`, of values with hand-written refinements;
+  `namedPool`; and `leaf`. `checkPool` asks the solver to prove the
+  refinements of a pool. `satisfying` puts a condition on a drawn child, and
+  on `every` it narrows the values. The constructors are `node`; `guarded`,
+  whose contract relates the children; and `refinedNode` and
+  `refinedNodeByRoots` for the paper's positional guards and result
+  refinements. `ensuring` gives a constructor a result term of its children,
+  which becomes the constructor's refinement and stays a term of children from
+  `every`; on a generator that is not such a constructor it reports
+  `ResultNeedsConstructor`. `recurUpTo` unfolds a recursive description a bounded number of
+  times. The module also has liquid automaton and datatype imports,
+  `minimizePoolOn`, `compile` with Z3, `compileAssuming`, `compileWith`, and
+  `validOutcomes`.
+- `compile` folds the recipe of a generator once with the solver. It groups
+  child languages by the observations a guard reads, decides each guard once
+  for each tuple of groups, and prunes and splits imports by the same
+  observations without enumerating terms. It counts the values of `every`
+  without enumeration, also under a linear contract over several such
+  children. The result is an ordinary finite generator with exact counts,
+  source-ordered ranks, and structural shrinking, and sampling makes no solver
+  calls. A constructor that needs the solver, and an import whose guards the
+  engine cannot count, defer the generator until `compile`.
 - `Data.CFTA.Constraint` gains `indicators`, a constraint read as a signed
   sum of equality indicators, so the symbolic counter handles Boolean
   equality guards of the liquid automata without the solver.
