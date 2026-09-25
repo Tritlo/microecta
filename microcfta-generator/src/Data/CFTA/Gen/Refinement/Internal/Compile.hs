@@ -29,6 +29,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Ratio (denominator, numerator)
 import qualified Data.Set as Set
+import Data.String (fromString)
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
@@ -42,19 +43,24 @@ import Data.CFTA.Gen.Internal.Static (
     Static (staticOutcomes, staticRootCount),
     addRootCounts,
     commonRootCount,
+    labelledLeavesStatic,
  )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Label (ChoiceIndex)
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Index (
     Arity (..),
+    Cardinality (..),
     Depth (..),
+    Rank (..),
     Weight (..),
     childIndexes,
     countWeight,
     everyRank,
  )
 import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (literal, refinementFormula, true, (.&&), (.==))
+import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..))
 
 -- | A generator over liquid tree automata.
@@ -151,6 +157,7 @@ rootCount generator = case genRecipe generator of
     Closed{} -> RootCount 1
     ClosedBy{} -> RootCount 1
     Imported{} -> RootCount 1
+    Integers _ -> RootCount 1
     Built -> case genLanguage generator of
         TransparentLanguage (Right static) -> staticRootCount static
         TransparentLanguage (Left _) -> RootCount 1
@@ -208,6 +215,7 @@ compileGen entailment requested generator
         Closed symbol constraint child -> compileNode entailment requested (FixedLabel symbol) constraint child
         ClosedBy symbolOf constraint child -> compileNode entailment requested (ComputedLabel (Right . symbolOf)) constraint child
         Imported bound order automaton -> compileImport entailment requested bound order automaton
+        Integers constraint -> pure $ compileIntegers constraint
   where
     -- A choice of the compiled alternatives, with one weight for each.
     choose weights groups =
@@ -224,6 +232,55 @@ compileGen entailment requested generator
         | otherwise = map (either (const 1) (countWeight . sum) . sizes) groups
     recursiveGroup (CyclicGrouped _) = True
     recursiveGroup _ = False
+
+{- | Count the integers that the conditions of an integer leaf admit.
+
+The group carries no observation, so a guard cannot read the leaf as one
+refinement. Each member is a leaf refined as its integer.
+-}
+compileIntegers :: Constraint -> Either GenError (LTAGrouped ObservationKey Integer)
+compileIntegers constraint = case points [valueName] (integerDomain constraint) of
+    Left err -> Left $ UncountableIntegers err
+    Right found
+        | pointCount found == 0 -> Right $ frequencies []
+        | otherwise ->
+            Right
+                $ keyed noObservations
+                $ Gen Built
+                $ TransparentLanguage
+                $ Right
+                $ labelledLeavesStatic
+                    (RefinedSymbol (fromString "integers") $ integerDomain constraint)
+                    (integerSymbol . valueAt found)
+                    (Indexed (pointCount found) (valueAt found))
+  where
+    valueAt found rank = case pointAt found rank of
+        [value] -> value
+        _ ->
+            error
+                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileIntegers: \
+                \a point of one variable has another dimension"
+
+-- | The name of the value in a refinement.
+valueName :: String
+valueName = "v"
+
+-- | The leaf of one integer, refined as itself.
+integerSymbol :: Integer -> Symbol
+integerSymbol value = RefinedSymbol (fromString $ show value) $ refinementFormula (.== literal value)
+
+-- | The conjunction of the conditions on an integer leaf.
+integerDomain :: Constraint -> Formula
+integerDomain constraint = foldr (.&&) true $ conditions $ constraintAsGuard constraint
+  where
+    conditions Top = []
+    conditions (And guards) = concatMap conditions guards
+    conditions (Satisfies target formula) | target == path [] = [formula]
+    conditions guard =
+        error $
+            "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerDomain: \
+            \an integer leaf carries the guard "
+                <> show guard
 
 -- | Whether a grouped generator has no member.
 emptyGroups :: LTAGrouped key a -> Bool
@@ -562,8 +619,31 @@ candidatesOf entailment generator = case genRecipe generator of
     Imported bound order automaton -> do
         imported <- compileImport entailment [] bound order automaton
         pure $ imported >>= builtCandidates . ungroup
+    Integers constraint -> pure $ integerCandidates constraint
   where
     close labelOf constraint = map $ \(value, witnesses) -> (value, [Witness (labelOf witnesses) constraint witnesses])
+
+{- | Every integer between the least and the greatest counted integer of a
+leaf, each with a witness that checks the leaf's conditions.
+-}
+integerCandidates :: Constraint -> Either GenError [(Integer, [Witness])]
+integerCandidates constraint = case points [valueName] (integerDomain constraint) of
+    Left err -> Left $ UncountableIntegers err
+    Right found
+        | pointCount found == 0 -> Right []
+        | otherwise ->
+            Right
+                [ (value, [Witness (integerSymbol value) constraint []])
+                | value <- [least .. greatest]
+                ]
+      where
+        least = head' $ pointAt found 0
+        greatest = let Cardinality count = pointCount found in head' $ pointAt found $ Rank $ count - 1
+        head' point = case point of
+            [value] -> value
+            _ ->
+                error
+                    "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerCandidates: a point of one variable has another dimension"
 
 -- | The members of a built language, each with the witnesses of its term.
 builtCandidates :: LTAGen a -> Either GenError [(a, [Witness])]

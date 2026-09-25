@@ -118,9 +118,11 @@ pattern Opaque generated <- Gen _ (OpaqueLanguage generated)
 Every combinator that a solver-backed compile step folds records itself
 here: a lifted value, a map, an application, a constructor closed over a
 child description with the constraint its edge carries, a weighted choice,
-a uniform choice, and an automaton import with its depth bound. Everything
-else, sources and joins and recursion among them, is 'Built': its language
-is final.
+a uniform choice, an automaton import with its depth bound, and a leaf of
+integers that a constraint narrows. Everything else, sources and joins and
+recursion among them, is 'Built'. Its language is final, unless an input is
+deferred. Then the generator is 'Transparent' with a
+'SourceRequiresCompilation' error, and compile returns that error.
 -}
 data Recipe symbol a where
     Built :: Recipe symbol a
@@ -136,6 +138,8 @@ data Recipe symbol a where
     -- | An imported automaton, its depth bound, and the key that orders its constructors.
     Imported ::
         (Ord key) => Maybe Depth -> (symbol -> key) -> Node symbol -> Recipe symbol (Tree.Tree symbol)
+    -- | A leaf of the integers that its constraint admits. The theory of the constraint counts them.
+    Integers :: Constraint -> Recipe symbol Integer
 
 -- | Record how a generator was built.
 withRecipe :: Recipe symbol a -> Gen symbol a -> Gen symbol a
