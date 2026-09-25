@@ -13,7 +13,7 @@ theory:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: the `EqConstraints` theory, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
-| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, results with `ensuring`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
@@ -941,9 +941,8 @@ Faulhaber polynomials, as in Pugh, "Counting solutions to Presburger formulas"
 When it sums a variable out, each bound must have the coefficient one or minus
 one on that variable. A contract can also name a child from `elements`, whose
 refinement fixes one integer. A domain that the counter cannot count gives
-`UncountableIntegers`. Another guard on a child from `every`, a computed
-label, and a guard of an enclosing constructor that reads such a child give
-`IntegerLeafRead`.
+`UncountableIntegers`. A guard that reads below the root of a child from
+`every`, or reads it through an equality, gives `IntegerLeafRead`.
 [`BoundedReads.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/BoundedReads.hs)
 runs this program, and CI runs it with the other examples.
 
@@ -956,6 +955,71 @@ reads a value as its integer, so it compares the value with a `literal`, as in
 what `compile` can count, and how the counter works, and
 [`TypedValues.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/TypedValues.hs)
 relates a color, a brightness byte, and a flag in one contract.
+
+### Results and bounded recursion
+
+`ensuring` gives a constructor a result: a term of its children, one term for
+each child, as a contract takes them. The refinement of each constructed term
+is then `\v -> v .== result`, so a parent's contract reads it. `recurUpTo`
+unfolds a recursive description a bounded number of times, from the empty
+generator, and `compile` compiles each unfolding once.
+
+These two give red-black trees. The grammar keeps red children black, the
+contracts keep black heights equal, and the black height is the result:
+
+```haskell
+redBlackTrees :: Int -> LTAGen.LTAGen Tree
+redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
+    let anyRooted = LTAGen.oneof [blackRooted, red blackRooted]
+     in LTAGen.oneof [leaf, black anyRooted]
+  where
+    leaf = LTAGen.leaf Leaf "leaf" (.== 0)
+    black, red :: LTAGen.LTAGen Tree -> LTAGen.LTAGen Tree
+    black child = LTAGen.guarded "black" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l + 1) $ LTAGen.do
+        l <- child
+        r <- child
+        LTAGen.pure (Black l r)
+    red child = LTAGen.guarded "red" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l) $ LTAGen.do
+        l <- child
+        r <- child
+        LTAGen.pure (Red l r)
+```
+
+With three unfoldings, the compiled generator has 25,728,160,405 trees.
+`countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
+1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten. Compilation takes a
+few milliseconds, because each unfolding is compiled once.
+
+The result of children from `every` stays a term of their values. A sorted list
+takes its head as its result, and each `cons` relates its element to the head
+of its tail:
+
+```haskell
+sortedLists :: LTAGen.LTAGen [Integer]
+sortedLists = LTAGen.recurUpTo 8 $ \rest -> LTAGen.oneof [nil, cons rest]
+  where
+    nil = LTAGen.leaf [] "nil" (.== 1000001)
+    cons rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` (\x _ -> x) $ LTAGen.do
+        x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
+        xs <- rest
+        LTAGen.pure (x : xs)
+```
+
+The head of the empty list is above every element, so every element can come
+before it. `compile` keeps the elements as integer variables through the whole
+list, and counts the points of `0 <= x1 <= ... <= xk <= 1000000` where the
+list ends: C(1000009, 8), about 2.5 × 10^43 lists. Each rank decodes to a
+sorted list, and each term carries the exact integer of each element and the
+exact head of each `cons`.
+
+A child that a result names must have a refinement that fixes one integer, as
+`elements` gives, or be drawn by `every`, or be another result; otherwise
+`compile` reports `InexactResult`. A parent reads only the root of a child
+whose integers stay open.
+[`RedBlackTrees.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/RedBlackTrees.hs)
+and
+[`SortedLists.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/SortedLists.hs)
+run these programs, and CI runs them with the other examples.
 
 ### Construction and compilation
 

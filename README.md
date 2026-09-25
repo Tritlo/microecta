@@ -68,11 +68,14 @@ cabal run cfta-safe-division
 cabal run cfta-automaton-interop
 ```
 
-These examples count values without a pool:
+These examples count values without a pool, and results of children through
+bounded recursion:
 
 ```sh
 cabal run cfta-bounded-reads
 cabal run cfta-typed-values
+cabal run cfta-red-black-trees
+cabal run cfta-sorted-lists
 ```
 
 See [`docs/symbolic-values.md`](docs/symbolic-values.md) for values that the

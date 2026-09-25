@@ -99,10 +99,12 @@ data GenError
       ConditionNeedsConstructor
     | -- | The conditions of an integer leaf do not give a countable set of integers.
       UncountableIntegers !LatticeError
-    | {- | A guard, a computed label, or an enclosing guard reads an integer
-      leaf in a form that compile cannot count.
+    | {- | A guard reads an integer leaf, or a result of integer leaves, in a
+      form that compile cannot count.
       -}
       IntegerLeafRead !(Maybe Guard)
+    | -- | The result of the constructor names a child whose refinement does not fix one integer.
+      InexactResult !Symbol
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -341,14 +343,21 @@ explain (IntegerLeafRead reader) =
         , "cannot count."
         ]
             <> maybe [] (\guard -> ["The guard is " <> show guard <> "."]) reader
-            <> [ "Compile counts an integer child through its own conditions and through"
-               , "the contract of guarded. Each other child that the contract names must"
-               , "have one exact integer refinement, as elements gives. A computed label,"
-               , "an equality, or a guard of an enclosing constructor cannot read the"
-               , "integer child."
+            <> [ "Compile counts an integer child through its own conditions, the"
+               , "contract of guarded, and the result of ensuring. Each other child that"
+               , "they name must have one exact integer refinement, as elements gives, or"
+               , "be an integer leaf or a result. An equality, or a guard that reads below"
+               , "the root of such a child, cannot read its integers."
                , "Fix: state the relation as the contract of the constructor whose"
-               , "children it relates, or use elements for a small set of integers."
+               , "children it relates, or give the child a result with ensuring."
                ]
+explain (InexactResult (Symbol symbol)) =
+    guidance
+        [ "The result of the constructor " <> show symbol <> " names a child whose"
+        , "refinement does not fix one integer, so the result has no one value."
+        , "Fix: draw that child from elements, every, or a constructor with a"
+        , "result, or leave it out of the result."
+        ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError

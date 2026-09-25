@@ -78,7 +78,11 @@ on these integers is exact: `x + y` on two `Word8` values does not wrap around.
 On a symbolic leaf, `satisfying` narrows the values. It does not test the leaf
 with the solver. A contract of `guarded` keeps the tuples of values that it
 admits. The contract can also name a child from `elements`, whose refinement
-fixes one integer.
+fixes one integer. With `ensuring`, a constructor's result is a term of its
+integer children, and a parent's contract reads that term. The
+[generator README](../microcfta-generator/README.md#results-and-bounded-recursion)
+shows sorted lists, where every element stays symbolic up to the end of the
+list.
 
 Ranks follow the lexicographic order of the symbolic leaves, from left to
 right. Rank 0 of `pixels` is `(Green, 0, True)`. A shrink goes to an earlier
@@ -99,9 +103,9 @@ The formula must meet three rules:
    breaks this rule when `x` comes after `y`, and `2 * x .<= 10` never does.
 
 A formula that breaks a rule gives `UncountableIntegers`, and `explain` names
-the rule. A guard form other than a contract or a condition, an equality, a
-computed label, and a guard of an enclosing constructor that reads a symbolic
-value give `IntegerLeafRead`.
+the rule. A guard form other than a contract or a condition, an equality, and a
+guard that reads below the root of a child with open values give
+`IntegerLeafRead`.
 
 ## How the counter works
 
@@ -121,7 +125,8 @@ value give `IntegerLeafRead`.
 
 The cost grows with the number of symbolic values that one formula joins, and
 with the number of bounds on each value. The bounded-reads contract joins two
-values that range to a million, and compiles in about 1.5 ms.
+values that range to a million, and compiles in about 1.5 ms. Sorted lists of
+eight elements join eight values, and compile in about 25 ms.
 A formula with many disjunctions gives many signed conjunctions.
 
 ## Deciding and counting

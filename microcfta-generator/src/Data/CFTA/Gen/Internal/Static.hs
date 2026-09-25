@@ -19,6 +19,7 @@ module Data.CFTA.Gen.Internal.Static (
     indexedStaticWithLabels,
     labelledLeavesStatic,
     pointsStatic,
+    holeStatic,
     termStatic,
     applyStatic,
     frequencyStatic,
@@ -216,6 +217,30 @@ labelledLeavesStatic summary symbolAt indexed =
         checkIndex totalOutcomes index
         let label = Label $ symbolAt index
         pure $ Outcome (Tree.Node label []) mass (indexedSelect indexed index) (Tree.Node (plainSymbol label) [])
+
+{- | The language of one placeholder leaf with one value.
+
+Its term is a private 'Placeholder', which a theory fills when it compiles. The
+support is one leaf with the given symbol, which describes the values that
+can fill the placeholder.
+-}
+holeStatic :: (Constraint constraint, Hashable symbol, Typeable symbol) => symbol -> a -> Static symbol constraint a
+holeStatic summary value =
+    Static
+        (Node [Edge (Label summary) []])
+        ( mkOutcomeIndex
+            1
+            (Just 1)
+            ( \index -> do
+                checkIndex 1 index
+                pure $ Outcome (Tree.Node Placeholder []) 1 value (Tree.Node (plainSymbol Placeholder) [])
+            )
+            (const value)
+            (uniformSampler 1 $ const value)
+            (PlanSelect 1 $ const value)
+        )
+        False
+        (Inspection Nothing $ Node [Edge (plainSymbol $ Label summary) []])
 
 {- | Apply each outcome, a function of a point, to every point of an indexed
 source.

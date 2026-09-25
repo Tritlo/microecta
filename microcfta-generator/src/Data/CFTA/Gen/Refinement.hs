@@ -35,6 +35,8 @@ module Data.CFTA.Gen.Refinement (
     satisfying,
     node,
     guarded,
+    ensuring,
+    recurUpTo,
     refinedNode,
     refinedNodeByRoots,
 
@@ -50,6 +52,7 @@ module Data.CFTA.Gen.Refinement (
     validOutcomes,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -86,6 +89,7 @@ import Data.CFTA.Refinement (
     Verdict (Yes),
     boundDepth,
     combineConstraints,
+    contractTermName,
     eraseRefinements,
     minimize,
     nodeEdges,
@@ -99,8 +103,11 @@ import Data.CFTA.Refinement (
 import Data.CFTA.Refinement.Expression (
     Literal (..),
     Refinement,
+    definingTerm,
+    freeNames,
     literal,
     refinementFormula,
+    substitute,
     true,
     (.&&),
     (.<=),
@@ -109,12 +116,15 @@ import Data.CFTA.Refinement.Expression (
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
+    ResultBuilder (resultArity),
     buildGuard,
     contract,
     guardArgumentCount,
     requires,
+    resultTerm,
     root,
  )
+import Data.CFTA.Refinement.Lattice (onlyPoint)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
 -- | A generator over liquid tree automata.
@@ -310,6 +320,63 @@ guarded symbol builder child
   where
     arity = spineArity child
 
+{- | Give a constructor a result: a term of its children, one term for each
+child, in order.
+
+Write it between the constructor and its children:
+
+@guarded "black" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1) $ LTAGen.do ...@
+
+The refinement of each constructed term is @\\v -> v .== result@, for the
+values of its children, so a parent's contract or condition reads the result.
+Each child that the result names must have a refinement that fixes one
+integer, as 'elements' gives, or be drawn by 'every', or be another result.
+The result of children from 'every' stays a term of their values, so a
+parent's contract relates it without enumerating them. A child without such a
+refinement makes 'compile' report 'InexactResult'.
+-}
+ensuring :: (ResultBuilder result) => (LTAGen a -> LTAGen a) -> result -> LTAGen a -> LTAGen a
+ensuring close result child = case genRecipe closed of
+    Closed (LiquidSymbol symbol _) constraint inner
+        | resultArity result /= spineArity inner ->
+            Transparent $ Left $ InvalidSupport $ GuardArityMismatch symbol (spineArity inner) (resultArity result)
+        | otherwise ->
+            withRecipe (ClosedBy (resultLabel symbol) constraint inner) $ Transparent $ Left SourceRequiresCompilation
+    _ -> closed
+  where
+    closed = close child
+    resultLabel symbol roots =
+        let formula =
+                substitute
+                    [ (contractTermName index, term)
+                    | (index, LiquidSymbol _ refinement) <- zip [0 ..] roots
+                    , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                    ]
+                    (refinementFormula (.== resultTerm result))
+         in case onlyPoint "v" formula of
+                Just value -> Right $ LiquidSymbol symbol $ refinementFormula (.== literal value)
+                Nothing
+                    | any (`elem` map contractTermName [0 .. resultArity result - 1]) (freeNames formula) ->
+                        Left $ InexactResult symbol
+                    | otherwise -> Right $ LiquidSymbol symbol formula
+
+{- | A recursive description, unfolded a bounded number of times.
+
+The step receives the generator of the previous unfolding and returns the
+next one. The first unfolding receives the empty generator, so the recursive
+occurrences nest at most the given number of times:
+
+@recurUpTo 3 $ \\self -> oneof [leaf Nil "nil" (const true), node "cons" (Cons <$> elements [1, 2] <*> self)]@
+
+Each unfolding is one shared generator, and 'compile' compiles it once for
+each set of observations that its parents read. Bind a generator that a step
+uses twice, such as @self@ itself, with @let@ so that the step shares it.
+-}
+recurUpTo :: Int -> (LTAGen a -> LTAGen a) -> LTAGen a
+recurUpTo bound step = iterate step (step empty) !! max 0 bound
+  where
+    empty = Transparent $ Left EmptyGenerator
+
 {- | Close a child description with a constructor that has a refinement and a
 positional guard.
 
@@ -344,7 +411,7 @@ refinedNodeByRoots symbol refinementOf guardBuilder child =
         symbol
         guardBuilder
         child
-        (ClosedBy $ \roots -> LiquidSymbol symbol $ refinementFormula $ refinementOf roots)
+        (ClosedBy $ \roots -> Right $ LiquidSymbol symbol $ refinementFormula $ refinementOf roots)
         (const Nothing)
 
 {- | Close a child description with a guarded constructor.

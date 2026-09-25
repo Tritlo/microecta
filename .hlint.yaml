@@ -10,6 +10,8 @@
 # A refinement may use an explicit value binder, as in \v -> v ./= 0, or a
 # section such as (./= 0).
 - ignore: {name: "Avoid lambda using `infix`"}
+# A result names each child, as in \x _ -> x, as a contract does.
+- ignore: {name: "Use const"}
 - ignore: {name: "Redundant bracket"}
 
 # This constructor delays recursive substitution work until after memoization.
