@@ -1008,6 +1008,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
 | `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, contracts over the children's values, and `transition` and `automaton`, which check a named guard against the children. |
 | `Data.CFTA.Refinement.Expression` | The refinement logic: terms with integer arithmetic, comparisons, connectives, and refinements as functions of the value. |
+| `Data.CFTA.Refinement.Lattice` | Exact counting and lexicographic ranking of the integer points of a linear formula, without enumeration. |
 | `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 

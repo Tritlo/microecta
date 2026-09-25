@@ -17,6 +17,8 @@ module Data.CFTA.Gen.Internal.Static (
     pureStatic,
     indexedStatic,
     indexedStaticWithLabels,
+    labelledLeavesStatic,
+    pointsStatic,
     termStatic,
     applyStatic,
     frequencyStatic,
@@ -184,6 +186,66 @@ indexedStaticWithLabels label indexed =
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
                 (Tree.Node (namedSymbol index) [])
+
+{- | A finite source whose members are leaves with user symbols.
+
+Each rank decodes to a value and to the symbol of its leaf, on demand. The
+support is one leaf with the given symbol, which stands for every member: the
+source can be too large to list.
+-}
+labelledLeavesStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    symbol -> (Integer -> symbol) -> Indexed a -> Static symbol constraint a
+labelledLeavesStatic summary symbolAt indexed =
+    Static
+        (Node [Edge (Label summary) []])
+        ( mkOutcomeIndex
+            totalOutcomes
+            (Just mass)
+            select
+            (indexedSelect indexed)
+            (uniformSampler totalOutcomes $ indexedSelect indexed)
+            (PlanSelectOnDemand totalOutcomes $ indexedSelect indexed)
+        )
+        False
+        (Inspection Nothing $ Node [Edge (plainSymbol $ Label summary) []])
+  where
+    totalOutcomes = indexedCardinality indexed
+    mass = 1 / fromInteger totalOutcomes
+    select index = do
+        checkIndex totalOutcomes index
+        let label = Label $ symbolAt index
+        pure $ Outcome (Tree.Node label []) mass (indexedSelect indexed index) (Tree.Node (plainSymbol label) [])
+
+{- | Apply each outcome, a function of a point, to every point of an indexed
+source.
+
+Ranks are outcome-major, so the point varies fastest, and the masses of the
+outcomes are shared equally among their points. The given function rewrites
+the term of an outcome for its point. The support stays the support of the
+outcomes.
+-}
+pointsStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    (p -> Tree.Tree (Label symbol) -> Tree.Tree (Label symbol)) ->
+    Indexed p ->
+    Static symbol constraint (p -> a) ->
+    Static symbol constraint a
+pointsStatic rewrite pointSource functions =
+    applied
+        { staticSupport = staticSupport functions
+        , staticOutcomes = (staticOutcomes applied){outcomeSelect = select}
+        , staticInspection = staticInspection functions
+        }
+  where
+    applied = applyStatic functions $ indexedStatic pointSource
+    select index = do
+        outcome <- outcomeSelect (staticOutcomes applied) index
+        let point = indexedSelect pointSource $ index `rem` indexedCardinality pointSource
+            term = case outcomeTerm outcome of
+                Tree.Node Apply [functionTerm, _] -> rewrite point functionTerm
+                other -> other
+        pure outcome{outcomeTerm = term, outcomeInspection = fmap plainSymbol term}
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 

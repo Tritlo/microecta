@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 {- | The refinement logic: terms, formulas, and refinements.
 
 A refinement is a Haskell function from the refined value to a formula, as in
@@ -9,7 +12,9 @@ module Data.CFTA.Refinement.Expression (
     -- * Terms
     Expr,
     variable,
-    Literal (literal),
+    Literal (..),
+    literal,
+    Enumerated (..),
     fromExpr,
     toExpr,
 
@@ -26,11 +31,16 @@ module Data.CFTA.Refinement.Expression (
     (.&&),
     (.||),
     lnot,
+    substitute,
 
     -- * Refinements
     Refinement,
     refinementFormula,
 ) where
+
+import Data.Int (Int16, Int32, Int64, Int8)
+import Data.Word (Word16, Word32, Word64, Word8)
+import Numeric.Natural (Natural)
 
 import Data.CFTA.Refinement (Formula)
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -54,20 +64,83 @@ instance Num Expr where
 conditional :: Formula -> Expr -> Expr -> Expr
 conditional condition (Expr yes) (Expr no) = Expr $ Fixpoint.EIte condition yes no
 
-{- | Values that the logic writes as a literal term.
+{- | Values that integers stand for, so that the logic writes each value as a
+literal term.
 
-A generator infers the refinement @\\v -> v .== literal x@ for such a value.
-The solver declares @v@ as an integer, so the instances are integers.
+The solver declares @v@ as an integer, so each value stands for one integer:
+'toLiteral' gives the integer, and 'fromLiteral' gives the value back.
+'literalRange' gives the least and the greatest value of a bounded type. A
+generator infers the refinement @\\v -> v .== literal x@ for such a value,
+and @every@ draws every value of such a type.
+
+The instances write integral types as themselves, and 'Bool', 'Char',
+'Ordering', and @()@ as their positions, 'fromEnum'. Derive an instance for a
+bounded enumeration with 'Enumerated'.
 -}
 class Literal a where
-    -- | The term that denotes the value.
-    literal :: a -> Expr
+    -- | The integer that stands for the value.
+    toLiteral :: a -> Integer
+
+    -- | The value that an integer stands for. The integer must stand for a value.
+    fromLiteral :: Integer -> a
+
+    -- | The least and the greatest value, if the type has them.
+    literalRange :: (Maybe a, Maybe a)
+
+-- | The term that denotes the value.
+literal :: (Literal a) => a -> Expr
+literal = fromInteger . toLiteral
 
 instance Literal Integer where
-    literal = fromInteger
+    toLiteral = id
+    fromLiteral = id
+    literalRange = (Nothing, Nothing)
 
-instance Literal Int where
-    literal = fromIntegral
+instance Literal Natural where
+    toLiteral = toInteger
+    fromLiteral = fromInteger
+    literalRange = (Just 0, Nothing)
+
+-- | Write the values of a bounded integral type as themselves.
+newtype BoundedIntegral a = BoundedIntegral a
+
+instance (Bounded a, Integral a) => Literal (BoundedIntegral a) where
+    toLiteral (BoundedIntegral value) = toInteger value
+    fromLiteral = BoundedIntegral . fromInteger
+    literalRange = (Just $ BoundedIntegral minBound, Just $ BoundedIntegral maxBound)
+
+deriving via BoundedIntegral Int instance Literal Int
+deriving via BoundedIntegral Int8 instance Literal Int8
+deriving via BoundedIntegral Int16 instance Literal Int16
+deriving via BoundedIntegral Int32 instance Literal Int32
+deriving via BoundedIntegral Int64 instance Literal Int64
+deriving via BoundedIntegral Word instance Literal Word
+deriving via BoundedIntegral Word8 instance Literal Word8
+deriving via BoundedIntegral Word16 instance Literal Word16
+deriving via BoundedIntegral Word32 instance Literal Word32
+deriving via BoundedIntegral Word64 instance Literal Word64
+
+{- | Write the values of a bounded enumeration as their positions, 'fromEnum'.
+
+Derive the instance of an enumeration with @DerivingVia@:
+
+@
+data Color = Red | Green | Blue
+    deriving (Bounded, Enum, Show)
+    deriving (Literal) via (Enumerated Color)
+@
+-}
+newtype Enumerated a = Enumerated a
+
+instance (Bounded a, Enum a) => Literal (Enumerated a) where
+    toLiteral (Enumerated value) = toInteger $ fromEnum value
+    fromLiteral = Enumerated . toEnum . fromInteger
+    literalRange = (Just $ Enumerated minBound, Just $ Enumerated maxBound)
+
+deriving via Enumerated Bool instance Literal Bool
+deriving via Enumerated Char instance Literal Char
+deriving via Enumerated Ordering instance Literal Ordering
+deriving via Enumerated () instance Literal ()
 
 -- | Refer to a named value. This does not declare its solver sort.
 variable :: String -> Expr
@@ -128,6 +201,11 @@ left .|| right = Fixpoint.pOr [left, right]
 -- | The formula does not hold.
 lnot :: Formula -> Formula
 lnot = Fixpoint.PNot
+
+-- | Replace named values in a formula by terms, all at once.
+substitute :: [(String, Expr)] -> Formula -> Formula
+substitute replacements =
+    Fixpoint.subst $ Fixpoint.mkSubst [(Fixpoint.symbol name, term) | (name, Expr term) <- replacements]
 
 relation :: Fixpoint.Brel -> Expr -> Expr -> Formula
 relation operator (Expr left) (Expr right) = Fixpoint.PAtom operator left right
