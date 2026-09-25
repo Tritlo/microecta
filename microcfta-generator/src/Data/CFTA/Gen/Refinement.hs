@@ -34,6 +34,7 @@ module Data.CFTA.Gen.Refinement (
     satisfying,
     node,
     guarded,
+    recurUpTo,
     refinedNode,
     refinedNodeByRoots,
 
@@ -278,6 +279,23 @@ guarded symbol builder child
     | otherwise = refinedNode symbol (const true) (contract builder) child
   where
     arity = spineArity child
+
+{- | A recursive description, unfolded a bounded number of times.
+
+The step receives the generator of the previous unfolding and returns the
+next one. The first unfolding receives the empty generator, so the recursive
+occurrences nest at most the given number of times:
+
+@recurUpTo 3 $ \\self -> oneof [leaf Nil "nil" (const true), node "cons" (Cons <$> elements [1, 2] <*> self)]@
+
+Each unfolding is one shared generator, and 'compile' compiles it once for
+each set of observations that its parents read. Bind a generator that a step
+uses twice, such as @self@ itself, with @let@ so that the step shares it.
+-}
+recurUpTo :: Int -> (LTAGen a -> LTAGen a) -> LTAGen a
+recurUpTo bound step = iterate step (step empty) !! max 0 bound
+  where
+    empty = Transparent $ Left EmptyGenerator
 
 {- | Close a child description with a constructor that has a refinement and a
 positional guard.
