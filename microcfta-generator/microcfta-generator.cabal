@@ -195,6 +195,28 @@ executable cfta-bounded-reads
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
+executable cfta-red-black-trees
+  import: warnings
+  main-is: RedBlackTrees.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-sorted-lists
+  import: warnings
+  main-is: SortedLists.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
 executable cfta-automaton-interop
   import: warnings
   main-is: AutomatonInterop.hs
