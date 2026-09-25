@@ -24,6 +24,7 @@ module Data.CFTA.Refinement.Lattice (
     points,
     pointCount,
     pointAt,
+    onlyPoint,
     latticeEntailment,
 ) where
 
@@ -92,6 +93,12 @@ points names formula = do
             error
                 "microcfta bug in Data.CFTA.Refinement.Lattice.points: \
                 \a count is not an integer"
+
+-- | The one integer that a formula admits for the variable, if it admits exactly one.
+onlyPoint :: String -> Formula -> Maybe Integer
+onlyPoint name formula = case points [name] formula of
+    Right found | pointCount found == 1, [value] <- pointAt found 0 -> Just value
+    _ -> Nothing
 
 {- | Decide an implication by counting integer points, without a solver.
 

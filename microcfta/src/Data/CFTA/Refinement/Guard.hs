@@ -19,6 +19,8 @@ module Data.CFTA.Refinement.Guard (
     requires,
     ContractBuilder (contractArity, contractFormulaFrom),
     contract,
+    ResultBuilder (resultArity, resultTermFrom),
+    resultTerm,
     isSubtypeOf,
     isSameTermAs,
     withActualFor,
@@ -137,6 +139,28 @@ instance (term ~ Expr, ContractBuilder contract) => ContractBuilder (term -> con
     contractArity continue = 1 + contractArity (continue (variable (contractTermName 0)))
     contractFormulaFrom index continue =
         contractFormulaFrom (index + 1) (continue (variable (contractTermName index)))
+
+{- | A result: a term of the children of a constructor, one term for each
+child, in order, as in @\\l _ -> l + 1@.
+-}
+class ResultBuilder result where
+    -- | The number of children that the result takes.
+    resultArity :: result -> Int
+
+    -- | The term, with the child at index @i@ named by 'contractTermName' @i@, from the given index.
+    resultTermFrom :: Int -> result -> Expr
+
+instance ResultBuilder Expr where
+    resultArity _ = 0
+    resultTermFrom _ term = term
+
+instance (term ~ Expr, ResultBuilder result) => ResultBuilder (term -> result) where
+    resultArity continue = 1 + resultArity (continue $ variable $ contractTermName 0)
+    resultTermFrom index continue = resultTermFrom (index + 1) (continue $ variable $ contractTermName index)
+
+-- | The term of a result, with the child at index @i@ named by 'contractTermName' @i@.
+resultTerm :: (ResultBuilder result) => result -> Expr
+resultTerm = resultTermFrom 0
 
 {- | Require a contract about the children of the constructor.
 

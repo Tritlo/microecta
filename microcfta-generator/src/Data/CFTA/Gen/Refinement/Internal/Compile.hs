@@ -24,6 +24,7 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 ) where
 
 import Control.Exception (handle)
+import Control.Monad ((<=<))
 import Data.Bifunctor (first)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
@@ -53,7 +54,7 @@ import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Reci
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Refinement
 import Data.CFTA.Refinement.Expression (literal, refinementFormula, substitute, true, variable, (.&&), (.==))
-import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
+import Data.CFTA.Refinement.Lattice (onlyPoint, pointAt, pointCount, points)
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..))
 
 -- | A generator over liquid tree automata.
@@ -218,7 +219,7 @@ compileGenOnce compiler requested generator
                         , not $ emptyGroups grouped
                         ]
         Closed symbol constraint child -> compileNode compiler requested (const $ Right symbol) False constraint child
-        ClosedBy symbolOf constraint child -> compileNode compiler requested (fmap symbolOf . traverse rootOf) True constraint child
+        ClosedBy symbolOf constraint child -> compileNode compiler requested (symbolOf <=< traverse rootOf) True constraint child
         Imported bound order automaton -> compileImport (compilerEntailment compiler) requested bound order automaton
         Integers constraint -> pure $ compileIntegers constraint
   where
@@ -505,12 +506,7 @@ compileIntegerNode compiler requested labelOf needsRoots constraint child positi
         exactValue :: ObservationKey -> Maybe Integer
         exactValue key = do
             Observed (RefinedSymbol _ refinement) _ <- Map.lookup (path []) $ keyObservations key
-            found <- either (const Nothing) Just $ points [valueName] refinement
-            if pointCount found == 1
-                then case pointAt found 0 of
-                    [value] -> Just value
-                    _ -> Nothing
-                else Nothing
+            onlyPoint valueName refinement
     -- The user's children of the closed root are its labelled descendants
     -- through private nodes, in order, as 'surface' reads them.
     fill point (Tree.Node root children) = Tree.Node root $ snd $ mapAccumL (visit point) 0 children
@@ -761,14 +757,14 @@ candidatesOf entailment generator = case genRecipe generator of
                 <$> functionCandidates
                 <*> argumentCandidates
     Chosen alternatives -> fmap concat . sequence <$> traverse (candidatesOf entailment . snd) alternatives
-    Closed label constraint child -> fmap (close (const label) constraint) <$> candidatesOf entailment child
-    ClosedBy labelOf constraint child -> fmap (close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
+    Closed label constraint child -> (>>= close (const $ Right label) constraint) <$> candidatesOf entailment child
+    ClosedBy labelOf constraint child -> (>>= close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
     Imported bound order automaton -> do
         imported <- compileImport entailment [] bound order automaton
         pure $ imported >>= builtCandidates . ungroup
     Integers constraint -> pure $ integerCandidates constraint
   where
-    close labelOf constraint = map $ \(value, witnesses) -> (value, [Witness (labelOf witnesses) constraint witnesses])
+    close labelOf constraint = traverse $ \(value, witnesses) -> (\label -> (value, [Witness label constraint witnesses])) <$> labelOf witnesses
 
 {- | Every integer between the least and the greatest counted integer of a
 leaf, each with a witness that checks the leaf's conditions.
