@@ -32,6 +32,8 @@ module Data.CFTA.Refinement.Expression (
     (.||),
     lnot,
     substitute,
+    definingTerm,
+    freeNames,
 
     -- * Refinements
     Refinement,
@@ -220,6 +222,20 @@ substitute replacements formula =
   where
     substitution = Fixpoint.mkSubst [(Fixpoint.symbol name, term) | (name, Expr term) <- replacements]
 
+-- | The term @t@ of a formula @v .== t@ or @t .== v@ about the value @v@, if the formula has that form.
+definingTerm :: Formula -> Maybe Expr
+definingTerm formula = case formula of
+    Fixpoint.PAtom Fixpoint.Eq (Fixpoint.EVar name) term | name == valueSymbol -> Just $ Expr term
+    Fixpoint.PAtom Fixpoint.Eq term (Fixpoint.EVar name) | name == valueSymbol -> Just $ Expr term
+    _ -> Nothing
+  where
+    valueSymbol = Fixpoint.symbol ("v" :: String)
+
+-- | The names that occur free in a formula.
+freeNames :: Formula -> [String]
+freeNames = map Fixpoint.symbolString . Fixpoint.syms
+
+-- | The atom that compares two terms with a Liquid Fixpoint relation.
 relation :: Fixpoint.Brel -> Expr -> Expr -> Formula
 relation operator (Expr left) (Expr right) = Fixpoint.PAtom operator left right
 

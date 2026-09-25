@@ -109,8 +109,8 @@ data GenError
       ConditionNeedsConstructor
     | -- | The conditions of an integer leaf do not give a countable set of integers.
       UncountableIntegers !LatticeError
-    | {- | A guard, a computed label, or an enclosing guard reads an integer
-      leaf in a form that compile cannot count.
+    | {- | A guard reads an integer leaf, or a result of integer leaves, in a
+      form that compile cannot count.
       -}
       IntegerLeafRead !(Maybe Guard)
     | -- | The result of the constructor names a child whose refinement does not fix one integer.
@@ -372,7 +372,9 @@ explain (UncountableIntegers err) =
             : "not give a set of integers that compile can count."
             : case err of
                 UnboundedVariable name ->
-                    [ "No condition bounds " <> show name <> " in one direction."
+                    [ "No condition bounds " <> show name <> " in one direction. Inside a"
+                    , "choice, the conditions of each integer leaf must bound it, because the"
+                    , "choice weighs its alternatives by their values."
                     , "Fix: bound it, as in every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
                     , "The type application needs the TypeApplications extension."
                     ]
@@ -410,13 +412,14 @@ explain (IntegerLeafRead reader) =
         , "cannot count."
         ]
             <> maybe [] (\guard -> ["The guard is " <> show guard <> "."]) reader
-            <> [ "Compile counts an integer child through its own conditions and through"
-               , "the contract of guarded. Each other child that the contract names must"
-               , "have one exact integer refinement, as elements gives. A computed label,"
-               , "an equality, or a guard of an enclosing constructor cannot read the"
-               , "integer child."
+            <> [ "Compile counts an integer child through its own conditions, the"
+               , "contract of guarded, and the result of ensuring. Each other child that"
+               , "they name must have one exact integer refinement, as elements gives, or"
+               , "be an integer leaf or a result. An equality, a guard that reads below"
+               , "the root of such a child, and the function of refinedNodeByRoots, which"
+               , "reads exact labels, cannot read its integers."
                , "Fix: state the relation as the contract of the constructor whose"
-               , "children it relates, or use elements for a small set of integers."
+               , "children it relates, or give the child a result with ensuring."
                ]
 explain (InexactResult (Symbol symbol)) =
     guidance
