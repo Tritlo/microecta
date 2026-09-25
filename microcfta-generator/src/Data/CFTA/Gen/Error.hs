@@ -24,6 +24,7 @@ import Data.CFTA.Refinement (
     SimilarityError,
     Symbol (Symbol),
  )
+import Data.CFTA.Refinement.Lattice (LatticeError (..))
 
 -- | Failure while constructing, inspecting, compiling, or sampling a generator.
 data GenError
@@ -106,6 +107,8 @@ data GenError
       end in a constructor, such as a product, @pure@, or a recursive language.
       -}
       ConditionNeedsConstructor
+    | -- | The conditions of an integer leaf do not give a countable set of integers.
+      UncountableIntegers !LatticeError
     | {- | A guard reads the children of a constructor, and one child gives a
       number of terms other than one, as a choice of products does.
       -}
@@ -355,6 +358,35 @@ explain SourceRequiresCompilation =
         , "that compile cannot fold."
         , "Fix: call compile on the guarded part first, then inspect or combine it."
         ]
+explain (UncountableIntegers err) =
+    guidance $
+        "The conditions of an integer leaf do not give a set of integers that"
+            : "compile can count."
+            : case err of
+                UnboundedVariable _ ->
+                    [ "No condition bounds the integers in one direction."
+                    , "Fix: bound them, as in integers `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
+                    ]
+                NonLinearTerm term ->
+                    [ "The term " <> show term <> " is not linear: it multiplies two"
+                    , "values, divides, or applies a function."
+                    , "Fix: state the condition with sums, differences, and constant factors."
+                    ]
+                UnsupportedFormula formula ->
+                    [ "The formula " <> show formula <> " uses a form other than the"
+                    , "comparisons and the connectives."
+                    , "Fix: state the condition with .==, ./=, .<, .<=, .>, .>=, .&&, .||, and lnot."
+                    ]
+                UnknownName name ->
+                    [ "The condition names " <> show name <> ", which is not the value."
+                    , "Fix: state the condition about v and constants only."
+                    ]
+                -- TODO: Trace the elimination order in Refinement.Lattice. Then confirm
+                -- that the counter sums the values from the last to the first.
+                NonUnitCoefficient name ->
+                    [ "A bound has a coefficient other than one or minus one on " <> show name <> "."
+                    , "Fix: state the bound without a factor on that value, or use elements."
+                    ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError
