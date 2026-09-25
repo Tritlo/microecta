@@ -366,24 +366,27 @@ explain ChildNotOneTerm =
         ]
 explain SourceRequiresCompilation =
     guidance
-        [ "This generator has a guard or an imported automaton that needs the"
-        , "solver, or such a part sits inside a join, a recursion, or a grouping"
-        , "that compile cannot fold."
+        [ "This generator has a guard, an integer leaf from every, or an imported"
+        , "automaton that needs compile, or such a part sits inside a join, a"
+        , "recursion, or a grouping that compile cannot fold."
         , "Fix: call compile on the guarded part first, then inspect or combine it."
         ]
 explain (UncountableIntegers err) =
     guidance $
-        "The conditions of an integer leaf do not give a set of integers that"
-            : "compile can count."
+        "The conditions of an integer leaf, or a contract over integer leaves, do"
+            : "not give a set of integers that compile can count."
             : case err of
-                UnboundedVariable _ ->
-                    [ "No condition bounds the integers in one direction."
-                    , "Fix: bound them, as in integers `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
+                UnboundedVariable name ->
+                    [ "No condition bounds " <> show name <> " in one direction."
+                    , "Fix: bound it, as in every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
+                    , "The type application needs the TypeApplications extension."
                     ]
                 NonLinearTerm term ->
                     [ "The term " <> show term <> " is not linear: it multiplies two"
-                    , "values, divides, or applies a function."
-                    , "Fix: state the condition with sums, differences, and constant factors."
+                    , "values, divides, applies a function, or chooses a term by a"
+                    , "condition, as abs and signum do."
+                    , "Fix: state the condition with sums, differences, and constant factors,"
+                    , "as in -3 .<= v .&& v .<= 3 for abs v .<= 3."
                     ]
                 UnsupportedFormula formula ->
                     [ "The formula " <> show formula <> " uses a form other than the"
@@ -391,14 +394,20 @@ explain (UncountableIntegers err) =
                     , "Fix: state the condition with .==, ./=, .<, .<=, .>, .>=, .&&, .||, and lnot."
                     ]
                 UnknownName name ->
-                    [ "The condition names " <> show name <> ", which is not the value."
-                    , "Fix: state the condition about v and constants only."
+                    [ "The formula names " <> show name <> ", which is not a value that"
+                    , "compile counts. A name from compileAssuming is a fact for the solver,"
+                    , "and compile does not count it."
+                    , "Fix: state conditions on integer leaves, and contracts over them, with"
+                    , "the values and constants only."
                     ]
-                -- TODO: Trace the elimination order in Refinement.Lattice. Then confirm
-                -- that the counter sums the values from the last to the first.
                 NonUnitCoefficient name ->
                     [ "A bound has a coefficient other than one or minus one on " <> show name <> "."
-                    , "Fix: state the bound without a factor on that value, or use elements."
+                    , "The counter sums the values out from the last to the first. When it sums"
+                    , "out a value, every bound on that value must have the coefficient one or"
+                    , "minus one on it. This includes the bounds that summing out a later value"
+                    , "creates, so a factor against a later value can also fail."
+                    , "Fix: draw the value with the factor first, state the bound without the"
+                    , "factor, or use elements."
                     ]
 explain (IntegerLeafRead reader) =
     guidance $
