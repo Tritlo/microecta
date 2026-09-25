@@ -14,8 +14,8 @@ import Data.CFTA.Refinement.Expression ((.&&), (.<), (.<=))
 -- | A length from one to a million, and an index below it.
 boundedReads :: LTAGen.LTAGen (Integer, Integer)
 boundedReads = LTAGen.guarded "read-at" (\n i -> 0 .<= i .&& i .< n) $ LTAGen.do
-    n <- LTAGen.integers `LTAGen.satisfying` (\v -> 1 .<= v .&& v .<= 1000000)
-    i <- LTAGen.integers `LTAGen.satisfying` (\v -> (-10) .<= v .&& v .<= 1000000)
+    n <- LTAGen.every `LTAGen.satisfying` (\v -> 1 .<= v .&& v .<= 1000000)
+    i <- LTAGen.every `LTAGen.satisfying` (\v -> (-10) .<= v .&& v .<= 1000000)
     LTAGen.pure (n, i)
 
 -- | Check the count, the rank order, replay, and shrinking.
