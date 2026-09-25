@@ -99,6 +99,10 @@ data GenError
       ConditionNeedsConstructor
     | -- | The conditions of an integer leaf do not give a countable set of integers.
       UncountableIntegers !LatticeError
+    | {- | A guard, a computed label, or an enclosing guard reads an integer
+      leaf in a form that compile cannot count.
+      -}
+      IntegerLeafRead !(Maybe Guard)
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -331,6 +335,20 @@ explain (UncountableIntegers err) =
                     [ "A bound has a coefficient other than one or minus one on " <> show name <> "."
                     , "Fix: state the bound without a factor on that value, or use elements."
                     ]
+explain (IntegerLeafRead reader) =
+    guidance $
+        [ "A constructor reads one of its integer children in a form that compile"
+        , "cannot count."
+        ]
+            <> maybe [] (\guard -> ["The guard is " <> show guard <> "."]) reader
+            <> [ "Compile counts an integer child through its own conditions and through"
+               , "the contract of guarded. Each other child that the contract names must"
+               , "have one exact integer refinement, as elements gives. A computed label,"
+               , "an equality, or a guard of an enclosing constructor cannot read the"
+               , "integer child."
+               , "Fix: state the relation as the contract of the constructor whose"
+               , "children it relates, or use elements for a small set of integers."
+               ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError

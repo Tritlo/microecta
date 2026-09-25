@@ -23,9 +23,9 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 
 import Data.Bifunctor (first)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (nub)
+import Data.List (mapAccumL, nub, partition)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust, listToMaybe)
 import qualified Data.Set as Set
 import Data.String (fromString)
 import Data.Text (Text)
@@ -33,12 +33,13 @@ import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
+import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..), mergeComponentsByKey)
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
-import Data.CFTA.Gen.Internal.Static (labelledLeavesStatic)
-import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..))
+import Data.CFTA.Gen.Internal.Static (labelledLeavesStatic, pointsStatic)
+import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Refinement
-import Data.CFTA.Refinement.Expression (literal, refinementFormula, true, (.&&), (.==))
+import Data.CFTA.Refinement.Expression (literal, refinementFormula, substitute, true, variable, (.&&), (.==))
 import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
 
 -- | A generator over liquid tree automata.
@@ -291,6 +292,10 @@ compileNode ::
     LiquidConstraint ->
     LTAGen a ->
     IO (Either GenError (LTAGrouped ObservationKey a))
+compileNode entailment requested labelOf needsRoots constraint child
+    | any isJust positions = compileIntegerNode entailment requested labelOf needsRoots constraint child positions
+  where
+    positions = integerPositions child
 compileNode entailment requested labelOf needsRoots constraint child = do
     compiledChild <- compileSpine entailment childRequirements child
     case compiledChild of
@@ -319,6 +324,182 @@ compileNode entailment requested labelOf needsRoots constraint child = do
                 "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileNode: \
                 \an accepted group lost its root observation"
     closeObservations childKeys = parentObservations requested (closeLabel childKeys) childKeys
+
+{- | Compile one constructor with integer children.
+
+Each integer child becomes a placeholder leaf. The other children are
+compiled and decided as usual, without the parts of the guard that read an
+integer child. For each accepted tuple of child groups, those parts, the
+conditions of the integer children, and the exact values of the other
+children that the parts name give one linear formula. Its integer points,
+counted without enumeration, fill the placeholders.
+-}
+compileIntegerNode ::
+    Entailment ->
+    [Path] ->
+    ([ObservationKey] -> Either GenError LiquidSymbol) ->
+    Bool ->
+    LiquidConstraint ->
+    LTAGen a ->
+    [Maybe LiquidConstraint] ->
+    IO (Either GenError (LTAGrouped ObservationKey a))
+compileIntegerNode entailment requested labelOf needsRoots constraint child positions
+    | needsRoots || any readsInteger requested || any readsInteger equalityPaths =
+        pure $ Left $ IntegerLeafRead Nothing
+    | reader : _ <- filter (not . countable) integerParts = pure $ Left $ IntegerLeafRead $ Just reader
+    | otherwise = do
+        compiledChild <- compileSpine entailment childRequirements $ placeholderSpine child
+        case compiledChild of
+            Left err -> pure $ Left err
+            Right childGroups -> do
+                retained <- filterGroupsM decide childGroups
+                pure $ do
+                    groups <- retained
+                    expanded <- expandGroups joint fill $ nodeWithKey closeLabel groups
+                    pure $ reposition closeObservations expanded
+  where
+    arity = spineArity child
+    integerIndices = Map.fromList $ zip [position | (position, Just _) <- zip [0 ..] positions] [0 :: Int ..]
+    names = ["__microcfta_integer_" <> show index | index <- [0 .. Map.size integerIndices - 1]]
+    readsInteger target = case unPath target of
+        position : _ -> Map.member position integerIndices
+        [] -> False
+    equalityPaths = constraintPaths $ equalityConstraint $ constraintEqualities constraint
+    (integerParts, finiteParts) = partition (any readsInteger . guardPaths) $ conjuncts $ constraintGuard constraint
+    finiteConstraint = constraint{constraintGuard = if null finiteParts then Top else And finiteParts}
+    countable (Holds targets _) = all direct targets
+    countable (Satisfies target _) = direct target
+    countable _ = False
+    direct target = length (unPath target) == 1
+    observed =
+        nub $
+            requested
+                <> constraintPaths finiteConstraint
+                <> [target | Holds targets _ <- integerParts, target <- targets, not $ readsInteger target]
+    childRequirements =
+        [ nub [path suffix | target <- observed, index : suffix <- [unPath target], index == childIndex]
+        | childIndex <- [0 .. arity - 1]
+        ]
+    decide childKeys = case labelOf childKeys of
+        Left err -> pure $ Left err
+        Right label -> constraintDecision entailment label finiteConstraint childKeys
+    -- Only accepted tuples are closed, and their labels were computed to accept them.
+    closeLabel childKeys = case labelOf childKeys of
+        Right label -> label
+        Left _ ->
+            error
+                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileIntegerNode: \
+                \an accepted group lost its label"
+    closeObservations childKeys = parentObservations requested (closeLabel childKeys) childKeys
+    domains =
+        [ substitute [(valueName, variable name)] $ integerDomain condition
+        | (name, Just condition) <- zip names [position | position@(Just _) <- positions]
+        ]
+    joint childKeys = do
+        formulas <- traverse (partFormula childKeys) integerParts
+        found <- first UncountableIntegers $ points names $ foldr (.&&) true $ domains <> formulas
+        pure (pointCount found, pointAt found)
+    partFormula childKeys part = case part of
+        Satisfies target formula -> do
+            term <- termOf childKeys part target
+            Right $ substitute [(valueName, term)] formula
+        Holds targets formula -> do
+            named <- traverse (termOf childKeys part) targets
+            Right $ substitute (zip (map contractTermName [0 ..]) named) formula
+        _ -> Left $ IntegerLeafRead $ Just part
+    termOf childKeys part target = case unPath target of
+        [position]
+            | Just index <- Map.lookup position integerIndices -> Right $ variable $ names !! index
+            | Just value <- exactValue =<< listToMaybe (drop position childKeys) -> Right $ literal value
+        _ -> Left $ IntegerLeafRead $ Just part
+    -- The user's children of the closed root are its labelled descendants
+    -- through private nodes, in order, as 'surface' reads them.
+    fill point (Tree.Node root children) = Tree.Node root $ snd $ mapAccumL (visit point) 0 children
+    visit point position term@(Tree.Node (Label _) _) =
+        ( position + 1
+        , maybe term (\index -> Tree.Node (Label $ integerSymbol $ point !! index) []) $ Map.lookup position integerIndices
+        )
+    visit point position (Tree.Node private children) = Tree.Node private <$> mapAccumL (visit point) position children
+
+-- | The top-level conjuncts of a guard.
+conjuncts :: Guard -> [Guard]
+conjuncts Top = []
+conjuncts (And guards) = concatMap conjuncts guards
+conjuncts guard = [guard]
+
+-- | The integer that the root refinement of a child group fixes, if it fixes one.
+exactValue :: ObservationKey -> Maybe Integer
+exactValue key = do
+    Observed (LiquidSymbol _ refinement) _ <- Map.lookup (path []) $ keyObservations key
+    found <- either (const Nothing) Just $ points [valueName] refinement
+    if pointCount found == 1
+        then case pointAt found 0 of
+            [value] -> Just value
+            _ -> Nothing
+        else Nothing
+
+{- | Fill the placeholders of each group with the integer points of its key.
+
+A group whose key admits no point is dropped. The mass of a group grows with
+its number of points, so the members stay uniform.
+-}
+expandGroups ::
+    ([ObservationKey] -> Either GenError (Integer, Integer -> [Integer])) ->
+    ([Integer] -> Tree.Tree (Label LiquidSymbol) -> Tree.Tree (Label LiquidSymbol)) ->
+    LTAGrouped [ObservationKey] ([Integer] -> a) ->
+    Either GenError (LTAGrouped [ObservationKey] a)
+expandGroups _ _ (CyclicGrouped _) = Right $ Grouped $ Left UnboundedGenerator
+expandGroups _ _ (Grouped (Left err)) = Right $ Grouped $ Left err
+expandGroups joint fill (Grouped (Right buckets)) = do
+    components <- traverse expand $ Map.toList buckets
+    pure $ Grouped $ mergeComponentsByKey $ catMaybes components
+  where
+    expand (key, KeyedBucket mass static) = do
+        (count, pointAt') <- joint key
+        pure $
+            if count == 0
+                then Nothing
+                else Just (key, mass * fromInteger count, pointsStatic fill (Indexed count pointAt') static)
+
+-- | The integer leaf at each position of an applicative spine, with its conditions.
+integerPositions :: LTAGen a -> [Maybe LiquidConstraint]
+integerPositions generator = case integerLeaf generator of
+    Just (constraint, _) -> [Just constraint]
+    Nothing -> case genRecipe generator of
+        Lifted _ -> []
+        Mapped _ inner -> integerPositions inner
+        Applied functions arguments -> integerPositions functions <> integerPositions arguments
+        _ -> [Nothing]
+
+-- | The conditions of an integer leaf, and the map from its integer to its value.
+integerLeaf :: LTAGen a -> Maybe (LiquidConstraint, Integer -> a)
+integerLeaf generator = case genRecipe generator of
+    Integers constraint -> Just (constraint, id)
+    Mapped transform inner -> fmap (transform .) <$> integerLeaf inner
+    _ -> Nothing
+
+{- | The child description with each integer leaf replaced by a placeholder
+leaf, as a function of the integers of those leaves, in order.
+-}
+placeholderSpine :: LTAGen a -> LTAGen ([Integer] -> a)
+placeholderSpine = fst . go 0
+  where
+    go :: Int -> LTAGen b -> (LTAGen ([Integer] -> b), Int)
+    go next generator = case integerLeaf generator of
+        Just (constraint, decode) ->
+            ( node (LiquidSymbol (fromString "integers") $ integerDomain constraint) $ pure $ \integers' -> decode $ integers' !! next
+            , next + 1
+            )
+        Nothing -> case genRecipe generator of
+            Lifted value -> (pure $ const value, next)
+            Mapped transform inner ->
+                let (reader, after) = go next inner
+                 in ((transform .) <$> reader, after)
+            Applied functions arguments ->
+                let (readFunctions, middle) = go next functions
+                    (readArguments, after) = go middle arguments
+                 in ((\function argument integers' -> function integers' $ argument integers') <$> readFunctions <*> readArguments, after)
+            _ -> (const <$> generator, next)
 
 -- | Decide one guard from the already-grouped child observations.
 constraintDecision :: Entailment -> LiquidSymbol -> LiquidConstraint -> [ObservationKey] -> IO (Either GenError Bool)
