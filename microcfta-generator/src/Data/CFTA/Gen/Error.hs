@@ -114,6 +114,10 @@ data GenError
       leaf in a form that compile cannot count.
       -}
       IntegerLeafRead !(Maybe Guard)
+    | -- | The result of the constructor names a child whose refinement does not fix one integer.
+      InexactResult !Symbol
+    | -- | A result from @ensuring@ was applied to a generator that is not a constructor that can take a result.
+      ResultNeedsConstructor
     | {- | A guard reads the children of a constructor, and one child gives a
       number of terms other than one, as a choice of products or a source
       without symbols does. Or an equality reads a node whose members are
@@ -272,9 +276,9 @@ explain BoundedRecursiveOccurrence =
 explain (InvalidSupport (GuardArityMismatch (Symbol symbol) childrenCount argumentCount)) =
     guidance
         [ "Constructor " <> show symbol <> " has " <> show childrenCount <> " children, but its"
-        , "named guard or contract takes " <> show argumentCount <> " arguments."
-        , "Fix: give the guard or the contract one argument per direct child,"
-        , "including unused children."
+        , "named guard, contract, or result takes " <> show argumentCount <> " arguments."
+        , "Fix: give the guard, the contract, or the result of ensuring one argument"
+        , "per direct child, including unused children."
         ]
 explain (InvalidSupport err) =
     guidance
@@ -423,6 +427,22 @@ explain (IntegerLeafRead reader) =
                , "Fix: state the relation as the contract of the constructor whose"
                , "children it relates, or use elements for a small set of integers."
                ]
+explain (InexactResult (Symbol symbol)) =
+    guidance
+        [ "The result of the constructor " <> show symbol <> " names a child whose"
+        , "refinement does not fix one integer, so the result has no one value."
+        , "Fix: draw that child from elements, every, or a constructor with a"
+        , "result, or leave it out of the result."
+        ]
+explain ResultNeedsConstructor =
+    guidance
+        [ "ensuring gives a result to the constructor that node, guarded, or"
+        , "refinedNode closes. This generator is not such a constructor: it is a"
+        , "pool, a choice, a product, or a constructor from refinedNodeByRoots,"
+        , "which computes its own refinement."
+        , "Fix: write ensuring directly after node or guarded, as in"
+        , "guarded \"black\" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1)."
+        ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError
