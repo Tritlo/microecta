@@ -3,7 +3,7 @@
 ## Context
 
 A generator promises an exact count and a decoder from rank to value. A
-symbolic leaf, such as `integers` or `every`, has no pool: the conditions and
+symbolic leaf, `every`, has no pool: the conditions and
 contracts on it select its values. So its theory must count and rank the
 solutions of a formula, not only decide it. SMT solvers decide. They do not
 count. A contract relates several children, so their values are counted

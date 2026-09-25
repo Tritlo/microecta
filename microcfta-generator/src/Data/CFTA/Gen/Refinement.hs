@@ -23,7 +23,6 @@ module Data.CFTA.Gen.Refinement (
 
     -- * Refined sources
     elements,
-    integers,
     every,
     pool,
     Refined (..),
@@ -132,46 +131,40 @@ contract can decide each value exactly. The value's 'show' names its entry.
 elements :: (Literal a, Show a) => [a] -> LTAGen a
 elements members = pool [(member, \v -> v .== literal member) | member <- members]
 
-{- | Choose uniformly from the integers that the conditions on this leaf admit.
-
-Each integer is refined as itself, @\\v -> v .== literal x@, as in
-'elements'. Bound the integers with 'satisfying' before 'compile':
-
-@integers `satisfying` (\\v -> 0 .<= v .&& v .< 1000000)@
-
-On this leaf, a condition narrows the integers: 'compile' counts them without
-enumeration and without the solver, and ranks them in increasing order. A
-condition must be linear in @v@.
--}
-integers :: LTAGen Integer
-integers = withRecipe (Integers unconstrainedConstraint) $ Transparent $ Left SourceRequiresCompilation
-
 {- | Choose uniformly from every value of a type that integers stand for.
 
 Each value is refined as itself, @\\v -> v .== literal x@, as 'elements'
 refines its members. A bounded type, such as 'Word8', 'Char', 'Bool', or an
 enumeration that derives 'Literal' via 'Enumerated', needs no condition. An
-unbounded type, such as 'Integer', needs conditions that bound it. As on
-'integers', a condition narrows the values and a contract relates them:
+unbounded type, such as 'Integer', needs conditions that bound it:
 
 @d <- every @Word8 `satisfying` (./= 0)@
 
-A condition and a contract read a value as its integer, 'toLiteral', so
-compare it with a 'literal', as in @\\c -> c ./= literal Red@. Arithmetic on
-these integers is exact: it does not wrap around. A term names each value by
-its integer.
+@n <- every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 1000000)@
+
+On this leaf, a condition narrows the values, and a contract of 'guarded'
+keeps the tuples of values that it admits. 'compile' counts them without
+enumeration and without the solver, and ranks them in increasing order. A
+condition and a contract must be linear. They read a value as its integer,
+'toLiteral', so compare it with a 'literal', as in
+@\\c -> c ./= literal Red@. Arithmetic on these integers is exact: it does
+not wrap around. A term names each value by its integer.
 -}
 every :: forall a. (Literal a) => LTAGen a
 every = case literalRange :: (Maybe a, Maybe a) of
-    (Nothing, Nothing) -> fromLiteral <$> integers
+    (Nothing, Nothing) -> fromLiteral <$> integerLeaf
     (least, greatest) ->
         fromLiteral
-            <$> integers
+            <$> integerLeaf
                 `satisfying` \v ->
                     foldr
                         (.&&)
                         true
                         ([literal low .<= v | Just low <- [least]] <> [v .<= literal high | Just high <- [greatest]])
+
+-- | The leaf of all integers, which conditions narrow and 'compile' counts.
+integerLeaf :: LTAGen Integer
+integerLeaf = withRecipe (Integers unconstrainedConstraint) $ Transparent $ Left SourceRequiresCompilation
 
 {- | Choose uniformly from values with their refinements.
 
@@ -260,8 +253,8 @@ Use it where a child is drawn:
 
 The condition applies to the root of each term, the constructor that the
 generator ends in. A pool, a leaf, a node, a bounded import, a choice of these,
-and a mapped generator have such a root. On 'integers', the condition narrows
-the integers. An unbounded import with a recursive
+and a mapped generator have such a root. On 'every', the condition narrows
+the values. An unbounded import with a recursive
 root, and another generator, give 'ConditionNeedsConstructor', because the
 condition must not apply to the recursive occurrences. The condition can name only @v@ and ambient
 names; a relation between children is the contract of 'guarded'.

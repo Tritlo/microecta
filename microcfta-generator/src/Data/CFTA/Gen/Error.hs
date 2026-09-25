@@ -315,7 +315,7 @@ explain (UncountableIntegers err) =
             : case err of
                 UnboundedVariable _ ->
                     [ "No condition bounds the integers in one direction."
-                    , "Fix: bound them, as in integers `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
+                    , "Fix: bound them, as in every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
                     ]
                 NonLinearTerm term ->
                     [ "The term " <> show term <> " is not linear: it multiplies two"

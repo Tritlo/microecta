@@ -2,15 +2,14 @@
 
 A refinement generator draws a value from a pool, or from a symbolic leaf. A
 pool lists its values, and `compile` decides the guards on them with the
-solver, once for each group of equal refinements. A symbolic leaf lists none: its conditions and the contracts on it select the
-values, and `compile` counts them without enumeration. Two leaves are
-symbolic:
+solver, once for each group of equal refinements. A symbolic leaf lists none:
+its conditions and the contracts on it select the values, and `compile` counts
+them without enumeration. `every` is the symbolic leaf. It draws every value of
+a type whose values integers stand for, such as `Integer`, `Word8`, `Char`,
+`Bool`, or an enumeration. The type comes from the use of the value, or from a
+type application such as `every @Integer`.
 
-- `integers` draws every `Integer`. Its conditions must bound it.
-- `every` draws every value of a type whose values integers stand for, such as
-  `Word8`, `Char`, `Bool`, or an enumeration.
-
-This page explains how to use them, what `compile` can count, and how the
+This page explains how to use it, what `compile` can count, and how the
 counting works. [ADR 1](adr/0001-one-counting-core.md) records why one
 counter serves every type.
 
