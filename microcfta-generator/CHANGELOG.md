@@ -42,7 +42,9 @@ tree automata of `microcfta`, with QuickCheck integration.
   prove the refinements of a pool), conditions on a drawn child with
   `satisfying`, constructors (`node`; `guarded`, whose contract relates the
   children; and `refinedNode` and `refinedNodeByRoots` for the paper's
-  positional guards and result refinements), liquid automaton and datatype
+  positional guards and result refinements), results with `ensuring`, a term
+  of the children that becomes the constructor's refinement and stays a term
+  of integer children, bounded recursion with `recurUpTo`, liquid automaton and datatype
   imports, `minimizePoolBy`, `compile` with Z3, `compileAssuming`,
   `compileWith`, and `validOutcomes`. A constructor that needs the solver,
   and an import whose guards the engine cannot count, defer the generator;
