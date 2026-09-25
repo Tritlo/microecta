@@ -103,6 +103,8 @@ data GenError
       leaf in a form that compile cannot count.
       -}
       IntegerLeafRead !(Maybe Guard)
+    | -- | The result of the constructor names a child whose refinement does not fix one integer.
+      InexactResult !Symbol
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -349,6 +351,13 @@ explain (IntegerLeafRead reader) =
                , "Fix: state the relation as the contract of the constructor whose"
                , "children it relates, or use elements for a small set of integers."
                ]
+explain (InexactResult (Symbol symbol)) =
+    guidance
+        [ "The result of the constructor " <> show symbol <> " names a child whose"
+        , "refinement does not fix one integer, so the result has no one value."
+        , "Fix: draw that child from elements, every, or a constructor with a"
+        , "result, or leave it out of the result."
+        ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError
