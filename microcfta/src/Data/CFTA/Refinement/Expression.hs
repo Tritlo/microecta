@@ -26,6 +26,7 @@ module Data.CFTA.Refinement.Expression (
     (.&&),
     (.||),
     lnot,
+    substitute,
 
     -- * Refinements
     Refinement,
@@ -132,6 +133,20 @@ left .|| right = Fixpoint.pOr [left, right]
 -- | The formula does not hold.
 lnot :: Formula -> Formula
 lnot = Fixpoint.PNot
+
+{- | Replace named values in a formula by terms, all at once.
+
+A quantifier renames its bound name when a term mentions that name, so no term
+is captured.
+-}
+substitute :: [(String, Expr)] -> Formula -> Formula
+substitute replacements formula =
+    Fixpoint.rapierSubstExpr
+        (Fixpoint.exprSymbolsSet formula <> Fixpoint.substSymbolsSet substitution)
+        substitution
+        formula
+  where
+    substitution = Fixpoint.mkSubst [(Fixpoint.symbol name, term) | (name, Expr term) <- replacements]
 
 relation :: Fixpoint.Brel -> Expr -> Expr -> Formula
 relation operator (Expr left) (Expr right) = Fixpoint.PAtom operator left right
