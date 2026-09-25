@@ -53,6 +53,7 @@ module Data.CFTA.Gen.Refinement (
     validOutcomes,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -78,7 +79,7 @@ import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..), withR
 import Data.CFTA.Gen.Refinement.Internal.Compile (spineArity, validOutcomes)
 import qualified Data.CFTA.Gen.Refinement.Internal.Compile as Compile
 import Data.CFTA.Generic (TypedFTA, constructorLabel, constructorName, datatypeDecode, datatypeFTA, decodeLabelledTerm)
-import Data.CFTA.Index (Depth)
+import Data.CFTA.Index (ArgumentIndex (..), Depth)
 import Data.CFTA.Refinement (
     Automaton,
     AutomatonError (GuardArityMismatch),
@@ -105,6 +106,8 @@ import Data.CFTA.Refinement (
 import Data.CFTA.Refinement.Expression (
     Literal (..),
     Refinement,
+    definingTerm,
+    freeNames,
     literal,
     refinementFormula,
     substitute,
@@ -352,10 +355,12 @@ The refinement of each constructed term is @\\v -> v .== result@, for the
 values of its children, so a parent's contract or condition reads the result.
 It replaces the refinement that 'refinedNode' gives the constructor.
 Each child that the result names must have a refinement that fixes one
-integer, as 'elements' and another result give; otherwise 'compile' reports
-'InexactResult'. The constructor must be one that 'node', 'guarded', or
-'refinedNode' closes, possibly mapped; another generator gives
-'ResultNeedsConstructor'.
+integer, as 'elements' gives, or be drawn by 'every', or be another result.
+The result of children from 'every' stays a term of their values, so a
+parent's contract relates it without enumerating them. A child without such a
+refinement makes 'compile' report 'InexactResult'. The constructor must be
+one that 'node', 'guarded', or 'refinedNode' closes, possibly mapped; another
+generator gives 'ResultNeedsConstructor'.
 -}
 ensuring :: (ResultBuilder result) => (LTAGen a -> LTAGen a) -> result -> LTAGen a -> LTAGen a
 ensuring close result = withResult . close
@@ -373,14 +378,19 @@ ensuring close result = withResult . close
             _ -> Transparent $ Left ResultNeedsConstructor
       where
         resultLabel symbol roots =
-            maybe (Left $ InexactResult symbol) (\value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value))
-                $ onlyPoint "v"
-                $ substitute
-                    [ (contractTermName index, literal value)
-                    | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
-                    , Just value <- [onlyPoint "v" refinement]
-                    ]
-                    (refinementFormula (.== resultTerm result))
+            let formula =
+                    substitute
+                        [ (contractTermName index, term)
+                        | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
+                        , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                        ]
+                        (refinementFormula (.== resultTerm result))
+             in case onlyPoint "v" formula of
+                    Just value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value)
+                    Nothing
+                        | any (`elem` map (contractTermName . ArgumentIndex) [0 .. fromEnum (resultArity result) - 1]) (freeNames formula) ->
+                            Left $ InexactResult symbol
+                        | otherwise -> Right $ RefinedSymbol symbol formula
 
 {- | A recursive description, unfolded a bounded number of times.
 
@@ -422,8 +432,10 @@ refinedNode symbol refinement guardBuilder child =
 {- | Close a child description with a constructor whose refinement is computed
 from the labels of its children.
 
-'compile' calls the function once per tuple of child groups, and
-'validOutcomes' once per candidate.
+'compile' can call the function more than once for one tuple of child groups, so
+the function must be pure. 'validOutcomes' calls it once per candidate. The
+function reads exact labels, so a child with values from 'every' gives
+'IntegerLeafRead'; use 'ensuring' for a result of such children.
 -}
 refinedNodeByRoots ::
     (GuardBuilder guard) =>
@@ -437,8 +449,13 @@ refinedNodeByRoots symbol refinementOf guardBuilder child =
         symbol
         guardBuilder
         child
-        (ClosedBy $ \roots -> Right $ RefinedSymbol symbol $ refinementFormula $ refinementOf roots)
+        (ClosedBy labelOf)
         (const Nothing)
+  where
+    labelOf roots
+        | any (\(RefinedSymbol _ refinement) -> any Compile.isIntegerName $ freeNames refinement) roots =
+            Left $ IntegerLeafRead Nothing
+        | otherwise = Right $ RefinedSymbol symbol $ refinementFormula $ refinementOf roots
 
 {- | Close a child description with a guarded constructor.
 

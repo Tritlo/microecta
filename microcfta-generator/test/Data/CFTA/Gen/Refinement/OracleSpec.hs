@@ -197,8 +197,6 @@ agreesWithOracle description generator' = do
                     === []
         -- Both sides report the same kind of error.
         (Left err, Left other) -> counterexample (show (err, other)) $ errorName err === errorName other
-        -- validOutcomes reports an empty language as an error.
-        (Right generated, Left LTAGen.EmptyGenerator) -> values generated === []
         -- The symbolic counter cannot count every formula; compile reports it.
         (Left (LTAGen.UncountableIntegers _), Right _) -> property True
         (Left (LTAGen.IntegerLeafRead _), Right _) -> property True
