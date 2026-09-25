@@ -51,6 +51,7 @@ module Data.CFTA.Gen.Refinement (
     validOutcomes,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -98,7 +99,16 @@ import Data.CFTA.Refinement (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Literal (literal), Refinement, refinementFormula, substitute, true, (.==))
+import Data.CFTA.Refinement.Expression (
+    Literal (literal),
+    Refinement,
+    definingTerm,
+    freeNames,
+    refinementFormula,
+    substitute,
+    true,
+    (.==),
+ )
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
@@ -295,8 +305,10 @@ Write it between the constructor and its children:
 The refinement of each constructed term is @\\v -> v .== result@, for the
 values of its children, so a parent's contract or condition reads the result.
 Each child that the result names must have a refinement that fixes one
-integer, as 'elements' and another result give; otherwise 'compile' reports
-'InexactResult'.
+integer, as 'elements' gives, or be an integer leaf or another result. The
+result of integer children stays a term of their integers, so a parent's
+contract relates it without enumerating them. A child without such a
+refinement makes 'compile' report 'InexactResult'.
 -}
 ensuring :: (ResultBuilder result) => (LTAGen a -> LTAGen a) -> result -> LTAGen a -> LTAGen a
 ensuring close result child = case genRecipe closed of
@@ -309,14 +321,19 @@ ensuring close result child = case genRecipe closed of
   where
     closed = close child
     resultLabel symbol roots =
-        maybe (Left $ InexactResult symbol) (\value -> Right $ LiquidSymbol symbol $ refinementFormula (.== literal value))
-            $ onlyPoint "v"
-            $ substitute
-                [ (contractTermName index, literal value)
-                | (index, LiquidSymbol _ refinement) <- zip [0 ..] roots
-                , Just value <- [onlyPoint "v" refinement]
-                ]
-                (refinementFormula (.== resultTerm result))
+        let formula =
+                substitute
+                    [ (contractTermName index, term)
+                    | (index, LiquidSymbol _ refinement) <- zip [0 ..] roots
+                    , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                    ]
+                    (refinementFormula (.== resultTerm result))
+         in case onlyPoint "v" formula of
+                Just value -> Right $ LiquidSymbol symbol $ refinementFormula (.== literal value)
+                Nothing
+                    | any (`elem` map contractTermName [0 .. resultArity result - 1]) (freeNames formula) ->
+                        Left $ InexactResult symbol
+                    | otherwise -> Right $ LiquidSymbol symbol formula
 
 {- | A recursive description, unfolded a bounded number of times.
 
