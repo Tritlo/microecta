@@ -68,6 +68,19 @@ cabal run cfta-safe-division
 cabal run cfta-automaton-interop
 ```
 
+These examples count values without a pool, and results of children through
+bounded recursion:
+
+```sh
+cabal run cfta-bounded-reads
+cabal run cfta-typed-values
+cabal run cfta-red-black-trees
+cabal run cfta-sorted-lists
+```
+
+See [`docs/symbolic-values.md`](docs/symbolic-values.md) for values that the
+refinement generator counts without a pool, and
+[`docs/adr/`](docs/adr/) for the decisions behind the design.
 See [`docs/automata-syntax.md`](docs/automata-syntax.md) for the side-by-side
 FTA, ECTA, and LTA construction forms and the rationale for the guard-lambda
 syntax.

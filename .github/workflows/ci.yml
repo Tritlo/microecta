@@ -124,6 +124,7 @@ jobs:
           cabal v2-run cfta-bounded-reads
           cabal v2-run cfta-red-black-trees
           cabal v2-run cfta-sorted-lists
+          cabal v2-run cfta-typed-values
           cabal v2-run cfta-automaton-interop
 
       - name: Validate release artifacts

@@ -13,7 +13,7 @@ theory:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: the `EqConstraints` theory, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
-| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, integers without a pool, conditions with `satisfying`, contracts with `guarded`, results with `ensuring`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, integers and other typed values without a pool, conditions with `satisfying`, contracts with `guarded`, results with `ensuring`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
@@ -943,6 +943,16 @@ refinement fixes one integer. A domain that the counter cannot count gives
 or reads it through an equality, gives `IntegerLeafRead`.
 [`BoundedReads.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/BoundedReads.hs)
 runs this program, and CI runs it with the other examples.
+
+`every` draws every value of a type that integers stand for: `Word8`, `Char`,
+`Bool`, another bounded integral type, or an enumeration that derives
+`Literal` via `Enumerated`. A condition or a contract reads a value as its
+integer, so it compares the value with a `literal`, as in
+`(./= literal Red)`.
+[`docs/symbolic-values.md`](../docs/symbolic-values.md) explains the types,
+what `compile` can count, and how the counter works, and
+[`TypedValues.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/TypedValues.hs)
+relates a color, a brightness byte, and a flag in one contract.
 
 ### Results and bounded recursion
 
