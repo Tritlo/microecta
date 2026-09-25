@@ -27,15 +27,19 @@ import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
+import Data.CFTA.Gen.Internal.Static (labelledLeavesStatic)
 import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (literal, refinementFormula, true, (.&&), (.==))
+import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
 
 -- | A generator over liquid tree automata.
 type LTAGen = Gen LiquidSymbol LiquidConstraint
@@ -141,6 +145,56 @@ compileGen entailment requested generator
         Closed symbol constraint child -> compileNode entailment requested (const $ Right symbol) False constraint child
         ClosedBy symbolOf constraint child -> compileNode entailment requested (fmap symbolOf . traverse rootOf) True constraint child
         Imported bound automaton -> compileImport entailment requested bound automaton
+        Integers constraint -> pure $ compileIntegers constraint
+
+{- | Count the integers that the conditions of an integer leaf admit.
+
+The group carries no observation, so a guard cannot read the leaf as one
+refinement. Each member is a leaf refined as its integer.
+-}
+compileIntegers :: LiquidConstraint -> Either GenError (LTAGrouped ObservationKey Integer)
+compileIntegers constraint = case points [valueName] (integerDomain constraint) of
+    Left err -> Left $ UncountableIntegers err
+    Right found
+        | pointCount found == 0 -> Right $ frequencies []
+        | otherwise ->
+            Right
+                $ keyed noObservations
+                $ Gen Built
+                $ TransparentLanguage
+                $ Right
+                $ labelledLeavesStatic
+                    (LiquidSymbol (fromString "integers") $ integerDomain constraint)
+                    (integerSymbol . valueAt found)
+                    (Indexed (pointCount found) (valueAt found))
+  where
+    valueAt found rank = case pointAt found rank of
+        [value] -> value
+        _ ->
+            error
+                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileIntegers: \
+                \a point of one variable has another dimension"
+
+-- | The name of the value in a refinement.
+valueName :: String
+valueName = "v"
+
+-- | The leaf of one integer, refined as itself.
+integerSymbol :: Integer -> LiquidSymbol
+integerSymbol value = LiquidSymbol (fromString $ show value) $ refinementFormula (.== literal value)
+
+-- | The conjunction of the conditions on an integer leaf.
+integerDomain :: LiquidConstraint -> Formula
+integerDomain constraint = foldr (.&&) true $ conditions $ constraintAsGuard constraint
+  where
+    conditions Top = []
+    conditions (And guards) = concatMap conditions guards
+    conditions (Satisfies target formula) | target == path [] = [formula]
+    conditions guard =
+        error $
+            "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerDomain: \
+            \an integer leaf carries the guard "
+                <> show guard
 
 -- | Whether a grouped generator has no member.
 emptyGroups :: LTAGrouped key a -> Bool
@@ -437,8 +491,31 @@ candidatesOf entailment generator = case genRecipe generator of
     Imported bound automaton -> do
         imported <- compileImport entailment [] bound automaton
         pure $ imported >>= builtCandidates . ungroup
+    Integers constraint -> pure $ integerCandidates constraint
   where
     close labelOf constraint = map $ \(value, witnesses) -> (value, [Witness (labelOf witnesses) constraint witnesses])
+
+{- | Every integer between the least and the greatest counted integer of a
+leaf, each with a witness that checks the leaf's conditions.
+-}
+integerCandidates :: LiquidConstraint -> Either GenError [(Integer, [Witness])]
+integerCandidates constraint = case points [valueName] (integerDomain constraint) of
+    Left err -> Left $ UncountableIntegers err
+    Right found
+        | pointCount found == 0 -> Right []
+        | otherwise ->
+            Right
+                [ (value, [Witness (integerSymbol value) constraint []])
+                | value <- [least .. greatest]
+                ]
+      where
+        least = head' $ pointAt found 0
+        greatest = head' $ pointAt found $ pointCount found - 1
+        head' point = case point of
+            [value] -> value
+            _ ->
+                error
+                    "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerCandidates: a point of one variable has another dimension"
 
 -- | The members of a built language, each with the witnesses of its term.
 builtCandidates :: LTAGen a -> Either GenError [(a, [Witness])]

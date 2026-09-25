@@ -17,6 +17,7 @@ module Data.CFTA.Gen.Internal.Static (
     pureStatic,
     indexedStatic,
     indexedStaticWithLabels,
+    labelledLeavesStatic,
     termStatic,
     applyStatic,
     frequencyStatic,
@@ -184,6 +185,36 @@ indexedStaticWithLabels label indexed =
                 (1 / fromInteger totalOutcomes)
                 (indexedSelect indexed index)
                 (Tree.Node (namedSymbol index) [])
+
+{- | A finite source whose members are leaves with user symbols.
+
+Each rank decodes to a value and to the symbol of its leaf, on demand. The
+support is one leaf with the given symbol, which stands for every member: the
+source can be too large to list.
+-}
+labelledLeavesStatic ::
+    (Constraint constraint, Hashable symbol, Typeable symbol) =>
+    symbol -> (Integer -> symbol) -> Indexed a -> Static symbol constraint a
+labelledLeavesStatic summary symbolAt indexed =
+    Static
+        (Node [Edge (Label summary) []])
+        ( mkOutcomeIndex
+            totalOutcomes
+            (Just mass)
+            select
+            (indexedSelect indexed)
+            (uniformSampler totalOutcomes $ indexedSelect indexed)
+            (PlanSelectOnDemand totalOutcomes $ indexedSelect indexed)
+        )
+        False
+        (Inspection Nothing $ Node [Edge (plainSymbol $ Label summary) []])
+  where
+    totalOutcomes = indexedCardinality indexed
+    mass = 1 / fromInteger totalOutcomes
+    select index = do
+        checkIndex totalOutcomes index
+        let label = Label $ symbolAt index
+        pure $ Outcome (Tree.Node label []) mass (indexedSelect indexed index) (Tree.Node (plainSymbol label) [])
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 

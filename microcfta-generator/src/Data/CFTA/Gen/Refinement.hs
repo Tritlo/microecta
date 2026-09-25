@@ -22,6 +22,7 @@ module Data.CFTA.Gen.Refinement (
 
     -- * Refined sources
     elements,
+    integers,
     pool,
     Refined (..),
     namedPool,
@@ -120,6 +121,20 @@ contract can decide each value exactly. The value's 'show' names its entry.
 elements :: (Literal a, Show a) => [a] -> LTAGen a
 elements members = pool [(member, \v -> v .== literal member) | member <- members]
 
+{- | Choose uniformly from the integers that the conditions on this leaf admit.
+
+Each integer is refined as itself, @\\v -> v .== literal x@, as in
+'elements'. Bound the integers with 'satisfying' before 'compile':
+
+@integers `satisfying` (\\v -> 0 .<= v .&& v .< 1000000)@
+
+On this leaf, a condition narrows the integers: 'compile' counts them without
+enumeration and without the solver, and ranks them in increasing order. A
+condition must be linear in @v@.
+-}
+integers :: LTAGen Integer
+integers = withRecipe (Integers unconstrainedConstraint) $ Transparent $ Left SourceRequiresCompilation
+
 {- | Choose uniformly from values with their refinements.
 
 A refinement can be weaker than the value itself, as in
@@ -207,7 +222,8 @@ Use it where a child is drawn:
 
 The condition applies to the root of each term, the constructor that the
 generator ends in. A pool, a leaf, a node, a bounded import, a choice of these,
-and a mapped generator have such a root. An unbounded import with a recursive
+and a mapped generator have such a root. On 'integers', the condition narrows
+the integers. An unbounded import with a recursive
 root, and another generator, give 'ConditionNeedsConstructor', because the
 condition must not apply to the recursive occurrences. The condition can name only @v@ and ambient
 names; a relation between children is the contract of 'guarded'.
@@ -218,6 +234,7 @@ satisfying generator condition = case generator of
     _ -> case genRecipe generator of
         Closed label constraint child -> deferred (Closed label (conditioned constraint) child)
         ClosedBy labelOf constraint child -> deferred (ClosedBy labelOf (conditioned constraint) child)
+        Integers constraint -> deferred (Integers $ conditioned constraint)
         Chosen alternatives -> Flat.frequency [(weight, alternative `satisfying` condition) | (weight, alternative) <- alternatives]
         Mapped transform inner -> transform <$> (inner `satisfying` condition)
         Imported bound graph -> case maybe graph (`boundDepth` graph) bound of
