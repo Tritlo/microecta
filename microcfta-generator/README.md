@@ -13,7 +13,7 @@ theory:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: the `EqConstraints` theory, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
-| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, conditions with `satisfying`, contracts with `guarded`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, integers without a pool, conditions with `satisfying`, contracts with `guarded`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
@@ -894,8 +894,8 @@ pairs = LTAGen.guarded "pair" below $ LTAGen.do
 
 `pool` takes values with their refinements and names each entry by `show`.
 `guarded` closes the block with a contract: a function with one term for each
-child, in order. The solver assumes each child's refinement for its term and
-proves the contract. Here the ranges order three pairs: `(1,3)`, `(1,5)`, and
+child, in order. The solver proves each conjunct of the contract, and assumes
+the refinement of each child that the conjunct names. Here the ranges order three pairs: `(1,3)`, `(1,5)`, and
 `(3,5)`. The contract names the children as a function signature names its
 parameters, and the do-block binds their values.
 
@@ -909,6 +909,41 @@ the solver may assume. `compileWith` takes a solver from `withZ3`, to share one
 solver between several generators, and returns the error instead of failing.
 Mapping a generator changes its Haskell value and retains the term and
 refinement that justify its conditions.
+
+### Integers without a pool
+
+`integers` is a leaf of all integers, each refined as itself, as `elements`
+refines its members. On this leaf, a condition narrows the integers, and a
+contract over integer children keeps the tuples that it admits. `compile`
+counts them without enumeration and without the solver:
+
+```haskell
+boundedReads :: LTAGen.LTAGen (Integer, Integer)
+boundedReads = LTAGen.guarded "read-at" (\n i -> 0 .<= i .&& i .< n) $ LTAGen.do
+    n <- LTAGen.integers `LTAGen.satisfying` (\v -> 1 .<= v .&& v .<= 1000000)
+    i <- LTAGen.integers `LTAGen.satisfying` (\v -> (-10) .<= v .&& v .<= 1000000)
+    LTAGen.pure (n, i)
+```
+
+The compiled generator has 500,000,500,000 members. Ranks follow the
+lexicographic order of the integer children, so rank 0 is `(1,0)` and the last
+rank is `(1000000,999999)`. Sampling decodes one rank at a time, and a shrink
+goes to an earlier rank. Each member's term has the exact leaf of each
+integer, as `elements` gives.
+
+The conditions and the contract must be linear, with integer coefficients, and
+each integer must be bounded. `Data.CFTA.Refinement.Lattice` counts the
+integer points of such a formula exactly: it sums the variables out with
+Faulhaber polynomials, as in Pugh, "Counting solutions to Presburger formulas"
+(PLDI 1994), and it decodes a rank with one binary search for each variable.
+When it sums a variable out, each bound must have the coefficient one or minus
+one on that variable. A contract can also name a child from `elements`, whose
+refinement fixes one integer. A domain that the counter cannot count gives
+`UncountableIntegers`. Another guard on an integer child, a computed label,
+and a guard of an enclosing constructor that reads an integer child give
+`IntegerLeafRead`.
+[`BoundedReads.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/BoundedReads.hs)
+runs this program, and CI runs it with the other examples.
 
 ### Construction and compilation
 
