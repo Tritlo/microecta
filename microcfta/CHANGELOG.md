@@ -35,6 +35,9 @@ remains a separate ECTA-only package.
   `.<`, `.<=`, `.>`, and `.>=`, and the connectives are `.&&`, `.||`, and
   `lnot`. `Formula` is the closed formula that the engine stores, and
   `refinementFormula` gives the formula of a refinement about `v`. `Literal`
+  gives the integer that stands for each value of a type, the value of each
+  integer, and the range of a bounded type, for integral types, `Bool`,
+  `Char`, `Ordering`, `()`, and enumerations through `Enumerated`; `literal`
   writes a value as a term, and `substitute` replaces named values by terms.
 - `Data.CFTA.Refinement.Lattice`: the exact number of integer points of a
   linear formula over bounded variables, and the point at each rank in

@@ -38,7 +38,7 @@ integers.
   `literal True`.
 - A formula with many disjunctions makes the inclusion-exclusion sum large. A
   BDD or d-DNNF counter is the second backend if a language needs one. It
-  goes where `compile` closes a group of open variables.
+  goes where `compile` counts the integer points of a formula.
 
 ## Discussion points
 

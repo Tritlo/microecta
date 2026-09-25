@@ -122,6 +122,7 @@ jobs:
           cabal v2-run cfta-finite-languages
           cabal v2-run cfta-safe-division
           cabal v2-run cfta-bounded-reads
+          cabal v2-run cfta-typed-values
           cabal v2-run cfta-automaton-interop
 
       - name: Validate release artifacts
