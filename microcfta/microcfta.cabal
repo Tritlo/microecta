@@ -72,13 +72,20 @@ library
   import: warnings, extensions
   hs-source-dirs: src
   exposed-modules:
+    Data.CFTA
     Data.CFTA.Constraint
+    Data.CFTA.Enumeration
     Data.CFTA.Equality.Constraint
+    Data.CFTA.Generic
     Data.CFTA.Internal.UnionFind
+    Data.CFTA.Interned
     Data.CFTA.Interned.Cache
     Data.CFTA.Interned.Memo
+    Data.CFTA.Interned.Operations
+    Data.CFTA.Interned.Type
     Data.CFTA.Path
     Data.CFTA.Symbol
+    Data.CFTA.Template
 
   other-modules:
     Data.CFTA.Internal.Tree
@@ -91,6 +98,7 @@ library
     intern >=0.9 && <0.10,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
+    transformers >=0.6 && <0.7,
     unordered-containers >=0.2 && <0.3,
 
 test-suite unit-tests
@@ -109,12 +117,25 @@ test-suite unit-tests
   other-modules:
     Data.CFTA.Equality.ConstraintSpec
     Data.CFTA.Internal.UnionFindSpec
+    Data.CFTASpec
 
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
+
+benchmark enumeration-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: EnumerationSpeed.hs
+  hs-source-dirs: benchmarks
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
