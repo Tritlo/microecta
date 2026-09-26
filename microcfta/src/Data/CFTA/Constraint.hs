@@ -1,0 +1,80 @@
+-- | The constraint theories of the automaton engine.
+module Data.CFTA.Constraint (Constraint (..), HasEqualities (..), equalityIndicators) where
+
+import Data.Hashable (Hashable)
+import Data.Typeable (Typeable)
+
+import Data.CFTA.Equality.Constraint (
+    EqConstraints (EmptyConstraints),
+    combineEqConstraints,
+    constraintsAreContradictory,
+    subsumptionOrderedEclasses,
+    unPathEClass,
+ )
+import Data.CFTA.Path (Path)
+
+{- | A constraint theory with a pure conjunction operation.
+
+Conjunction must be associative, commutative, and idempotent in denotation.
+'noConstraint' is its identity. 'contradictory' must return 'True' only for
+an impossible constraint. It can return 'False' when a solver would be needed.
+These operations do not evaluate a constraint against a concrete term.
+
+Every theory exposes the path equalities it requires. Enumeration solves
+those by unification and hands a constraint with a 'residual' to a check
+together with the complete subterm. Symbolic counting reads a constraint as
+'indicators': a signed sum of equality indicators, where each summand is a
+weight and the path classes that must exist and hold equal subterms. A theory
+whose residual is Boolean structure over equalities can express it that way;
+one that needs a solver cannot.
+-}
+class (Hashable constraint, Typeable constraint) => Constraint constraint where
+    -- | Constraint that permits every term.
+    noConstraint :: constraint
+
+    -- | Require both constraints.
+    conjoinConstraints :: constraint -> constraint -> constraint
+
+    -- | Recognize a contradiction without a solver.
+    contradictory :: constraint -> Bool
+
+    -- | The path equalities the constraint requires.
+    equalities :: constraint -> EqConstraints
+
+    -- | Whether the constraint requires more than its path equalities.
+    residual :: constraint -> Bool
+
+    -- | The constraint as a signed sum of equality indicators, if it has one.
+    indicators :: constraint -> Maybe [(Integer, [[Path]])]
+    indicators constraint
+        | residual constraint = Nothing
+        | otherwise = Just $ equalityIndicators $ equalities constraint
+
+-- | Path equality classes as one indicator summand, or none when contradictory.
+equalityIndicators :: EqConstraints -> [(Integer, [[Path]])]
+equalityIndicators =
+    maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
+
+instance Constraint () where
+    noConstraint = ()
+    conjoinConstraints _ _ = ()
+    contradictory _ = False
+    equalities _ = EmptyConstraints
+    residual _ = False
+
+{- | A theory that can carry path equalities on its own. The generator's
+joins attach the equalities they need through 'fromEqualities'.
+-}
+class (Constraint constraint) => HasEqualities constraint where
+    -- | Embed equality classes as a constraint of the theory.
+    fromEqualities :: EqConstraints -> constraint
+
+instance HasEqualities EqConstraints where
+    fromEqualities = id
+
+instance Constraint EqConstraints where
+    noConstraint = EmptyConstraints
+    conjoinConstraints = combineEqConstraints
+    contradictory = constraintsAreContradictory
+    equalities = id
+    residual _ = False
