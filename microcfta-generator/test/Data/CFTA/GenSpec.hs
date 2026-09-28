@@ -22,12 +22,15 @@ import qualified Test.QuickCheck as QC
 import Control.Monad (void)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (noConstraint)
+import Data.CFTA.Gen.Equality.TestSupport (ranksBack, ranksEveryTermBack)
+import Data.CFTA.Gen.Internal.Automaton (declarationOrder, finiteAutomatonRank)
 import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Common
 import qualified Data.CFTA.Ranked as Ranked
-import Data.CFTA.Symbol (Symbol)
+import Data.CFTA.Symbol (Symbol (Symbol))
+import Data.Text (Text)
 import qualified Data.Tree as Tree
 
 -- | A derived recursive fixture with named child positions.
@@ -99,6 +102,8 @@ spec = do
                     length (Automaton.states $ Datatype.datatypeFTA datatype) `shouldBe` 2
                     check $ FTAGen.fromDatatypeUpToDepth 2 datatype
                     check $ FTAGen.upToSize 5 $ FTAGen.fromDatatype datatype
+                    let (order, graph) = datatypeImport datatype
+                    ranksEveryTermBack order $ Common.boundDepth 2 graph
 
         it "retains record names, positions, and fully applied field types" $ do
             let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
@@ -112,10 +117,12 @@ spec = do
         it "reuses mutually recursive type states and accepts finite nested lists" $ do
             case Datatype.deriveFTA @MutualA of
                 Left err -> expectationFailure $ show err
-                Right datatype ->
+                Right datatype -> do
                     let generator = FTAGen.fromDatatypeUpToDepth 3 datatype
-                     in traverse (FTAGen.unrank generator) [0 .. 3]
-                            `shouldBe` Right [AEnd, AStep BEnd, AStep (BStep AEnd), AStep (BStep (AStep BEnd))]
+                        (order, graph) = datatypeImport datatype
+                    traverse (FTAGen.unrank generator) [0 .. 3]
+                        `shouldBe` Right [AEnd, AStep BEnd, AStep (BStep AEnd), AStep (BStep (AStep BEnd))]
+                    ranksEveryTermBack order $ Common.boundDepth 3 graph
             case Datatype.deriveFTA @[[Bool]] of
                 Left err -> expectationFailure $ show err
                 Right datatype ->
@@ -126,17 +133,22 @@ spec = do
                 `shouldBe` Left (Datatype.MissingDomain $ typeRep $ Proxy @Int)
             case Datatype.deriveFTAWith @(Maybe Int) $ Datatype.domain @Int [2, 1, 2] of
                 Left err -> expectationFailure $ show err
-                Right datatype ->
+                Right datatype -> do
                     traverse (FTAGen.unrank $ FTAGen.fromDatatypeUpToDepth 1 datatype) [0 .. 2]
                         `shouldBe` Right [Nothing, Just 2, Just 1]
+                    let (order, graph) = datatypeImport datatype
+                    ranksEveryTermBack order $ Common.boundDepth 1 graph
             void (Datatype.deriveFTAWith @Bool $ Datatype.domain [False])
                 `shouldBe` Left (Datatype.NonAtomicDomain $ typeRep $ Proxy @Bool)
 
         it "represents empty datatypes and rejects growing recursive type arguments" $ do
             case Datatype.deriveFTA @EmptyDatatype of
                 Left err -> expectationFailure $ show err
-                Right datatype ->
+                Right datatype -> do
                     FTAGen.cardinality (FTAGen.fromDatatypeUpToDepth 3 datatype)
+                        `shouldBe` Left FTAGen.EmptyGenerator
+                    let (order, graph) = datatypeImport datatype
+                    finiteAutomatonRank order (Common.boundDepth 3 graph) (Tree.Node (fromString "EmptyDatatype") [])
                         `shouldBe` Left FTAGen.EmptyGenerator
             void (Datatype.deriveFTA @(Growing Bool))
                 `shouldBe` Left
@@ -248,6 +260,13 @@ spec = do
                                 `shouldSatisfy` all (`elem` map Right (take 4 terms))
                     check $ FTAGen.upToSize 5 $ FTAGen.fromAutomaton node
                     check $ FTAGen.fromAutomatonUpToDepth 4 node
+                    -- Ranks lead back to their terms.
+                    let bounded = Common.boundDepth 4 node
+                        deeper = Tree.Node "s" [last terms]
+                        wrongArity = Tree.Node "s" []
+                    ranksEveryTermBack id bounded
+                    map (finiteAutomatonRank id bounded) [deeper, wrongArity]
+                        `shouldBe` [Left FTAGen.TermNotInLanguage, Left FTAGen.TermNotInLanguage]
                     -- The recursive import decodes the term of a size-major rank.
                     traverse (FTAGen.termAt $ FTAGen.fromAutomaton node) [0 .. 4]
                         `shouldBe` Right (map (fmap FTAGen.Label) terms)
@@ -289,6 +308,8 @@ spec = do
                     FTAGen.cardinality bounded `shouldBe` Right 5
                     fmap (length . nub) (traverse (FTAGen.unrank bounded) [0 .. 4])
                         `shouldBe` Right 5
+                    -- The two step alternatives overlap, so the bound ranks symbolically.
+                    ranksEveryTermBack id $ Common.boundDepth 4 node
 
         it "compiles the common interned unit-constraint graph without ECTA" $ do
             let leaves = Common.Node [Common.Edge "zero" [], Common.Edge "one" []] :: Common.Node String
@@ -305,6 +326,9 @@ spec = do
                     FTAGen.cardinality generator `shouldBe` Right 4
                     traverse (FTAGen.unrank generator) [0 .. 3] `shouldBe` Right expected
                     all (Automaton.accepts automaton) expected `shouldBe` True
+                    ranksEveryTermBack id root
+                    map (finiteAutomatonRank id root) [Tree.Node "pair" [Tree.Node "one" []], Tree.Node "zero" []]
+                        `shouldBe` [Left FTAGen.TermNotInLanguage, Left FTAGen.TermNotInLanguage]
 
         it "ranks imported alternatives in symbol order, not in interning order" $ do
             -- Interning is global: these symbols appear in no other test.
@@ -316,6 +340,7 @@ spec = do
             -- Intern the later symbol first.
             void $ evaluate $ Common.nodeCount (Common.Node [Common.Edge "order-b" []] :: Common.Node String)
             FTAGen.values (FTAGen.fromAutomaton flat) `shouldBe` Right leaves
+            ranksEveryTermBack id flat
             case Automaton.mkFTA () [((), transitions)] of
                 Left err -> expectationFailure $ show err
                 Right automaton ->
@@ -367,6 +392,7 @@ spec = do
                                 && FTAGen.unrank generator 0 == Right (chain "a")
                                 && FTAGen.unrank generator (2 ^ depth - 1) == Right (chain "b")
                     completed `shouldBe` Just True
+                    ranksBack id (Common.fromFTA automaton) [0, 1, 2 ^ (depth - 1), 2 ^ depth - 1]
 
         it "preserves ranks and structural shrinking through shared states" $ do
             let rows =
@@ -395,6 +421,7 @@ spec = do
                         map (FTAGen.sizeOfRank actual) ranks `shouldBe` map (Ranked.sizeOfRank expected) ranks
                         map (FTAGen.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
                         map (FTAGen.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
+                        ranksEveryTermBack id $ Common.fromFTA automaton
 
     describe "ordinary FTA integer expressions" $ do
         it "has the exact structural cardinality at every bounded depth" $
@@ -435,6 +462,13 @@ expressionDepth (Expressions.Multiply left right) =
 -- | Membership in a plain interned support.
 acceptsPlain :: Common.Node (FTAGen.Label String) -> Tree.Tree (FTAGen.Label String) -> Bool
 acceptsPlain = Common.acceptsWith (\_ _ -> True)
+
+-- | The key and the graph that a datatype import reads, as 'FTAGen.fromDatatype' builds them.
+datatypeImport :: Datatype.TypedFTA Common.Constraint a -> (Symbol -> (Int, Text), Common.Node Symbol)
+datatypeImport datatype =
+    case Automaton.mapSymbols (fromString . Datatype.constructorLabel) (Datatype.datatypeFTA datatype) of
+        Left err -> error $ show err
+        Right graph -> (\(Symbol name) -> declarationOrder datatype name, Common.fromFTA graph)
 
 -- | The generator symbol of a derived constructor.
 constructorSymbol :: Datatype.Constructor -> FTAGen.Label Symbol
