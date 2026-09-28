@@ -49,6 +49,7 @@ module Data.CFTA.Gen.Internal.Static (
     integerOutcomes,
 ) where
 
+import Control.Monad (zipWithM)
 import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
@@ -322,18 +323,21 @@ source.
 Ranks are outcome-major, so the point varies fastest, and the masses of the
 outcomes are shared equally among their points. The given function rewrites
 the term of an outcome for its point. The support stays the support of the
-outcomes.
+outcomes. To rank a term, the language ranks the outcome structurally, then
+gives the symbols at the placeholder leaves of the outcome, in order, to the
+given point rank.
 -}
 pointsStatic ::
     (Hashable symbol, Typeable symbol) =>
     (p -> Tree.Tree (Label symbol) -> Tree.Tree (Label symbol)) ->
+    ([symbol] -> Maybe Integer) ->
     Indexed p ->
     Static symbol (p -> a) ->
     Static symbol a
-pointsStatic rewrite pointSource functions =
+pointsStatic rewrite rankPoint pointSource functions =
     applied
         { staticSupport = staticSupport functions
-        , staticOutcomes = (staticOutcomes applied){outcomeSelect = select}
+        , staticOutcomes = (staticOutcomes applied){outcomeSelect = select, outcomeRanks = ranks}
         , staticInspection = staticInspection functions
         }
   where
@@ -345,6 +349,23 @@ pointsStatic rewrite pointSource functions =
                 Tree.Node Apply [functionTerm, _] -> rewrite point functionTerm
                 other -> other
         pure outcome{outcomeTerm = term, outcomeInspection = fmap plainSymbol term}
+    -- The rewrite keeps the private labels, so the outcome ranks the filled term.
+    ranks view =
+        [ functionRank * indexedCardinality pointSource + pointRank
+        | functionRank <- outcomeRanks (staticOutcomes functions) view
+        , Right outcome <- [outcomeSelect (staticOutcomes functions) functionRank]
+        , Just symbols <- [holeSymbols (outcomeTerm outcome) view]
+        , Just pointRank <- [rankPoint symbols]
+        ]
+    holeSymbols term view = case view of
+        WholeTerm filled -> holesIn [term] [filled]
+        SpineView filled -> holesIn (spineChildren term) filled
+        LabelledView filled -> holesIn (labelledChildren term) filled
+    holesIn terms filled
+        | length terms == length filled = concat <$> zipWithM holes terms filled
+        | otherwise = Nothing
+    holes (Tree.Node Placeholder []) (Tree.Node (Label symbol) []) = Just [symbol]
+    holes (Tree.Node _ children) (Tree.Node _ filled) = holesIn children filled
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 
