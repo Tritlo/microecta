@@ -195,11 +195,11 @@ explain UnboundedGenerator =
         , "is recursive: it has a count per size class rather than a"
         , "cardinality."
         , "Fix: bound it first, with upToSize for a recursive generator or"
-        , "fromAutomatonUpToDepth for a recursive automaton. Grouping and mass"
-        , "inspection (groupOn, match, relate, pmf, countOn) additionally need"
-        , "one term per member, which only a language read with fromAutomaton"
-        , "retains. If every member has one known key, keyed enters the grouped"
-        , "layer without inspecting members."
+        , "fromAutomatonUpToDepth for a recursive automaton. The bounded"
+        , "language keeps one term per member, so grouping and mass inspection"
+        , "(groupOn, match, relate, pmf, countOn) work on it. termAt and rankOf"
+        , "work without a bound. If every member has one known key, keyed enters"
+        , "the grouped layer without inspecting members."
         ]
 explain CannotInspectRecursiveGenerator =
     guidance
@@ -453,7 +453,7 @@ explain TermNotInLanguage =
         [ "The term is not a member of the generator's language, so it has no rank."
         , "rankOf reads the terms that termAt returns, with the private labels of"
         , "the engine. rankOfTerm reads the terms that an imported automaton"
-        , "accepts."
+        , "accepts, and rankOfValue encodes a datatype value with its codec."
         , "Fix: rank a term that the generator produced."
         ]
 

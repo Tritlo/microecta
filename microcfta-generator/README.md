@@ -422,6 +422,16 @@ forces the complete symbolic representation, a `Node (Label Symbol)`:
 `Data.CFTA.Gen.Label` are the engine's private labels for the applicative
 spine, choices, source indexes, joins, keys, and recursive families.
 
+`termAt` gives the engine term of the member at a rank, and `rankOf` is its
+inverse: it gives the least rank of an engine term, or `TermNotInLanguage`
+when the term is not a member. `ranksOf` gives every rank of a term. A term can
+have more than one rank, because a constructor label removes the choice
+wrapper of its alternatives. The rank functions follow the private labels, and
+`termAt` checks each result, so a term with other user symbols has no rank. A
+recursive generator uses the size-major ranks of `unrank`. For an imported
+automaton, `rankOfTerm` takes the tree of user symbols, and `rankOfValue`
+takes a datatype value from `fromDatatype`.
+
 `smallest (atKey key family)` returns a globally smallest witness for one
 observation. An unreachable key returns `Right Nothing`. A temporal observation
 such as "failure state reached" belongs in the recursive key as a sticky state
@@ -708,14 +718,12 @@ bound controls how large members get. `frequency` with unequal weights on
 recursive branches is an error. A weighted finite choice may still enter
 through `atomic`, retaining its own distribution inside every recursive size.
 
-Inspection that needs one ECTA term per member (`groupOn`, `match`, `relate`,
-`pmf`, `countOn`) is not available on a language built with `recur`, bounded or
-not: a recursive generator retains its automaton rather than a term per member,
-and `upToSize` bounds the rank space without recovering those terms. Use the
-exact-size observers (`countAtSize`, `pmfAtSize`, `countsAtSize`,
-`massesAtSize`), keep that layer finite, or read the language from an automaton
-with `fromAutomaton`, whose members *are* terms and which therefore does keep full
-inspection once bounded.
+Inspection that reads every member (`groupOn`, `match`, `relate`, `pmf`,
+`countOn`) needs a finite language. Bound a language built with `recur` first:
+`upToSize` keeps one ECTA term per member, so these observers work on the
+bounded language. `termAt` and `rankOf` work without a bound, with size-major
+ranks. The exact-size observers (`countAtSize`, `pmfAtSize`, `countsAtSize`,
+`massesAtSize`) also work without a bound.
 
 `recurGrouped` does the same for the grouped layer, which is where recursion
 and equality constraints meet in one cycle:
@@ -767,10 +775,10 @@ typeGen = ECTAGen.fromAutomaton types
 
 `countAtSize typeGen` reports 1, 1, 2, 4, 9 for sizes one to five, `unrank`
 walks the terms in size order, and sampling draws uniformly from the terms
-of at most the current size. Because the generated values *are* the accepted
-terms, bounding one of these keeps full inspection: `pmf`, `countOn`, and
-`groupOn` all work on `upToSize n (fromAutomaton node)`, and so does
-`termAt` on a mapped one.
+of at most the current size. Bounding one of these keeps full inspection:
+`pmf`, `countOn`, and `groupOn` all work on `upToSize n (fromAutomaton node)`,
+and so does `termAt` on a mapped one. The generated values *are* the accepted
+terms, so `rankOfTerm typeGen` gives the size-major rank of an accepted term.
 
 The recursive count does not count equality constraints. They correlate an
 edge's children, so the edge's count is the size of an intersection rather
@@ -1096,10 +1104,10 @@ simultaneously. Compilation can decide this scoped equality on observed leaves.
 Scoped equality on compound subtrees remains unsupported by the compiler.
 
 The result of `compile` is an ordinary finite generator: `cardinality`,
-`unrank`, `termAt`, `support`, `shrinkRank`, and `smallerMembers` work on it,
-and sampling, replay, and shrinking make no solver calls. `termAt` returns
-the engine's labelled term; `surface` reads the accepted liquid term under
-it. An undecidable guard, a guard the observations cannot decide, and a
+`unrank`, `termAt`, `rankOf`, `support`, `shrinkRank`, and `smallerMembers`
+work on it, and sampling, replay, and shrinking make no solver calls. `termAt`
+returns the engine's labelled term; `surface` reads the accepted liquid term
+under it. An undecidable guard, a guard the observations cannot decide, and a
 guard the symbolic counter cannot count are compile failures, each
 explained by `explain`; an empty language is not a failure. Ranks are
 deterministic for a fixed generator. A changed pool, bound, or
