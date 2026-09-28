@@ -4,7 +4,6 @@ module Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec (spec) where
 
 import Control.Exception (evaluate)
 import Control.Monad (forM_)
-import Data.List (elemIndex)
 import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 import System.Timeout (timeout)
@@ -221,7 +220,4 @@ spec = do
             . fmap (Tree.foldTree $ \(RefinedSymbol symbol refinement) -> build symbol refinement)
             . LTAGen.fromAutomaton
 
-    rankOf compiled term =
-        case elemIndex term (termsOf compiled) of
-            Just rank -> pure $ toInteger rank
-            Nothing -> fail $ "term is not in the compiled language: " <> show term
+    rankOf compiled = either (fail . show) pure . LTAGen.rankOfTerm compiled
