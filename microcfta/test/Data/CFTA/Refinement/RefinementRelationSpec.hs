@@ -4,6 +4,7 @@ module Data.CFTA.Refinement.RefinementRelationSpec (spec) where
 
 import Control.Exception (IOException, try)
 import Data.Either (isLeft)
+import Data.List (elemIndex)
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -35,7 +36,7 @@ import Data.CFTA.Refinement.Expression (
     (.||),
  )
 import Data.CFTA.Refinement.Guard (argument, contract, notGuard, withActualFor)
-import Data.CFTA.Refinement.Lattice (latticeEntailment, pointAt, pointCount, points)
+import Data.CFTA.Refinement.Lattice (latticeEntailment, pointAt, pointCount, pointRank, points)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -114,6 +115,12 @@ spec = do
                            | (formula, holds) <- pointCases
                            ]
 
+        it "ranks each point that a formula admits, and no other point" $
+            [(formula, ranked formula) | (formula, _) <- pointCases]
+                `shouldBe` [ (formula, Right [Rank . toInteger <$> elemIndex (a, b) (members holds) | a <- [-4 .. 4], b <- [-4 .. 4]])
+                           | (formula, holds) <- pointCases
+                           ]
+
         it "decodes points beyond 2^256 by count, first rank, and last rank" $ do
             let big = 2 ^ (300 :: Int) :: Integer
                 ends formula = do
@@ -160,6 +167,10 @@ spec = do
     decoded names formula = do
         found <- points names formula
         pure [pointAt found rank | rank <- everyRank $ pointCount found]
+    ranked formula = do
+        found <- points ["x", "y"] formula
+        pure [pointRank found [a, b] | a <- [-4 .. 4], b <- [-4 .. 4]]
+    members holds = [(a, b) | a <- [-3 .. 3], b <- [-3 .. 3], holds a b]
 
 -- | Formulas over x and y in [-3, 3], each with the same test on integers.
 pointCases :: [(Formula, Integer -> Integer -> Bool)]
