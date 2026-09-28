@@ -1,6 +1,26 @@
+with-compiler: ghc-9.14.1
+
 packages:
   microecta
   microecta-generator
 
 package *
   optimization: False
+
+-- The benchmarks measure these dependencies on their hot paths. Build them
+-- with the default optimization that a Hackage user gets. The other
+-- dependencies stay unoptimized to keep development builds fast.
+package hashable
+  optimization: True
+
+package unordered-containers
+  optimization: True
+
+package splitmix
+  optimization: True
+
+package random
+  optimization: True
+
+package QuickCheck
+  optimization: True
