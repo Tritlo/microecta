@@ -8,7 +8,12 @@ keeps the ranks the recursive language already gave its members.
 module Data.CFTA.Gen.Internal.Recursive (
     -- * Recursive languages
     Recursive (..),
+    RecursiveTerms (..),
     recursiveFromStatic,
+    staticTerms,
+    productTerms,
+    choiceTerms,
+    recursivePositions,
     boundedStatic,
     labelRecursive,
 
@@ -27,6 +32,7 @@ module Data.CFTA.Gen.Internal.Recursive (
 ) where
 
 import Data.Hashable (Hashable)
+import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import qualified Data.Tree as Tree
@@ -38,7 +44,7 @@ import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm)
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ChoiceIndex (..), Label (..))
 import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size, everyRank)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Sampler
@@ -47,10 +53,16 @@ import Data.CFTA.Ranked.Internal.Size (
     SizedRank (..),
     addSparse,
     choiceIndex,
+    choicePosition,
     mapIndex,
+    mapIndexWithRank,
     mulSparse,
+    planPosition,
+    productIndex,
+    productPosition,
     sizeClassOf,
     sizeClasses,
+    sizeMajorRank,
     valueAtSize,
  )
 
@@ -75,14 +87,27 @@ data Recursive symbol a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
-    , recursiveTerm :: Maybe (SizeIndex (Tree.Tree (Label symbol)))
-    {- ^ The ECTA term of every member, indexed by the same size-major ranks
-    as the values, when the language was read from an automaton. Mapping keeps
-    it; combining languages drops it, because a combined member no longer
-    stands for one term of the support.
+    , recursiveTerm :: Maybe (RecursiveTerms symbol)
+    {- ^ The engine term of every member, indexed by the same size classes and
+    positions as the values, and the members of a term. Every combinator keeps
+    it; 'Nothing' means that a combinator does not track terms.
     -}
     , recursiveInspection :: Inspection symbol
     -- ^ A lazy diagnostic graph with occurrence labels and source values.
+    }
+
+{- | The terms of a recursive language.
+
+A member is found by its size class and its position in that class, as in
+'recursiveIndex'. Several members can have one term, as for a finite
+language, so a term view gives a list of positions in ascending size-major
+order.
+-}
+data RecursiveTerms symbol = RecursiveTerms
+    { recursiveTermIndex :: SizeIndex (Tree.Tree (Label symbol))
+    -- ^ The term of each member.
+    , recursiveTermPositions :: TermView symbol -> [SizedRank]
+    -- ^ The size class and position of each member whose term has the view.
     }
 
 -- | View a finite language as one size-stratified recursive component.
@@ -93,10 +118,93 @@ recursiveFromStatic static =
         (outcomeSizeIndex $ staticOutcomes static)
         sampling
         (isJust weight)
-        Nothing
+        (Just $ staticTerms static)
         (staticInspection static)
   where
     (sampling, weight) = staticSampling static
+
+{- | The terms of a finite language, by the size classes of its plan. A rank
+of the plan finds its size class and position with 'planPosition'.
+-}
+staticTerms :: Static symbol a -> RecursiveTerms symbol
+staticTerms static =
+    RecursiveTerms
+        (mapIndexWithRank (\rank _ -> termOf rank) $ outcomeSizeIndex outcomes)
+        ( \view -> sort [position | rank <- outcomeRanks outcomes view, Just position <- [planPosition (outcomePlan outcomes) rank]]
+        )
+  where
+    outcomes = staticOutcomes static
+    termOf rank = case outcomeSelect outcomes rank of
+        Right outcome -> outcomeTerm outcome
+        Left err ->
+            error $
+                "microcfta-generator bug in Data.CFTA.Gen.Internal.Recursive.staticTerms: \
+                \a rank of the size index has no outcome: "
+                    <> show err
+
+{- | The terms of the applicative product of two recursive languages, whose
+value indexes give the counts. The term of a member is the private
+application of its function term to its argument term.
+-}
+productTerms ::
+    SizeIndex f -> SizeIndex x -> RecursiveTerms symbol -> RecursiveTerms symbol -> RecursiveTerms symbol
+productTerms indexF indexX termsF termsX =
+    RecursiveTerms
+        ( productIndex
+            (mapIndex (\function argument -> Tree.Node Apply [function, argument]) $ recursiveTermIndex termsF)
+            (recursiveTermIndex termsX)
+        )
+        positions
+  where
+    positions view = sort $ case view of
+        WholeTerm (Tree.Node Apply [function, argument]) -> positionsFrom (WholeTerm function) argument
+        WholeTerm _ -> []
+        SpineView arguments -> spinePositions arguments
+        LabelledView arguments -> spinePositions arguments
+      where
+        spinePositions arguments = case reverse arguments of
+            argument : functionArguments -> positionsFrom (SpineView $ reverse functionArguments) argument
+            [] -> []
+
+        positionsFrom functionView argument =
+            [ productPosition indexF indexX functionPosition argumentPosition
+            | functionPosition <- recursiveTermPositions termsF functionView
+            , argumentPosition <- recursiveTermPositions termsX $ WholeTerm argument
+            ]
+
+{- | The terms of ordered alternatives, whose value indexes give the counts.
+The term of a member is the private choice wrapper of its alternative.
+-}
+choiceTerms :: [SizeIndex a] -> [RecursiveTerms symbol] -> RecursiveTerms symbol
+choiceTerms indexes terms =
+    RecursiveTerms
+        ( choiceIndex
+            [ mapIndex (\term -> Tree.Node (Choice branch) [term]) $ recursiveTermIndex branchTerms
+            | (branch, branchTerms) <- zip [0 ..] terms
+            ]
+        )
+        positions
+  where
+    positions view = sort $ case view of
+        WholeTerm (Tree.Node (Choice branch) [child]) -> branchPositions branch $ WholeTerm child
+        WholeTerm _ -> []
+        SpineView [term] -> positions $ WholeTerm term
+        SpineView _ -> []
+        LabelledView _ -> concat [branchPositions branch view | branch <- map ChoiceIndex [0 .. length terms - 1]]
+    branchPositions branch@(ChoiceIndex index) view = case drop index terms of
+        branchTerms : _ ->
+            [ SizedRank size (choicePosition indexes branch size position)
+            | SizedRank size position <- recursiveTermPositions branchTerms view
+            ]
+        [] -> []
+
+{- | The size-major ranks of the members of a recursive language whose term
+has the view, in ascending order.
+-}
+recursivePositions :: Recursive symbol a -> TermView symbol -> Maybe [Rank]
+recursivePositions recursive view = do
+    terms <- recursiveTerm recursive
+    pure [sizeMajorRank (recursiveIndex recursive) position | position <- recursiveTermPositions terms view]
 
 {- | Bound a recursive language to its members of size at most the bound.
 
@@ -107,10 +215,8 @@ classes retain their count-based probability. Finite choices closed with
 stays the recursive automaton. A size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
-Members carry a retained t'Tree.Tree' only when the language was read from an
-automaton with @fromAutomaton@, possibly mapped; otherwise inspection through
-'outcomeSelect' reports 'CannotInspectRecursiveGenerator', while sampling,
-unranking, and shrinking go through the value decoder and the plan.
+Every member carries its engine term from the term index of the recursive
+language, and a term ranks through its size class and position.
 -}
 boundedStatic :: Size -> Recursive symbol a -> Either GenError (Static symbol a)
 boundedStatic bound recursive
@@ -123,6 +229,7 @@ boundedStatic bound recursive
                     totalOutcomes
                     uniformMass
                     select
+                    boundedRanks
                     selectValue
                     sampler
                     plan
@@ -136,7 +243,14 @@ boundedStatic bound recursive
                     [either (const NoCommonCount) (RootCount . termRootCount . outcomeTerm) $ select rank | rank <- everyRank totalOutcomes]
                 )
   where
-    select index = case recursiveTerm recursive of
+    -- A bound keeps the size-major ranks of the members that it keeps.
+    boundedRanks view =
+        [ sizeMajorRank (recursiveIndex recursive) position
+        | Just terms <- [recursiveTerm recursive]
+        , position <- recursiveTermPositions terms view
+        , rankSize position <= bound
+        ]
+    select index = case recursiveTermIndex <$> recursiveTerm recursive of
         Nothing -> Left CannotInspectRecursiveGenerator
         Just terms -> do
             checkIndex totalOutcomes index
@@ -213,9 +327,19 @@ labelRecursive ::
 labelRecursive symbol recursive =
     recursive
         { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
-        , recursiveTerm = mapIndex (labelTerm symbol) <$> recursiveTerm recursive
+        , recursiveTerm = labelTerms <$> recursiveTerm recursive
         , recursiveInspection = labelInspection symbol $ recursiveInspection recursive
         }
+  where
+    -- The label replaces the private root of each term, so the inner
+    -- language reads the children under it.
+    labelTerms terms = RecursiveTerms (mapIndex (labelTerm symbol) $ recursiveTermIndex terms) positions
+      where
+        positions view = case view of
+            WholeTerm (Tree.Node (Label _) children) -> recursiveTermPositions terms $ LabelledView children
+            SpineView [term] -> positions $ WholeTerm term
+            LabelledView [term] -> positions $ WholeTerm term
+            _ -> []
 
 {- | One recursive language conditioned on a retained key.
 
@@ -287,7 +411,9 @@ mergeRecursiveGroups alternatives =
                 index
                 (choiceMassSampleIndex indexedSamplers)
                 weighted
-                Nothing
+                ( choiceTerms (map (recursiveIndex . keyedRecursiveLanguage) alternatives)
+                    <$> traverse (recursiveTerm . keyedRecursiveLanguage) alternatives
+                )
                 (choiceInspection $ map (recursiveInspection . keyedRecursiveLanguage) alternatives)
             )
             masses

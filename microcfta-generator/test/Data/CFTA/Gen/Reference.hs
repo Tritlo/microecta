@@ -29,12 +29,6 @@ directly:
   group has a mass at each size, which is its member count unless an atomic
   group sets it. In a recursive family, merged groups and applications select
   by these masses instead of by counts.
-* Terms. A member of a bounded recursion keeps no term. So @match@,
-  @relate@, @groupOn@, and @pmf@ of a language with such a member give
-  'CannotInspectRecursiveGenerator', and so do the masses by size of a finite
-  family with such a member. A bound keeps only the members up to its size, so
-  a bound that drops every member without a term gives a language whose
-  members all keep a term.
 * Errors. The model gives the error that the engine gives, with the same
   precedence. A bound or an atomic boundary around a language that reaches the
   occurrence of an enclosing recursion is an error. A join, a grouping, or an
@@ -349,12 +343,6 @@ data Model a = Model
     -- ^ A finite language: its cardinality and its members in rank order.
     , modelAtomic :: Bool
     -- ^ Whether an atomic boundary closes this finite language.
-    , modelTerms :: Bool
-    -- ^ Whether every member keeps a term. A member of a bounded recursion does not.
-    , modelTermsAt :: Integer -> Bool
-    {- ^ Whether every member of one size keeps a term. A bound keeps the
-    members up to its size, so it keeps the terms of those sizes only.
-    -}
     , modelCount :: Integer -> Integer
     -- ^ The number of members of one size.
     , modelClass :: Integer -> [(a, Rational)]
@@ -458,8 +446,6 @@ interpret env@(Env flat _) = \case
         Model
             { modelFinite = Nothing
             , modelAtomic = False
-            , modelTerms = True
-            , modelTermsAt = const True
             , modelCount = occurrenceCount occurrence
             , modelClass = occurrenceClass occurrence
             , modelMinimum = occurrenceMinimum occurrence
@@ -479,8 +465,6 @@ atomModel atomic weighted =
     Model
         { modelFinite = Just (total, [Member value 1 mass (fromInteger total * mass) | (value, mass) <- weighted])
         , modelAtomic = atomic
-        , modelTerms = True
-        , modelTermsAt = const True
         , modelCount = \size -> if size == 1 then total else 0
         , modelClass = \size -> if size == 1 then weighted else []
         , modelMinimum = Just 1
@@ -528,13 +512,6 @@ pairModel combine leftWeight left rightWeight right =
                   ]
                 )
         , modelAtomic = False
-        , modelTerms = modelTerms left && modelTerms right
-        , modelTermsAt = \size ->
-            and
-                [ modelTermsAt left leftSize && modelTermsAt right (size - leftSize)
-                | leftSize <- [1 .. size - 1]
-                , modelCount left leftSize * modelCount right (size - leftSize) > 0
-                ]
         , modelCount = \size -> sum [modelCount left leftSize * modelCount right (size - leftSize) | leftSize <- [1 .. size - 1]]
         , modelClass = \size ->
             let splits =
@@ -593,7 +570,6 @@ joinLang relation key left right = case (left, right) of
     (Lang True _, _) -> Lang False $ Left UnboundedGenerator
     (_, Lang True _) -> Lang False $ Left UnboundedGenerator
     (Lang False (Right leftModel), Lang False (Right rightModel))
-        | not (modelTerms leftModel && modelTerms rightModel) -> Lang False $ Left CannotInspectRecursiveGenerator
         | null pairs -> Lang False $ Left EmptyGenerator
         | otherwise ->
             finiteLang
@@ -610,8 +586,6 @@ joinLang relation key left right = case (left, right) of
                               ]
                             )
                     , modelAtomic = False
-                    , modelTerms = True
-                    , modelTermsAt = const True
                     , modelCount = \size -> if size == 2 then count else 0
                     , modelClass = \size ->
                         if size == 2
@@ -655,8 +629,6 @@ choiceModel alternatives =
                     ]
                 )
         , modelAtomic = False
-        , modelTerms = all (\(_, _, model') -> modelTerms model') alternatives
-        , modelTermsAt = \size -> and [modelTermsAt model' size | (_, _, model') <- alternatives, modelCount model' size > 0]
         , modelCount = \size -> sum [modelCount model' size | (_, _, model') <- alternatives]
         , modelClass = \size ->
             let live =
@@ -702,11 +674,7 @@ atomicLang = \case
 -- | Close a finite language as one atomic choice.
 atomicModel :: Model a -> Model a
 atomicModel model' = case modelFinite model' of
-    Just (_, finite) ->
-        (atomModel True [(memberValue member, memberMass member) | member <- finite])
-            { modelTerms = modelTerms model'
-            , modelTermsAt = const $ modelTerms model'
-            }
+    Just (_, finite) -> atomModel True [(memberValue member, memberMass member) | member <- finite]
     Nothing -> error "Data.CFTA.Gen.Reference.atomicModel: a finite language without members"
 
 boundLang :: Integer -> Lang a -> Lang a
@@ -727,8 +695,6 @@ boundLang bound (Lang recursive (Right model'))
                           ]
                         )
                 , modelAtomic = False
-                , modelTerms = not recursive && all (modelTermsAt model') sizes
-                , modelTermsAt = \size -> not recursive && modelTermsAt model' size
                 , modelCount = \size -> if size <= bound then modelCount model' size else 0
                 , modelClass = \size -> if size <= bound then modelClass model' size else []
                 , modelMinimum = listToMaybe sizes
@@ -850,9 +816,7 @@ groupOnFamily :: (Ord key) => (a -> key) -> Lang a -> Family key a
 groupOnFamily _ (Lang False (Left err)) = Family False $ Left err
 groupOnFamily _ (Lang True (Left err)) = Family False $ Left err
 groupOnFamily _ (Lang True _) = Family False $ Left UnboundedGenerator
-groupOnFamily key (Lang False (Right model'))
-    | not $ modelTerms model' = Family False $ Left CannotInspectRecursiveGenerator
-    | otherwise = Family False $ Right $ fmap bucket grouped
+groupOnFamily key (Lang False (Right model')) = Family False $ Right $ fmap bucket grouped
   where
     grouped = Map.fromListWith (flip (<>)) [(key $ memberValue member, [member]) | member <- maybe [] snd $ modelFinite model']
     bucket bucketMembers = Group bucketModel mass noMassBySize
@@ -1044,7 +1008,7 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
     placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keyMinimums]
     placeholder minimum' flags = flaggedPlaceholder minimum' (flags, flags)
     flaggedPlaceholder minimum' (reaches, unguarded) count classAt massAt =
-        Group (Model Nothing False True (const True) count classAt minimum' Nothing reaches unguarded) 0 massAt
+        Group (Model Nothing False count classAt minimum' Nothing reaches unguarded) 0 massAt
 
     probe minimum' = placeholder minimum' (IntSet.singleton token) probeError probeError probeError
     probeWith minimumAt = withFamily $ placeholders $ probe . minimumAt

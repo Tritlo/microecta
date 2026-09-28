@@ -25,6 +25,8 @@ module Data.CFTA.Gen.Internal.Support (
     labelSupportWith,
     labelTerm,
     labelTermWith,
+    labelledChildren,
+    spineChildren,
 ) where
 
 import qualified Control.Monad.State.Strict as State
@@ -268,6 +270,19 @@ labelTermWith original symbol term@(Tree.Node internal children) =
         _
             | Just arguments <- applicationTermChildren original term -> Tree.Node symbol arguments
             | otherwise -> Tree.Node symbol [term]
+
+{- | The children that 'labelTerm' gives a term under a node label: the
+arguments of an applicative spine, the children of an n-way join, or the term
+itself. A choice wrapper gives the children of its alternative.
+-}
+labelledChildren :: Tree.Tree (Label symbol) -> [Tree.Tree (Label symbol)]
+labelledChildren = Tree.subForest . labelTermWith id Pure
+
+{- | The arguments that a term gives as the function side of an applicative
+spine: none for @pure@, the arguments of a spine, or the term itself.
+-}
+spineChildren :: Tree.Tree (Label symbol) -> [Tree.Tree (Label symbol)]
+spineChildren = applicationLeftChildren id
 
 -- | Recognize the children of one private applicative term spine.
 applicationTermChildren :: (other -> Label symbol) -> Tree.Tree other -> Maybe [Tree.Tree other]

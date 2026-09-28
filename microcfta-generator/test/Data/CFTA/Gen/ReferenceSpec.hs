@@ -3,7 +3,6 @@
 -}
 module Data.CFTA.Gen.ReferenceSpec (spec) where
 
-import Control.Monad (when)
 import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
@@ -442,7 +441,6 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     _ -> []
 
     it "gives the distribution of the model" $ QC.property $ agreement $ \generator lang -> case langModel lang of
-        Right Model{modelFinite = Just _, modelTerms = False} -> Gen.pmf generator === Left CannotInspectRecursiveGenerator
         Right Model{modelFinite = Just (total, finite)}
             | total <= listBound ->
                 QC.conjoin $
@@ -521,8 +519,6 @@ familyAgreement (ClosedFamily desc) =
                 else Map.filter (> 0) $ fmap (\group -> Cardinality $ modelCount (groupModel group) size) groups
     expectedMasses size = do
         groups <- familyGroups family'
-        when (size >= 1 && not (familyRecursive family') && not (all (modelTerms . groupModel) groups)) $
-            Left CannotInspectRecursiveGenerator
         let positive = Map.filter (> 0) $ fmap (massAt size) groups
             total = sum positive
         pure $ if size < 1 || total <= 0 then Map.empty else fmap (/ total) positive
