@@ -21,6 +21,7 @@ module Data.CFTA.Gen.Internal.Query (
     termAt,
     rankOf,
     ranksOf,
+    rankOfTerm,
     smallest,
     sizeOfRank,
     shrinkRank,
@@ -41,7 +42,7 @@ import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Types
-import Data.CFTA.Gen.Label (Label)
+import Data.CFTA.Gen.Label (Label (Label))
 import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank, Size, classMemberRank, everyRank, hasRank, nextOffset)
 import Data.CFTA.Ranked.Internal.Decoder (RankedValue (..))
 import Data.CFTA.Ranked.Internal.Sampler
@@ -177,6 +178,14 @@ rankOf generator term = do
     case ranks of
         rank : _ -> Right rank
         [] -> Left TermNotInLanguage
+
+{- | The least rank of a user term: the tree of user symbols that an imported
+automaton accepts, as 'fromAutomaton' returns it. A term that is not a member
+gives 'TermNotInLanguage'. An import keeps its terms under 'fmap', so the
+rank of a mapped import is the rank of the term it maps.
+-}
+rankOfTerm :: (Eq symbol) => Gen symbol a -> Tree.Tree symbol -> Either GenError Rank
+rankOfTerm generator = rankOf generator . fmap Label
 
 -- | Return the first member in structural size and rank order.
 smallest :: Gen symbol a -> Either GenError (Maybe a)
