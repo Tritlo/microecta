@@ -152,22 +152,26 @@ This reads the terms that 'termAt' returns, with the private labels of the
 engine, and not a term written by hand; @rankOfTerm@ reads the terms that an
 imported automaton accepts. One term can have several ranks, because a node
 label removes the choice wrapper of its alternatives. A recursive generator
-gives the size-major ranks of 'unrank'.
+gives the size-major ranks of 'unrank'. The ranking follows the private
+labels, and 'termAt' then checks each rank, so a term with other user symbols
+has no rank.
 -}
-ranksOf :: Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError [Rank]
-ranksOf (Transparent result) term = do
-    static <- result
-    pure $ outcomeRanks (staticOutcomes static) $ WholeTerm term
-ranksOf (Cyclic result) term = do
-    recursive <- result
-    maybe (Left CannotInspectRecursiveGenerator) Right $ recursivePositions recursive $ WholeTerm term
-ranksOf (Opaque _) _ = Left CannotInspectOpaqueGenerator
+ranksOf :: (Eq symbol) => Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError [Rank]
+ranksOf generator term = filter (\rank -> termAt generator rank == Right term) <$> candidates generator
+  where
+    candidates (Transparent result) = do
+        static <- result
+        pure $ outcomeRanks (staticOutcomes static) $ WholeTerm term
+    candidates (Cyclic result) = do
+        recursive <- result
+        maybe (Left CannotInspectRecursiveGenerator) Right $ recursivePositions recursive $ WholeTerm term
+    candidates (Opaque _) = Left CannotInspectOpaqueGenerator
 
 {- | The least rank whose term is the given engine term: the inverse of
 'termAt', so that @termAt g =<< rankOf g t@ gives @t@ back. A term that is not
 a member gives 'TermNotInLanguage'.
 -}
-rankOf :: Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError Rank
+rankOf :: (Eq symbol) => Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError Rank
 rankOf generator term = do
     ranks <- ranksOf generator term
     case ranks of
