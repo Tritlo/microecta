@@ -273,7 +273,7 @@ joinOutcomeIndex left right groups = do
                 , Tree.Node RightKeyed [Tree.Node (Key key') [], rightTerm]
                 ]
                 | key == key' ->
-                    [ offset + leftIndex * toInteger (Sequence.length $ joinGroupRight group) + rightIndex
+                    [ (offset + leftIndex * toInteger (Sequence.length $ joinGroupRight group) + rightIndex, True)
                     | (offset, group) <- offsetJoinGroups groups
                     , joinGroupIndex group == key
                     , leftIndex <- positionsIn (joinGroupLeft group) leftTerm
@@ -456,11 +456,12 @@ joinNBucketStatic componentIndex operation arguments =
         SpineView _ -> []
       where
         childrenRanks (Tree.Node CenterKeyed centre : argumentTerms) = case reverse centre of
-            operationTerm : _ ->
-                [ operationRank * argumentsCardinality + argumentRank
-                | operationRank <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
-                , argumentRank <- chainRanks arguments argumentTerms
-                ]
+            operationTerm : keys ->
+                let keysChecked = joinKeysMatch componentIndex (reverse keys) argumentTerms
+                 in [ (operationRank * argumentsCardinality + argumentRank, operationChecked && argumentsChecked && keysChecked)
+                    | (operationRank, operationChecked) <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
+                    , (argumentRank, argumentsChecked) <- chainRanks arguments argumentTerms
+                    ]
             [] -> []
         childrenRanks _ = []
 

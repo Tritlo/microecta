@@ -4,7 +4,7 @@
 module Data.CFTA.Gen.Equality.RecursiveGenSpec (spec) where
 
 import Control.Exception (evaluate)
-import Data.List (sort)
+import Data.List (mapAccumL, sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import qualified Data.Set as Set
@@ -659,7 +659,8 @@ spec = do
 
 {- | Check that each rank has a term that the support accepts, that the rank is
 one of the ranks of its term, and that the least rank of the term gives the
-term back.
+term back. A term with one user symbol changed to a symbol outside the
+language has no rank, and neither has a term with an argument key moved.
 -}
 roundTrips :: ECTAGen a -> [Integer] -> IO ()
 roundTrips generator ranks = do
@@ -671,8 +672,25 @@ roundTrips generator ranks = do
             (rank, rank `elem` termRanks) `shouldBe` (rank, True)
             (ECTAGen.termAt generator =<< ECTAGen.rankOf generator term) `shouldBe` Right term
             (rank, accepts supportNode term) `shouldBe` (rank, True)
+            [(rank, ECTAGen.rankOf generator changed) | changed <- changedAt outside term]
+                `shouldBe` [(rank, Left TermNotInLanguage) | _ <- changedAt outside term]
         )
         ranks
+  where
+    outside label = case label of
+        ECTAGen.Label _ -> Just $ ECTAGen.Label "outside"
+        ECTAGen.ArgKey component position -> Just $ ECTAGen.ArgKey component (position + 1)
+        _ -> Nothing
+
+-- | The term with one label changed, once for each label that the function changes.
+changedAt ::
+    (ECTAGen.Label symbol -> Maybe (ECTAGen.Label symbol)) ->
+    Tree.Tree (ECTAGen.Label symbol) ->
+    [Tree.Tree (ECTAGen.Label symbol)]
+changedAt change term =
+    [ snd $ mapAccumL (\index label -> (index + 1, if index == position then changed else label)) (0 :: Int) term
+    | (position, Just changed) <- zip [0 ..] $ map change $ Tree.flatten term
+    ]
 
 -- | A recursive language of binary trees.
 rankTree :: ECTAGen Tree

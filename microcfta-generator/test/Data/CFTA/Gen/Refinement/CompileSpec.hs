@@ -1,9 +1,11 @@
 module Data.CFTA.Gen.Refinement.CompileSpec (spec) where
 
 import Control.Monad (forM_, void)
-import Data.List (sort)
+import Data.List (mapAccumL, sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
+import Data.String (fromString)
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
@@ -300,7 +302,9 @@ integerCases =
   where
     sortedCons element rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` const $ (:) <$> element <*> rest
 
--- | The ranks whose term does not give the rank back.
+{- | The ranks whose term does not give the rank back, or whose term with one
+user symbol replaced by a symbol outside the language has a rank.
+-}
 unranked :: LTAGen.LTAGen a -> [Integer] -> [Integer]
 unranked generator ranks =
     [ rank
@@ -308,7 +312,14 @@ unranked generator ranks =
     , let term = LTAGen.termAt generator rank
     , either (const True) (notElem rank) (LTAGen.ranksOf generator =<< term)
         || (LTAGen.termAt generator =<< LTAGen.rankOf generator =<< term) /= term
+        || any ((/= Left LTAGen.TermNotInLanguage) . LTAGen.rankOf generator) (either (const []) relabellings term)
     ]
+  where
+    outside = LTAGen.Label $ RefinedSymbol (fromString "outside") true
+    relabellings term =
+        [ snd $ mapAccumL (\index label -> (index + 1, if index == position then outside else label)) (0 :: Int) term
+        | (position, LTAGen.Label _) <- zip [0 ..] $ Tree.flatten term
+        ]
 
 -- | Every rank of a finite language.
 allRanks :: LTAGen.LTAGen a -> [Integer]
