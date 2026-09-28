@@ -26,10 +26,12 @@ the refinement datatype imports share.
 module Data.CFTA.Gen.Internal.Automaton (
     automatonIndex,
     finiteAutomaton,
+    finiteAutomatonRank,
     declarationOrder,
     undecodableConstructor,
 ) where
 
+import Control.Monad (foldM)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (
@@ -62,7 +64,7 @@ import Data.CFTA.Equality (
     reachable,
  )
 import Data.CFTA.Equality.Constraint (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
-import Data.CFTA.Index (Arity (..), childIndexes)
+import Data.CFTA.Index (Arity (..), Rank, childIndexes, offsetRank, pairRank)
 import Data.CFTA.Path (ChildIndex (..), adjustAt, unPath)
 
 import Data.CFTA.Gen.Error (GenError (..))
@@ -170,23 +172,55 @@ moves toward leaves. Only a selected term is constructed.
 finiteAutomaton ::
     (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
     (symbol -> key) -> Node symbol -> Either GenError (Static symbol (Tree.Tree symbol))
-finiteAutomaton order root
+finiteAutomaton order root =
+    (\(ranked, rankOf) -> termStatic root (maybe (Left TermNotInLanguage) Right . rankOf) ranked)
+        <$> compileFiniteAutomaton order root
+
+{- | Find the rank of a term that a finite equality graph accepts.
+
+For the same key and graph, the static of 'finiteAutomaton' decodes this rank
+to the term. The result is 'TermNotInLanguage' when the graph does not accept
+the term, and the error of 'finiteAutomaton' when that function fails. The
+rank follows the plans of 'finiteAutomaton'. A compact node adds the offset of
+the matching edge to the mixed-radix rank of the equality groups of the edge.
+A symbolic node counts the accepted terms before the term. Apply the function
+to the key and the graph once: each term then uses the same plans and counts.
+-}
+finiteAutomatonRank ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> Tree.Tree symbol -> Either GenError Rank
+finiteAutomatonRank order root = case compileFiniteAutomaton order root of
+    Left err -> const $ Left err
+    Right (_, rankOf) -> maybe (Left TermNotInLanguage) Right . rankOf
+
+{- | Compile a finite equality graph to its ranked terms and to the inverse of
+their ranks.
+
+One pass builds both, so the ranks and their inverse follow the same plans.
+The inverse gives 'Nothing' for a term that the graph does not accept.
+-}
+compileFiniteAutomaton ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) ->
+    Node symbol ->
+    Either GenError (Ranked.Ranked (Tree.Tree symbol), Tree.Tree symbol -> Maybe Rank)
+compileFiniteAutomaton order root
     | null (nodeEdges root) = Left EmptyGenerator
     | any (any (isNothing . indicators . edgeConstraint)) (reachable root) = Left CannotCountConstrainedEdges
     | otherwise = case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
-        Just ranked -> Right $ termStatic root (const $ Left TermNotInLanguage) ranked
+        Just compiled -> Right compiled
   where
     buildNode node
         | null (nodeEdges node) = pure Nothing
         | otherwise = do
             cache <- State.get
             case Map.lookup (nodeIdentity node) cache of
-                Just ranked -> pure ranked
+                Just compiled -> pure compiled
                 Nothing -> do
-                    ranked <- buildAlternatives node
-                    State.modify' $ Map.insert (nodeIdentity node) ranked
-                    pure ranked
+                    compiled <- buildAlternatives node
+                    State.modify' $ Map.insert (nodeIdentity node) compiled
+                    pure compiled
 
     buildAlternatives node
         -- In an acyclic graph, interning drops an edge with an empty child, so
@@ -195,8 +229,10 @@ finiteAutomaton order root
         | any (residual . edgeConstraint) edges = pure $ symbolic node
         | any (needsPathExpansion . equalities . edgeConstraint) edges = pure $ symbolic node
         | otherwise = do
-            alternatives <- traverse buildEdge edges
-            pure $ either (const Nothing) (Just . Ranked.share) $ Ranked.oneof (catMaybes alternatives)
+            alternatives <- catMaybes <$> traverse buildEdge edges
+            pure $ case Ranked.oneof (map fst alternatives) of
+                Left _ -> Nothing
+                Right ranked -> Just (Ranked.share ranked, rankAlternatives alternatives)
       where
         sharedSymbols = Set.size (Set.fromList $ map edgeSymbol $ nodeEdges node) /= length (nodeEdges node)
         -- Alternatives that share an arity and a key are ordered by the
@@ -219,17 +255,26 @@ finiteAutomaton order root
           where
             NodeId ident = nodeIdentity node
         tied = or $ zipWith (\(left, _) (right, _) -> left == right) keyed (drop 1 keyed)
+    -- The ranks of an alternative follow the ranks of the alternatives before it.
+    rankAlternatives alternatives term =
+        listToMaybe
+            [ offsetRank offset rank
+            | (offset, (_, rankOf)) <- Ranked.withOffsets (Ranked.cardinality . fst) alternatives
+            , Just rank <- [rankOf term]
+            ]
 
     buildEdge edge = case childGroups (Arity (length children)) (equalities $ edgeConstraint edge) of
         Nothing -> pure Nothing
         Just groups -> do
             selected <- traverse (buildGroup children) groups
             pure $ do
-                rankedGroups <- sequence selected
-                let slots = foldl' addGroup (pure Map.empty) (zip groups rankedGroups)
-                pure $
-                    (\values -> Tree.Node (edgeSymbol edge) [values Map.! index | index <- childIndexes (Arity (length children))])
+                compiledGroups <- sequence selected
+                let slots = foldl' addGroup (pure Map.empty) (zip groups $ map fst compiledGroups)
+                pure
+                    ( (\values -> Tree.Node (edgeSymbol edge) [values Map.! index | index <- childIndexes (Arity (length children))])
                         <$> slots
+                    , rankEdge edge $ zip groups compiledGroups
+                    )
       where
         children = edgeChildren edge
     buildGroup children positions =
@@ -238,6 +283,18 @@ finiteAutomaton order root
             first : rest -> buildNode $ foldl' intersect first rest
     addGroup prefix (positions, ranked) =
         (\values term -> foldr (`Map.insert` term) values positions) <$> prefix <*> ranked
+    -- The groups are the digits of a mixed-radix rank, and the first group is
+    -- the most significant digit. The terms of one group must be equal.
+    rankEdge edge groups (Tree.Node symbol terms)
+        | symbol /= edgeSymbol edge || length terms /= length (edgeChildren edge) = Nothing
+        | otherwise = foldM addGroupRank 0 groups
+      where
+        addGroupRank rank (positions, (ranked, rankOf)) =
+            case [term | (index, term) <- zip [0 ..] terms, index `elem` positions] of
+                first : rest
+                    | all (== first) rest ->
+                        pairRank (Ranked.cardinality ranked) rank <$> rankOf first
+                _ -> Nothing
 
     symbolic = either (const Nothing) Just . symbolicRanked order
 

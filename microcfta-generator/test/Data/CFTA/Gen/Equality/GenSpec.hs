@@ -3,6 +3,7 @@
 
 module Data.CFTA.Gen.Equality.GenSpec (spec) where
 
+import Control.Monad ((>=>))
 import qualified Data.Bifunctor as Bifunctor
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (sort)
@@ -18,14 +19,19 @@ import qualified Test.QuickCheck as QC
 import qualified Test.QuickCheck.Gen as QCGen
 import qualified Test.QuickCheck.Random as QCRandom
 
-import Data.CFTA.Constraint (noConstraint)
+import Data.CFTA.Constraint (equalityConstraint, noConstraint)
 import Data.CFTA.Equality (Node (Node), accepts, edgeChildren, edgeConstraint, edgeSymbol, termsWith)
 import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Equality.TestSupport (renameSymbols)
+import Data.CFTA.Gen.Equality.TestSupport (ranksEveryTermBack, renameSymbols)
+import Data.CFTA.Gen.Internal.Automaton (finiteAutomatonRank)
 import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
+import qualified Data.CFTA.Path as Path
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
+import Data.CFTA.Symbol (Symbol (Symbol))
+import qualified Data.Tree as Tree
 
 data UserId = Alice | Bob | Carol | Dave
     deriving (Bounded, Enum, Eq, Ord, Show)
@@ -131,6 +137,72 @@ expectedPmf =
     , method <- [minBound .. maxBound]
     , path <- [minBound .. maxBound]
     ]
+
+-- | The key by which 'ECTAGen.fromAutomaton' orders the constructors of equal arity.
+symbolText :: Symbol -> Text
+symbolText (Symbol name) = name
+
+-- | A constructor without children.
+leaf :: String -> ECTA.Edge Symbol
+leaf name = ECTA.Edge (fromString name) []
+
+-- | A constructor over the given children, with the given equality classes.
+constructor :: String -> [Node Symbol] -> [[[Path.ChildIndex]]] -> ECTA.Edge Symbol
+constructor name children classes = ECTA.mkEdge (fromString name) children $ equalityConstraint $ mkEqConstraints $ map (map Path.path) classes
+
+-- | The two leaves a and b.
+twoLeaves :: Node Symbol
+twoLeaves = Node [leaf "a", leaf "b"]
+
+-- | Equal direct children: the compact plan ranks the pair by one child.
+equalChildren :: Node Symbol
+equalChildren = Node [leaf "a", constructor "pair" [children, children] [[[0], [1]]]]
+  where
+    children = Node [leaf "a", leaf "b", constructor "f" [twoLeaves] []]
+
+-- | Two alternatives that share the symbol f and the term f(a).
+overlapping :: Node Symbol
+overlapping = Node [leaf "a", constructor "f" [twoLeaves] [], constructor "f" [Node [leaf "a", leaf "c"]] []]
+
+{- | An equality below the direct children. The position of u holds one term
+only, so the symbolic ranks skip it.
+-}
+nestedEquality :: Node Symbol
+nestedEquality = Node [constructor "pair" [boxes, boxes] [[[0, 0], [1, 0]]]]
+  where
+    boxes = Node [leaf "c", constructor "box" [twoLeaves, Node [leaf "u"]] [], constructor "wrap" [twoLeaves] []]
+
+-- | A compact node over two symbolic children.
+mixedPlans :: Node Symbol
+mixedPlans = Node [leaf "z", constructor "g" [overlapping, nestedEquality] []]
+
+{- | A random acyclic automaton of the given depth. Few symbols for each
+arity make alternatives overlap. A binary edge has no equality, a direct
+equality, or an equality below its children.
+-}
+randomAutomaton :: Int -> QC.Gen (Node Symbol)
+randomAutomaton 0 = Node . map leaf <$> QC.sublistOf ["a", "b", "c"] `QC.suchThat` (not . null)
+randomAutomaton depth = do
+    edges <- QC.chooseInt (2, 3)
+    Node <$> QC.vectorOf edges randomEdge
+  where
+    randomEdge = do
+        arity <- QC.frequency [(1, pure 0), (2, pure 1), (3, pure 2)]
+        name <- QC.elements $ case arity of
+            0 -> ["a", "b", "c"]
+            1 -> ["f", "g"]
+            _ -> ["p", "q"]
+        children <- QC.vectorOf arity $ randomAutomaton $ depth - 1
+        classes <- if arity == 2 then QC.elements [[], [], [[[0], [1]]], [[[0, 0], [1, 0]]], [[[0, 0], [1]]]] else pure []
+        pure $ constructor name children classes
+
+{- | Require that a finite import ranks exactly the terms that the automaton
+accepts, each to the rank that decodes to it.
+-}
+ranksExactlyAccepted :: Node Symbol -> [Tree.Tree Symbol] -> IO ()
+ranksExactlyAccepted root candidates =
+    map (finiteAutomatonRank symbolText root >=> ECTAGen.unrank (ECTAGen.fromAutomaton root)) candidates
+        `shouldBe` [if accepts root term then Right term else Left ECTAGen.TermNotInLanguage | term <- candidates]
 
 -- | Read source and key names through the public typed graph view.
 inspectionLabels :: ECTAGen value -> Either String [Text]
@@ -684,3 +756,38 @@ spec = do
                         ]
                     )
             ECTAGen.massesAtSize family 2 `shouldBe` Right mempty
+
+    describe "ranks of imported automata" $ do
+        it "ranks every term of compact, overlapping, nested, and mixed plans" $ do
+            let term name children = Tree.Node (fromString name) children
+                a = term "a" []
+                b = term "b" []
+                boxed value = term "box" [value, term "u" []]
+            mapM_ (ranksEveryTermBack symbolText) [equalChildren, overlapping, nestedEquality, mixedPlans]
+            map
+                (uncurry $ finiteAutomatonRank symbolText)
+                [ (equalChildren, term "pair" [a, b])
+                , (overlapping, term "f" [term "u" []])
+                , (nestedEquality, term "pair" [boxed a, term "wrap" [b]])
+                , (nestedEquality, term "pair" [term "c" [], term "c" []])
+                , (nestedEquality, term "pair" [term "box" [a, b], boxed a])
+                , (mixedPlans, term "g" [term "f" [a], term "pair" [boxed a, boxed b]])
+                ]
+                `shouldBe` replicate 6 (Left ECTAGen.TermNotInLanguage)
+
+        it "ranks every term of small random acyclic automata" $ do
+            let automata =
+                    QCGen.unGen (QC.vectorOf 60 $ randomAutomaton =<< QC.chooseInt (1, 3)) (QCRandom.mkQCGen 20260928) 30
+                counted = [(root, ECTAGen.values $ ECTAGen.fromAutomaton root) | root <- automata]
+                small = [(root, terms) | (root, Right terms) <- counted, length terms <= 150]
+            length small `shouldSatisfy` (>= 50)
+            sequence_
+                [ finiteAutomatonRank symbolText root (Tree.Node (fromString "a") []) `shouldBe` Left err
+                | (root, Left err) <- counted
+                ]
+            sequence_
+                [ traverse (finiteAutomatonRank symbolText root) terms `shouldBe` Right (everyRank $ toEnum $ length terms)
+                | (root, terms) <- small
+                ]
+            -- The terms of the next automaton are a mix of accepted and rejected terms.
+            sequence_ [ranksExactlyAccepted root terms | ((root, _), (_, terms)) <- zip small (drop 1 small)]
