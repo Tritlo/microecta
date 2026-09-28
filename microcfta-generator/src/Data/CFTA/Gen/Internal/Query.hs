@@ -119,14 +119,23 @@ unrank (Cyclic result) index = do
                 $ sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
--- | The term of one member by rank.
+{- | The term of one member by rank.
+
+A recursive generator uses the size-major ranks of 'unrank'.
+-}
 termAt :: Gen symbol a -> Integer -> Either GenError (Tree.Tree (Label symbol))
 termAt _ index | index < 0 = Left $ NegativeRank index
 termAt (Transparent result) index = do
     static <- result
     outcomeTerm <$> outcomeSelect (staticOutcomes static) index
-termAt (Cyclic (Left err)) _ = Left err
-termAt (Cyclic (Right _)) _ = Left CannotInspectRecursiveGenerator
+termAt (Cyclic result) index = do
+    recursive <- result
+    terms <- maybe (Left CannotInspectRecursiveGenerator) Right $ recursiveTerm recursive
+    let recursiveIndex' = recursiveIndex recursive
+    case (minimumMemberSize recursiveIndex', sizeClassOf recursiveIndex' index) of
+        (Nothing, _) -> Left $ SelectionOutOfRange index 0
+        (_, Just (size, position)) -> pure $ snd $ sizeClassSelect terms size position
+        (_, Nothing) -> Left $ SelectionOutOfRange index $ sum $ map snd $ sizeClassCounts recursiveIndex'
 termAt (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
 -- | Return the first member in structural size and rank order.
