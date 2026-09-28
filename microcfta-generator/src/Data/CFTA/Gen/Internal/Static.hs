@@ -28,6 +28,7 @@ module Data.CFTA.Gen.Internal.Static (
     pointsStatic,
     holeStatic,
     termStatic,
+    userTerm,
     applyStatic,
     frequencyStatic,
     mapStatic,
@@ -153,10 +154,10 @@ data TermView symbol
     | -- | The children under a node label.
       LabelledView [Tree.Tree (Label symbol)]
 
-{- | The ranks of a view, for a language whose terms have no private label at
-their root: each view of such a term is the term itself.
+{- | The ranks or positions of a view, for a language whose terms have no
+private label at their root: each view of such a term is the term itself.
 -}
-leafRanks :: (Tree.Tree (Label symbol) -> [Integer]) -> TermView symbol -> [Integer]
+leafRanks :: (Tree.Tree (Label symbol) -> [rank]) -> TermView symbol -> [rank]
 leafRanks ranksOfTerm view = case view of
     WholeTerm term -> ranksOfTerm term
     SpineView [term] -> ranksOfTerm term
@@ -400,17 +401,19 @@ termStatic root rankTerm ranked =
     mass = 1 / fromInteger total
     valueAt = Ranked.rankedValueAt ranked
     -- The term of a member is the accepted user term under 'Label'.
-    termRanks term = case traverse userSymbol term of
-        Just user -> either (const []) pure $ rankTerm user
-        Nothing -> []
-      where
-        userSymbol (Label symbol) = Just symbol
-        userSymbol _ = Nothing
+    termRanks term = maybe [] (either (const []) pure . rankTerm) $ userTerm term
     select rank = do
         checkIndex total rank
         let term = valueAt rank
             labelled = fmap Label term
         pure $ Outcome labelled mass term (fmap plainSymbol labelled)
+
+-- | The user term under the 'Label's of an engine term, if it has no private label.
+userTerm :: Tree.Tree (Label symbol) -> Maybe (Tree.Tree symbol)
+userTerm = traverse userSymbol
+  where
+    userSymbol (Label symbol) = Just symbol
+    userSymbol _ = Nothing
 
 -- | The applicative product of a function language and an argument language.
 applyStatic ::
