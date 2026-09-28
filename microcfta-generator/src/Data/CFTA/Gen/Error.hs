@@ -122,6 +122,8 @@ data GenError
       leaves and non-leaves.
       -}
       ChildNotOneTerm
+    | -- | A term to rank is not a member of the generator's language.
+      TermNotInLanguage
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -437,6 +439,14 @@ explain (InexactMeasure (Symbol symbol)) =
         , "no one value."
         , "Fix: draw that child from elements, every, or a constructor built with"
         , "measured, or leave it out of the measure."
+        ]
+explain TermNotInLanguage =
+    guidance
+        [ "The term is not a member of the generator's language, so it has no rank."
+        , "rankOf reads the terms that termAt returns, with the private labels of"
+        , "the engine. rankOfTerm reads the terms that an imported automaton"
+        , "accepts."
+        , "Fix: rank a term that the generator produced."
         ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
