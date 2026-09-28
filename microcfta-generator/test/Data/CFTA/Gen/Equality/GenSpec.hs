@@ -25,7 +25,7 @@ import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Equality.TestSupport (ranksEveryTermBack, renameSymbols)
+import Data.CFTA.Gen.Equality.TestSupport (positionsBack, ranksEveryTermBack, renameSymbols)
 import Data.CFTA.Gen.Internal.Automaton (finiteAutomatonRank)
 import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
 import qualified Data.CFTA.Path as Path
@@ -251,6 +251,7 @@ spec = do
                     inspectionLabels fromAutomaton `shouldBe` Right []
                     check $ ECTAGen.upToSize 6 $ label fromAutomaton
                     check $ label $ ECTAGen.upToSize 6 fromAutomaton
+                    positionsBack symbolText (renameSymbols surface original) [0 .. 5]
 
         it "retains matching keys in key and source order with the conditioned product PMF" $ do
             ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
