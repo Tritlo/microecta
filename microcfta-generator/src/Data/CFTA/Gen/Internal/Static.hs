@@ -110,10 +110,13 @@ data OutcomeIndex symbol a = OutcomeIndex
     { outcomeCardinality :: !Cardinality
     , outcomeUniformMass :: !(Maybe Rational)
     , outcomeSelect :: Rank -> Either GenError (Outcome symbol a)
-    , outcomeRanks :: TermView symbol -> [Rank]
+    , outcomeRanks :: TermView symbol -> [(Rank, Bool)]
     {- ^ The ranks whose term has the given view, in ascending order. The
     inverse of 'outcomeSelect' on terms: one term can have several ranks,
-    because a node label removes the choice wrapper of its alternatives.
+    because a node label removes the choice wrapper of its alternatives. Each
+    rank tells whether the ranking checked every symbol of the term. A rank
+    that is not checked can belong to another term with the same private
+    labels.
     -}
     , outcomeValueAt :: Rank -> a
     , outcomeSampler :: Sampler a
@@ -149,7 +152,7 @@ mkOutcomeIndex ::
     Cardinality ->
     Maybe Rational ->
     (Rank -> Either GenError (Outcome symbol a)) ->
-    (TermView symbol -> [Rank]) ->
+    (TermView symbol -> [(Rank, Bool)]) ->
     (Rank -> a) ->
     Sampler a ->
     Plan a ->
@@ -163,8 +166,8 @@ A language reads its own terms whole. The function side of an applicative
 spine reads the arguments that the spine gives it, and a closed constructor
 reads the children that 'labelTerm' gives its term: 'labelTerm' removes the
 private labels of a spine, of an n-way join, and of a choice. The engine terms
-carry these private labels, so ranking follows them and does not compare the
-user symbols of the terms.
+carry these private labels, so ranking follows them. A node label checks its
+own symbol, and the ranks tell which user symbols the ranking checked.
 -}
 data TermView symbol
     = -- | The whole term.
@@ -185,16 +188,17 @@ leafRanks ranksOfTerm view = case view of
     _ -> []
 
 {- | The ranks of a view for a language whose terms are listed in rank order.
-This compares whole terms, so use it only where the terms came from the same
-generator.
+This compares whole terms, so it checks every symbol.
 -}
-enumeratedRanks :: (Eq symbol) => [Tree.Tree (Label symbol)] -> TermView symbol -> [Rank]
-enumeratedRanks terms view = [rank | (rank, term) <- zip [0 ..] terms, matches term]
-  where
-    matches term = case view of
-        WholeTerm wanted -> term == wanted
-        SpineView wanted -> spineChildren term == wanted
-        LabelledView wanted -> labelledChildren term == wanted
+enumeratedRanks :: (Eq symbol) => [Tree.Tree (Label symbol)] -> TermView symbol -> [(Rank, Bool)]
+enumeratedRanks terms view = [(rank, True) | (rank, term) <- zip [0 ..] terms, hasView term view]
+
+-- | Whether a term has the view.
+hasView :: (Eq symbol) => Tree.Tree (Label symbol) -> TermView symbol -> Bool
+hasView term view = case view of
+    WholeTerm wanted -> term == wanted
+    SpineView wanted -> spineChildren term == wanted
+    LabelledView wanted -> labelledChildren term == wanted
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome symbol a) -> Plan a
@@ -278,9 +282,9 @@ pureStatic value =
   where
     -- A spine and a node label give pure no arguments.
     pureRanks view = case view of
-        WholeTerm (Tree.Node Pure []) -> [0]
-        SpineView [] -> [0]
-        LabelledView [] -> [0]
+        WholeTerm (Tree.Node Pure []) -> [(0, True)]
+        SpineView [] -> [(0, True)]
+        LabelledView [] -> [(0, True)]
         _ -> []
 
 -- | The language of one finite indexed source.
@@ -310,7 +314,7 @@ indexedStaticWithLabels label indexed =
     namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
     indexRanks term = case term of
-        Tree.Node (Index index) [] | hasRank totalOutcomes index -> [index]
+        Tree.Node (Index index) [] | hasRank totalOutcomes index -> [(index, True)]
         _ -> []
     select index = do
         checkIndex totalOutcomes index
@@ -338,8 +342,13 @@ holeStatic summary value =
                 checkIndex 1 index
                 pure $ Outcome (Tree.Node Placeholder []) 1 value (Tree.Node (plainSymbol Placeholder) [])
             )
-            -- A theory fills the placeholder with a leaf, so any leaf takes rank zero.
-            (leafRanks $ \term -> [0 | null $ Tree.subForest term])
+            -- A theory fills the placeholder with a leaf, so any leaf takes rank
+            -- zero. Only the placeholder itself is checked.
+            ( leafRanks $ \case
+                Tree.Node Placeholder [] -> [(0, True)]
+                Tree.Node _ [] -> [(0, False)]
+                _ -> []
+            )
             (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
@@ -356,12 +365,14 @@ outcomes are shared equally among their points. The given function rewrites
 the term of an outcome for its point. The support stays the support of the
 outcomes. To rank a term, the language ranks the outcome structurally, then
 gives the symbols at the placeholder leaves of the outcome, in order, to the
-given point rank.
+given function, which gives the rank of the point and the point. The rewrite
+of the outcome for the point must then give the term, which checks every
+symbol of the term.
 -}
 pointsStatic ::
     (Hashable symbol, Typeable symbol) =>
     (p -> Tree.Tree (Label symbol) -> Tree.Tree (Label symbol)) ->
-    ([symbol] -> Maybe Rank) ->
+    ([symbol] -> Maybe (Rank, p)) ->
     Indexed p ->
     Static symbol (p -> a) ->
     Static symbol a
@@ -380,13 +391,15 @@ pointsStatic rewrite rankPoint pointSource functions =
                 Tree.Node Apply [functionTerm, _] -> rewrite point functionTerm
                 other -> other
         pure outcome{outcomeTerm = term, outcomeInspection = fmap plainSymbol term}
-    -- The rewrite keeps the private labels, so the outcome ranks the filled term.
+    -- The rewrite keeps the private labels, so the outcome ranks the filled
+    -- term. It changes symbols, so the checks of the outcome do not apply.
     ranks view =
-        [ pairRank (indexedCardinality pointSource) functionRank pointRank
-        | functionRank <- outcomeRanks (staticOutcomes functions) view
+        [ (pairRank (indexedCardinality pointSource) functionRank pointRank, True)
+        | (functionRank, _) <- outcomeRanks (staticOutcomes functions) view
         , Right outcome <- [outcomeSelect (staticOutcomes functions) functionRank]
         , Just symbols <- [holeSymbols (outcomeTerm outcome) view]
-        , Just pointRank <- [rankPoint symbols]
+        , Just (pointRank, point) <- [rankPoint symbols]
+        , hasView (rewrite point $ outcomeTerm outcome) view
         ]
     holeSymbols term view = case view of
         WholeTerm filled -> holesIn [term] [filled]
@@ -432,7 +445,7 @@ termStatic root rankTerm ranked =
     mass = 1 / toRational total
     valueAt = Ranked.rankedValueAt ranked
     -- The term of a member is the accepted user term under 'Label'.
-    termRanks term = maybe [] (either (const []) pure . rankTerm) $ userTerm term
+    termRanks term = maybe [] (either (const []) (\rank -> [(rank, True)]) . rankTerm) $ userTerm term
     select rank = do
         checkIndex total rank
         let term = valueAt rank
@@ -545,9 +558,9 @@ applyStatic functions values =
             [] -> []
 
         ranksFrom functionView argument =
-            [ pairRank valueCardinality functionRank valueRank
-            | functionRank <- outcomeRanks functionOutcomes functionView
-            , valueRank <- outcomeRanks valueOutcomes (WholeTerm argument)
+            [ (pairRank valueCardinality functionRank valueRank, functionChecked && valueChecked)
+            | (functionRank, functionChecked) <- outcomeRanks functionOutcomes functionView
+            , (valueRank, valueChecked) <- outcomeRanks valueOutcomes (WholeTerm argument)
             ]
 
 -- | Concatenate weighted alternatives with stable rank offsets.
@@ -647,10 +660,10 @@ frequencyStatic alternatives =
         SpineView _ -> []
         LabelledView _ -> concat [branchRanks branchIndex view | (_, _, branchIndex, _, _) <- rankedBranches]
     branchRanks branchIndex view =
-        [ offsetRank offset rank
+        [ (offsetRank offset rank, checked)
         | (_, offset, index, _, static) <- rankedBranches
         , index == branchIndex
-        , rank <- outcomeRanks (staticOutcomes static) view
+        , (rank, checked) <- outcomeRanks (staticOutcomes static) view
         ]
 
     selectBranch _ [] =
@@ -753,7 +766,7 @@ labelStatic symbol static =
         }
 
 -- | Relabel the retained term of every outcome that the index selects.
-labelOutcomeTerms :: symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
+labelOutcomeTerms :: (Eq symbol) => symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
 labelOutcomeTerms symbol outcomes =
     outcomes
         { outcomeSelect = fmap (labelOutcome symbol) . outcomeSelect outcomes
@@ -761,9 +774,11 @@ labelOutcomeTerms symbol outcomes =
         }
   where
     -- The label replaces the private root of the inner term, so the inner
-    -- language reads the children under it.
+    -- language reads the children under it. A term with another label keeps
+    -- its ranks unchecked, because a theory can rewrite the labels of a term.
     labelledRanks term = case term of
-        Tree.Node (Label _) children -> outcomeRanks outcomes $ LabelledView children
+        Tree.Node (Label found) children ->
+            [(rank, checked && found == symbol) | (rank, checked) <- outcomeRanks outcomes $ LabelledView children]
         _ -> []
 
 -- | Relabel the retained term of one finite outcome.

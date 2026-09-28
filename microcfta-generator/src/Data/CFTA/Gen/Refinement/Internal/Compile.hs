@@ -25,7 +25,6 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 
 import Control.Applicative ((<|>))
 import Control.Exception (handle)
-import Control.Monad ((<=<))
 import Data.Bifunctor (first)
 import Data.Either (fromLeft)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
@@ -918,9 +917,14 @@ closeOpen (Grouped (Right buckets)) = do
 A term ranks by the integers at its placeholder leaves.
 -}
 closePoints :: Points -> Static Symbol ([Integer] -> a) -> Static Symbol a
-closePoints found = pointsStatic fillHoles (pointRank found <=< traverse leafValue) (Indexed (pointCount found) (pointAt found))
+closePoints found = pointsStatic fillHoles rankPoint (Indexed (pointCount found) (pointAt found))
   where
-    leafValue (RefinedSymbol _ refinement) = onlyPoint valueName refinement
+    rankPoint symbols = do
+        point <- traverse leafValue symbols
+        rank <- pointRank found point
+        pure (rank, point)
+      where
+        leafValue (RefinedSymbol _ refinement) = onlyPoint valueName refinement
 
 {- | Replace the placeholder leaves of a term, in order, by the leaves of the
 integers of a point, and make each label that names open variables exact.

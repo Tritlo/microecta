@@ -106,8 +106,11 @@ order.
 data RecursiveTerms symbol = RecursiveTerms
     { recursiveTermIndex :: SizeIndex (Tree.Tree (Label symbol))
     -- ^ The term of each member.
-    , recursiveTermPositions :: TermView symbol -> [SizedRank]
-    -- ^ The size class and position of each member whose term has the view.
+    , recursiveTermPositions :: TermView symbol -> [(SizedRank, Bool)]
+    {- ^ The size class and position of each member whose term has the view,
+    and whether the ranking checked every symbol of the term, as for
+    'outcomeRanks'.
+    -}
     }
 
 -- | View a finite language as one size-stratified recursive component.
@@ -130,7 +133,12 @@ staticTerms :: Static symbol a -> RecursiveTerms symbol
 staticTerms static =
     RecursiveTerms
         (mapIndexWithRank (\rank _ -> termOf rank) $ outcomeSizeIndex outcomes)
-        ( \view -> sort [position | rank <- outcomeRanks outcomes view, Just position <- [planPosition (outcomePlan outcomes) rank]]
+        ( \view ->
+            sort
+                [ (position, checked)
+                | (rank, checked) <- outcomeRanks outcomes view
+                , Just position <- [planPosition (outcomePlan outcomes) rank]
+                ]
         )
   where
     outcomes = staticOutcomes static
@@ -167,9 +175,9 @@ productTerms indexF indexX termsF termsX =
             [] -> []
 
         positionsFrom functionView argument =
-            [ productPosition indexF indexX functionPosition argumentPosition
-            | functionPosition <- recursiveTermPositions termsF functionView
-            , argumentPosition <- recursiveTermPositions termsX $ WholeTerm argument
+            [ (productPosition indexF indexX functionPosition argumentPosition, functionChecked && argumentChecked)
+            | (functionPosition, functionChecked) <- recursiveTermPositions termsF functionView
+            , (argumentPosition, argumentChecked) <- recursiveTermPositions termsX $ WholeTerm argument
             ]
 
 {- | The terms of ordered alternatives, whose value indexes give the counts.
@@ -193,18 +201,22 @@ choiceTerms indexes terms =
         LabelledView _ -> concat [branchPositions branch view | branch <- map ChoiceIndex [0 .. length terms - 1]]
     branchPositions branch@(ChoiceIndex index) view = case drop index terms of
         branchTerms : _ ->
-            [ SizedRank size (choicePosition indexes branch size position)
-            | SizedRank size position <- recursiveTermPositions branchTerms view
+            [ (SizedRank size (choicePosition indexes branch size position), checked)
+            | (SizedRank size position, checked) <- recursiveTermPositions branchTerms view
             ]
         [] -> []
 
 {- | The size-major ranks of the members of a recursive language whose term
-has the view, in ascending order.
+has the view, in ascending order, and whether the ranking checked every
+symbol of the term.
 -}
-recursivePositions :: Recursive symbol a -> TermView symbol -> Maybe [Rank]
+recursivePositions :: Recursive symbol a -> TermView symbol -> Maybe [(Rank, Bool)]
 recursivePositions recursive view = do
     terms <- recursiveTerm recursive
-    pure [sizeMajorRank (recursiveIndex recursive) position | position <- recursiveTermPositions terms view]
+    pure
+        [ (sizeMajorRank (recursiveIndex recursive) position, checked)
+        | (position, checked) <- recursiveTermPositions terms view
+        ]
 
 {- | Bound a recursive language to its members of size at most the bound.
 
@@ -245,9 +257,9 @@ boundedStatic bound recursive
   where
     -- A bound keeps the size-major ranks of the members that it keeps.
     boundedRanks view =
-        [ sizeMajorRank (recursiveIndex recursive) position
+        [ (sizeMajorRank (recursiveIndex recursive) position, checked)
         | Just terms <- [recursiveTerm recursive]
-        , position <- recursiveTermPositions terms view
+        , (position, checked) <- recursiveTermPositions terms view
         , rankSize position <= bound
         ]
     select index = case recursiveTermIndex <$> recursiveTerm recursive of
@@ -332,11 +344,14 @@ labelRecursive symbol recursive =
         }
   where
     -- The label replaces the private root of each term, so the inner
-    -- language reads the children under it.
+    -- language reads the children under it. The label checks its symbol.
     labelTerms terms = RecursiveTerms (mapIndex (labelTerm symbol) $ recursiveTermIndex terms) positions
       where
         positions view = case view of
-            WholeTerm (Tree.Node (Label _) children) -> recursiveTermPositions terms $ LabelledView children
+            WholeTerm (Tree.Node (Label found) children) ->
+                [ (position, checked && found == symbol)
+                | (position, checked) <- recursiveTermPositions terms $ LabelledView children
+                ]
             SpineView [term] -> positions $ WholeTerm term
             LabelledView [term] -> positions $ WholeTerm term
             _ -> []
