@@ -175,7 +175,7 @@ finiteAutomaton order root
     | any (any (isNothing . indicators . edgeConstraint)) (reachable root) = Left CannotCountConstrainedEdges
     | otherwise = case State.evalState (buildNode root) Map.empty of
         Nothing -> Left EmptyGenerator
-        Just ranked -> Right $ termStatic root ranked
+        Just ranked -> Right $ termStatic root (const $ Left TermNotInLanguage) ranked
   where
     buildNode node
         | null (nodeEdges node) = pure Nothing

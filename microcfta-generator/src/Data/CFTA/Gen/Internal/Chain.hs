@@ -25,6 +25,8 @@ module Data.CFTA.Gen.Internal.Chain (
     chainPlan,
     chainDecoder,
     selectChain,
+    chainRanks,
+    recursiveChainTerms,
 
     -- * Recursive chains
     recursiveSupports,
@@ -37,6 +39,7 @@ module Data.CFTA.Gen.Internal.Chain (
 ) where
 
 import Data.Kind (Type)
+import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Tree as Tree
 
@@ -46,12 +49,12 @@ import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..))
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
 import Data.CFTA.Gen.Sig (Sig (..))
-import Data.CFTA.Index (Cardinality, Rank, splitRank)
+import Data.CFTA.Index (ArgumentIndex (..), Cardinality, Rank, pairRank, splitRank)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, productIndex)
+import Data.CFTA.Ranked.Internal.Size (SizeIndex, mapIndex, productIndex, productPosition)
 
 {- | Group maps of every argument family, threaded through the operation type.
 
@@ -206,7 +209,19 @@ chainDecoder (ChainCons static rest) =
             let (here, there) = splitRank suffixCardinality index
              in decodeRest (partial $ valueAt here) there
 
--- | Select one outcome per argument, threading terms, mass, and the applied value.
+{- | The mixed-radix ranks of the argument terms of a join, in ascending
+order: the argument ranks left to right, as 'selectChain' reads them.
+-}
+chainRanks ::
+    ArgStatics symbol operation result -> [Tree.Tree (Label symbol)] -> [Rank]
+chainRanks ChainNil [] = [0]
+chainRanks (ChainCons static rest) (Tree.Node ArgKeyed [_, term] : terms) =
+    [ pairRank (chainCardinality rest) here there
+    | here <- outcomeRanks (staticOutcomes static) $ WholeTerm term
+    , there <- chainRanks rest terms
+    ]
+chainRanks _ _ = []
+
 selectChain ::
     operation ->
     ArgStatics symbol operation result ->
@@ -233,6 +248,74 @@ selectChain _ (ChainCons _ _) [] _ =
     error
         "microcfta-generator bug in Data.CFTA.Gen.Internal.Chain.selectChain: \
         \fewer key terms than arguments"
+
+{- | The terms of one joined component of a recursive keyed application.
+
+The term of a member is an n-way join, as for a finite join: the operation
+term before the argument keys, then each argument term with its key. The value
+indexes of the operation and of the arguments give the counts of the product
+chain. 'Nothing' means that an argument does not track terms.
+-}
+recursiveChainTerms ::
+    ComponentIndex ->
+    SizeIndex operation ->
+    RecursiveTerms symbol ->
+    ArgChain (KeyedRecursive symbol) operation result ->
+    Maybe (RecursiveTerms symbol)
+recursiveChainTerms componentIndex operationIndex operationTerms arguments = do
+    argumentTerms <- chainTerms arguments
+    let keyTerms = [Tree.Node (ArgKey componentIndex position) [] | position <- map ArgumentIndex [0 .. length argumentTerms - 1]]
+        -- The term index accumulates the argument terms in order.
+        accumulated =
+            foldl
+                ( \partial (_, terms) ->
+                    productIndex
+                        (mapIndex (\(operation, earlier) argument -> (operation, earlier <> [argument])) partial)
+                        (recursiveTermIndex terms)
+                )
+                (mapIndex (,[]) $ recursiveTermIndex operationTerms)
+                argumentTerms
+        joinTerm (operation, argumentTerms') =
+            Tree.Node JoinN $
+                Tree.Node CenterKeyed (operation : keyTerms)
+                    : zipWith (\key argument -> Tree.Node ArgKeyed [key, argument]) keyTerms argumentTerms'
+        -- The counts of the product chain after each argument.
+        chainIndexes =
+            scanl
+                (\partial (index, _) -> productIndex (mapIndex const partial) index)
+                (mapIndex (const ()) operationIndex)
+                argumentTerms
+        positions view = sort $ case view of
+            WholeTerm (Tree.Node JoinN children) -> childrenPositions children
+            WholeTerm _ -> []
+            LabelledView children -> childrenPositions children
+            SpineView [term] -> positions $ WholeTerm term
+            SpineView _ -> []
+        childrenPositions (Tree.Node CenterKeyed centre : argumentNodes)
+            | operation : _ <- centre
+            , Just arguments' <- traverse argumentOf argumentNodes
+            , length arguments' == length argumentTerms =
+                foldl
+                    ( \partialPositions (partialIndex, (argumentIndex, terms), argument) ->
+                        [ productPosition partialIndex argumentIndex partialPosition argumentPosition
+                        | partialPosition <- partialPositions
+                        , argumentPosition <- recursiveTermPositions terms $ WholeTerm argument
+                        ]
+                    )
+                    (recursiveTermPositions operationTerms $ WholeTerm operation)
+                    (zip3 chainIndexes argumentTerms arguments')
+        childrenPositions _ = []
+        argumentOf (Tree.Node ArgKeyed [_, argument]) = Just argument
+        argumentOf _ = Nothing
+    pure $ RecursiveTerms (mapIndex joinTerm accumulated) positions
+  where
+    chainTerms ::
+        ArgChain (KeyedRecursive symbol) operation' result' -> Maybe [(SizeIndex (), RecursiveTerms symbol)]
+    chainTerms ChainNil = Just []
+    chainTerms (ChainCons recursive rest) = do
+        let language = keyedRecursiveLanguage recursive
+        terms <- recursiveTerm language
+        ((mapIndex (const ()) $ recursiveIndex language, terms) :) <$> chainTerms rest
 
 -- | The support of every matched recursive argument group, in order.
 recursiveSupports ::

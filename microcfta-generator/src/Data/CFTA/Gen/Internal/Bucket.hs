@@ -69,6 +69,7 @@ bucketFromOutcomes retainAtomic weightedOutcomes = do
                 totalOutcomes
                 uniformMass
                 select
+                (enumeratedRanks $ map outcomeTerm outcomes)
                 selectValue
                 sampler
                 (PlanSelect totalOutcomes selectValue)

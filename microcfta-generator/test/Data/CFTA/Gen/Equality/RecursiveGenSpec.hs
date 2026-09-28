@@ -429,8 +429,12 @@ spec = do
                 `shouldSatisfy` either (const False) ((== 2) . length)
             fmap sum (ECTAGen.countOn termSymbol bounded) `shouldBe` Right 2
 
-        it "keeps aggregate inspection behind a finite recursive bound" $
-            ECTAGen.pmf boundedTrees `shouldBe` Left CannotInspectRecursiveGenerator
+        it "inspects the members of a finite recursive bound by their terms" $ do
+            -- A bounded recursive language keeps a term for every member, so
+            -- aggregate inspection reads its members as for a finite language.
+            let distribution = ECTAGen.pmf boundedTrees
+            fmap (toEnum . length) distribution `shouldBe` ECTAGen.cardinality boundedTrees
+            fmap (sum . map snd) distribution `shouldBe` Right 1
 
         it "reports a recursive automaton without finite terms as empty" $ do
             let emptyAutomaton = createMu $ \self -> Node [Edge "loop" [self]]
@@ -642,6 +646,70 @@ spec = do
                 `shouldBe` Right (Just [True])
             ECTAGen.smallest (ECTAGen.atKey Unreachable family)
                 `shouldBe` Right Nothing
+
+    describe "engine term ranks" $ do
+        it "rank the engine terms of finite generators" $ do
+            roundTrips (ECTAGen.node "pair" ((,) <$> ECTAGen.elements [0, 1 :: Int] <*> ECTAGen.elements "ab")) [0 .. 3]
+            roundTrips
+                ( ECTAGen.oneof
+                    [ECTAGen.node "a" (pure (1 :: Int)), ECTAGen.node "b" ((+) <$> ECTAGen.elements [1, 2] <*> ECTAGen.elements [10, 20])]
+                )
+                [0 .. 4]
+            roundTrips
+                (ECTAGen.match (even :==: even) (ECTAGen.elements [0 .. 3 :: Int]) (ECTAGen.elements [10 .. 13 :: Int]))
+                [0 .. 7]
+            roundTrips (ECTAGen.atomic $ ECTAGen.frequency [(1, ECTAGen.elements "a"), (9, ECTAGen.elements "b")]) [0, 1]
+            roundTrips (ECTAGen.ungroup $ ECTAGen.apply rankOperators (rankAtoms :& ANil)) [0 .. 3]
+
+        it "give every rank of a term, and reject a term outside the language" $ do
+            -- A node label removes the choice wrapper, so ranks 0 and 2 have one term.
+            let choiceUnderNode :: ECTAGen Int
+                choiceUnderNode = ECTAGen.node "n" (ECTAGen.oneof [ECTAGen.elements [1, 2], ECTAGen.elements [3, 4]])
+            (ECTAGen.ranksOf choiceUnderNode =<< ECTAGen.termAt choiceUnderNode 0) `shouldBe` Right [0, 2]
+            ECTAGen.rankOf rankTree (Tree.Node (ECTAGen.Label "other") []) `shouldBe` Left TermNotInLanguage
+
+        it "rank the size-major terms of recursive generators" $ do
+            let labelled = ECTAGen.recur $ \self ->
+                    ECTAGen.oneof
+                        [ECTAGen.node "leaf" (Leaf <$> ECTAGen.elements [0 .. 2]), ECTAGen.node "branch" (Branch <$> self <*> self)]
+                binary = ECTAGen.keyed (() :* () :-> ()) $ ECTAGen.elements [(<>)]
+                family = ECTAGen.recurGrouped $ \self -> ECTAGen.oneofGrouped [rankAtoms, ECTAGen.apply rankOperators (self :& ANil)]
+                family2 = ECTAGen.recurGrouped $ \self -> ECTAGen.oneofGrouped [rankAtoms, ECTAGen.apply binary (self :& self :& ANil)]
+            roundTrips rankTree [0 .. 150]
+            roundTrips labelled [0 .. 150]
+            roundTrips (show <$> rankTree) [0 .. 50]
+            roundTrips (ECTAGen.upToSize 4 rankTree) [0 .. 120]
+            roundTrips (ECTAGen.atKey () family) [0 .. 100]
+            roundTrips (ECTAGen.ungroup family2) [0 .. 100]
+
+{- | Check that each rank has a term that the support accepts, that the rank is
+one of the ranks of its term, and that the least rank of the term gives the
+term back.
+-}
+roundTrips :: ECTAGen a -> [Rank] -> IO ()
+roundTrips generator ranks = do
+    supportNode <- either (fail . show) pure $ ECTAGen.support generator
+    mapM_
+        ( \rank -> do
+            term <- either (fail . show) pure $ ECTAGen.termAt generator rank
+            termRanks <- either (fail . show) pure $ ECTAGen.ranksOf generator term
+            (rank, rank `elem` termRanks) `shouldBe` (rank, True)
+            (ECTAGen.termAt generator =<< ECTAGen.rankOf generator term) `shouldBe` Right term
+            (rank, accepts supportNode term) `shouldBe` (rank, True)
+        )
+        ranks
+
+-- | A recursive language of binary trees.
+rankTree :: ECTAGen Tree
+rankTree = ECTAGen.recur $ \self -> ECTAGen.oneof [Leaf <$> ECTAGen.elements [0 .. 2], Branch <$> self <*> self]
+
+-- | Two atoms under one key.
+rankAtoms :: ECTAGen.Grouped () String
+rankAtoms = ECTAGen.keyed () $ ECTAGen.elements ["H", "T"]
+
+-- | Two unary operations under one signature.
+rankOperators :: ECTAGen.Grouped (Sig '[()] ()) (String -> String)
+rankOperators = ECTAGen.keyed (() :-> ()) $ ECTAGen.elements [("x" <>), ("y" <>)]
 
 -- | The head symbol of a term, as a coverage key.
 termSymbol :: Tree.Tree Symbol -> String

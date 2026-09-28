@@ -43,8 +43,8 @@ data GenError
       one, which has size classes rather than a cardinality.
       -}
       UnboundedGenerator
-    | {- | Something needing one term per member met a recursive language,
-      which retains its automaton rather than its members.
+    | {- | An operation that needs one term per member was applied to a
+      recursive language that keeps no term for its members.
       -}
       CannotInspectRecursiveGenerator
     | {- | Alternatives that choose recursive structure carried unequal
@@ -203,12 +203,12 @@ explain UnboundedGenerator =
         ]
 explain CannotInspectRecursiveGenerator =
     guidance
-        [ "The members of this language carry no term. A recursive generator"
-        , "retains its automaton instead of a term per member, and a term per"
-        , "member is what groupOn, match, relate, pmf, and countOn read."
-        , "Fix: keep the layer that needs terms finite, or read the language"
-        , "from an automaton with fromAutomaton, whose members are terms."
-        , "If every member has one known key, use keyed instead of groupOn."
+        [ "The members of this recursive language carry no term, and a term per"
+        , "member is what termAt, rankOf, groupOn, match, relate, pmf, and"
+        , "countOn read. The combinators of this package keep a term for every"
+        , "member of a recursive language, so the language was built another way."
+        , "Fix: build the recursive language with recur, recurGrouped, or"
+        , "fromAutomaton."
         ]
 explain WeightedRecursiveAlternatives =
     guidance
