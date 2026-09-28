@@ -8,7 +8,8 @@ Pugh, "Counting solutions to Presburger formulas: how and why" (PLDI 1994).
 At each step the number of completions is a sum of polynomials over
 polyhedral pieces, and the Faulhaber formulas give each sum in closed form.
 'pointCount' is therefore exact without enumeration. 'pointAt' decodes a rank
-in lexicographic order, with one binary search for each variable.
+in lexicographic order, with one binary search for each variable. 'pointRank'
+sums the same counts to find the rank of a point.
 
 Every variable must be bounded. When a variable is summed out, its coefficient
 in each bound must be one or minus one after the bound is divided by the
@@ -24,6 +25,7 @@ module Data.CFTA.Refinement.Lattice (
     points,
     pointCount,
     pointAt,
+    pointRank,
     onlyPoint,
     latticeEntailment,
 ) where
@@ -142,28 +144,64 @@ pointAt (Points dimension levels _) (Rank start) = go 0 IntMap.empty start
     go variable prefix rank
         | variable == VarIndex dimension = IntMap.elems prefix
         | otherwise =
-            let candidates =
-                    [ (low, high, sumOver variable (constant low) upTo $ substitute prefix polynomial)
-                    | Piece region polynomial <- levels !! (fromEnum variable + 1)
-                    , Just (low, high) <- [interval variable prefix region]
-                    ]
-                -- The sum from the low end up to the variable itself, once for each piece.
-                upTo = Linear (IntMap.singleton (fromEnum variable) 1) 0
-                through bound =
-                    sum
-                        [ polynomialValue $ substitute (IntMap.singleton (fromEnum variable) $ min high bound) cumulative
-                        | (low, high, cumulative) <- candidates
-                        , min high bound >= low
-                        ]
+            let pieces = cumulativePieces levels variable prefix
                 value =
                     search
-                        (minimum [low | (low, _, _) <- candidates])
-                        (maximum [high | (_, high, _) <- candidates])
-                        (\bound -> through bound > fromInteger rank)
+                        (minimum [low | (low, _, _) <- pieces])
+                        (maximum [high | (_, high, _) <- pieces])
+                        (\bound -> through variable pieces bound > fromInteger rank)
              in go
                     (variable + 1)
                     (IntMap.insert (fromEnum variable) value prefix)
-                    (rank - numerator (through $ value - 1))
+                    (rank - numerator (through variable pieces $ value - 1))
+
+{- | The rank of a point, in lexicographic order of the variables.
+
+The result is 'Nothing' when the formula does not admit the point.
+It is the inverse of 'pointAt'.
+-}
+pointRank :: Points -> [Integer] -> Maybe Rank
+pointRank found@(Points dimension levels (Cardinality total)) point
+    | length point == dimension, rank >= 0, rank < total, pointAt found (Rank rank) == point = Just $ Rank rank
+    | otherwise = Nothing
+  where
+    rank =
+        sum
+            [ numerator $ through variable (cumulativePieces levels variable prefix) (value - 1)
+            | (variable, value, prefix) <- zip3 [0 ..] point prefixes
+            ]
+      where
+        prefixes =
+            scanl (\prefix (variable, value) -> IntMap.insert (fromEnum variable) value prefix) IntMap.empty $
+                zip [0 :: VarIndex ..] point
+
+{- | The pieces of one variable, when the earlier variables have the given
+values.
+
+Each piece has the interval of the variable, and the number of completions
+from the low end up to the variable itself.
+-}
+cumulativePieces :: [[Piece]] -> VarIndex -> IntMap Integer -> [(Integer, Integer, Polynomial)]
+-- 'pointAt' decodes each sample, so it must compile as one loop. Without the
+-- INLINE pragmas here and on 'through', sampling took measurably more instructions.
+{-# INLINE cumulativePieces #-}
+cumulativePieces levels variable prefix =
+    [ (low, high, sumOver variable (constant low) upTo $ substitute prefix polynomial)
+    | Piece region polynomial <- levels !! (fromEnum variable + 1)
+    , Just (low, high) <- [interval variable prefix region]
+    ]
+  where
+    upTo = Linear (IntMap.singleton (fromEnum variable) 1) 0
+
+-- | The number of completions in which the variable is at most the bound.
+through :: VarIndex -> [(Integer, Integer, Polynomial)] -> Integer -> Rational
+{-# INLINE through #-}
+through variable pieces bound =
+    sum
+        [ polynomialValue $ substitute (IntMap.singleton (fromEnum variable) $ min high bound) cumulative
+        | (low, high, cumulative) <- pieces
+        , min high bound >= low
+        ]
 
 {- | The interval of one variable in a region, when the earlier variables have
 the given values.
