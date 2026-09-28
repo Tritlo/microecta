@@ -26,6 +26,7 @@ module Data.CFTA.Gen.Internal.Chain (
     chainDecoder,
     selectChain,
     chainRanks,
+    joinKeysMatch,
     recursiveChainTerms,
 
     -- * Recursive chains
@@ -210,17 +211,35 @@ chainDecoder (ChainCons static rest) =
              in decodeRest (partial $ valueAt here) there
 
 {- | The mixed-radix ranks of the argument terms of a join, in ascending
-order: the argument ranks left to right, as 'selectChain' reads them.
+order: the argument ranks left to right, as 'selectChain' reads them. The
+keys of the arguments are not checked here: see 'joinKeysMatch'.
 -}
 chainRanks ::
-    ArgStatics symbol operation result -> [Tree.Tree (Label symbol)] -> [Rank]
-chainRanks ChainNil [] = [0]
+    ArgStatics symbol operation result ->
+    [Tree.Tree (Label symbol)] ->
+    [(Rank, Bool)]
+chainRanks ChainNil [] = [(0, True)]
 chainRanks (ChainCons static rest) (Tree.Node ArgKeyed [_, term] : terms) =
-    [ pairRank (chainCardinality rest) here there
-    | here <- outcomeRanks (staticOutcomes static) $ WholeTerm term
-    , there <- chainRanks rest terms
+    [ (pairRank (chainCardinality rest) here there, hereChecked && thereChecked)
+    | (here, hereChecked) <- outcomeRanks (staticOutcomes static) $ WholeTerm term
+    , (there, thereChecked) <- chainRanks rest terms
     ]
 chainRanks _ _ = []
+
+{- | Whether the children of an n-way join carry the keys of the component in
+order: the keys after the operation, and the key of each argument.
+-}
+joinKeysMatch :: ComponentIndex -> [Tree.Tree (Label symbol)] -> [Tree.Tree (Label symbol)] -> Bool
+joinKeysMatch component keys argumentNodes =
+    length keys == length argumentNodes
+        && and (zipWith isKey [0 :: Int ..] keys)
+        && and (zipWith isArgument [0 ..] argumentNodes)
+  where
+    -- The positions are enumerated as 'Int' so that the list fuses away.
+    isKey position (Tree.Node (ArgKey component' position') []) = component' == component && position' == ArgumentIndex position
+    isKey _ _ = False
+    isArgument position (Tree.Node ArgKeyed [key, _]) = isKey position key
+    isArgument _ _ = False
 
 selectChain ::
     operation ->
@@ -292,18 +311,21 @@ recursiveChainTerms componentIndex operationIndex operationTerms arguments = do
             SpineView [term] -> positions $ WholeTerm term
             SpineView _ -> []
         childrenPositions (Tree.Node CenterKeyed centre : argumentNodes)
-            | operation : _ <- centre
+            | operation : keys <- centre
             , Just arguments' <- traverse argumentOf argumentNodes
             , length arguments' == length argumentTerms =
-                foldl
-                    ( \partialPositions (partialIndex, (argumentIndex, terms), argument) ->
-                        [ productPosition partialIndex argumentIndex partialPosition argumentPosition
-                        | partialPosition <- partialPositions
-                        , argumentPosition <- recursiveTermPositions terms $ WholeTerm argument
+                let keysChecked = joinKeysMatch componentIndex keys argumentNodes
+                 in foldl
+                        ( \partialPositions (partialIndex, (argumentIndex, terms), argument) ->
+                            [ (productPosition partialIndex argumentIndex partialPosition argumentPosition, partialChecked && argumentChecked)
+                            | (partialPosition, partialChecked) <- partialPositions
+                            , (argumentPosition, argumentChecked) <- recursiveTermPositions terms $ WholeTerm argument
+                            ]
+                        )
+                        [ (position, checked && keysChecked)
+                        | (position, checked) <- recursiveTermPositions operationTerms $ WholeTerm operation
                         ]
-                    )
-                    (recursiveTermPositions operationTerms $ WholeTerm operation)
-                    (zip3 chainIndexes argumentTerms arguments')
+                        (zip3 chainIndexes argumentTerms arguments')
         childrenPositions _ = []
         argumentOf (Tree.Node ArgKeyed [_, argument]) = Just argument
         argumentOf _ = Nothing

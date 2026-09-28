@@ -426,8 +426,9 @@ spine, choices, source indexes, joins, keys, and recursive families.
 inverse: it gives the least rank of an engine term, or `TermNotInLanguage`
 when the term is not a member. `ranksOf` gives every rank of a term. A term can
 have more than one rank, because a constructor label removes the choice
-wrapper of its alternatives. The rank functions follow the private labels, and
-`termAt` checks each result, so a term with other user symbols has no rank. A
+wrapper of its alternatives. The ranking follows the private labels and checks
+the user symbols. Where it cannot check a symbol, `termAt` checks the rank, so a
+term with other user symbols has no rank. A
 recursive generator uses the size-major ranks of `unrank`. For an imported
 automaton, `rankOfTerm` takes the tree of user symbols, and `rankOfValue`
 takes a datatype value from `fromDatatype`.
