@@ -20,11 +20,15 @@ Ambiguity is not counted either. The union over a node's edges counts
 accepting runs, so a node with two edges that accept a common term counts that
 term twice; such an automaton is rejected rather than miscounted.
 
+The inverse of each index gives the rank, or the size and the position, of an
+accepted term. It follows the same plans as the index.
+
 The module also holds the rank key and the codec check that the ordinary and
 the refinement datatype imports share.
 -}
 module Data.CFTA.Gen.Internal.Automaton (
     automatonIndex,
+    automatonTermPosition,
     finiteAutomaton,
     finiteAutomatonRank,
     declarationOrder,
@@ -88,12 +92,38 @@ one, whose runs outnumber its terms.
 automatonIndex ::
     (Hashable symbol, Typeable symbol, Ord key) =>
     (symbol -> key) -> Node symbol -> Either GenError (SizeIndex (Tree.Tree symbol))
-automatonIndex _ EmptyNode = Right $ Ordinary.tableIndex (0 :: Int) Map.empty
-automatonIndex order root
+automatonIndex order root = uncurry Ordinary.tableIndex <$> automatonRows order root
+
+{- | Find the size class and the position in it of a term that an automaton
+accepts.
+
+The size is the number of term nodes. For the same key and automaton,
+'automatonIndex' selects the term at this size and position. The result is
+'TermNotInLanguage' when the automaton does not accept the term, and the error
+of 'automatonIndex' when that function fails. Apply the function to the key
+and the automaton once: each term then uses the same counts.
+-}
+automatonTermPosition ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> Tree.Tree symbol -> Either GenError (Integer, Integer)
+automatonTermPosition order root = case automatonRows order root of
+    Left err -> const $ Left err
+    Right (initial, rows) -> maybe (Left TermNotInLanguage) Right . Ordinary.tablePosition initial rows
+
+{- | The identity of the root and the rows of an automaton, with the edges of
+each row in rank order.
+
+Fails as 'automatonIndex' does.
+-}
+automatonRows ::
+    (Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> Either GenError (Int, Map.Map Int [FTA.Transition Int symbol ()])
+automatonRows _ EmptyNode = Right (0, Map.empty)
+automatonRows order root
     | not $ Set.null $ freeVars root = Left $ InvalidSupport OpenAutomaton
     | any (any constrained) alternatives = Left CannotCountConstrainedEdges
     | any (ambiguous productiveRows) alternatives = Left AmbiguousAutomaton
-    | otherwise = Right $ Ordinary.tableIndex (nodeIdentity root) (sortOn transitionKey <$> rows)
+    | otherwise = Right (nodeIdentity root, sortOn transitionKey <$> rows)
   where
     alternatives = IntMap.elems (reachable root)
     rows = Ordinary.rowsOf root

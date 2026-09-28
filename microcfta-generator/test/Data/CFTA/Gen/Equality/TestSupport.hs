@@ -4,6 +4,7 @@
 module Data.CFTA.Gen.Equality.TestSupport (
     aggregateRights,
     decodesEveryRankExactly,
+    positionsBack,
     ranksBack,
     ranksEveryTermBack,
     renameSymbols,
@@ -11,6 +12,7 @@ module Data.CFTA.Gen.Equality.TestSupport (
 
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import Data.Ratio ((%))
 import Data.Typeable (Typeable)
 import Test.Hspec (Expectation, expectationFailure, shouldBe)
@@ -18,10 +20,11 @@ import Test.Hspec (Expectation, expectationFailure, shouldBe)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Node)
 import qualified Data.CFTA.Gen.Equality as ECTAGen
-import Data.CFTA.Gen.Internal.Automaton (finiteAutomatonRank)
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, finiteAutomatonRank)
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
+import Data.CFTA.Ranked.Internal.Size (sizeClassOf)
 
 -- | Copy an automaton under other symbols, through its explicit view.
 renameSymbols ::
@@ -76,3 +79,18 @@ ranksEveryTermBack order root =
     case ECTAGen.cardinality $ Flat.fromAutomaton order root of
         Left err -> expectationFailure $ show err
         Right total -> ranksBack order root [0 .. total - 1]
+
+{- | Require that the term at each rank of a cyclic import has the size class
+and the position of that rank.
+-}
+positionsBack ::
+    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
+    (symbol -> key) -> Node symbol -> [Integer] -> Expectation
+positionsBack order root ranks =
+    case automatonIndex order root of
+        Left err -> expectationFailure $ show err
+        Right index ->
+            ( traverse (ECTAGen.unrank $ Flat.fromAutomaton order root) ranks
+                >>= traverse (automatonTermPosition order root)
+            )
+                `shouldBe` Right (mapMaybe (sizeClassOf index) ranks)

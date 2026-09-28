@@ -22,13 +22,14 @@ import qualified Test.QuickCheck as QC
 import Control.Monad (void)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (noConstraint)
-import Data.CFTA.Gen.Equality.TestSupport (ranksBack, ranksEveryTermBack)
-import Data.CFTA.Gen.Internal.Automaton (declarationOrder, finiteAutomatonRank)
+import Data.CFTA.Gen.Equality.TestSupport (positionsBack, ranksBack, ranksEveryTermBack)
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, declarationOrder, finiteAutomatonRank)
 import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
 import qualified Data.CFTA.Interned as Common
 import qualified Data.CFTA.Ranked as Ranked
+import Data.CFTA.Ranked.Internal.Size (sizeMajorRank)
 import Data.CFTA.Symbol (Symbol (Symbol))
 import Data.Text (Text)
 import qualified Data.Tree as Tree
@@ -104,6 +105,7 @@ spec = do
                     check $ FTAGen.upToSize 5 $ FTAGen.fromDatatype datatype
                     let (order, graph) = datatypeImport datatype
                     ranksEveryTermBack order $ Common.boundDepth 2 graph
+                    positionsBack order graph [0 .. 30]
 
         it "retains record names, positions, and fully applied field types" $ do
             let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)
@@ -123,6 +125,7 @@ spec = do
                     traverse (FTAGen.unrank generator) [0 .. 3]
                         `shouldBe` Right [AEnd, AStep BEnd, AStep (BStep AEnd), AStep (BStep (AStep BEnd))]
                     ranksEveryTermBack order $ Common.boundDepth 3 graph
+                    positionsBack order graph [0 .. 5]
             case Datatype.deriveFTA @[[Bool]] of
                 Left err -> expectationFailure $ show err
                 Right datatype ->
@@ -260,13 +263,16 @@ spec = do
                                 `shouldSatisfy` all (`elem` map Right (take 4 terms))
                     check $ FTAGen.upToSize 5 $ FTAGen.fromAutomaton node
                     check $ FTAGen.fromAutomatonUpToDepth 4 node
-                    -- Ranks lead back to their terms.
+                    -- Ranks and positions lead back to their terms.
                     let bounded = Common.boundDepth 4 node
                         deeper = Tree.Node "s" [last terms]
                         wrongArity = Tree.Node "s" []
                     ranksEveryTermBack id bounded
+                    positionsBack id node [0 .. 9]
                     map (finiteAutomatonRank id bounded) [deeper, wrongArity]
                         `shouldBe` [Left FTAGen.TermNotInLanguage, Left FTAGen.TermNotInLanguage]
+                    map (automatonTermPosition id node) [deeper, wrongArity]
+                        `shouldBe` [Right (6, 0), Left FTAGen.TermNotInLanguage]
                     -- The recursive import decodes the term of a size-major rank.
                     traverse (FTAGen.termAt $ FTAGen.fromAutomaton node) [0 .. 4]
                         `shouldBe` Right (map (fmap FTAGen.Label) terms)
@@ -280,9 +286,11 @@ spec = do
                     ]
             case Automaton.mkFTA 0 rows of
                 Left err -> expectationFailure $ show err
-                Right empty ->
+                Right empty -> do
                     FTAGen.cardinality (FTAGen.upToSize 10 $ FTAGen.fromAutomaton $ Common.fromFTA empty)
                         `shouldBe` Left FTAGen.EmptyGenerator
+                    automatonTermPosition id (Common.fromFTA empty) (Tree.Node "step" [Tree.Node "again" []])
+                        `shouldBe` Left FTAGen.TermNotInLanguage
             let productive =
                     [
                         ( 0 :: Int
@@ -310,6 +318,8 @@ spec = do
                         `shouldBe` Right 5
                     -- The two step alternatives overlap, so the bound ranks symbolically.
                     ranksEveryTermBack id $ Common.boundDepth 4 node
+                    automatonTermPosition id node (Tree.Node "z" [])
+                        `shouldBe` Left FTAGen.AmbiguousAutomaton
 
         it "compiles the common interned unit-constraint graph without ECTA" $ do
             let leaves = Common.Node [Common.Edge "zero" [], Common.Edge "one" []] :: Common.Node String
@@ -343,9 +353,10 @@ spec = do
             ranksEveryTermBack id flat
             case Automaton.mkFTA () [((), transitions)] of
                 Left err -> expectationFailure $ show err
-                Right automaton ->
+                Right automaton -> do
                     FTAGen.values (FTAGen.upToSize 1 $ FTAGen.fromAutomaton $ Common.fromFTA automaton)
                         `shouldBe` Right leaves
+                    positionsBack id (Common.fromFTA automaton) [0 .. 9]
 
         it "ranks alternatives with one symbol by their children, not in interning order" $ do
             -- Interning is global: these symbols appear in no other test.
@@ -422,6 +433,38 @@ spec = do
                         map (FTAGen.shrinkRank actual) ranks `shouldBe` map (Ranked.shrinkRank expected) ranks
                         map (FTAGen.smallerMembers actual) ranks `shouldBe` map (Ranked.smallerMembers expected) ranks
                         ranksEveryTermBack id $ Common.fromFTA automaton
+
+        it "positions left-deep terms of transitions that share a symbol" $ do
+            -- Both f transitions accept every left child, and only the right
+            -- child tells them apart. A search from the root would visit the
+            -- left child once for each transition at each level.
+            let rows =
+                    [
+                        ( "list"
+                        ,
+                            [ Automaton.Transition "a" [] noConstraint
+                            , Automaton.Transition "f" ["list", "b"] noConstraint
+                            , Automaton.Transition "f" ["list", "c"] noConstraint
+                            ]
+                        )
+                    , ("b", [Automaton.Transition "b" [] noConstraint])
+                    , ("c", [Automaton.Transition "c" [] noConstraint])
+                    ]
+                deep = foldl' (\term right -> Tree.Node "f" [term, Tree.Node right []]) (Tree.Node "a" []) (replicate 40 "c")
+            case Automaton.mkFTA "list" rows of
+                Left err -> expectationFailure $ show err
+                Right automaton -> do
+                    let node = Common.fromFTA automaton
+                    positionsBack id node [0 .. 30]
+                    automatonTermPosition id node (Tree.Node "f" [Tree.Node "a" [], Tree.Node "a" []])
+                        `shouldBe` Left FTAGen.TermNotInLanguage
+                    case (automatonIndex id node, automatonTermPosition id node deep) of
+                        (Right index, Right (size, position)) -> do
+                            size `shouldBe` 81
+                            FTAGen.unrank (FTAGen.fromAutomaton node) (sizeMajorRank index size position)
+                                `shouldBe` Right deep
+                        (Left err, _) -> expectationFailure $ show err
+                        (_, Left err) -> expectationFailure $ show err
 
     describe "ordinary FTA integer expressions" $ do
         it "has the exact structural cardinality at every bounded depth" $
