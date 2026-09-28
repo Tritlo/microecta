@@ -72,6 +72,7 @@ import Data.CFTA.Gen hiding (
     fromDatatypeUpToDepth,
     leaf,
     node,
+    rankOfValue,
  )
 import qualified Data.CFTA.Gen as Gen
 import Data.CFTA.Gen.Internal.Automaton (declarationOrder, undecodableConstructor)
