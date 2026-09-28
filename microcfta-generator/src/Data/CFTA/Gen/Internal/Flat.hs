@@ -114,7 +114,7 @@ readAutomaton order root
                 index
                 (uniformSampleIndex index)
                 False
-                (Just $ mapIndex (fmap Label) index)
+                (Just $ RecursiveTerms (mapIndex (fmap Label) index) (const []))
                 (plainInspection supportNode)
   where
     supportNode = relabel Label root
@@ -182,7 +182,7 @@ chooseLanguage weighted
                                 ]
                             )
                             (any recursiveWeighted views)
-                            Nothing
+                            (choiceTerms (map recursiveIndex views) <$> traverse recursiveTerm views)
                             (choiceInspection $ map recursiveInspection views)
                 else Left WeightedRecursiveAlternatives
     | otherwise =

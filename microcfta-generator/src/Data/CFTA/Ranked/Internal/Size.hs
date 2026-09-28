@@ -53,6 +53,7 @@ module Data.CFTA.Ranked.Internal.Size (
     choicePosition,
     constantIndex,
     mapIndex,
+    mapIndexWithRank,
     productIndex,
     choiceIndex,
     fixIndex,
@@ -216,7 +217,7 @@ the size and position of its function and of its argument.
 Within a size class, splits come in ascending function size, and each split
 is ordered function-major, as 'productSplit' reads them.
 -}
-productPosition :: SizeIndex (a -> b) -> SizeIndex a -> (Integer, Integer) -> (Integer, Integer) -> (Integer, Integer)
+productPosition :: SizeIndex f -> SizeIndex x -> (Integer, Integer) -> (Integer, Integer) -> (Integer, Integer)
 productPosition indexF indexX (sizeF, positionF) (sizeX, positionX) =
     ( size
     , sum
@@ -383,6 +384,24 @@ mapIndex transform index =
         let (rank, value) = sizeClassSelect index size position
          in (rank, transform value)
     selectInt size = transform . sizeClassValueInt index size
+
+{- | Map the values of an index with their ranks, keeping its counts and
+ranks.
+-}
+mapIndexWithRank :: (Integer -> a -> b) -> SizeIndex a -> SizeIndex b
+mapIndexWithRank transform index =
+    SizeIndex
+        (sizeClassCounts index)
+        select
+        (\size -> snd . select size . toInteger)
+        (minimumMemberSize index)
+        (largestMemberSize index)
+        (unguardedOccurrences index)
+        (usedOccurrences index)
+  where
+    select size position =
+        let (rank, value) = sizeClassSelect index size position
+         in (rank, transform rank value)
 
 {- | The product of two indexes, ranked size-major.
 

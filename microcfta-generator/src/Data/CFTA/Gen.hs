@@ -108,6 +108,8 @@ module Data.CFTA.Gen (
     smallest,
     unrank,
     termAt,
+    rankOf,
+    ranksOf,
     sizeOfRank,
     smallerMembers,
     shrinkRank,

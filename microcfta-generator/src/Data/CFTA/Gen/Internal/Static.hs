@@ -13,7 +13,10 @@ module Data.CFTA.Gen.Internal.Static (
     -- * Languages
     Outcome (..),
     OutcomeIndex (..),
+    TermView (..),
     mkOutcomeIndex,
+    leafRanks,
+    enumeratedRanks,
     seqPlan,
     Static (..),
     staticSampling,
@@ -59,7 +62,7 @@ import Data.Typeable (Typeable)
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Internal.Inspection
-import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
+import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, labelledChildren, relabel, spineChildren)
 import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import qualified Data.CFTA.Ranked.Internal as Ranked
@@ -85,6 +88,11 @@ data OutcomeIndex symbol a = OutcomeIndex
     { outcomeCardinality :: !Integer
     , outcomeUniformMass :: !(Maybe Rational)
     , outcomeSelect :: Integer -> Either GenError (Outcome symbol a)
+    , outcomeRanks :: TermView symbol -> [Integer]
+    {- ^ The ranks whose term has the given view, in ascending order. The
+    inverse of 'outcomeSelect' on terms: one term can have several ranks,
+    because a node label removes the choice wrapper of its alternatives.
+    -}
     , outcomeValueAt :: Integer -> a
     , outcomeSampler :: Sampler a
     {- ^ The compositional sampler is demand-driven. Uniform lowering uses the
@@ -119,12 +127,52 @@ mkOutcomeIndex ::
     Integer ->
     Maybe Rational ->
     (Integer -> Either GenError (Outcome symbol a)) ->
+    (TermView symbol -> [Integer]) ->
     (Integer -> a) ->
     Sampler a ->
     Plan a ->
     OutcomeIndex symbol a
-mkOutcomeIndex total mass select valueAt sampler plan =
-    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan) (compilePlan total plan) Nothing
+mkOutcomeIndex total mass select ranks valueAt sampler plan =
+    OutcomeIndex total mass select ranks valueAt sampler plan (sizeIndex plan) (compilePlan total plan) Nothing
+
+{- | A term as a language reads it when it ranks the term.
+
+A language reads its own terms whole. The function side of an applicative
+spine reads the arguments that the spine gives it, and a closed constructor
+reads the children that 'labelTerm' gives its term: 'labelTerm' removes the
+private labels of a spine, of an n-way join, and of a choice. The engine terms
+carry these private labels, so ranking follows them and does not compare the
+user symbols of the terms.
+-}
+data TermView symbol
+    = -- | The whole term.
+      WholeTerm (Tree.Tree (Label symbol))
+    | -- | The arguments of an applicative spine on its function side.
+      SpineView [Tree.Tree (Label symbol)]
+    | -- | The children under a node label.
+      LabelledView [Tree.Tree (Label symbol)]
+
+{- | The ranks of a view, for a language whose terms have no private label at
+their root: each view of such a term is the term itself.
+-}
+leafRanks :: (Tree.Tree (Label symbol) -> [Integer]) -> TermView symbol -> [Integer]
+leafRanks ranksOfTerm view = case view of
+    WholeTerm term -> ranksOfTerm term
+    SpineView [term] -> ranksOfTerm term
+    LabelledView [term] -> ranksOfTerm term
+    _ -> []
+
+{- | The ranks of a view for a language whose terms are listed in rank order.
+This compares whole terms, so use it only where the terms came from the same
+generator.
+-}
+enumeratedRanks :: (Eq symbol) => [Tree.Tree (Label symbol)] -> TermView symbol -> [Integer]
+enumeratedRanks terms view = [rank | (rank, term) <- zip [0 ..] terms, matches term]
+  where
+    matches term = case view of
+        WholeTerm wanted -> term == wanted
+        SpineView wanted -> spineChildren term == wanted
+        LabelledView wanted -> labelledChildren term == wanted
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome symbol a) -> Plan a
@@ -190,12 +238,20 @@ pureStatic value =
                 checkIndex 1 index
                 pure $ Outcome (Tree.Node Pure []) 1 value (Tree.Node (plainSymbol Pure) [])
             )
+            pureRanks
             (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
         )
         False
         (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
+  where
+    -- A spine and a node label give pure no arguments.
+    pureRanks view = case view of
+        WholeTerm (Tree.Node Pure []) -> [0]
+        SpineView [] -> [0]
+        LabelledView [] -> [0]
+        _ -> []
 
 -- | The language of one finite indexed source.
 indexedStatic :: (Hashable symbol, Typeable symbol) => Indexed a -> Static symbol a
@@ -212,6 +268,7 @@ indexedStaticWithLabels label indexed =
             totalOutcomes
             (Just $ 1 / fromInteger totalOutcomes)
             select
+            (leafRanks indexRanks)
             (indexedSelect indexed)
             (uniformSampler totalOutcomes $ indexedSelect indexed)
             (PlanSelect totalOutcomes $ indexedSelect indexed)
@@ -221,6 +278,9 @@ indexedStaticWithLabels label indexed =
   where
     namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
+    indexRanks term = case term of
+        Tree.Node (Index index) [] | index >= 0 && index < totalOutcomes -> [index]
+        _ -> []
     select index = do
         checkIndex totalOutcomes index
         pure $
@@ -247,6 +307,8 @@ holeStatic summary value =
                 checkIndex 1 index
                 pure $ Outcome (Tree.Node Placeholder []) 1 value (Tree.Node (plainSymbol Placeholder) [])
             )
+            -- A theory fills the placeholder with a leaf, so any leaf takes rank zero.
+            (leafRanks $ \term -> [0 | null $ Tree.subForest term])
             (const value)
             (uniformSampler 1 $ const value)
             (PlanSelect 1 $ const value)
@@ -293,11 +355,22 @@ while this adapter is constructed.
 -}
 termStatic ::
     (Hashable symbol, Typeable symbol) =>
-    Node symbol -> Ranked.Ranked (Tree.Tree symbol) -> Static symbol (Tree.Tree symbol)
-termStatic root ranked =
+    Node symbol ->
+    (Tree.Tree symbol -> Either GenError Integer) ->
+    Ranked.Ranked (Tree.Tree symbol) ->
+    Static symbol (Tree.Tree symbol)
+termStatic root rankTerm ranked =
     Static
         supportNode
-        (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
+        ( mkOutcomeIndex
+            total
+            (Just mass)
+            select
+            (leafRanks termRanks)
+            valueAt
+            (uniformSampler total valueAt)
+            (Ranked.rankedPlan ranked)
+        )
         False
         (plainInspection supportNode)
   where
@@ -305,6 +378,13 @@ termStatic root ranked =
     total = Ranked.cardinality ranked
     mass = 1 / fromInteger total
     valueAt = Ranked.rankedValueAt ranked
+    -- The term of a member is the accepted user term under 'Label'.
+    termRanks term = case traverse userSymbol term of
+        Just user -> either (const []) pure $ rankTerm user
+        Nothing -> []
+      where
+        userSymbol (Label symbol) = Just symbol
+        userSymbol _ = Nothing
     select rank = do
         checkIndex total rank
         let term = valueAt rank
@@ -327,6 +407,7 @@ applyStatic functions values =
             totalOutcomes
             ((*) <$> outcomeUniformMass functionOutcomes <*> outcomeUniformMass valueOutcomes)
             select
+            productRanks
             selectValue
             ( productSampler
                 valueCardinality
@@ -395,6 +476,24 @@ applyStatic functions values =
 
     splitIndex index = index `quotRem` valueCardinality
 
+    -- A spine and a node label give the arguments of the spine in order: the
+    -- last one is this product's argument, the others belong to its function.
+    productRanks view = case view of
+        WholeTerm (Tree.Node Apply [function, argument]) -> ranksFrom (WholeTerm function) argument
+        WholeTerm _ -> []
+        SpineView arguments -> spineRanks arguments
+        LabelledView arguments -> spineRanks arguments
+      where
+        spineRanks arguments = case reverse arguments of
+            argument : functionArguments -> ranksFrom (SpineView $ reverse functionArguments) argument
+            [] -> []
+
+        ranksFrom functionView argument =
+            [ functionRank * valueCardinality + valueRank
+            | functionRank <- outcomeRanks functionOutcomes functionView
+            , valueRank <- outcomeRanks valueOutcomes (WholeTerm argument)
+            ]
+
 -- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic ::
     (Hashable symbol, Typeable symbol) =>
@@ -410,6 +509,7 @@ frequencyStatic alternatives =
             totalOutcomes
             uniformMass
             select
+            choiceRanks
             selectValue
             sampler
             ( PlanChoice
@@ -481,6 +581,21 @@ frequencyStatic alternatives =
         let (_, _, static, childIndex) = selectBranch index rankedBranches
          in outcomeValueAt (staticOutcomes static) childIndex
 
+    -- A node label removes the choice wrapper, so it can match every
+    -- alternative; a spine gives the whole choice term as one argument.
+    choiceRanks view = case view of
+        WholeTerm (Tree.Node (Choice branchIndex) [child]) -> branchRanks branchIndex $ WholeTerm child
+        WholeTerm _ -> []
+        SpineView [term] -> choiceRanks $ WholeTerm term
+        SpineView _ -> []
+        LabelledView _ -> concat [branchRanks branchIndex view | (_, _, branchIndex, _, _) <- rankedBranches]
+    branchRanks branchIndex view =
+        [ offset + rank
+        | (_, offset, index, _, static) <- rankedBranches
+        , index == branchIndex
+        , rank <- outcomeRanks (staticOutcomes static) view
+        ]
+
     selectBranch _ [] =
         error
             "microcfta-generator bug in Data.CFTA.Gen.Internal.Static.frequencyStatic: \
@@ -505,6 +620,7 @@ mapOutcomeIndex transform outcomes =
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
         (fmap (mapOutcome transform) . outcomeSelect outcomes)
+        (outcomeRanks outcomes)
         (transform . outcomeValueAt outcomes)
         (mapSampler transform $ outcomeSampler outcomes)
         (PlanMap transform $ outcomePlan outcomes)
@@ -531,6 +647,7 @@ atomicStatic static =
                 (outcomeCardinality outcomes)
                 (outcomeUniformMass outcomes)
                 (outcomeSelect outcomes)
+                (outcomeRanks outcomes)
                 (outcomeValueAt outcomes)
                 retainedSampler
                 (PlanSelect (outcomeCardinality outcomes) (outcomeValueAt outcomes))
@@ -566,7 +683,14 @@ labelOutcomeTerms :: symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
 labelOutcomeTerms symbol outcomes =
     outcomes
         { outcomeSelect = fmap (labelOutcome symbol) . outcomeSelect outcomes
+        , outcomeRanks = leafRanks labelledRanks
         }
+  where
+    -- The label replaces the private root of the inner term, so the inner
+    -- language reads the children under it.
+    labelledRanks term = case term of
+        Tree.Node (Label _) children -> outcomeRanks outcomes $ LabelledView children
+        _ -> []
 
 -- | Relabel the retained term of one finite outcome.
 labelOutcome :: symbol -> Outcome symbol a -> Outcome symbol a
