@@ -2,27 +2,22 @@
 module Data.CFTA.Gen.Equality.TestSupport (
     aggregateRights,
     decodesEveryRankExactly,
-    positionsBack,
     ranksBack,
-    ranksEveryTermBack,
+    ranksEveryMemberBack,
     renameSymbols,
 ) where
 
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
 import Data.Typeable (Typeable)
 import Test.Hspec (Expectation, expectationFailure, shouldBe)
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Node)
 import qualified Data.CFTA.Gen.Equality as ECTAGen
-import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, finiteAutomatonRank)
-import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Index (Rank, everyRank)
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
-import Data.CFTA.Ranked.Internal.Size (sizeClassOf)
 
 -- | Copy an automaton under other symbols, through its explicit view.
 renameSymbols ::
@@ -61,34 +56,21 @@ decodesEveryRankExactly generator =
                            | rank <- everyRank total
                            ]
 
--- | Require that the term at each rank of a finite import ranks back to that rank.
+-- | Require that the member at each rank ranks back to that rank.
 ranksBack ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Node symbol -> [Rank] -> Expectation
-ranksBack order root ranks =
-    (traverse (ECTAGen.unrank $ Flat.fromAutomaton order root) ranks >>= traverse (finiteAutomatonRank order root))
-        `shouldBe` Right ranks
+    (ECTAGen.Gen symbol a -> a -> Either ECTAGen.GenError Rank) ->
+    ECTAGen.Gen symbol a ->
+    [Rank] ->
+    Expectation
+ranksBack rank generator ranks =
+    (traverse (ECTAGen.unrank generator) ranks >>= traverse (rank generator)) `shouldBe` Right ranks
 
--- | Require that the term at every rank of a finite import ranks back to that rank.
-ranksEveryTermBack ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Node symbol -> Expectation
-ranksEveryTermBack order root =
-    case ECTAGen.cardinality $ Flat.fromAutomaton order root of
+-- | Require that the member at every rank of a finite generator ranks back to that rank.
+ranksEveryMemberBack ::
+    (ECTAGen.Gen symbol a -> a -> Either ECTAGen.GenError Rank) ->
+    ECTAGen.Gen symbol a ->
+    Expectation
+ranksEveryMemberBack rank generator =
+    case ECTAGen.cardinality generator of
         Left err -> expectationFailure $ show err
-        Right total -> ranksBack order root $ everyRank total
-
-{- | Require that the term at each rank of a cyclic import has the size class
-and the position of that rank.
--}
-positionsBack ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Node symbol -> [Rank] -> Expectation
-positionsBack order root ranks =
-    case automatonIndex order root of
-        Left err -> expectationFailure $ show err
-        Right index ->
-            ( traverse (ECTAGen.unrank $ Flat.fromAutomaton order root) ranks
-                >>= traverse (automatonTermPosition order root)
-            )
-                `shouldBe` Right (mapMaybe (sizeClassOf index) ranks)
+        Right total -> ranksBack rank generator $ everyRank total

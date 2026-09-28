@@ -25,12 +25,11 @@ import qualified Data.CFTA.Equality as ECTA
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import Data.CFTA.Gen.Equality.QuickCheck (Args (..), ECTAGen, On (..), Sig ((:*), (:->)))
 import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
-import Data.CFTA.Gen.Equality.TestSupport (positionsBack, ranksEveryTermBack, renameSymbols)
-import Data.CFTA.Gen.Internal.Automaton (finiteAutomatonRank)
+import Data.CFTA.Gen.Equality.TestSupport (ranksBack, ranksEveryMemberBack, renameSymbols)
 import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
 import qualified Data.CFTA.Path as Path
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
-import Data.CFTA.Symbol (Symbol (Symbol))
+import Data.CFTA.Symbol (Symbol)
 import qualified Data.Tree as Tree
 
 data UserId = Alice | Bob | Carol | Dave
@@ -138,10 +137,6 @@ expectedPmf =
     , path <- [minBound .. maxBound]
     ]
 
--- | The key by which 'ECTAGen.fromAutomaton' orders the constructors of equal arity.
-symbolText :: Symbol -> Text
-symbolText (Symbol name) = name
-
 -- | A constructor without children.
 leaf :: String -> ECTA.Edge Symbol
 leaf name = ECTA.Edge (fromString name) []
@@ -201,8 +196,10 @@ accepts, each to the rank that decodes to it.
 -}
 ranksExactlyAccepted :: Node Symbol -> [Tree.Tree Symbol] -> IO ()
 ranksExactlyAccepted root candidates =
-    map (finiteAutomatonRank symbolText root >=> ECTAGen.unrank (ECTAGen.fromAutomaton root)) candidates
+    map (ECTAGen.rankOfTerm generator >=> ECTAGen.unrank generator) candidates
         `shouldBe` [if accepts root term then Right term else Left ECTAGen.TermNotInLanguage | term <- candidates]
+  where
+    generator = ECTAGen.fromAutomaton root
 
 -- | Read source and key names through the public typed graph view.
 inspectionLabels :: ECTAGen value -> Either String [Text]
@@ -251,7 +248,7 @@ spec = do
                     inspectionLabels fromAutomaton `shouldBe` Right []
                     check $ ECTAGen.upToSize 6 $ label fromAutomaton
                     check $ label $ ECTAGen.upToSize 6 fromAutomaton
-                    positionsBack symbolText (renameSymbols surface original) [0 .. 5]
+                    ranksBack ECTAGen.rankOfTerm fromAutomaton [0 .. 5]
 
         it "retains matching keys in key and source order with the conditioned product PMF" $ do
             ECTAGen.pmf matchedFixture `shouldBe` Right expectedPmf
@@ -764,9 +761,11 @@ spec = do
                 a = term "a" []
                 b = term "b" []
                 boxed value = term "box" [value, term "u" []]
-            mapM_ (ranksEveryTermBack symbolText) [equalChildren, overlapping, nestedEquality, mixedPlans]
+            mapM_
+                (ranksEveryMemberBack ECTAGen.rankOfTerm . ECTAGen.fromAutomaton)
+                [equalChildren, overlapping, nestedEquality, mixedPlans]
             map
-                (uncurry $ finiteAutomatonRank symbolText)
+                (uncurry $ ECTAGen.rankOfTerm . ECTAGen.fromAutomaton)
                 [ (equalChildren, term "pair" [a, b])
                 , (overlapping, term "f" [term "u" []])
                 , (nestedEquality, term "pair" [boxed a, term "wrap" [b]])
@@ -783,11 +782,11 @@ spec = do
                 small = [(root, terms) | (root, Right terms) <- counted, length terms <= 150]
             length small `shouldSatisfy` (>= 50)
             sequence_
-                [ finiteAutomatonRank symbolText root (Tree.Node (fromString "a") []) `shouldBe` Left err
+                [ ECTAGen.rankOfTerm (ECTAGen.fromAutomaton root) (Tree.Node (fromString "a") []) `shouldBe` Left err
                 | (root, Left err) <- counted
                 ]
             sequence_
-                [ traverse (finiteAutomatonRank symbolText root) terms `shouldBe` Right (everyRank $ toEnum $ length terms)
+                [ traverse (ECTAGen.rankOfTerm $ ECTAGen.fromAutomaton root) terms `shouldBe` Right (everyRank $ toEnum $ length terms)
                 | (root, terms) <- small
                 ]
             -- The terms of the next automaton are a mix of accepted and rejected terms.

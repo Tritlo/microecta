@@ -30,7 +30,6 @@ module Data.CFTA.Gen.Internal.Automaton (
     automatonIndex,
     automatonTermPosition,
     finiteAutomaton,
-    finiteAutomatonRank,
     declarationOrder,
     undecodableConstructor,
 ) where
@@ -208,23 +207,6 @@ finiteAutomaton ::
 finiteAutomaton order root =
     (\(ranked, rankOf) -> termStatic root (maybe (Left TermNotInLanguage) Right . rankOf) ranked)
         <$> compileFiniteAutomaton order root
-
-{- | Find the rank of a term that a finite equality graph accepts.
-
-For the same key and graph, the static of 'finiteAutomaton' decodes this rank
-to the term. The result is 'TermNotInLanguage' when the graph does not accept
-the term, and the error of 'finiteAutomaton' when that function fails. The
-rank follows the plans of 'finiteAutomaton'. A compact node adds the offset of
-the matching edge to the mixed-radix rank of the equality groups of the edge.
-A symbolic node counts the accepted terms before the term. Apply the function
-to the key and the graph once: each term then uses the same plans and counts.
--}
-finiteAutomatonRank ::
-    (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
-    (symbol -> key) -> Node symbol -> Tree.Tree symbol -> Either GenError Rank
-finiteAutomatonRank order root = case compileFiniteAutomaton order root of
-    Left err -> const $ Left err
-    Right (_, rankOf) -> maybe (Left TermNotInLanguage) Right . rankOf
 
 {- | Compile a finite equality graph to its ranked terms and to the inverse of
 their ranks.
