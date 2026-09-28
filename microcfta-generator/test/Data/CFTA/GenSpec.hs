@@ -315,6 +315,9 @@ spec = do
                                 `shouldSatisfy` all (`elem` map Right (take 4 terms))
                     check $ FTAGen.upToSize 5 $ FTAGen.fromAutomaton node
                     check $ FTAGen.fromAutomatonUpToDepth 4 node
+                    -- The recursive import decodes the term of a size-major rank.
+                    traverse (FTAGen.termAt $ FTAGen.fromAutomaton node) [0 .. 4]
+                        `shouldBe` Right (map (fmap FTAGen.Label) terms)
                     FTAGen.cardinality (FTAGen.upToSize 0 $ FTAGen.fromAutomaton node)
                         `shouldBe` Left FTAGen.EmptyGenerator
 
