@@ -365,6 +365,13 @@ spec =
                     pure $ all (== result) generatedTypes
             traverse groupHasType allTypes `shouldBe` Right [True, True]
 
+        it "ranks the term of every depth-at-most-two rank and of recursive ranks back to the rank" $ do
+            let unranked generator ranks =
+                    [rank | rank <- ranks, (ECTAGen.rankOf generator =<< ECTAGen.termAt generator rank) /= Right rank]
+            unranked (ECTAGen.ungroup $ upToDepthByType 2) (everyRank $ Cardinality $ upToDepthCount 2) `shouldBe` []
+            unranked (ECTAGen.ungroup recursiveExpressions) ([0 .. 2999] <> [10 ^ (6 :: Int), 10 ^ (12 :: Int) + 7])
+                `shouldBe` []
+
         modifyMaxSuccess (const 500) $
             it "samples only well-typed expressions from the recursive family" $
                 QC.forAll (QC.resize 7 $ ECTAGen.toGen $ ECTAGen.ungroup recursiveExpressions) $
