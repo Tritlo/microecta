@@ -6,7 +6,7 @@ import Control.Exception (throwIO)
 import Control.Monad (forM_, void)
 import Data.CFTA.Index (Cardinality (..), Depth (..), Rank (..))
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (elemIndex, nub, sort)
+import Data.List (nub, sort)
 import Data.Proxy (Proxy (Proxy))
 import Data.Ratio ((%))
 import qualified Data.Tree as Tree
@@ -63,9 +63,7 @@ compileBoundedWith solver build depth automaton =
 
 -- | The replay rank of one accepted term.
 rankOf :: LTAGen.LTAGen a -> Tree.Tree Symbol -> IO Rank
-rankOf compiled term = case elemIndex term (termsOf compiled) of
-    Just rank -> pure $ Rank $ toInteger rank
-    Nothing -> fail $ "term is not in the compiled language: " <> show term
+rankOf compiled = either (fail . show) pure . LTAGen.rankOfTerm compiled
 
 -- | The number of nodes of a term.
 termSize :: Tree.Tree Symbol -> Int
