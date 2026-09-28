@@ -13,7 +13,8 @@ tree automata of `microcfta`, with QuickCheck integration.
   `node`, `frequency` and `oneof`, `match` and `relate` joins, the grouped
   layer with `Sig` signatures and `apply`, recursion with `recur`, `atomic`,
   and `upToSize`, and exact inspection: `cardinality`, `values`, `unrank`,
-  `termAt`, `support`, `inspect` with `drawInspection`, size counts, `pmf`,
+  `termAt` with its inverse `rankOf` and `ranksOf`, `support`, `inspect` with
+  `drawInspection`, size counts, `pmf`,
   structural `shrinkRank`, and `smallerMembers`. A generator keeps every
   construction failure as one `GenError` with `explain`, and `orFail` fails
   with that text.
@@ -30,6 +31,8 @@ tree automata of `microcfta`, with QuickCheck integration.
   `UndecodableConstructor` when the codec rejects a term of the grammar.
   Ranks order the constructors at each node by arity, then by the symbol,
   or in declaration order for a datatype, so they are the same in every run.
+  `rankOfTerm` gives the rank of an accepted term, and `rankOfValue` the
+  rank of a datatype value through its codec.
 - `Data.CFTA.Gen.Equality`: `ECTAGen`, symbol-text order for imports,
   and equality constraints from `Data.CFTA.Equality`. The engine's
   `support` and `termAt` return graphs and terms over `Data.CFTA.Gen.Label`,
