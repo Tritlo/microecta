@@ -35,7 +35,7 @@ import qualified Test.QuickCheck as QC
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Error
-import Data.CFTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, finiteAutomaton)
 import Data.CFTA.Gen.Internal.Grouped (groupOn, relateGroupsM, ungroup)
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Join
@@ -115,10 +115,13 @@ readAutomaton order root
                 index
                 (uniformSampleIndex index)
                 False
-                (Just $ RecursiveTerms (mapIndex (fmap Label) index) (const []))
+                (Just $ RecursiveTerms (mapIndex (fmap Label) index) $ leafRanks positions)
                 (plainInspection supportNode)
   where
     supportNode = relabel Label root
+    -- The term of a member is the accepted user term under 'Label'.
+    position = automatonTermPosition order root
+    positions term = maybe [] (either (const []) pure . position) $ userTerm term
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: (Hashable symbol, Typeable symbol) => [a] -> Gen symbol a

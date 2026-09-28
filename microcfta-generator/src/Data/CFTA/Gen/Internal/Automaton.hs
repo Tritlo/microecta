@@ -197,7 +197,10 @@ which the edges were interned. If two of them have equal classes, the node
 uses the symbolic plan. Alternatives with distinct symbols and equal keys keep
 the order in which their edges were interned. 'Symbol' orders by text, so the
 symbol is a stable key. Nullary constructors come first, so rank shrinking
-moves toward leaves. Only a selected term is constructed.
+moves toward leaves. Only a selected term is constructed. The static ranks an
+accepted term by the same plans: a compact node adds the offset of the
+matching edge to the mixed-radix rank of its equality groups, and a symbolic
+node counts the accepted terms before the term.
 -}
 finiteAutomaton ::
     (Ord symbol, Hashable symbol, Typeable symbol, Ord key) =>
