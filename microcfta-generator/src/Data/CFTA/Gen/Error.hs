@@ -121,6 +121,8 @@ data GenError
       number of terms other than one, as a choice of products does.
       -}
       ChildNotOneTerm
+    | -- | A term to rank is not a member of the generator's language.
+      TermNotInLanguage
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -436,6 +438,15 @@ explain ResultNeedsConstructor =
         , "which computes its own refinement."
         , "Fix: write ensuring directly after node or guarded, as in"
         , "guarded \"black\" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1)."
+        ]
+explain TermNotInLanguage =
+    guidance
+        [ "The term is not a member of the generator's language, so it has no rank."
+        , "rankOf reads the terms that termAt returns, with the private labels of"
+        , "the engine. rankOfTerm reads the terms that an imported automaton"
+        , "accepts."
+        , "Fix: rank a term that the generator produced, or check the term with"
+        , "accepts against the support first."
         ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
