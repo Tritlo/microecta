@@ -9,7 +9,8 @@ At each step the number of completions is a sum of polynomials over
 polyhedral pieces, and the Faulhaber formulas give each sum in closed form.
 'pointCount' is therefore exact without enumeration. 'pointAt' decodes a rank
 in lexicographic order, with one binary search for each variable. 'pointRank'
-sums the same counts to find the rank of a point.
+sums the same counts to find the rank of a point, and checks the point against
+the signed conjunctions.
 
 Every variable must be bounded. When a variable is summed out, its coefficient
 in each bound must be one or minus one after the bound is divided by the
@@ -157,14 +158,22 @@ pointAt (Points dimension levels _) (Rank start) = go 0 IntMap.empty start
 
 {- | The rank of a point, in lexicographic order of the variables.
 
-The result is 'Nothing' when the formula does not admit the point.
-It is the inverse of 'pointAt'.
+The result is 'Nothing' when the formula does not admit the point. It is the
+inverse of 'pointAt'.
 -}
 pointRank :: Points -> [Integer] -> Maybe Rank
-pointRank found@(Points dimension levels (Cardinality total)) point
-    | length point == dimension, rank >= 0, rank < total, pointAt found (Rank rank) == point = Just $ Rank rank
+pointRank (Points dimension levels _) point
+    | length point == dimension, admitted = Just $ Rank rank
     | otherwise = Nothing
   where
+    -- The indicator of the formula is the signed sum of the indicators of its
+    -- conjunctions, which the last level keeps.
+    admitted = sum [polynomialValue polynomial | Piece region polynomial <- levels !! dimension, all holds region] == 1
+      where
+        holds form = case substituteLinear values form of
+            Linear coefficients offset -> IntMap.null coefficients && offset >= 0
+
+        values = IntMap.fromList $ zip [0 ..] point
     rank =
         sum
             [ numerator $ through variable (cumulativePieces levels variable prefix) (value - 1)
