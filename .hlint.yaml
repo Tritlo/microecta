@@ -1,0 +1,6 @@
+# Hints the workspace ignores on purpose.
+#
+# Eta reduction is left alone because the engine's memoized functions are
+# written eta-expanded so their memo tables are allocated once per module,
+# not once per partial application.
+- ignore: {name: "Eta reduce"}
