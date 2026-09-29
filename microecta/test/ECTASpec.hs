@@ -114,6 +114,24 @@ spec = do
             nodeRepresents n (Term "f" [Term "a" []]) `shouldBe` False
             nodeRepresents n (Term "f" [Term "a" [], Term "b" [], Term "c" []]) `shouldBe` False
 
+        it "intersects only edges of the same arity" $ do
+            let a = constTerms ["a"]
+                b = constTerms ["b"]
+                unary = Node [Edge "f" [a]]
+                binary = Node [Edge "f" [a, b]]
+            getAllTerms (intersect unary binary) `shouldBe` []
+            intersectEdge (Edge "f" [a]) (Edge "f" [a, b]) `shouldBe` Nothing
+            getAllTerms (intersect (Node [Edge "f" [a], Edge "f" [a, b]]) binary)
+                `shouldBe` [Term "f" [Term "a" [], Term "b" []]]
+
+        it "keeps edges that share a symbol but not an arity when dropping redundant edges" $ do
+            let a = constTerms ["a"]
+                b = constTerms ["b"]
+                n = Node [Edge "f" [a], Edge "f" [a, b]]
+                expected = Set.fromList [Term "f" [Term "a" []], Term "f" [Term "a" [], Term "b" []]]
+            Set.fromList (getAllTerms (withoutRedundantEdges n)) `shouldBe` expected
+            Set.fromList (getAllTerms (withoutRedundantEdges (reducePartially n))) `shouldBe` expected
+
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do
             let values = Node [Edge "a" [], Edge "b" []] :: Node Symbol

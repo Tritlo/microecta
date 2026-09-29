@@ -357,11 +357,11 @@ dropConstraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
 
 data RuleOutRes symbol = Keep | RuledOutBy (Edge symbol)
 
--- | Remove edges that are subsumed by another edge with the same symbol.
+-- | Remove edges that are subsumed by another edge with the same symbol and arity.
 dropRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => [Edge symbol] -> [Edge symbol]
 dropRedundantEdges origEs = concatMap reduceCluster clusters
   where
-    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeSymbol origEs
+    clusters = map (nubByIdSinglePass edgeId) $ clusterByHash edgeShape origEs
 
     reduceCluster :: [Edge symbol] -> [Edge symbol]
     reduceCluster [] = []
@@ -389,11 +389,18 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
                             let (res, notRuledOut) = ruleOut e xs
                              in (res, x : notRuledOut)
 
--- | Intersect two edges when they have the same symbol.
+-- | Intersect two edges when they have the same symbol and arity.
 intersectEdge :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Maybe (Edge symbol)
 intersectEdge e1 e2
-    | edgeSymbol e1 /= edgeSymbol e2 = Nothing
+    | edgeShape e1 /= edgeShape e2 = Nothing
     | otherwise = Just $ intersectEdgeSameSymbol e1 e2
+
+{- | Edges intersect only when both symbol and arity agree: terms have exact
+arity, so @f(a)@ and @f(a, b)@ share no term. Intersecting children pairwise
+with 'zipWith' would otherwise silently drop the extra children.
+-}
+edgeShape :: Edge symbol -> (symbol, Int)
+edgeShape e = (edgeSymbol e, length (edgeChildren e))
 
 symbolIntersectEdgeSameSymbolCache :: MemoCache (Edge Symbol, Edge Symbol) (Edge Symbol)
 symbolIntersectEdgeSameSymbolCache = unsafePerformIO newMemoCache
@@ -496,7 +503,7 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
             (InternedNode l', InternedNode r') ->
                 Node $
                     hashJoin
-                        edgeSymbol
+                        edgeShape
                         (\e e' -> intersectOpenEdge (dom, e, e'))
                         (internedNodeEdges l')
                         (internedNodeEdges r')
