@@ -85,6 +85,7 @@ library
     Data.CFTA.Interned.Operations
     Data.CFTA.Interned.Type
     Data.CFTA.Path
+    Data.CFTA.Simple
     Data.CFTA.Symbol
     Data.CFTA.Template
 
@@ -118,6 +119,7 @@ test-suite unit-tests
   other-modules:
     Data.CFTA.Equality.ConstraintSpec
     Data.CFTA.Internal.UnionFindSpec
+    Data.CFTA.SimpleSpec
     Data.CFTASpec
 
   build-depends:
