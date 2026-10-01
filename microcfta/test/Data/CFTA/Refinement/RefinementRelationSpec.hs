@@ -34,7 +34,7 @@ import Data.CFTA.Refinement.Expression (
     (.||),
  )
 import Data.CFTA.Refinement.Guard (argument, contract, notGuard, withActualFor)
-import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
+import Data.CFTA.Refinement.Lattice (latticeEntailment, pointAt, pointCount, points)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -120,6 +120,30 @@ spec = do
                     pure (pointCount found, pointAt found 0, pointAt found (pointCount found - 1))
             ends (lnot (x .< fromInteger big) .&& x .<= fromInteger (big + 5)) `shouldBe` Right (6, [big], [big + 5])
             ends (fromInteger (negate big) .<= x .&& x .<= fromInteger big) `shouldBe` Right (2 * big + 1, [negate big], [big])
+
+    describe "lattice entailment" $ do
+        it "decides each implication between two point cases as a search of every point and Z3 do" $
+            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["x", "y" :: String]] $ \solver -> do
+                let pairs = [(antecedent, consequent) | antecedent <- pointCases, consequent <- pointCases]
+                    searched (_, antecedent) (_, consequent) =
+                        if and [consequent a b | a <- [-3 .. 3], b <- [-3 .. 3], antecedent a b] then Yes else No
+                    decide entailment = traverse (\((antecedent, _), (consequent, _)) -> entails entailment antecedent consequent) pairs
+                counted <- decide latticeEntailment
+                counted `shouldBe` map (uncurry searched) pairs
+                decide solver >>= (`shouldBe` counted)
+
+        it "answers Unknown where a variable has no bound or a term is not linear" $ do
+            let y = variable "y"
+            verdicts <-
+                traverse
+                    (uncurry $ entails latticeEntailment)
+                    [ (true, x .>= 0)
+                    , (x .>= 0, x .>= -1)
+                    , (x .>= 0 .&& x .<= 2 .&& y .>= 0 .&& y .<= 2, x * y .>= 0)
+                    , (1 .< 2, 2 .< 3)
+                    ]
+            -- The second one is decided: x >= 0 and x < -1 bound x from both sides.
+            verdicts `shouldBe` [Unknown, Yes, Unknown, Yes]
   where
     x = variable "x"
     decoded names formula = do
