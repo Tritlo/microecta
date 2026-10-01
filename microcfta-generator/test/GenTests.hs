@@ -7,6 +7,7 @@ import qualified Data.CFTA.Gen.Equality.GenSpec
 import qualified Data.CFTA.Gen.Equality.IFCExpressionGenSpec
 import qualified Data.CFTA.Gen.Equality.RankDecodingSpec
 import qualified Data.CFTA.Gen.Equality.RecursiveGenSpec
+import qualified Data.CFTA.Gen.Equality.SimpleSpec
 import qualified Data.CFTA.Gen.Equality.TypedExpressionGenSpec
 import qualified Data.CFTA.Gen.ReferenceSpec
 import qualified Data.CFTA.GenSpec
@@ -22,5 +23,6 @@ main =
         Data.CFTA.Gen.Equality.IFCExpressionGenSpec.spec
         Data.CFTA.Gen.Equality.RankDecodingSpec.spec
         Data.CFTA.Gen.Equality.RecursiveGenSpec.spec
+        Data.CFTA.Gen.Equality.SimpleSpec.spec
         Data.CFTA.Gen.Equality.TypedExpressionGenSpec.spec
         Data.CFTA.Gen.ReferenceSpec.spec
