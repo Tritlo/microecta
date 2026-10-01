@@ -211,6 +211,12 @@ agreesWithOracle description generator' = do
     pure $ counterexample description $ case (compiled, checked) of
         (Right generated, Right expected) ->
             sort (values generated) === sort expected
+                -- Several members can share a term, so a rank is one of the ranks of its term.
+                .&&. [ rank
+                     | rank <- ranks generated
+                     , either (const True) (notElem rank) (LTAGen.ranksOf generated =<< LTAGen.termAt generated rank)
+                     ]
+                    === []
                 -- Every shrink candidate is a member with a smaller rank.
                 .&&. [ (rank, candidates)
                      | rank <- ranks generated

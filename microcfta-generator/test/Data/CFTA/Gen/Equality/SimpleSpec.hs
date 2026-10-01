@@ -5,8 +5,8 @@
 The automata are random explicit automata over at most three states, with
 cycles and equality constraints, as in the core package's check. A generator
 imported up to a depth has exactly the terms of the simple definition up to
-that depth. A recursive import has, at each size, the terms of the simple
-definition with that many nodes.
+that depth, and every rank gives its term back. A recursive import has, at
+each size, the terms of the simple definition with that many nodes.
 -}
 module Data.CFTA.Gen.Equality.SimpleSpec (spec) where
 
@@ -40,6 +40,8 @@ spec = describe "generation from equality automata against Data.CFTA.Simple" $ d
                         ranks = either (const []) everyRank $ ECTAGen.cardinality generator
                     (depth, ECTAGen.cardinality generator) `shouldBe` (depth, counted expected)
                     (depth, sort [term | rank <- ranks, Right term <- [ECTAGen.unrank generator rank]]) `shouldBe` (depth, expected)
+                    (depth, [rank | rank <- ranks, (ECTAGen.rankOf generator =<< ECTAGen.termAt generator rank) /= Right rank])
+                        `shouldBe` (depth, [])
 
     it "imports an automaton without constraints as its terms, by size when it is cyclic" $
         -- A recursive import cannot count an edge with constraints: its count is an intersection.
