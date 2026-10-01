@@ -263,7 +263,7 @@ shrinkAutomaton = \case
                ]
 
 {- | An imported automaton gives every term that the core lists, once: the
-count, the values, and the term of each rank. A recursive import counts
+count, the values, and the inverse of each rank. A recursive import counts
 by size, the number of term nodes, and ranks by size first.
 -}
 importAgreement :: RandomAutomaton -> Property
@@ -289,7 +289,7 @@ importAgreement (RandomAutomaton automaton) =
                     : [fmap sort (Gen.values generator) === Right (sort found) | total <= listBound]
                         <> [ counterexample ("rank " <> show rank) $ case Gen.unrank generator rank of
                                 Left err -> counterexample (show err) False
-                                Right term -> counterexample (show term) $ term `elem` found
+                                Right term -> Gen.rankOfTerm generator term === Right rank .&&. term `elem` found
                            | rank <- take rankBound [0 .. total - 1]
                            ]
       where
@@ -306,6 +306,7 @@ importAgreement (RandomAutomaton automaton) =
                             Left err -> counterexample (show err) False
                             Right term ->
                                 Gen.sizeOfRank recursiveGenerator rank === Just size
+                                    .&&. Gen.rankOfTerm recursiveGenerator term === Right rank
                                     .&&. term `elem` termsOfSize automaton size
                               where
                                 size = toInteger $ length term
@@ -424,6 +425,21 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     | (rank, (_, size)) <- listed
                     ]
         _ -> QC.property True
+
+    it "ranks the term of each rank back" $ QC.property $ agreement $ \generator lang ->
+        QC.conjoin
+            [ counterexample ("rank " <> show rank) $ case Gen.termAt generator rank of
+                Left err -> counterexample ("termAt: " <> show err) False
+                Right term -> case Gen.ranksOf generator term of
+                    Left err -> counterexample ("ranksOf: " <> show err) False
+                    Right ranks ->
+                        counterexample ("ranks " <> show ranks) $
+                            rank `elem` ranks
+                                && ranks == sort ranks
+                                && Gen.rankOf generator term == Right (minimum ranks)
+                                && all ((== Right term) . Gen.termAt generator) ranks
+            | (rank, _) <- zip [0 ..] $ take rankBound $ members sizeBound lang
+            ]
 
     it "gives the sizes, the counts, and the key masses of a grouped model" $ QC.property familyAgreement
 

@@ -153,6 +153,7 @@ agreesWithOracle description generator' = do
     pure $ counterexample description $ case (compiled, checked) of
         (Right generated, Right expected) ->
             sort (values generated) === sort expected
+                .&&. [rank | rank <- ranks generated, (LTAGen.rankOf generated =<< LTAGen.termAt generated rank) /= Right rank] === []
                 -- Every shrink candidate is a member with a smaller rank.
                 .&&. [ (rank, candidates)
                      | rank <- ranks generated
