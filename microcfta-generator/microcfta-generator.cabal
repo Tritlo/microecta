@@ -154,6 +154,7 @@ test-suite gen-tests
     Data.CFTA.Gen.Equality.DatatypeGenSpec
     Data.CFTA.Gen.Equality.GenSpec
     Data.CFTA.Gen.Equality.RankDecodingSpec
+    Data.CFTA.Gen.Equality.SimpleSpec
     Data.CFTA.Gen.Equality.TestSupport
     Data.CFTA.Gen.Reference
     Data.CFTA.Gen.ReferenceSpec
