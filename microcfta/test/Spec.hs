@@ -14,6 +14,7 @@ import qualified Data.CFTA.Refinement.PruneSpec
 import qualified Data.CFTA.Refinement.RecognitionSpec
 import qualified Data.CFTA.Refinement.RecursiveSpec
 import qualified Data.CFTA.Refinement.RefinementRelationSpec
+import qualified Data.CFTA.Refinement.SimpleSpec
 import qualified Data.CFTA.Refinement.SubstitutionSpec
 import qualified Data.CFTA.Refinement.SyntaxSpec
 import qualified Data.CFTA.SimpleSpec
@@ -33,7 +34,6 @@ main = do
         Data.CFTA.Equality.ConstraintSpec.spec
         Data.CFTA.Equality.FTASpec.spec
         Data.CFTA.EqualitySpec.spec
-        Data.CFTA.SimpleSpec.spec
         Data.CFTA.TermSearchSpec.spec
         Data.CFTA.Refinement.GuardSpec.spec
         Data.CFTA.Refinement.RecognitionSpec.spec
@@ -44,3 +44,5 @@ main = do
         Data.CFTA.Refinement.MinimizeSpec.spec
         Data.CFTA.Refinement.SyntaxSpec.spec
         Data.CFTA.SymbolSpec.spec
+        Data.CFTA.SimpleSpec.spec
+        Data.CFTA.Refinement.SimpleSpec.spec

@@ -54,8 +54,8 @@ remains a separate ECTA-only package.
   explicit-state automata of `Data.CFTA`. Membership recurses on the term,
   the terms up to a depth are every accepted tree of the underlying graph,
   and union, intersection, and the depth bound are the textbook
-  constructions. The tests check the interned automata, enumeration, and the
-  reductions against it.
+  constructions. The tests check the interned automata, enumeration, the
+  reductions, and the liquid automata against it.
 - Enumeration removes duplicate terms with a hash set, so `terms` and
   `termsUpToM` of `Data.CFTA` need `Hashable symbol`. With an optimized
   `hashable`, this takes less than half the time of an ordered set on the
