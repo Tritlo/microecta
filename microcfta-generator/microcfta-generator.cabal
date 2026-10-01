@@ -176,6 +176,7 @@ test-suite gen-tests
     Data.CFTA.Gen.Equality.IFCExpressionLanguage
     Data.CFTA.Gen.Equality.RankDecodingSpec
     Data.CFTA.Gen.Equality.RecursiveGenSpec
+    Data.CFTA.Gen.Equality.SimpleSpec
     Data.CFTA.Gen.Equality.TestSupport
     Data.CFTA.Gen.Equality.TypedExpressionGenSpec
     Data.CFTA.Gen.Reference
