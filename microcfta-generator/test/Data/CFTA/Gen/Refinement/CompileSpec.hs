@@ -12,11 +12,15 @@ import Data.CFTA.Gen.Refinement.TestSupport (compileOrFail, massesByRank, rightO
 import Data.CFTA.Refinement (
     Entailment (Entailment),
     Guard (Bottom),
+    Node (Node),
     Symbol (RefinedSymbol),
     Verdict (Yes),
+    noConstraint,
+    pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Refinement, true, (./=), (.==))
+import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>=))
 import Data.CFTA.Refinement.Guard (allOf, isSameTermAs, isSubtypeOf, requires)
+import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -171,6 +175,14 @@ spec =
                 values compiled `shouldBe` [replicate 3 0, replicate 3 1]
                 decided <- LTAGen.compileWith (Entailment $ \_ _ -> pure Yes) (homogeneousBits 2)
                 (decided >>= LTAGen.cardinality) `shouldBe` Right 4
+
+        it "give an empty language for an import that its condition empties" $ do
+            -- The pruned automaton is empty, and reading it used to throw.
+            let zero = Node [Transition "n" (refinementFormula (.== 0)) [] noConstraint]
+                emptied = LTAGen.fromAutomatonUpToDepth 1 zero `LTAGen.satisfying` (.>= 1)
+            compiled <- LTAGen.compileWith latticeEntailment emptied
+            checked <- LTAGen.validOutcomes latticeEntailment emptied
+            (LTAGen.cardinality <$> compiled, checked) `shouldBe` (Right (Left LTAGen.EmptyGenerator), Left LTAGen.EmptyGenerator)
 
 -- | Build a product whose candidate count exceeds machine integers at width 64.
 bitForest :: Int -> LTAGen.LTAGen [Int]
