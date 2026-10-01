@@ -17,13 +17,29 @@ import Data.CFTA.Refinement (
     refinementRelation,
     semanticIntersection,
  )
-import Data.CFTA.Refinement.Expression (refinementFormula, true, variable, (.&&), (./=), (.<), (.==), (.>), (.>=))
+import Data.CFTA.Refinement.Expression (
+    Formula,
+    false,
+    lnot,
+    refinementFormula,
+    true,
+    variable,
+    (.&&),
+    (./=),
+    (.<),
+    (.<=),
+    (.==),
+    (.>),
+    (.>=),
+    (.||),
+ )
 import Data.CFTA.Refinement.Guard (argument, contract, notGuard, withActualFor)
+import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
-spec =
+spec = do
     describe "semantic refinement comparison" $ do
         it "recognises strict subtyping" $
             withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
@@ -89,3 +105,41 @@ spec =
             withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
                 semanticIntersection solver (refinementFormula (\v -> v .>= 0)) (refinementFormula (\v -> v ./= 0))
                     >>= (`shouldBe` BottomIntersection)
+
+    describe "integer points" $ do
+        it "counts and decodes each formula as a search of every point does" $
+            [(formula, decoded ["x", "y"] formula) | (formula, _) <- pointCases]
+                `shouldBe` [ (formula, Right [[a, b] | a <- [-3 .. 3], b <- [-3 .. 3], holds a b])
+                           | (formula, holds) <- pointCases
+                           ]
+
+        it "decodes points beyond 2^256 by count, first rank, and last rank" $ do
+            let big = 2 ^ (300 :: Int) :: Integer
+                ends formula = do
+                    found <- points ["x"] formula
+                    pure (pointCount found, pointAt found 0, pointAt found (pointCount found - 1))
+            ends (lnot (x .< fromInteger big) .&& x .<= fromInteger (big + 5)) `shouldBe` Right (6, [big], [big + 5])
+            ends (fromInteger (negate big) .<= x .&& x .<= fromInteger big) `shouldBe` Right (2 * big + 1, [negate big], [big])
+  where
+    x = variable "x"
+    decoded names formula = do
+        found <- points names formula
+        pure [pointAt found rank | rank <- [0 .. pointCount found - 1]]
+
+-- | Formulas over x and y in [-3, 3], each with the same test on integers.
+pointCases :: [(Formula, Integer -> Integer -> Bool)]
+pointCases =
+    [ (box $ x ./= y, (/=))
+    , (box $ lnot (x .< y), (>=))
+    , (box $ Fixpoint.PImp (x .> 0) (y .> x), \a b -> a <= 0 || b > a)
+    , (box $ Fixpoint.PIff (x .>= 0) (y .<= 1), \a b -> (a >= 0) == (b <= 1))
+    , (box $ x .< -1 .|| y .== x + 1, \a b -> a < -1 || b == a + 1)
+    , (box $ lnot (x .== 1 .|| y ./= 0), \a b -> not (a == 1 || b /= 0))
+    , (box $ lnot (Fixpoint.PImp (x + y .<= 2) (x ./= 0)), \a b -> a + b <= 2 && a == 0)
+    , (lnot (x .< -3 .|| x .> 3 .|| y .< -3 .|| y .> 3) .&& x ./= y, (/=))
+    , (Fixpoint.PIff (x .>= -3) (x .<= 3) .&& Fixpoint.PImp (y .< -3 .|| y .> 3) false .&& x + y .> 0, \a b -> a + b > 0)
+    ]
+  where
+    x = variable "x"
+    y = variable "y"
+    box formula = x .>= -3 .&& x .<= 3 .&& y .>= -3 .&& y .<= 3 .&& formula
