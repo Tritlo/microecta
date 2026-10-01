@@ -109,3 +109,4 @@ test-suite gen-tests
     hspec >=2.11 && <2.12,
     microcfta >=0.1.0.0 && <0.2,
     microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
