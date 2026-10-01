@@ -6,6 +6,7 @@ import Test.Hspec (hspec)
 
 import qualified Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
 import qualified Data.CFTA.Gen.Refinement.CompileSpec
+import qualified Data.CFTA.Gen.Refinement.OracleSpec
 import qualified Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
 
 main :: IO ()
@@ -18,3 +19,4 @@ main = do
         Data.CFTA.Gen.Refinement.CompileSpec.spec
         Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec.spec
         Data.CFTA.Gen.Refinement.BoundedGeneratorSpec.spec
+        Data.CFTA.Gen.Refinement.OracleSpec.spec

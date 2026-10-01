@@ -258,6 +258,7 @@ test-suite refinement-tests
     Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
     Data.CFTA.Gen.Refinement.CompileSpec
     Data.CFTA.Gen.Refinement.ExampleSupport
+    Data.CFTA.Gen.Refinement.OracleSpec
     Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
     Data.CFTA.Gen.Refinement.TestSupport
 
