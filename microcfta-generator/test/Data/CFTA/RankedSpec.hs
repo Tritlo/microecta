@@ -1,14 +1,63 @@
 module Data.CFTA.RankedSpec (spec) where
 
+import Data.List (genericLength, sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.QuickCheck (
+    Gen,
+    chooseInt,
+    chooseInteger,
+    conjoin,
+    counterexample,
+    forAllShow,
+    oneof,
+    property,
+    sized,
+    vectorOf,
+    (.&&.),
+    (===),
+ )
 
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 
 spec :: Spec
 spec = do
+    describe "against a list of members" $
+        it "gives the ranks, the masses, the sizes, and the shrinks of the list" $
+            property $
+                forAllShow (sized $ \size -> described (min 3 (size `div` 25))) show $ \description ->
+                    case build description of
+                        Left err -> counterexample (show err) False
+                        Right ranked ->
+                            let listed = members description
+                                ranks = [0 .. Tree.cardinality ranked - 1]
+                                sizeAt rank = let (_, _, size) = listed !! fromInteger rank in size
+                                checked = take 40 ranks
+                             in conjoin $
+                                    [ map (Tree.unrank ranked) ranks === [Right value | (_, value, _) <- listed]
+                                    , Map.fromListWith (+) [(sample, mass) | (mass, sample) <- runExact $ Tree.lowerWithRank ranked]
+                                        === Map.fromListWith (+) [((rank, value), mass) | (rank, (mass, value, _)) <- zip [0 ..] listed]
+                                    , Map.fromListWith (+) [(value, mass) | (mass, value) <- runExact $ Tree.lower ranked]
+                                        === Map.fromListWith (+) [(value, mass) | (mass, value, _) <- listed]
+                                    , map (Tree.sizeOfRank ranked) ranks === [Just size | (_, _, size) <- listed]
+                                    ]
+                                        <> [ counterexample ("shrink " <> show rank) $
+                                                [ candidate
+                                                | candidate <- Tree.shrinkRank ranked rank
+                                                , candidate < 0 || candidate >= rank || sizeAt candidate > sizeAt rank
+                                                ]
+                                                    === []
+                                           | rank <- checked
+                                           ]
+                                        <> [ counterexample ("smaller than " <> show rank) $
+                                                let smaller = Tree.smallerMembers ranked rank
+                                                 in sort smaller === [(other, value) | (other, (_, value, size)) <- zip [0 ..] listed, size < sizeAt rank]
+                                                        .&&. map (sizeAt . fst) smaller === sort (map (sizeAt . fst) smaller)
+                                           | rank <- checked
+                                           ]
+
     describe "structural shrinking" $ do
         it "never offers a member larger than the current one across choice branches" $ do
             let languages = do
@@ -98,3 +147,80 @@ spec = do
                     Tree.unrank ranked 1 `shouldBe` Right 'b'
                     take 3 (runExact $ Tree.lowerWithRank ranked)
                         `shouldBe` [(1 % mass, (0, 'a')), (1 % mass, (1, 'b')), (1 % mass, (1, 'b'))]
+
+-- | A ranked language built from sources, choices, products, and maps.
+data Described
+    = -- | A weighted source; 'True' builds it on demand with tickets.
+      Weighted Bool [(Integer, Int)]
+    | -- | A uniform source; 'True' builds it on demand.
+      Uniform Bool [Int]
+    | Frequency [(Integer, Described)]
+    | Oneof [Described]
+    | Pair Described Described
+    | Mapped Described
+    deriving (Show)
+
+-- | The members of a described language.
+data Value = Atom Int | Both Value Value | Wrapped Value
+    deriving (Eq, Ord, Show)
+
+-- | A random description, nested to the given depth.
+described :: Int -> Gen Described
+described depth
+    | depth <= 0 = source
+    | otherwise =
+        oneof
+            [ source
+            , Frequency <$> some ((,) <$> chooseInteger (1, 4) <*> described (depth - 1))
+            , Oneof <$> some (described (depth - 1))
+            , Pair <$> described (depth - 1) <*> described (depth - 1)
+            , Mapped <$> described (depth - 1)
+            ]
+  where
+    source =
+        oneof
+            [ Weighted <$> oneof [pure False, pure True] <*> some ((,) <$> chooseInteger (1, 4) <*> chooseInt (0, 9))
+            , Uniform <$> oneof [pure False, pure True] <*> some (chooseInt (0, 9))
+            ]
+    some element = chooseInt (1, 3) >>= (`vectorOf` element)
+
+{- | The members of a described language in rank order, with their masses and
+sizes. A choice lists its branches in order, and a product varies its right
+side fastest. A choice selects a branch by its weight, and a product selects
+its sides independently. A source member has size one, and a product adds
+the sizes of its sides.
+-}
+members :: Described -> [(Rational, Value, Integer)]
+members description = case description of
+    Weighted _ entries -> [(weight % sum (map fst entries), Atom value, 1) | (weight, value) <- entries]
+    Uniform _ values -> [(1 % genericLength values, Atom value, 1) | value <- values]
+    Frequency branches ->
+        [ (weight % sum (map fst branches) * mass, value, size)
+        | (weight, branch) <- branches
+        , (mass, value, size) <- members branch
+        ]
+    Oneof branches -> [(mass / genericLength branches, value, size) | branch <- branches, (mass, value, size) <- members branch]
+    Pair left right ->
+        [ (leftMass * rightMass, Both leftValue rightValue, leftSize + rightSize)
+        | (leftMass, leftValue, leftSize) <- members left
+        , (rightMass, rightValue, rightSize) <- members right
+        ]
+    Mapped inner -> [(mass, Wrapped value, size) | (mass, value, size) <- members inner]
+
+build :: Described -> Either Tree.RankedError (Tree.Ranked Value)
+build description = case description of
+    Weighted False entries -> Tree.fromWeighted [(weight, Atom value) | (weight, value) <- entries]
+    Weighted True entries ->
+        Tree.fromWeightedIndexedOnDemand $
+            Tree.WeightedIndexed
+                (genericLength entries)
+                (sum $ map fst entries)
+                (Atom . snd . (entries !!) . fromInteger)
+                (([rank | (rank, (weight, _)) <- zip [0 ..] entries, _ <- [1 .. weight]] !!) . fromInteger)
+    Uniform onDemand values ->
+        (if onDemand then Tree.fromIndexedOnDemand else Tree.fromIndexed) $
+            Tree.Indexed (genericLength values) (Atom . (values !!) . fromInteger)
+    Frequency branches -> Tree.frequency =<< traverse (traverse build) branches
+    Oneof branches -> Tree.oneof =<< traverse build branches
+    Pair left right -> (\leftRanked rightRanked -> Both <$> leftRanked <*> rightRanked) <$> build left <*> build right
+    Mapped inner -> fmap Wrapped <$> build inner

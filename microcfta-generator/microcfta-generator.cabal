@@ -107,3 +107,4 @@ test-suite gen-tests
     containers >=0.8 && <0.9,
     hspec >=2.11 && <2.12,
     microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
