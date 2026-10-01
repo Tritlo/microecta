@@ -138,6 +138,8 @@ test-suite gen-tests
     -Wno-partial-type-signatures
 
   other-modules:
+    Data.CFTA.Gen.Reference
+    Data.CFTA.Gen.ReferenceSpec
     Data.CFTA.Gen.UntypedExpressionLanguage
     Data.CFTA.GenSpec
     Data.CFTA.RankedSpec
