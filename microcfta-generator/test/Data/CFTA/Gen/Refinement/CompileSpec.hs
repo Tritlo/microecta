@@ -208,6 +208,19 @@ spec = do
                     (name, fmap sort expected) `shouldBe` (name, Right $ sort $ values compiled)
                     (name, massByValue compiled) `shouldBe` (name, massByValue twin)
 
+        it "compile with the lattice entailment as with Z3" $
+            withZ3 declarations $ \solver ->
+                forM_ integerCases $ \(name, integerCase) ->
+                    forM_
+                        [ integerCase $ \low high -> LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                        , integerCase $ \low high -> LTAGen.elements [low .. high]
+                        ]
+                        $ \generator -> do
+                            byZ3 <- compileOrFail solver generator
+                            counted <- LTAGen.compileWith latticeEntailment generator
+                            (name, values <$> counted, massByValue <$> counted)
+                                `shouldBe` (name, Right $ values byZ3, Right $ massByValue byZ3)
+
         it "keep source order in a bare applicative spine" $
             withZ3 declarations $ \solver -> do
                 let spine leaf = (,) <$> LTAGen.oneof [leaf, LTAGen.elements [0 :: Integer]] <*> LTAGen.elements "x"
