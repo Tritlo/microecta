@@ -42,6 +42,9 @@ remains a separate ECTA-only package.
   lexicographic order, without enumeration. The formula becomes a signed sum
   of conjunctions, and the variables are summed out with Faulhaber
   polynomials.
+  `latticeEntailment` is an `Entailment` without a solver: it counts the
+  integer points that satisfy the antecedent and falsify the consequent, and
+  answers `Unknown` for a formula it cannot count.
 - `Data.CFTA.Enumeration`: one enumerator for every theory. `terms` solves
   path equalities by unification and stops at recursion, `plainTerms` lists an
   automaton without constraints lazily by depth, and `runs` returns each

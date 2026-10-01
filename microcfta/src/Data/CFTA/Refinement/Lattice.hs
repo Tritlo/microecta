@@ -14,6 +14,9 @@ Every variable must be bounded. When a variable is summed out, its coefficient
 in each bound must be one or minus one after the bound is divided by the
 greatest common divisor of its coefficients. Other formulas give a
 'LatticeError'.
+
+'latticeEntailment' decides an implication by counting points, without a
+solver.
 -}
 module Data.CFTA.Refinement.Lattice (
     LatticeError (..),
@@ -21,18 +24,20 @@ module Data.CFTA.Refinement.Lattice (
     points,
     pointCount,
     pointAt,
+    latticeEntailment,
 ) where
 
 import Control.Monad (when)
 import Data.Either (lefts, rights)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (elemIndex, partition)
+import Data.List (elemIndex, nub, partition)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
 import qualified Language.Fixpoint.Types as Fixpoint
 
+import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entailmentWithBindings)
 import Data.CFTA.Symbol (Formula)
 
 -- | Why the integer points of a formula cannot be counted.
@@ -87,6 +92,24 @@ points names formula = do
             error
                 "microcfta bug in Data.CFTA.Refinement.Lattice.points: \
                 \a count is not an integer"
+
+{- | Decide an implication by counting integer points, without a solver.
+
+The antecedent implies the consequent when no integer point satisfies the
+antecedent and falsifies the consequent. Every free name is an integer
+variable, and so is the fresh name of each binding. A formula that 'points'
+cannot count, such as one with a variable that no bound limits, gives
+'Unknown'. The count can take time exponential in the number of disjunctions
+and disequalities of the two formulas.
+-}
+latticeEntailment :: Entailment
+latticeEntailment = entailmentWithBindings $ \_ antecedent consequent ->
+    let counterexamples = Fixpoint.PAnd [antecedent, Fixpoint.PNot consequent]
+     in pure $ case points (nub $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples) counterexamples of
+            Right found
+                | pointCount found == 0 -> Yes
+                | otherwise -> No
+            Left _ -> Unknown
 
 {- | The point at a rank, in lexicographic order of the variables.
 
