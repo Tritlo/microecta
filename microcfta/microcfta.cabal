@@ -141,6 +141,7 @@ test-suite unit-tests
     Data.CFTA.Refinement.RecognitionSpec
     Data.CFTA.Refinement.RecursiveSpec
     Data.CFTA.Refinement.RefinementRelationSpec
+    Data.CFTA.Refinement.SimpleSpec
     Data.CFTA.Refinement.SubstitutionSpec
     Data.CFTA.Refinement.SyntaxSpec
     Data.CFTA.Refinement.TestSupport
