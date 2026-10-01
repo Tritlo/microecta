@@ -93,6 +93,7 @@ library
     Data.CFTA.Refinement.Evaluate
     Data.CFTA.Refinement.Expression
     Data.CFTA.Refinement.Guard
+    Data.CFTA.Refinement.Lattice
     Data.CFTA.Refinement.LiquidFixpoint
     Data.CFTA.Refinement.Minimize
     Data.CFTA.Refinement.Prune
