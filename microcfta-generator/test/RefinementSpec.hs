@@ -7,6 +7,7 @@ import Test.Hspec (hspec)
 import qualified Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
 import qualified Data.CFTA.Gen.Refinement.CompileSpec
 import qualified Data.CFTA.Gen.Refinement.DependentApplicationSpec
+import qualified Data.CFTA.Gen.Refinement.OracleSpec
 import qualified Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
 import qualified Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
 import qualified Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
@@ -34,3 +35,4 @@ main = do
         Data.CFTA.Gen.Refinement.SizedVectorSpec.spec
         Data.CFTA.Gen.Refinement.StateMachineTraceSpec.spec
         Data.CFTA.Gen.Refinement.DependentApplicationSpec.spec
+        Data.CFTA.Gen.Refinement.OracleSpec.spec
