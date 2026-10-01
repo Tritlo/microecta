@@ -25,6 +25,7 @@ import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Interned.Type (MuDepth (..))
 import Data.CFTA.Path (getPath, path)
+import qualified Data.CFTA.Simple as Simple
 import Data.CFTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
@@ -450,6 +451,13 @@ spec = do
                     map (Datatype.decodeTerm . Datatype.encodeTerm) values `shouldBe` map Just values
                     Automaton.accepts grammar (Datatype.encodeTerm (Just (Dot 7))) `shouldBe` False
                     Automaton.cycleState grammar `shouldSatisfy` (/= Nothing)
+                    -- No junk: every term of the grammar is the encoding of a value.
+                    let roundTrips term = fmap Datatype.encodeTerm (Datatype.decodeTerm term :: Maybe (Maybe Shape)) == Just term
+                    case Simple.termsUpTo 3 grammar of
+                        Nothing -> expectationFailure "the grammar has a constraint"
+                        Just grammarTerms -> do
+                            length grammarTerms `shouldSatisfy` (> 3)
+                            filter (not . roundTrips) grammarTerms `shouldBe` []
 
 -- | A type argument that grows once: 'Stop' leads back to a fixed larger type.
 data Grows a = Grows a Stop | Stopped
