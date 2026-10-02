@@ -72,7 +72,7 @@ echo "=== Checking $package-$version ==="
   cd "$package"
   cabal check
 )
-cabal test --builddir="$release_build_dir" "$package" -O2 --ghc-options=-Werror --test-show-details=direct
+cabal test --builddir="$release_build_dir" "$package" --enable-tests -O2 --ghc-options=-Werror --test-show-details=direct
 if [[ ${#dependencies[@]} -gt 0 ]]; then
   documentation_dependencies=()
   for dependency in "${dependencies[@]}"; do
@@ -126,12 +126,12 @@ if [[ ${#dependencies[@]} -gt 0 ]]; then
 
   (
     cd "$release_tmp"
-    cabal test "$package" -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test "$package" --enable-tests -O2 --ghc-options=-Werror --test-show-details=direct
   )
 else
   (
     cd "$release_tmp/$package-$version"
-    cabal test all --with-compiler=ghc-9.14.1 -O2 --ghc-options=-Werror --test-show-details=direct
+    cabal test all --with-compiler=ghc-9.14.1 --enable-tests -O2 --ghc-options=-Werror --test-show-details=direct
   )
 fi
 

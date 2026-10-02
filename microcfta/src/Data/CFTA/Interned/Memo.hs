@@ -1,6 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-{- | Quick-and-dirty hash-based memoization.
+{- | Hash-based memoization.
 
 The shared automaton engine uses stable global memo tables for interning and recursive
 graph operations. 'memo' is convenient when the memoized function is a
@@ -11,8 +11,9 @@ per-call allocation.
 
 Safe from any thread. The table is a 'Table' of immutable maps in @IORef@s,
 read without blocking and updated with 'atomicModifyIORef''. Two racers may
-install different thunks and return their own result, but both compute the same answer
-because every function memoized here is pure.
+both compute a result. Every function memoized here is pure, so both results
+are the same. The first installed thunk wins, and the other racer returns that
+stored thunk. Only the computation is duplicated.
 
 The lazy map is important: an atomic update installs the result thunk without
 forcing the memoized computation. That computation may itself intern or call
@@ -20,7 +21,7 @@ other memoized functions, so it must run outside the update.
 
 The tables never evict, so a memoized function retains an entry for every
 distinct argument it has ever been applied to, for the lifetime of the process.
-That is what makes repeated work free, and it means memory grows with the
+That avoids repeated work. It also means that memory grows with the
 number of distinct inputs rather than with the work done. See the memory
 section of the package README.
 -}
@@ -57,8 +58,9 @@ memo f = unsafeDupablePerformIO $ do
 {- | Memoize a pure binary function in one table keyed by the pair.
 
 Nesting two unary tables instead would allocate a fresh hash table for every
-distinct first argument, before storing a single entry. One table keyed by the
-pair costs the same time on the core benchmark.
+distinct first argument, before storing a single entry. The two forms differ
+by less than 0.02% in instruction count, on the core benchmark and on the
+generator benchmarks.
 -}
 memo2 :: (Hashable a, Hashable b) => (a -> b -> c) -> a -> b -> c
 memo2 f = curry (memo (uncurry f))
@@ -91,8 +93,8 @@ memo2With cache f = curry (memoWith cache (uncurry f))
 
 {- | A family of memo tables for one function.
 
-Each symbol and constraint type has its own table, and these two types must
-determine the function's argument and result types. Individual entries
+Each symbol type has its own table, and the symbol type must determine the
+function's argument and result types. Individual entries
 contain ordinary typed keys and values.
 -}
 newtype TypeableMemoCache = TypeableMemoCache CacheFamily
@@ -101,25 +103,25 @@ newtype TypeableMemoCache = TypeableMemoCache CacheFamily
 newTypeableMemoCache :: IO TypeableMemoCache
 newTypeableMemoCache = TypeableMemoCache <$> newCacheFamily
 
--- | Memoize one application in the table for the symbol and constraint types.
+-- | Memoize one application in the table for the symbol type.
 memoTypeableWith ::
-    forall symbol constraint a b.
-    (Hashable a, Typeable symbol, Typeable constraint) =>
+    forall symbol a b.
+    (Hashable a, Typeable symbol) =>
     TypeableMemoCache ->
     (a -> b) ->
     a ->
     b
 {-# INLINE memoTypeableWith #-}
 memoTypeableWith (TypeableMemoCache family) =
-    memoWith (selectCache @symbol @constraint family (newMemoCache @a @b))
+    memoWith (selectCache @symbol family (newMemoCache @a @b))
 
 -- | Binary variant of 'memoTypeableWith', keyed by the argument pair.
 memo2TypeableWith ::
-    forall symbol constraint a b c.
-    (Hashable a, Hashable b, Typeable symbol, Typeable constraint) =>
+    forall symbol a b c.
+    (Hashable a, Hashable b, Typeable symbol) =>
     TypeableMemoCache ->
     (a -> b -> c) ->
     a ->
     b ->
     c
-memo2TypeableWith cache f = curry (memoTypeableWith @symbol @constraint cache (uncurry f))
+memo2TypeableWith cache f = curry (memoTypeableWith @symbol cache (uncurry f))

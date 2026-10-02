@@ -1,9 +1,14 @@
 {- | Lightweight union-find implementation suitable for nondeterministic search.
 
-Mutable union-find, as in @Data.Equivalence.Monad@, should be faster overall,
+Mutable union-find, as in @Data.Equivalence.Monad@, can be faster overall,
 but enumeration branches in the list monad need a structure that can be copied
 and backtracked cheaply. This module stores parent pointers in an 'IntMap' and
 returns updated structures from 'find' and 'union'.
+
+In a constrained enumeration of 20,000 terms of the typed-expression ECTA,
+'find' takes 1.7% of the instructions, and all operations of @containers@
+together take 5.5%. So a mutable union-find with an undo log could save at
+most about 7%, which does not pay for the backtracking that it needs.
 -}
 module Data.CFTA.Internal.UnionFind (
     UVarGen,
