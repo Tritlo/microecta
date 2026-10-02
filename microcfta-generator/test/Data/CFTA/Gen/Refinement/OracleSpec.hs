@@ -5,9 +5,10 @@
 'LTAGen.validOutcomes' lists every candidate that the recipe describes and
 checks its guards one by one, which is the definition of the language.
 Random generators of integers are compiled and must give the same multiset
-of values. The leaves are pools and bounded integer leaves, and the nodes
-are choices and conditions.
-Both sides decide the queries with 'latticeEntailment'. The description
+of values. The leaves are pools and bounded integer leaves; the nodes are
+choices, conditions, and guarded constructors whose result is the sum of
+their children, so a parent guard reads integers. Both sides decide the
+queries with 'latticeEntailment'. Every value is exact, so the description
 alone also gives the values, and 'LTAGen.validOutcomes' must agree with them.
 
 A liquid automaton imported without a depth bound is compiled and compared
@@ -56,8 +57,11 @@ import Data.CFTA.Refinement (
     validate,
  )
 import Data.CFTA.Refinement.Expression (
+    Expr,
+    Formula,
     literal,
     refinementFormula,
+    true,
     variable,
     (.&&),
     (.<),
@@ -70,7 +74,7 @@ import qualified Data.CFTA.Simple as Simple
 
 spec :: Spec
 spec = describe "the refinement compiler against validOutcomes" $ do
-    -- validOutcomes checks every candidate, so the language must stay small.
+    -- Nested recursion can describe a large language, and validOutcomes checks every candidate of it.
     it "gives the values of the candidates that pass every guard"
         $ property
         $ forAllShow
@@ -157,8 +161,6 @@ agreesWithOracle description generator' = do
                      ]
                     === []
         (Left err, Left other) -> counterexample (show (err, other)) True
-        -- validOutcomes reports an empty language as an error.
-        (Right generated, Left LTAGen.EmptyGenerator) -> values generated === []
         -- The symbolic counter cannot count every formula; compile reports it.
         (Left (LTAGen.UncountableIntegers _), Right _) -> property True
         (Left (LTAGen.IntegerLeafRead _), Right _) -> property True
@@ -207,7 +209,8 @@ liquidAutomaton = do
             ]
 
 {- | A random generator of integers with a description and its values, nested
-to the given depth. The values follow from the description alone.
+to the given depth. The values follow from the description alone: every value
+is exact, so a guard on a sum is a test of the two summands.
 -}
 generator :: Int -> Gen (String, [Integer], LTAGen.LTAGen Integer)
 generator depth
@@ -234,6 +237,29 @@ generator depth
                     , filter (>= bound) childValues
                     , child `LTAGen.satisfying` (.>= literal bound)
                     )
+            , do
+                (leftName, leftValues, left) <- generator (depth - 1)
+                (rightName, rightValues, right) <- generator (depth - 1)
+                (contractName, contract, holds) <- elements contracts
+                pure
+                    ( "sum " <> contractName <> " (" <> leftName <> ") (" <> rightName <> ")"
+                    , [x + y | x <- leftValues, y <- rightValues, holds x y]
+                    , (LTAGen.guarded "sum" contract `LTAGen.ensuring` (+)) ((+) <$> left <*> right)
+                    )
+            , do
+                -- Bounded recursion: a base, or the guarded sum of a step and the recursion. Both can recur.
+                (baseName, baseValues, base) <- generator (depth - 1)
+                (stepName, stepValues, step) <- generator (depth - 1)
+                (contractName, contract, holds) <- elements contracts
+                bound <- chooseInt (0, 2)
+                -- The first unfolding reads the empty generator, and there are bound + 1 unfoldings.
+                let unfold self = baseValues <> [x + y | x <- stepValues, y <- self, holds x y]
+                pure
+                    ( "recurUpTo " <> show bound <> " (oneof [" <> baseName <> ", sum " <> contractName <> " (" <> stepName <> ") self])"
+                    , iterate unfold [] !! (bound + 1)
+                    , LTAGen.recurUpTo bound $ \self ->
+                        LTAGen.oneof [base, (LTAGen.guarded "sum" contract `LTAGen.ensuring` (+)) ((+) <$> step <*> self)]
+                    )
             ]
   where
     leaf =
@@ -250,6 +276,13 @@ generator depth
                     , LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
                     )
             ]
+    contracts :: [(String, Expr -> Expr -> Formula, Integer -> Integer -> Bool)]
+    contracts =
+        [ ("true", \_ _ -> true, \_ _ -> True)
+        , ("x < y", (.<), (<))
+        , ("x <= y + 1", \x y -> x .<= y + 1, \x y -> x <= y + 1)
+        , ("x >= 1", \x _ -> x .>= 1, \x _ -> x >= 1)
+        ]
 
 -- | Every rank of a finite generator.
 ranks :: LTAGen.LTAGen a -> [Integer]

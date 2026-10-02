@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -20,19 +21,27 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
     reportTimeLimit,
     spineArity,
     liquidOrder,
+    isIntegerName,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Exception (handle)
+import Control.Monad ((<=<))
 import Data.Bifunctor (first)
+import Data.Either (fromLeft)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (mapAccumL, nub, partition)
+import Data.List (isPrefixOf, mapAccumL, nub)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, isJust, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
 import Data.Ratio (denominator, numerator)
 import qualified Data.Set as Set
 import Data.String (fromString)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Tree as Tree
+import System.Mem.StableName (StableName, eqStableName, hashStableName, makeStableName)
+import Unsafe.Coerce (unsafeCoerce)
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
@@ -42,14 +51,25 @@ import Data.CFTA.Gen.Internal.Static (
     Outcome (outcomeMass),
     OutcomeIndex (outcomeSelect),
     Static (staticOutcomes),
-    labelledLeavesStatic,
+    holeStatic,
+    mapStatic,
     pointsStatic,
  )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Refinement
-import Data.CFTA.Refinement.Expression (literal, refinementFormula, substitute, true, variable, (.&&), (.==))
-import Data.CFTA.Refinement.Lattice (pointAt, pointCount, points)
+import Data.CFTA.Refinement.Expression (
+    definingTerm,
+    freeNames,
+    literal,
+    refinementFormula,
+    substitute,
+    true,
+    variable,
+    (.&&),
+    (.==),
+ )
+import Data.CFTA.Refinement.Lattice (LatticeError (UnboundedVariable), Points, onlyPoint, pointAt, pointCount, points)
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..))
 
 -- | A generator over liquid tree automata.
@@ -139,6 +159,49 @@ alignedSpine generator = case genRecipe generator of
             _ -> Nothing
         _ -> Just 1
 
+{- | What one compilation shares: the cached solver, the groups compiled so
+far, and which generators contain integer leaves.
+-}
+data Compiler = Compiler
+    { compilerEntailment :: !Entailment
+    , compilerClosed :: !(Memo ClosedGroups)
+    , compilerOpen :: !(Memo OpenGroups)
+    , compilerIntegers :: !(Memo Contains)
+    }
+
+-- | The groups of a generator that leaves no variable open.
+newtype ClosedGroups a = ClosedGroups (Either GenError (LTAGrouped ObservationKey a))
+
+-- | The groups of a generator whose members can leave integer variables open.
+newtype OpenGroups a = OpenGroups (Either GenError (LTAGrouped OpenKey ([Integer] -> a)))
+
+-- | Whether a generator contains an integer leaf.
+newtype Contains a = Contains Bool
+
+-- | Results by the stable name of a generator and the paths requested of it.
+type Memo f = IORef (IntMap.IntMap [Entry f])
+
+{- | One result for one generator. A stable name identifies one heap object,
+so the result has the type of that object.
+-}
+data Entry f = forall a. Entry !(StableName (LTAGen a)) ![Path] (f a)
+
+-- | The recorded result for a generator and requested paths, or the computed one, recorded.
+memoized :: Memo f -> [Path] -> LTAGen a -> IO (f a) -> IO (f a)
+memoized memo requested generator compute = do
+    name <- makeStableName $! generator
+    known <- readIORef memo
+    case [ unsafeCoerce result
+         | Entry other paths result <- IntMap.findWithDefault [] (hashStableName name) known
+         , eqStableName name other
+         , paths == requested
+         ] of
+        result : _ -> pure result
+        [] -> do
+            result <- compute
+            modifyIORef' memo $ IntMap.insertWith (<>) (hashStableName name) [Entry name requested result]
+            pure result
+
 -- | Whether a generator waits for 'compile'.
 deferred :: Gen symbol a -> Bool
 deferred generator = case genLanguage generator of
@@ -159,22 +222,36 @@ compile uncachedEntailment generator
     | not (deferred generator) = pure $ Right generator
     | otherwise = reportTimeLimit $ do
         entailment <- cacheEntailment uncachedEntailment
-        fmap ungroup <$> compileGen entailment [path []] generator
+        closedMemo <- newIORef IntMap.empty
+        openMemo <- newIORef IntMap.empty
+        integersMemo <- newIORef IntMap.empty
+        fmap ungroup <$> compileGen (Compiler entailment closedMemo openMemo integersMemo) [path []] generator
 
 -- | Compile one generator, grouped by the observations its parent needs.
-compileGen :: Entailment -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
-compileGen entailment requested generator
+compileGen :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGen compiler requested generator =
+    fmap (\(ClosedGroups groups) -> groups) $
+        memoized (compilerClosed compiler) requested generator $
+            ClosedGroups <$> do
+                open <- containsIntegers compiler generator
+                if open
+                    then (>>= closeOpen) <$> compileOpen compiler requested generator
+                    else compileGenOnce compiler requested generator
+
+-- | Compile one generator that the memo does not hold.
+compileGenOnce :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGenOnce compiler requested generator
     | not (deferred generator) && null requested = pure $ Right $ keyed noObservations generator
     | otherwise = case genRecipe generator of
         Built -> pure $ groupBuilt requested generator
         Lifted value -> pure $ Right $ keyed noObservations $ pure value
-        Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen entailment requested inner
+        Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen compiler requested inner
         Applied _ _ ->
             fmap (regroupOn (const noObservations))
-                <$> compileSpine entailment (replicate (spineArity generator) []) generator
+                <$> compileSpine compiler (replicate (spineArity generator) []) generator
         Chosen alternatives -> do
             compiled <-
-                traverse (\(weight, alternative) -> fmap (weight,) <$> compileGen entailment requested alternative) alternatives
+                traverse (\(weight, alternative) -> fmap (weight,) <$> compileGen compiler requested alternative) alternatives
             pure $ do
                 weighted <- sequence compiled
                 pure
@@ -184,43 +261,15 @@ compileGen entailment requested generator
                         | (index :: Int, (weight, grouped)) <- zip [0 ..] weighted
                         , not $ emptyGroups grouped
                         ]
-        Closed symbol constraint child -> compileNode entailment requested (const $ Right symbol) False constraint child
-        ClosedBy symbolOf constraint child -> compileNode entailment requested (fmap symbolOf . traverse rootOf) True constraint child
-        Imported bound order automaton -> compileImport entailment requested bound order automaton
-        Integers constraint -> pure $ compileIntegers constraint
+        Closed symbol constraint child -> compileNode compiler requested (const $ Right symbol) False constraint child
+        ClosedBy symbolOf constraint child -> compileNode compiler requested (symbolOf <=< traverse rootOf) True constraint child
+        Imported bound order automaton -> compileImport (compilerEntailment compiler) requested bound order automaton
+        Integers constraint -> pure $ integerGroup constraint >>= closeOpen
   where
     -- The root label retained by a group, which a root-computed constructor needs.
     rootOf :: ObservationKey -> Either GenError Symbol
     rootOf key =
         maybe (Left MissingRootObservation) (\(Observed label _) -> Right label) $ Map.lookup (path []) $ keyObservations key
-
-{- | Count the integers that the conditions of an integer leaf admit.
-
-The group carries no observation, so a guard cannot read the leaf as one
-refinement. Each member is a leaf refined as its integer.
--}
-compileIntegers :: Constraint -> Either GenError (LTAGrouped ObservationKey Integer)
-compileIntegers constraint = case points [valueName] (integerDomain constraint) of
-    Left err -> Left $ UncountableIntegers err
-    Right found
-        | pointCount found == 0 -> Right $ frequencies []
-        | otherwise ->
-            Right
-                $ keyed noObservations
-                $ Gen Built
-                $ TransparentLanguage
-                $ Right
-                $ labelledLeavesStatic
-                    (RefinedSymbol (fromString "integers") $ integerDomain constraint)
-                    (integerSymbol . valueAt found)
-                    (Indexed (pointCount found) (valueAt found))
-  where
-    valueAt found rank = case pointAt found rank of
-        [value] -> value
-        _ ->
-            error
-                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileIntegers: \
-                \a point of one variable has another dimension"
 
 -- | The name of the value in a refinement.
 valueName :: String
@@ -260,6 +309,7 @@ groupBuilt :: [Path] -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a
 groupBuilt requested generator
     | deferred generator = Left SourceRequiresCompilation
     | null requested = Right $ keyed noObservations generator
+    | Left EmptyGenerator <- cardinality generator = Right $ frequencies []
     | otherwise = do
         total <- cardinality generator
         members <- traverse member [0 .. total - 1]
@@ -304,25 +354,25 @@ Each position of the applicative spine is compiled with the observations its
 parent requests at that position, and the positions are joined left to
 right. An empty position empties the product without compiling the rest.
 -}
-compileSpine :: Entailment -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
-compileSpine entailment requirements generator = case genRecipe generator of
+compileSpine :: Compiler -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
+compileSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure value
-    Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine entailment requirements inner
+    Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (spineArity functions) requirements
-        compiledFunctions <- compileSpine entailment functionRequirements functions
+        compiledFunctions <- compileSpine compiler functionRequirements functions
         case compiledFunctions of
             Left err -> pure $ Left err
             Right functionGroups
                 | emptyGroups functionGroups -> pure $ Right $ frequencies []
                 | otherwise -> do
-                    compiledArguments <- compileSpine entailment argumentRequirements arguments
+                    compiledArguments <- compileSpine compiler argumentRequirements arguments
                     case compiledArguments of
                         Left err -> pure $ Left err
                         Right argumentGroups -> do
                             related <- relateGroupsM (\_ _ -> pure $ Right True) (<>) functionGroups argumentGroups
                             pure $ mapWithKey (\_ (function, argument) -> function argument) <$> related
-    _ -> fmap (regroupOn pure) <$> compileGen entailment (concat $ take 1 requirements) generator
+    _ -> fmap (regroupOn pure) <$> compileGen compiler (concat $ take 1 requirements) generator
 
 {- | Compile one guarded constructor.
 
@@ -333,21 +383,17 @@ groups; the accepted tuples are closed with the constructor and regrouped by
 the parent's observations.
 -}
 compileNode ::
-    Entailment ->
+    Compiler ->
     [Path] ->
     ([ObservationKey] -> Either GenError Symbol) ->
     Bool ->
     Constraint ->
     LTAGen a ->
     IO (Either GenError (LTAGrouped ObservationKey a))
-compileNode entailment requested labelOf needsRoots constraint child
-    | any isJust positions = compileIntegerNode entailment requested labelOf needsRoots constraint child positions
-  where
-    positions = integerPositions child
-compileNode entailment requested labelOf needsRoots constraint child
+compileNode compiler requested labelOf needsRoots constraint child
     | not (all null childRequirements) && not (alignedSpine child) = pure $ Left ChildNotOneTerm
     | otherwise = do
-        compiledChild <- compileSpine entailment childRequirements child
+        compiledChild <- compileSpine compiler childRequirements child
         case compiledChild of
             Left err -> pure $ Left err
             Right childGroups -> do
@@ -366,7 +412,7 @@ compileNode entailment requested labelOf needsRoots constraint child
         ]
     decide childKeys = case labelOf childKeys of
         Left err -> pure $ Left err
-        Right label -> constraintDecision entailment label constraint childKeys
+        Right label -> constraintDecision (compilerEntailment compiler) label constraint childKeys
     -- Only accepted tuples are closed, and their labels were computed to accept them.
     closeLabel childKeys = case labelOf childKeys of
         Right label -> label
@@ -376,184 +422,410 @@ compileNode entailment requested labelOf needsRoots constraint child
                 \an accepted group lost its root observation"
     closeObservations childKeys = parentObservations requested (closeLabel childKeys) childKeys
 
-{- | Compile one constructor with integer children.
-
-Each integer child becomes a placeholder leaf. The other children are
-compiled and decided as usual, without the parts of the guard that read an
-integer child. For each accepted tuple of child groups, those parts, the
-conditions of the integer children, and the exact values of the other
-children that the parts name give one linear formula. Its integer points,
-counted without enumeration, fill the placeholders.
+{- | Whether a generator contains an integer leaf outside an imported
+automaton. Only such a generator compiles through open groups.
 -}
-compileIntegerNode ::
-    Entailment ->
+containsIntegers :: Compiler -> LTAGen a -> IO Bool
+containsIntegers compiler generator =
+    fmap (\(Contains found) -> found) $
+        memoized (compilerIntegers compiler) [] generator $
+            Contains <$> case genRecipe generator of
+                Integers _ -> pure True
+                Mapped _ inner -> containsIntegers compiler inner
+                Applied functions arguments -> (||) <$> containsIntegers compiler functions <*> containsIntegers compiler arguments
+                Chosen alternatives -> or <$> traverse (containsIntegers compiler . snd) alternatives
+                Closed _ _ child -> containsIntegers compiler child
+                ClosedBy _ _ child -> containsIntegers compiler child
+                _ -> pure False
+
+{- | The key of a group whose members can leave integer variables open: what
+the parent observes, the number of open variables, the formula over them
+that the members satisfy, and the number of its points. The variables are
+named by 'integerName', and a root label that names them is a term of them.
+
+The mass of a group is the mass of all its points, as for a group of pools:
+one point has the product of the masses of the children, divided by their point
+counts, and a constructor multiplies this by the share of the points that it
+keeps. A pool group sums the masses of its members in the same unit.
+The number of points is 'Nothing' when the conditions of an integer leaf do
+not bound it and only a contract does.
+-}
+data OpenKey = OpenKey
+    { openObservations :: !ObservationKey
+    , openCount :: !Int
+    , openFormula :: !Formula
+    , openPoints :: !(Maybe Integer)
+    }
+    deriving (Eq, Ord, Show)
+
+-- | The key of a group that leaves no variable open.
+closedKey :: ObservationKey -> OpenKey
+closedKey key = OpenKey key 0 true (Just 1)
+
+-- | The name of one open integer variable.
+integerName :: Int -> String
+integerName index = "__microcfta_integer_" <> show index
+
+-- | Whether a name is the name of an open integer variable.
+isIntegerName :: String -> Bool
+isIntegerName = isPrefixOf "__microcfta_integer_"
+
+{- | Compile one generator whose members can leave integer variables open.
+
+A generator without integers compiles with 'compileGen', and its members read
+no variable. An integer leaf leaves its one variable open. A constructor joins
+the variables of its children, and closes them when its label names none of
+them.
+-}
+compileOpen :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped OpenKey ([Integer] -> a)))
+compileOpen compiler requested generator =
+    fmap (\(OpenGroups groups) -> groups) $
+        memoized (compilerOpen compiler) requested generator $
+            OpenGroups <$> do
+                open <- containsIntegers compiler generator
+                if not open
+                    then fmap (regroupOn closedKey . mapWithKey (const const)) <$> compileGen compiler requested generator
+                    else case genRecipe generator of
+                        Integers constraint -> pure $ integerGroup constraint
+                        Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpen compiler requested inner
+                        Applied _ _ ->
+                            fmap joinPositioned <$> compileOpenSpine compiler (replicate (spineArity generator) []) generator
+                        Chosen alternatives -> do
+                            compiled <-
+                                traverse (\(weight, alternative) -> fmap (weight,) <$> compileOpen compiler requested alternative) alternatives
+                            pure $ do
+                                weighted <- sequence compiled
+                                -- A choice weighs the mass of each alternative, which an unbounded leaf does not have.
+                                case [key | (_, grouped) <- weighted, not $ emptyGroups grouped, key <- openKeys grouped] of
+                                    keys
+                                        | length (filter (not . emptyGroups . snd) weighted) > 1
+                                        , key : _ <- filter (isNothing . openPoints) keys ->
+                                            Left $ fromLeft UnboundedGenerator $ countPoints integerLabel (openCount key) (openFormula key)
+                                    _ -> Right ()
+                                pure
+                                    $ repositionOpen
+                                    $ frequencies
+                                        [ (weight, regroupOn (index,) grouped)
+                                        | (index :: Int, (weight, grouped)) <- zip [0 ..] weighted
+                                        , not $ emptyGroups grouped
+                                        ]
+                        Closed symbol constraint child -> compileOpenNode compiler requested (Left symbol) constraint child
+                        ClosedBy symbolOf constraint child -> compileOpenNode compiler requested (Right symbolOf) constraint child
+                        _ -> pure $ Left SourceRequiresCompilation
+
+{- | One integer leaf as an open group: one variable, which the conditions of
+the leaf bound. A leaf without values is empty.
+-}
+integerGroup :: Constraint -> Either GenError (LTAGrouped OpenKey ([Integer] -> Integer))
+integerGroup constraint = case points [valueName] domain of
+    Right found | pointCount found == 0 -> Right $ Grouped $ Left EmptyGenerator
+    Right found -> Right $ group $ Just $ pointCount found
+    Left (UnboundedVariable _) -> Right $ group Nothing
+    Left err -> Left $ UncountableIntegers err
+  where
+    group count =
+        keyed (OpenKey (ObservationKey 0 $ Map.singleton (path []) $ Observed root True) 1 bounded count)
+            $ Gen Built
+            $ TransparentLanguage
+            $ Right
+            $ holeStatic (RefinedSymbol (fromString "integers") domain) firstInteger
+      where
+        firstInteger point = case point of
+            value : _ -> value
+            [] ->
+                error
+                    "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerGroup: \
+                    \an integer leaf read an empty point"
+    domain = integerDomain constraint
+    root = RefinedSymbol (fromString "integers") $ refinementFormula (.== variable (integerName 0))
+    bounded = substitute [(valueName, variable $ integerName 0)] domain
+
+-- | Join the keys of each tuple of a bare spine, positioned by first appearance.
+joinPositioned :: LTAGrouped [OpenKey] a -> LTAGrouped OpenKey a
+joinPositioned grouped = regroupOn rekey grouped
+  where
+    identity keys = let joined = joinKeys keys in (openCount joined, openFormula joined)
+    positions =
+        Map.fromListWith (\_ earlier -> earlier) $
+            zip (map identity $ either (const []) Map.keys $ sizes grouped) [0 :: Int ..]
+    rekey keys =
+        let joined = joinKeys keys
+         in joined{openObservations = (openObservations joined){keyPosition = positions Map.! identity keys}}
+
+    -- The key of a bare applicative spine: no observation, and the variables of its positions joined.
+    joinKeys :: [OpenKey] -> OpenKey
+    joinKeys keys =
+        OpenKey
+            noObservations
+            (sum $ map openCount keys)
+            (foldr (.&&) true $ renamedFormulas keys)
+            (product <$> traverse openPoints keys)
+
+{- | Count the points of a formula over the given number of open variables. On
+a failure, count again with readable names for the variables, so that the
+error names them.
+-}
+countPoints :: (Int -> String) -> Int -> Formula -> Either GenError Points
+countPoints nameOf count formula = case points (map integerName indexes) formula of
+    Right found -> Right found
+    Left err -> Left $ UncountableIntegers $ fromLeft err $ points (map nameOf indexes) readable
+  where
+    indexes = [0 .. count - 1]
+    readable = substitute [(integerName index, variable $ nameOf index) | index <- indexes] formula
+
+-- | A readable name for an open variable of a group.
+integerLabel :: Int -> String
+integerLabel index = "integer " <> show index
+
+-- | A readable name for an open variable of a constructor: the child that holds it.
+childLabel :: Symbol -> [OpenKey] -> Int -> String
+childLabel (RefinedSymbol (Symbol constructor) _) childKeys index =
+    case [ (child, index - offset, key)
+         | (child, offset, key) <- zip3 [0 :: Int ..] (offsets childKeys) childKeys
+         , index >= offset
+         , index < offset + openCount key
+         ] of
+        (child, _, key) : _ | openCount key == 1 -> "child " <> show child <> " of " <> Text.unpack constructor
+        (child, within, _) : _ -> "integer " <> show within <> " of child " <> show child <> " of " <> Text.unpack constructor
+        [] -> integerLabel index
+
+-- | The keys of the groups of a grouped generator.
+openKeys :: LTAGrouped OpenKey a -> [OpenKey]
+openKeys = either (const []) Map.keys . sizes
+
+-- | The formula of each group of a tuple, with the variables of the tuple renamed apart.
+renamedFormulas :: [OpenKey] -> [Formula]
+renamedFormulas keys = [renameFrom offset key $ openFormula key | (offset, key) <- zip (offsets keys) keys]
+
+-- | The first variable of each group of a tuple, once the variables are joined in order.
+offsets :: [OpenKey] -> [Int]
+offsets = scanl (+) 0 . map openCount
+
+-- | Rename the variables of one group so that they start at the given offset.
+renameFrom :: Int -> OpenKey -> Formula -> Formula
+renameFrom offset key =
+    substitute [(integerName index, variable $ integerName $ offset + index) | index <- [0 .. openCount key - 1]]
+
+-- | Regroup open groups by what the parent observes, positioned by first appearance.
+repositionOpen :: LTAGrouped (Int, OpenKey) a -> LTAGrouped OpenKey a
+repositionOpen grouped = regroupOn rekey grouped
+  where
+    identity (_, key) = (keyObservations $ openObservations key, openCount key, openFormula key)
+    positions =
+        Map.fromListWith (\_ earlier -> earlier) $
+            zip (map identity $ either (const []) Map.keys $ sizes grouped) [0 :: Int ..]
+    rekey indexed@(_, key) =
+        key{openObservations = (openObservations key){keyPosition = positions Map.! identity indexed}}
+
+{- | Compile a child description of open groups as one group per tuple of child
+groups. The value of a tuple reads the variables of each position in turn.
+-}
+compileOpenSpine :: Compiler -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [OpenKey] ([Integer] -> a)))
+compileOpenSpine compiler requirements generator = case genRecipe generator of
+    Lifted value -> pure $ Right $ keyed [] $ pure $ const value
+    Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpenSpine compiler requirements inner
+    Applied functions arguments -> do
+        let (functionRequirements, argumentRequirements) = splitAt (spineArity functions) requirements
+            applyReader keys (function, argument) =
+                let split = sum $ map openCount $ take (spineArity functions) keys
+                 in \point -> function (take split point) (argument $ drop split point)
+        compiledFunctions <- compileOpenSpine compiler functionRequirements functions
+        case compiledFunctions of
+            Left err -> pure $ Left err
+            Right functionGroups
+                | emptyGroups functionGroups -> pure $ Right $ frequencies []
+                | otherwise -> do
+                    compiledArguments <- compileOpenSpine compiler argumentRequirements arguments
+                    case compiledArguments of
+                        Left err -> pure $ Left err
+                        Right argumentGroups -> do
+                            related <- relateGroupsM (\_ _ -> pure $ Right True) (<>) functionGroups argumentGroups
+                            pure $ mapWithKey applyReader <$> related
+    _ -> fmap (regroupOn pure) <$> compileOpen compiler (concat $ take 1 requirements) generator
+
+{- | Compile one constructor whose children can leave integer variables open.
+
+The children are grouped as for 'compileNode'. For each tuple of child groups,
+the variables of the children are renamed apart and joined. The solver decides
+the parts of the guard that read no open child, as in 'compileNode'. The other
+parts, the conditions of the constructor's own result, and the formulas of the
+children form one linear formula over the joined variables; a child names its
+value by its root label, as an exact integer or as a term of its variables.
+When the constructor's label names no variable, the constructor closes them:
+its members are the integer points of the formula, counted without
+enumeration, and the points fill the placeholder leaves in order. Otherwise
+the constructor leaves the variables open for its parent.
+-}
+compileOpenNode ::
+    Compiler ->
     [Path] ->
-    ([ObservationKey] -> Either GenError Symbol) ->
-    Bool ->
+    Either Symbol ([Symbol] -> Either GenError Symbol) ->
     Constraint ->
     LTAGen a ->
-    [Maybe Constraint] ->
-    IO (Either GenError (LTAGrouped ObservationKey a))
-compileIntegerNode entailment requested labelOf needsRoots constraint child positions
+    IO (Either GenError (LTAGrouped OpenKey ([Integer] -> a)))
+compileOpenNode compiler requested labelling constraint child
     | not (all null childRequirements) && not (alignedSpine child) = pure $ Left ChildNotOneTerm
-    | needsRoots || any readsInteger requested || any readsInteger equalityPaths =
-        pure $ Left $ IntegerLeafRead Nothing
-    | reader : _ <- filter (not . countable) integerParts = pure $ Left $ IntegerLeafRead $ Just reader
     | otherwise = do
-        compiledChild <- compileSpine entailment childRequirements $ placeholderSpine child
+        compiledChild <- compileOpenSpine compiler childRequirements child
         case compiledChild of
             Left err -> pure $ Left err
             Right childGroups -> do
                 retained <- filterGroupsM decide childGroups
-                pure $ do
-                    groups <- retained
-                    expanded <- expandGroups joint fill $ nodeWithKey closeLabel groups
-                    pure $ reposition closeObservations expanded
+                pure $ retained >>= settleGroups settle . nodeWithKey closeLabel
   where
-    integerIndices = Map.fromList $ zip [position | (position, Just _) <- zip [0 ..] positions] [0 :: Int ..]
-    names = ["__microcfta_integer_" <> show index | index <- [0 .. Map.size integerIndices - 1]]
-    readsInteger target = case unPath target of
-        position : _ -> Map.member position integerIndices
-        [] -> False
-    equalityPaths = constraintPaths $ equalityConstraint $ constraintEqualities constraint
-    (integerParts, finiteParts) = partition (any readsInteger . guardPaths) $ conjuncts $ constraintGuard constraint
-    finiteConstraint = constraint{constraintGuard = if null finiteParts then Top else And finiteParts}
-    countable (Holds targets _) = all direct targets
-    countable (Satisfies target _) = direct target
-    countable _ = False
-    direct target = length (unPath target) == 1
+    arity = spineArity child
+    observed = nub $ requested <> constraintPaths constraint <> roots
+      where
+        roots = case labelling of
+            Left _ -> []
+            Right _ -> [path [index] | index <- [0 .. arity - 1]]
     childRequirements =
         [ nub [path suffix | target <- observed, index : suffix <- [unPath target], index == childIndex]
         | childIndex <- [0 .. arity - 1]
         ]
+    parts = conjuncts $ constraintGuard constraint
+    open childKeys index = maybe False ((> 0) . openCount) $ listToMaybe $ drop index childKeys
+    -- A parent reads only the root of a child that leaves variables open.
+    readsInsideOpen childKeys target = case unPath target of
+        index : _ : _ -> open childKeys index
+        _ -> False
+    equalityPaths = constraintPaths $ equalityConstraint $ constraintEqualities constraint
+    renamedRoot childKeys index = do
+        key <- listToMaybe $ drop index childKeys
+        Observed (RefinedSymbol symbol refinement) _ <- Map.lookup (path []) $ keyObservations $ openObservations key
+        pure $ RefinedSymbol symbol $ renameFrom (offsets childKeys !! index) key refinement
+    labelOf childKeys = case labelling of
+        Left fixed -> Right fixed
+        Right symbolOf ->
+            traverse (maybe (Left MissingRootObservation) Right . renamedRoot childKeys) [0 .. arity - 1] >>= symbolOf
+    symbolic (RefinedSymbol _ refinement) = any isIntegerName $ freeNames refinement
+    readsOpen childKeys label part =
+        flip any (guardPaths part) $ \target -> case unPath target of
+            index : _ -> open childKeys index
+            [] -> symbolic label
+    decide childKeys
+        | any (readsInsideOpen childKeys) (observed <> equalityPaths) || any (any (open childKeys) . firstIndex) equalityPaths =
+            pure $ Left $ IntegerLeafRead Nothing
+        | otherwise = case labelOf childKeys of
+            Left err -> pure $ Left err
+            Right label ->
+                let finiteParts = filter (not . readsOpen childKeys label) parts
+                    -- A closed child keeps the symbolic labels of its integer leaves until a point fills them.
+                    readsSymbolic target = case Map.lookup target $ completeObservations label $ map openObservations childKeys of
+                        Just (Observed found _) -> symbolic found
+                        Nothing -> False
+                 in case filter (any readsSymbolic . guardPaths) finiteParts of
+                        part : _ -> pure $ Left $ IntegerLeafRead $ Just part
+                        []
+                            | any readsSymbolic equalityPaths -> pure $ Left $ IntegerLeafRead Nothing
+                            | null finiteParts && constraintEqualities constraint == EmptyConstraints -> pure $ Right True
+                            | otherwise ->
+                                constraintDecision
+                                    (compilerEntailment compiler)
+                                    label
+                                    constraint{constraintGuard = if null finiteParts then Top else And finiteParts}
+                                    (map openObservations childKeys)
       where
-        arity = spineArity child
-
-        observed =
-            nub $
-                requested
-                    <> constraintPaths finiteConstraint
-                    <> [target | Holds targets _ <- integerParts, target <- targets, not $ readsInteger target]
-    decide childKeys = case labelOf childKeys of
-        Left err -> pure $ Left err
-        Right label -> constraintDecision entailment label finiteConstraint childKeys
+        firstIndex target = take 1 $ unPath target
     -- Only accepted tuples are closed, and their labels were computed to accept them.
     closeLabel childKeys = case labelOf childKeys of
         Right label -> label
         Left _ ->
             error
-                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileIntegerNode: \
+                "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileOpenNode: \
                 \an accepted group lost its label"
-    closeObservations childKeys = parentObservations requested (closeLabel childKeys) childKeys
-    domains =
-        [ substitute [(valueName, variable name)] $ integerDomain condition
-        | (name, Just condition) <- zip names [position | position@(Just _) <- positions]
-        ]
-    joint childKeys = do
-        formulas <- traverse (partFormula childKeys) integerParts
-        found <- first UncountableIntegers $ points names $ foldr (.&&) true $ domains <> formulas
-        pure (pointCount found, pointAt found)
-    partFormula childKeys part = case part of
-        Satisfies target formula -> do
-            term <- termOf childKeys part target
-            Right $ substitute [(valueName, term)] formula
-        Holds targets formula -> do
-            named <- traverse (termOf childKeys part) targets
-            Right $ substitute (zip (map contractTermName [0 ..]) named) formula
-        _ -> Left $ IntegerLeafRead $ Just part
-    termOf childKeys part target = case unPath target of
-        [position]
-            | Just index <- Map.lookup position integerIndices -> Right $ variable $ names !! index
-            | Just value <- exactValue =<< listToMaybe (drop position childKeys) -> Right $ literal value
-        _ -> Left $ IntegerLeafRead $ Just part
-      where
-        -- The integer that the root refinement of a child group fixes, if it fixes one.
-        exactValue :: ObservationKey -> Maybe Integer
-        exactValue key = do
-            Observed (RefinedSymbol _ refinement) _ <- Map.lookup (path []) $ keyObservations key
-            found <- either (const Nothing) Just $ points [valueName] refinement
-            if pointCount found == 1
-                then case pointAt found 0 of
-                    [value] -> Just value
-                    _ -> Nothing
-                else Nothing
-    -- The user's children of the closed root are its labelled descendants
-    -- through private nodes, in order, as 'surface' reads them.
-    fill point (Tree.Node root children) = Tree.Node root $ snd $ mapAccumL (visit point) 0 children
-    visit point position term@(Tree.Node (Label _) _) =
-        ( position + 1
-        , maybe term (\index -> Tree.Node (Label $ integerSymbol $ point !! index) []) $ Map.lookup position integerIndices
-        )
-    visit point position (Tree.Node private children) = Tree.Node private <$> mapAccumL (visit point) position children
+    settle childKeys = do
+        let label@(RefinedSymbol _ labelRefinement) = closeLabel childKeys
+            total = sum $ map openCount childKeys
+            termOf refinement = (literal <$> onlyPoint valueName refinement) <|> definingTerm refinement
+            targetTerm part target = maybe (Left $ IntegerLeafRead $ Just part) Right $ case unPath target of
+                [] -> termOf labelRefinement
+                [index] -> termOf . (\(RefinedSymbol _ refinement) -> refinement) =<< renamedRoot childKeys index
+                _ -> Nothing
+            partFormula part = case part of
+                Satisfies target formula -> (\term -> substitute [(valueName, term)] formula) <$> targetTerm part target
+                Holds targets formula -> (\named -> substitute (zip (map contractTermName [0 ..]) named) formula) <$> traverse (targetTerm part) targets
+                _ -> Left $ IntegerLeafRead $ Just part
+        openFormulas <- traverse partFormula $ filter (readsOpen childKeys label) parts
+        let formula = foldr (.&&) true $ renamedFormulas childKeys <> openFormulas
+            observations = ObservationKey 0 $ parentObservations requested label $ map openObservations childKeys
+        found <- countPoints (childLabel label childKeys) total formula
+        -- The share of the points of the children that the constructor keeps. An unbounded leaf is common to all tuples.
+        let kept = fromInteger (pointCount found) / fromInteger (product $ map (fromMaybe 1 . openPoints) childKeys)
+        pure $
+            if pointCount found == 0
+                then Nothing
+                else
+                    if symbolic label
+                        then Just (OpenKey observations total formula (Just $ pointCount found), kept, Nothing)
+                        else Just (closedKey observations, kept, Just (pointCount found, pointAt found))
+
+{- | Settle each tuple of child groups: drop it, leave its variables open under
+a new key, or close them by the integer points of its formula. The mass of a
+tuple keeps the share of its points that the constructor keeps, as a guard
+keeps the accepted tuples of pools. New keys are positioned by first
+appearance.
+-}
+settleGroups ::
+    ([OpenKey] -> Either GenError (Maybe (OpenKey, Rational, Maybe (Integer, Integer -> [Integer])))) ->
+    LTAGrouped [OpenKey] ([Integer] -> a) ->
+    Either GenError (LTAGrouped OpenKey ([Integer] -> a))
+settleGroups _ (CyclicGrouped _) = Right $ Grouped $ Left UnboundedGenerator
+settleGroups _ (Grouped (Left err)) = Right $ Grouped $ Left err
+settleGroups settle (Grouped (Right buckets)) = do
+    settled <- catMaybes <$> traverse one (Map.toAscList buckets)
+    let identity key = (keyObservations $ openObservations key, openCount key, openFormula key)
+        positions = Map.fromListWith (\_ earlier -> earlier) $ zip [identity key | (key, _, _) <- settled] [0 :: Int ..]
+        positioned key = key{openObservations = (openObservations key){keyPosition = positions Map.! identity key}}
+    pure $ Grouped $ mergeComponentsByKey [(positioned key, mass, static) | (key, mass, static) <- settled]
+  where
+    one (childKeys, KeyedBucket mass static) = fmap (build mass static) <$> settle childKeys
+    build mass static (key, kept, Nothing) = (key, mass * kept, static)
+    build mass static (key, kept, Just (count, decode)) =
+        (key, mass * kept, mapStatic const $ pointsStatic fillHoles (Indexed count decode) static)
+
+{- | Close every open group by the integer points of its formula, for a parent
+that reads no variable.
+-}
+closeOpen :: LTAGrouped OpenKey ([Integer] -> a) -> Either GenError (LTAGrouped ObservationKey a)
+closeOpen (CyclicGrouped _) = Right $ Grouped $ Left UnboundedGenerator
+closeOpen (Grouped (Left err)) = Right $ Grouped $ Left err
+closeOpen (Grouped (Right buckets)) = do
+    closed <- catMaybes <$> traverse one (Map.toAscList buckets)
+    pure $ Grouped $ mergeComponentsByKey closed
+  where
+    one (key, KeyedBucket mass static)
+        | openCount key == 0 = Right $ Just (openObservations key, mass, mapStatic ($ []) static)
+        | otherwise = do
+            found <- countPoints integerLabel (openCount key) (openFormula key)
+            pure $
+                if pointCount found == 0
+                    then Nothing
+                    else Just (openObservations key, mass, pointsStatic fillHoles (Indexed (pointCount found) (pointAt found)) static)
+
+{- | Replace the placeholder leaves of a term, in order, by the leaves of the
+integers of a point, and make each label that names open variables exact.
+
+The variables of a constructor are the placeholders of its subtree, in
+order, so a label names them from the first placeholder below it.
+-}
+fillHoles :: [Integer] -> Tree.Tree (Label Symbol) -> Tree.Tree (Label Symbol)
+fillHoles point = snd . fill point
+  where
+    fill (value : rest) (Tree.Node Placeholder _) = (rest, Tree.Node (Label $ integerSymbol value) [])
+    fill remaining (Tree.Node (Label label) children) = Tree.Node (Label $ exactLabel remaining label) <$> mapAccumL fill remaining children
+    fill remaining (Tree.Node private children) = Tree.Node private <$> mapAccumL fill remaining children
+    exactLabel remaining label@(RefinedSymbol symbol refinement)
+        | any isIntegerName $ freeNames refinement =
+            let named = substitute [(integerName index, literal value) | (index, value) <- zip [0 ..] remaining] refinement
+             in RefinedSymbol symbol $ maybe named (\value -> refinementFormula (.== literal value)) $ onlyPoint valueName named
+        | otherwise = label
 
 -- | The top-level conjuncts of a guard.
 conjuncts :: Guard -> [Guard]
 conjuncts Top = []
 conjuncts (And guards) = concatMap conjuncts guards
 conjuncts guard = [guard]
-
-{- | Fill the placeholders of each group with the integer points of its key.
-
-A group whose key admits no point is dropped. The mass of a group grows with
-its number of points, so the members stay uniform.
--}
-expandGroups ::
-    ([ObservationKey] -> Either GenError (Integer, Integer -> [Integer])) ->
-    ([Integer] -> Tree.Tree (Label Symbol) -> Tree.Tree (Label Symbol)) ->
-    LTAGrouped [ObservationKey] ([Integer] -> a) ->
-    Either GenError (LTAGrouped [ObservationKey] a)
-expandGroups _ _ (CyclicGrouped _) = Right $ Grouped $ Left UnboundedGenerator
-expandGroups _ _ (Grouped (Left err)) = Right $ Grouped $ Left err
-expandGroups joint fill (Grouped (Right buckets)) = do
-    components <- traverse expand $ Map.toList buckets
-    pure $ Grouped $ mergeComponentsByKey $ catMaybes components
-  where
-    expand (key, KeyedBucket mass static) = do
-        (count, pointAt') <- joint key
-        pure $
-            if count == 0
-                then Nothing
-                else Just (key, mass * fromInteger count, pointsStatic fill (Indexed count pointAt') static)
-
--- | The integer leaf at each position of an applicative spine, with its conditions.
-integerPositions :: LTAGen a -> [Maybe Constraint]
-integerPositions generator = case integerLeaf generator of
-    Just (constraint, _) -> [Just constraint]
-    Nothing -> case genRecipe generator of
-        Lifted _ -> []
-        Mapped _ inner -> integerPositions inner
-        Applied functions arguments -> integerPositions functions <> integerPositions arguments
-        _ -> [Nothing]
-
--- | The conditions of an integer leaf, and the map from its integer to its value.
-integerLeaf :: LTAGen a -> Maybe (Constraint, Integer -> a)
-integerLeaf generator = case genRecipe generator of
-    Integers constraint -> Just (constraint, id)
-    Mapped transform inner -> fmap (transform .) <$> integerLeaf inner
-    _ -> Nothing
-
-{- | The child description with each integer leaf replaced by a placeholder
-leaf, as a function of the integers of those leaves, in order.
--}
-placeholderSpine :: LTAGen a -> LTAGen ([Integer] -> a)
-placeholderSpine = fst . go 0
-  where
-    go :: Int -> LTAGen b -> (LTAGen ([Integer] -> b), Int)
-    go next generator = case integerLeaf generator of
-        Just (constraint, decode) ->
-            ( node (RefinedSymbol (fromString "integers") $ integerDomain constraint) $ pure $ \integers' -> decode $ integers' !! next
-            , next + 1
-            )
-        Nothing -> case genRecipe generator of
-            Lifted value -> (pure $ const value, next)
-            Mapped transform inner ->
-                let (reader, after) = go next inner
-                 in ((transform .) <$> reader, after)
-            Applied functions arguments ->
-                let (readFunctions, middle) = go next functions
-                    (readArguments, after) = go middle arguments
-                 in ((\function argument integers' -> function integers' $ argument integers') <$> readFunctions <*> readArguments, after)
-            _ -> (const <$> generator, next)
 
 -- | Decide one guard from the already-grouped child observations.
 constraintDecision :: Entailment -> Symbol -> Constraint -> [ObservationKey] -> IO (Either GenError Bool)
@@ -727,14 +999,14 @@ candidatesOf entailment generator = case genRecipe generator of
                 <$> functionCandidates
                 <*> argumentCandidates
     Chosen alternatives -> fmap concat . sequence <$> traverse (candidatesOf entailment . snd) alternatives
-    Closed label constraint child -> fmap (close (const label) constraint) <$> candidatesOf entailment child
-    ClosedBy labelOf constraint child -> fmap (close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
+    Closed label constraint child -> (>>= close (const $ Right label) constraint) <$> candidatesOf entailment child
+    ClosedBy labelOf constraint child -> (>>= close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
     Imported bound order automaton -> do
         imported <- compileImport entailment [] bound order automaton
         pure $ imported >>= builtCandidates . ungroup
     Integers constraint -> pure $ integerCandidates constraint
   where
-    close labelOf constraint = map $ \(value, witnesses) -> (value, [Witness (labelOf witnesses) constraint witnesses])
+    close labelOf constraint = traverse $ \(value, witnesses) -> (\label -> (value, [Witness label constraint witnesses])) <$> labelOf witnesses
 
 {- | Every integer between the least and the greatest counted integer of a
 leaf, each with a witness that checks the leaf's conditions.
@@ -762,6 +1034,7 @@ integerCandidates constraint = case points [valueName] (integerDomain constraint
 builtCandidates :: LTAGen a -> Either GenError [(a, [Witness])]
 builtCandidates generator
     | deferred generator = Left SourceRequiresCompilation
+    | Left EmptyGenerator <- cardinality generator = Right []
     | otherwise = do
         total <- cardinality generator
         traverse member [0 .. total - 1]

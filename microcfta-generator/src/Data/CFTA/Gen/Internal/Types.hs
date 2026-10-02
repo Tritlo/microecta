@@ -129,8 +129,8 @@ data Recipe symbol a where
     Mapped :: (a -> b) -> Gen symbol a -> Recipe symbol b
     Applied :: Gen symbol (a -> b) -> Gen symbol a -> Recipe symbol b
     Closed :: symbol -> Constraint -> Gen symbol a -> Recipe symbol a
-    -- | A constructor whose symbol is computed from the root symbols of its children.
-    ClosedBy :: ([symbol] -> symbol) -> Constraint -> Gen symbol a -> Recipe symbol a
+    -- | A constructor whose symbol is computed from the root symbols of its children, or an error.
+    ClosedBy :: ([symbol] -> Either GenError symbol) -> Constraint -> Gen symbol a -> Recipe symbol a
     Chosen :: [(Integer, Gen symbol a)] -> Recipe symbol a
     -- | An imported automaton, its depth bound, and the key that orders its constructors.
     Imported ::

@@ -44,6 +44,8 @@ data Label symbol
       Key !Int
     | -- | The key of one argument position of one joined component.
       ArgKey !Int !Int
+    | -- | A placeholder leaf that a theory fills with a value when it compiles.
+      Placeholder
     deriving (Eq, Ord, Show, Generic)
 
 instance (Hashable symbol) => Hashable (Label symbol)

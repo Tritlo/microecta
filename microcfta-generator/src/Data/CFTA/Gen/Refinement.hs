@@ -36,6 +36,8 @@ module Data.CFTA.Gen.Refinement (
     satisfying,
     node,
     guarded,
+    ensuring,
+    recurUpTo,
     refinedNode,
     refinedNodeByRoots,
 
@@ -51,6 +53,7 @@ module Data.CFTA.Gen.Refinement (
     validOutcomes,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -87,6 +90,7 @@ import Data.CFTA.Refinement (
     Verdict (Yes),
     boundDepth,
     conjoinConstraints,
+    contractTermName,
     eraseRefinements,
     minimize,
     noConstraint,
@@ -101,8 +105,11 @@ import Data.CFTA.Refinement (
 import Data.CFTA.Refinement.Expression (
     Literal (..),
     Refinement,
+    definingTerm,
+    freeNames,
     literal,
     refinementFormula,
+    substitute,
     true,
     (.&&),
     (.<=),
@@ -111,12 +118,15 @@ import Data.CFTA.Refinement.Expression (
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
+    ResultBuilder (resultArity),
     buildGuard,
     contract,
     guardArgumentCount,
     requires,
+    resultTerm,
     root,
  )
+import Data.CFTA.Refinement.Lattice (onlyPoint)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
 
 -- | A generator over liquid tree automata.
@@ -330,6 +340,73 @@ guarded symbol builder child
   where
     arity = spineArity child
 
+{- | Give a constructor a result: a term of its children, one term for each
+child, in order.
+
+Write it between the constructor and its children:
+
+@guarded "black" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1) $ LTAGen.do ...@
+
+The refinement of each constructed term is @\\v -> v .== result@, for the
+values of its children, so a parent's contract or condition reads the result.
+Each child that the result names must have a refinement that fixes one
+integer, as 'elements' gives, or be drawn by 'every', or be another result.
+The result of children from 'every' stays a term of their values, so a
+parent's contract relates it without enumerating them. A child without such a
+refinement makes 'compile' report 'InexactResult'. The constructor must be
+one that 'node', 'guarded', or 'refinedNode' closes, possibly mapped; another
+generator gives 'ResultNeedsConstructor'.
+-}
+ensuring :: (ResultBuilder result) => (LTAGen a -> LTAGen a) -> result -> LTAGen a -> LTAGen a
+ensuring close result = withResult . close
+  where
+    withResult :: LTAGen b -> LTAGen b
+    withResult closed = case genRecipe closed of
+        Closed (RefinedSymbol symbol _) constraint inner
+            | resultArity result /= spineArity inner ->
+                Transparent $ Left $ InvalidSupport $ GuardArityMismatch symbol (spineArity inner) (resultArity result)
+            | otherwise ->
+                withRecipe (ClosedBy (resultLabel symbol) constraint inner) $ Transparent $ Left SourceRequiresCompilation
+        Mapped transform inner -> transform <$> withResult inner
+        _ -> case closed of
+            Transparent (Left err) | err /= SourceRequiresCompilation -> closed
+            _ -> Transparent $ Left ResultNeedsConstructor
+      where
+        resultLabel symbol roots =
+            let formula =
+                    substitute
+                        [ (contractTermName index, term)
+                        | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
+                        , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                        ]
+                        (refinementFormula (.== resultTerm result))
+             in case onlyPoint "v" formula of
+                    Just value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value)
+                    Nothing
+                        | any (`elem` map contractTermName [0 .. resultArity result - 1]) (freeNames formula) ->
+                            Left $ InexactResult symbol
+                        | otherwise -> Right $ RefinedSymbol symbol formula
+
+{- | A recursive description, unfolded a bounded number of times.
+
+The step receives the generator of the previous unfolding and returns the
+next one. The first unfolding receives the empty generator, so the recursive
+occurrences nest at most the given number of times:
+
+@recurUpTo 3 $ \\self -> oneof [leaf Nil "nil" (const true), node "cons" (Cons <$> elements [1, 2] <*> self)]@
+
+Each unfolding is one shared generator, and 'compile' compiles it once for
+each set of observations that its parents read. Bind a generator that a step
+uses twice, such as @self@ itself, with @let@ so that the step shares it. A
+negative bound gives the empty generator.
+-}
+recurUpTo :: Int -> (LTAGen a -> LTAGen a) -> LTAGen a
+recurUpTo bound step
+    | bound < 0 = empty
+    | otherwise = iterate step (step empty) !! bound
+  where
+    empty = Transparent $ Left EmptyGenerator
+
 {- | Close a child description with a constructor that has a refinement and a
 positional guard.
 
@@ -350,8 +427,10 @@ refinedNode symbol refinement guardBuilder child =
 {- | Close a child description with a constructor whose refinement is computed
 from the labels of its children.
 
-'compile' calls the function once per tuple of child groups, and
-'validOutcomes' once per candidate.
+'compile' can call the function more than once for one tuple of child groups, so
+the function must be pure. 'validOutcomes' calls it once per candidate. The
+function reads exact labels, so a child with values from 'every' gives
+'IntegerLeafRead'; use 'ensuring' for a result of such children.
 -}
 refinedNodeByRoots ::
     (GuardBuilder guard) =>
@@ -365,8 +444,13 @@ refinedNodeByRoots symbol refinementOf guardBuilder child =
         symbol
         guardBuilder
         child
-        (ClosedBy $ \roots -> RefinedSymbol symbol $ refinementFormula $ refinementOf roots)
+        (ClosedBy labelOf)
         (const Nothing)
+  where
+    labelOf roots
+        | any (\(RefinedSymbol _ refinement) -> any Compile.isIntegerName $ freeNames refinement) roots =
+            Left $ IntegerLeafRead Nothing
+        | otherwise = Right $ RefinedSymbol symbol $ refinementFormula $ refinementOf roots
 
 {- | Close a child description with a guarded constructor.
 
