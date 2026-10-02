@@ -1,10 +1,9 @@
 {-# LANGUAGE DerivingStrategies #-}
 
-{- | Indexes and depths of terms and automata.
+{- | Index types for automata and terms.
 
-Each value is an 'Int'. An index is zero-based, and a leaf has depth 0. Each
-kind of value has its own newtype, so the compiler rejects a value of one kind
-in the place of another kind.
+Each index is a zero-based 'Int'. Each kind of index has its own newtype, so
+the compiler rejects an index of one kind in the place of another kind.
 -}
 module Data.CFTA.Index (
     ChildIndex (..),
