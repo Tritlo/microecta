@@ -5,7 +5,8 @@
 'LTAGen.validOutcomes' lists every candidate that the recipe describes and
 checks its guards one by one, which is the definition of the language.
 Random generators of integers are compiled and must give the same multiset
-of values. The leaves are pools, and the nodes are choices and conditions.
+of values. The leaves are pools and bounded integer leaves, and the nodes
+are choices and conditions.
 Both sides decide the queries with 'latticeEntailment'. The description
 alone also gives the values, and 'LTAGen.validOutcomes' must agree with them.
 
@@ -158,6 +159,9 @@ agreesWithOracle description generator' = do
         (Left err, Left other) -> counterexample (show (err, other)) True
         -- validOutcomes reports an empty language as an error.
         (Right generated, Left LTAGen.EmptyGenerator) -> values generated === []
+        -- The symbolic counter cannot count every formula; compile reports it.
+        (Left (LTAGen.UncountableIntegers _), Right _) -> property True
+        (Left (LTAGen.IntegerLeafRead _), Right _) -> property True
         -- Compile decides a guard from grouped observations, and cannot compare complete subtrees.
         (Left (LTAGen.RelationalSyntacticEqualityUnsupported _), Right _) -> property True
         _ -> counterexample (show (fmap values compiled, checked)) False
@@ -232,9 +236,20 @@ generator depth
                     )
             ]
   where
-    leaf = do
-        members <- map toInteger <$> sublistOf [0 .. 3 :: Int]
-        pure ("elements " <> show members, members, LTAGen.elements members)
+    leaf =
+        oneof
+            [ do
+                members <- map toInteger <$> sublistOf [0 .. 3 :: Int]
+                pure ("elements " <> show members, members, LTAGen.elements members)
+            , do
+                low <- toInteger <$> chooseInt (0, 3)
+                high <- toInteger <$> chooseInt (fromInteger low - 1, 3)
+                pure
+                    ( "every " <> show (low, high)
+                    , [low .. high]
+                    , LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                    )
+            ]
 
 -- | Every rank of a finite generator.
 ranks :: LTAGen.LTAGen a -> [Integer]

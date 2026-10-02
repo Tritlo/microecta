@@ -24,6 +24,7 @@ import Data.CFTA.Refinement (
     SimilarityError,
     Symbol (Symbol),
  )
+import Data.CFTA.Refinement.Lattice (LatticeError (..))
 
 -- | Failure while constructing, inspecting, compiling, or sampling a generator.
 data GenError
@@ -106,6 +107,12 @@ data GenError
       end in a constructor, such as a product, @pure@, or a recursive language.
       -}
       ConditionNeedsConstructor
+    | -- | The conditions of an integer leaf do not give a countable set of integers.
+      UncountableIntegers !LatticeError
+    | {- | A guard, a computed label, or an enclosing guard reads an integer
+      leaf in a form that compile cannot count.
+      -}
+      IntegerLeafRead !(Maybe Guard)
     | {- | A guard reads the children of a constructor, and one child gives a
       number of terms other than one, as a choice of products does.
       -}
@@ -350,11 +357,63 @@ explain ChildNotOneTerm =
         ]
 explain SourceRequiresCompilation =
     guidance
-        [ "This generator has a guard or an imported automaton that needs the"
-        , "solver, or such a part sits inside a join, a recursion, or a grouping"
-        , "that compile cannot fold."
+        [ "This generator has a guard, an integer leaf from every, or an imported"
+        , "automaton that needs compile, or such a part sits inside a join, a"
+        , "recursion, or a grouping that compile cannot fold."
         , "Fix: call compile on the guarded part first, then inspect or combine it."
         ]
+explain (UncountableIntegers err) =
+    guidance $
+        "The conditions of an integer leaf, or a contract over integer leaves, do"
+            : "not give a set of integers that compile can count."
+            : case err of
+                UnboundedVariable name ->
+                    [ "No condition bounds " <> show name <> " in one direction."
+                    , "Fix: bound it, as in every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 100)."
+                    , "The type application needs the TypeApplications extension."
+                    ]
+                NonLinearTerm term ->
+                    [ "The term " <> show term <> " is not linear: it multiplies two"
+                    , "values, divides, applies a function, or chooses a term by a"
+                    , "condition, as abs and signum do."
+                    , "Fix: state the condition with sums, differences, and constant factors,"
+                    , "as in -3 .<= v .&& v .<= 3 for abs v .<= 3."
+                    ]
+                UnsupportedFormula formula ->
+                    [ "The formula " <> show formula <> " uses a form other than the"
+                    , "comparisons and the connectives."
+                    , "Fix: state the condition with .==, ./=, .<, .<=, .>, .>=, .&&, .||, and lnot."
+                    ]
+                UnknownName name ->
+                    [ "The formula names " <> show name <> ", which is not a value that"
+                    , "compile counts. A name from compileAssuming is a fact for the solver,"
+                    , "and compile does not count it."
+                    , "Fix: state conditions on integer leaves, and contracts over them, with"
+                    , "the values and constants only."
+                    ]
+                NonUnitCoefficient name ->
+                    [ "A bound has a coefficient other than one or minus one on " <> show name <> "."
+                    , "The counter sums the values out from the last to the first. When it sums"
+                    , "out a value, every bound on that value must have the coefficient one or"
+                    , "minus one on it. This includes the bounds that summing out a later value"
+                    , "creates, so a factor against a later value can also fail."
+                    , "Fix: draw the value with the factor first, state the bound without the"
+                    , "factor, or use elements."
+                    ]
+explain (IntegerLeafRead reader) =
+    guidance $
+        [ "A constructor reads one of its integer children in a form that compile"
+        , "cannot count."
+        ]
+            <> maybe [] (\guard -> ["The guard is " <> show guard <> "."]) reader
+            <> [ "Compile counts an integer child through its own conditions and through"
+               , "the contract of guarded. Each other child that the contract names must"
+               , "have one exact integer refinement, as elements gives. A computed label,"
+               , "an equality, or a guard of an enclosing constructor cannot read the"
+               , "integer child."
+               , "Fix: state the relation as the contract of the constructor whose"
+               , "children it relates, or use elements for a small set of integers."
+               ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.
 fromRankedError :: Ranked.RankedError -> GenError
