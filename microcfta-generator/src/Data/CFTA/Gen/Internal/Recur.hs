@@ -18,6 +18,7 @@ import Data.Either (fromRight)
 import Data.Hashable (Hashable)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.Map.Strict as Map
+import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -36,6 +37,7 @@ import Data.CFTA.Ranked.Internal.Size (
     closedProbe,
     fixIndex,
     isUnguarded,
+    mapIndex,
     minimumMemberSize,
     probeIndexWithMinimum,
     reachesOccurrence,
@@ -93,11 +95,24 @@ recur build
     tied = fixIndex $ \self ->
         either (const emptyIndex) recursiveIndex $
             bodyOf (Cyclic $ Right $ placeholder EmptyNode self emptySampleIndex)
-      where
-        emptyIndex = choiceIndex []
+    emptyIndex = choiceIndex []
+
     tiedSampling = fixSampleIndex $ \self ->
         either (const emptySampleIndex) recursiveSampling $
             bodyOf (Cyclic $ Right $ placeholder EmptyNode tied self)
+
+    -- The terms tie as the counts do: the body reads the terms and the
+    -- positions of the occurrence from the language being defined.
+    termsOfBody terms =
+        either (const Nothing) recursiveTerm $
+            bodyOf (Cyclic $ Right $ (placeholder EmptyNode tied tiedSampling){recursiveTerm = Just terms})
+    bodyTerms = termsOfBody tiedTerms
+    tiedTerms = RecursiveTerms tiedTermIndex tiedPositions
+      where
+        tiedTermIndex = fixIndex $ \self ->
+            maybe emptyIndex recursiveTermIndex $ termsOfBody $ RecursiveTerms self tiedPositions
+
+        tiedPositions view = maybe [] (`recursiveTermPositions` view) bodyTerms
 
     inspection = Inspection name graph
       where
@@ -143,7 +158,7 @@ recur build
                         tied
                         tiedSampling
                         (recursiveWeighted body)
-                        Nothing
+                        (tiedTerms <$ bodyTerms)
                         inspection
       where
         automaton = createMu $ \self ->
@@ -200,6 +215,8 @@ recurGrouped build
              in if Map.keys grown == Map.keys current then current else converge grown
 
         emptyGroup = placeholder EmptyNode (choiceIndex []) emptySampleIndex noMass
+    positions = Map.fromList $ zip keys [0 ..]
+    positionOf key = Map.findWithDefault 0 key positions
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the family that is still being defined.
     placeholder supportNode index sampling masses =
@@ -285,6 +302,38 @@ recurGrouped build
             bodyGroups samplingPlaceholders
     samplingAt key = Map.findWithDefault emptySampleIndex key tiedSamplings
 
+    bodyTerms =
+        either (const Map.empty) (Map.mapMaybe $ recursiveTerm . keyedRecursiveLanguage) $
+            bodyGroups termPlaceholders
+      where
+        -- The terms tie per key as the counts do. A member at a key is the body
+        -- of that key inside the family, under the restriction to the key.
+        termPlaceholders =
+            Map.fromList
+                [ ( key
+                  , let group = placeholder EmptyNode (indexAt key) (samplingAt key) (massAt key)
+                     in group{keyedRecursiveLanguage = (keyedRecursiveLanguage group){recursiveTerm = Just $ memberTerms key}}
+                  )
+                | key <- keys
+                ]
+    memberTerms key =
+        RecursiveTerms
+            (mapIndex (atKeyTerm $ positionOf key) $ maybe (choiceIndex []) recursiveTermIndex $ Map.lookup key bodyTerms)
+            (memberPositions key)
+    memberPositions key view = case view of
+        WholeTerm (Tree.Node AtKey [Tree.Node (Key position) [], Tree.Node Family [Tree.Node (Key position') [], body]])
+            | position == positionOf key && position' == position ->
+                maybe [] (`recursiveTermPositions` WholeTerm body) $ Map.lookup key bodyTerms
+        SpineView [term] -> memberPositions key $ WholeTerm term
+        LabelledView [term] -> memberPositions key $ WholeTerm term
+        _ -> []
+    atKeyTerm position body =
+        Tree.Node AtKey [Tree.Node (Key position) [], Tree.Node Family [Tree.Node (Key position) [], body]]
+
+    -- The probe of each key assumes the least minimum of the key, as the probe
+    -- of 'recur' does. A nested definition whose finite members all go through
+    -- an occurrence is empty under an assumption of no member, and the family
+    -- would look as if it did not use its occurrences.
     probeBody =
         build
             $ CyclicGrouped
@@ -314,7 +363,7 @@ recurGrouped build
                             (indexAt key)
                             (samplingAt key)
                             familyWeighted
-                            Nothing
+                            (memberTerms key <$ Map.lookup key bodyTerms)
                             ( Inspection
                                 (nameForKey key)
                                 (restrictToKeyWith labelKey (positionOf key) inspectionFamily)
@@ -388,10 +437,6 @@ recurGrouped build
         labelKey symbol = plainSymbol symbol
 
         namesByPosition = Map.fromList [(positionOf key, nameForKey key) | key <- keys]
-
-        positionOf key = Map.findWithDefault 0 key positions
-
-        positions = Map.fromList $ zip keys [0 ..]
 
         nameForKey key = Map.findWithDefault Nothing key inspectionNames
 

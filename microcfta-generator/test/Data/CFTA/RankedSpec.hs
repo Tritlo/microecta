@@ -20,7 +20,9 @@ import Test.QuickCheck (
  )
 
 import qualified Data.CFTA.Ranked as Tree
+import Data.CFTA.Ranked.Internal (rankedPlan)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
+import Data.CFTA.Ranked.Internal.Size (planPosition, sizeClassSelect, sizeIndex)
 
 spec :: Spec
 spec = do
@@ -57,6 +59,29 @@ spec = do
                                                         .&&. map (sizeAt . fst) smaller === sort (map (sizeAt . fst) smaller)
                                            | rank <- checked
                                            ]
+
+    describe "plan positions" $
+        it "find the size class and position of every rank of a finite plan" $ do
+            let languages = do
+                    bit <- Tree.fromIndexed (Tree.Indexed 2 ((: []))) :: Either Tree.RankedError (Tree.Ranked [Integer])
+                    let pair = (<>) <$> bit <*> bit
+                        triple = (\a b c -> a <> b <> c) <$> bit <*> bit <*> bit
+                    mixed <- Tree.oneof [triple, bit, pair]
+                    nested <- Tree.oneof [(<>) <$> mixed <*> bit, pair]
+                    pure [bit, pair, triple, mixed, nested]
+            case languages of
+                Left err -> expectationFailure $ show err
+                Right plans ->
+                    mapM_
+                        ( \language -> do
+                            let plan = rankedPlan language
+                            [ fmap (\(size, position) -> fst $ sizeClassSelect (sizeIndex plan) size position) (planPosition plan rank)
+                              | rank <- [0 .. Tree.cardinality language - 1]
+                              ]
+                                `shouldBe` map Just [0 .. Tree.cardinality language - 1]
+                            planPosition plan (Tree.cardinality language) `shouldBe` Nothing
+                        )
+                        plans
 
     describe "structural shrinking" $ do
         it "never offers a member larger than the current one across choice branches" $ do

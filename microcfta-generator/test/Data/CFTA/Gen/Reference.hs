@@ -29,10 +29,6 @@ directly:
   group has a mass at each size, which is its member count unless an atomic
   group sets it. In a recursive family, merged groups and applications select
   by these masses instead of by counts.
-* Terms. A member of a bounded recursion keeps no term. So @match@,
-  @relate@, @groupOn@, and @pmf@ of a language with such a member give
-  'CannotInspectRecursiveGenerator', and so do the masses by size of a finite
-  family with such a member.
 * Errors. The model gives the error that the engine gives, with the same
   precedence. A bound or an atomic boundary around a language that reaches the
   occurrence of an enclosing recursion is an error.
@@ -345,8 +341,6 @@ data Model a = Model
     -- ^ A finite language: its cardinality and its members in rank order.
     , modelAtomic :: Bool
     -- ^ Whether an atomic boundary closes this finite language.
-    , modelTerms :: Bool
-    -- ^ Whether every member keeps a term. A member of a bounded recursion does not.
     , modelCount :: Integer -> Integer
     -- ^ The number of members of one size.
     , modelClass :: Integer -> [(a, Rational)]
@@ -450,7 +444,6 @@ interpret env@(Env flat _) = \case
         Model
             { modelFinite = Nothing
             , modelAtomic = False
-            , modelTerms = True
             , modelCount = occurrenceCount occurrence
             , modelClass = occurrenceClass occurrence
             , modelMinimum = occurrenceMinimum occurrence
@@ -470,7 +463,6 @@ atomModel atomic weighted =
     Model
         { modelFinite = Just (total, [Member value 1 mass (fromInteger total * mass) | (value, mass) <- weighted])
         , modelAtomic = atomic
-        , modelTerms = True
         , modelCount = \size -> if size == 1 then total else 0
         , modelClass = \size -> if size == 1 then weighted else []
         , modelMinimum = Just 1
@@ -518,7 +510,6 @@ pairModel combine leftWeight left rightWeight right =
                   ]
                 )
         , modelAtomic = False
-        , modelTerms = modelTerms left && modelTerms right
         , modelCount = \size -> sum [modelCount left leftSize * modelCount right (size - leftSize) | leftSize <- [1 .. size - 1]]
         , modelClass = \size ->
             let splits =
@@ -575,7 +566,6 @@ joinLang relation key left right = case (left, right) of
     (Lang True _, _) -> Lang False $ Left UnboundedGenerator
     (_, Lang True _) -> Lang False $ Left UnboundedGenerator
     (Lang False (Right leftModel), Lang False (Right rightModel))
-        | not (modelTerms leftModel && modelTerms rightModel) -> Lang False $ Left CannotInspectRecursiveGenerator
         | null pairs -> Lang False $ Left EmptyGenerator
         | otherwise ->
             finiteLang
@@ -592,7 +582,6 @@ joinLang relation key left right = case (left, right) of
                               ]
                             )
                     , modelAtomic = False
-                    , modelTerms = True
                     , modelCount = \size -> if size == 2 then count else 0
                     , modelClass = \size ->
                         if size == 2
@@ -636,7 +625,6 @@ choiceModel alternatives =
                     ]
                 )
         , modelAtomic = False
-        , modelTerms = all (\(_, _, model') -> modelTerms model') alternatives
         , modelCount = \size -> sum [modelCount model' size | (_, _, model') <- alternatives]
         , modelClass = \size ->
             let live =
@@ -682,7 +670,7 @@ atomicLang = \case
 -- | Close a finite language as one atomic choice.
 atomicModel :: Model a -> Model a
 atomicModel model' = case modelFinite model' of
-    Just (_, finite) -> (atomModel True [(memberValue member, memberMass member) | member <- finite]){modelTerms = modelTerms model'}
+    Just (_, finite) -> atomModel True [(memberValue member, memberMass member) | member <- finite]
     Nothing -> error "Data.CFTA.Gen.Reference.atomicModel: a finite language without members"
 
 boundLang :: Integer -> Lang a -> Lang a
@@ -703,7 +691,6 @@ boundLang bound (Lang recursive (Right model'))
                           ]
                         )
                 , modelAtomic = False
-                , modelTerms = not recursive && modelTerms model'
                 , modelCount = \size -> if size <= bound then modelCount model' size else 0
                 , modelClass = \size -> if size <= bound then modelClass model' size else []
                 , modelMinimum = listToMaybe sizes
@@ -824,9 +811,7 @@ classes, and the atomic marker of the language.
 groupOnFamily :: (Ord key) => (a -> key) -> Lang a -> Family key a
 groupOnFamily _ (Lang False (Left err)) = Family False $ Left err
 groupOnFamily _ (Lang True _) = Family False $ Left UnboundedGenerator
-groupOnFamily key (Lang False (Right model'))
-    | not $ modelTerms model' = Family False $ Left CannotInspectRecursiveGenerator
-    | otherwise = Family False $ Right $ fmap bucket grouped
+groupOnFamily key (Lang False (Right model')) = Family False $ Right $ fmap bucket grouped
   where
     grouped = Map.fromListWith (flip (<>)) [(key $ memberValue member, [member]) | member <- maybe [] snd $ modelFinite model']
     bucket bucketMembers = Group bucketModel mass noMassBySize
@@ -1016,7 +1001,7 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
     withFamily family = interpretGrouped (Env flat (family : grouped)) body
     placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keySet]
     placeholder minimum' flags count classAt massAt =
-        Group (Model Nothing False True count classAt minimum' Nothing flags flags) 0 massAt
+        Group (Model Nothing False count classAt minimum' Nothing flags flags) 0 massAt
 
     keySet = converge Map.empty
       where

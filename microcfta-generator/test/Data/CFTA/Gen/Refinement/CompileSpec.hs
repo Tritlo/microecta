@@ -1,9 +1,11 @@
 module Data.CFTA.Gen.Refinement.CompileSpec (spec) where
 
 import Control.Monad (forM_, void)
-import Data.List (sort)
+import Data.List (mapAccumL, sort)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
+import Data.String (fromString)
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
@@ -197,7 +199,7 @@ spec = do
             (LTAGen.cardinality <$> compiled, checked) `shouldBe` (Right (Left LTAGen.EmptyGenerator), Right [])
 
     describe "integer leaves" $ do
-        it "agree with validOutcomes and weigh their members as pools do" $
+        it "agree with validOutcomes, weigh their members as pools do, and rank their terms" $
             withZ3 declarations $ \solver ->
                 forM_ integerCases $ \(name, integerCase) -> do
                     let symbolic = integerCase $ \low high -> LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
@@ -207,6 +209,19 @@ spec = do
                     expected <- LTAGen.validOutcomes solver symbolic
                     (name, fmap sort expected) `shouldBe` (name, Right $ sort $ values compiled)
                     (name, massByValue compiled) `shouldBe` (name, massByValue twin)
+                    (name, unranked compiled $ allRanks compiled, unranked twin $ allRanks twin) `shouldBe` (name, [], [])
+
+        it "rank the terms of a language too large to enumerate" $
+            withZ3 declarations $ \solver -> do
+                let digits :: Integer -> Integer -> LTAGen.LTAGen Integer
+                    digits low high = LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                    readAt :: Integer -> LTAGen.LTAGen (Integer, Integer)
+                    readAt low = LTAGen.guarded "read-at" (\n i -> literal low .<= i .&& i .< n) $ (,) <$> digits 1 1000000 <*> digits (-10) 1000000
+                compiled <- compileOrFail solver $ readAt 0
+                wider <- compileOrFail solver $ readAt (-10)
+                LTAGen.cardinality compiled `shouldBe` Right 500000500000
+                unranked compiled [0, 1, 2, 999, 1000, 123456789, 500000499999] `shouldBe` []
+                (LTAGen.rankOf compiled =<< LTAGen.termAt wider 0) `shouldBe` Left LTAGen.TermNotInLanguage
 
         it "compile with the lattice entailment as with Z3" $
             withZ3 declarations $ \solver ->
@@ -286,6 +301,29 @@ integerCases =
     ]
   where
     sortedCons element rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` const $ (:) <$> element <*> rest
+
+{- | The ranks whose term does not give the rank back, or whose term with one
+user symbol replaced by a symbol outside the language has a rank.
+-}
+unranked :: LTAGen.LTAGen a -> [Integer] -> [Integer]
+unranked generator ranks =
+    [ rank
+    | rank <- ranks
+    , let term = LTAGen.termAt generator rank
+    , either (const True) (notElem rank) (LTAGen.ranksOf generator =<< term)
+        || (LTAGen.termAt generator =<< LTAGen.rankOf generator =<< term) /= term
+        || any ((/= Left LTAGen.TermNotInLanguage) . LTAGen.rankOf generator) (either (const []) relabellings term)
+    ]
+  where
+    outside = LTAGen.Label $ RefinedSymbol (fromString "outside") true
+    relabellings term =
+        [ snd $ mapAccumL (\index label -> (index + 1, if index == position then outside else label)) (0 :: Int) term
+        | (position, LTAGen.Label _) <- zip [0 ..] $ Tree.flatten term
+        ]
+
+-- | Every rank of a finite language.
+allRanks :: LTAGen.LTAGen a -> [Integer]
+allRanks generator = either (const []) (\count -> [0 .. count - 1]) $ LTAGen.cardinality generator
 
 -- | The exact sampling mass of each value of a small compiled language.
 massByValue :: (Ord a) => LTAGen.LTAGen a -> Map.Map a Rational

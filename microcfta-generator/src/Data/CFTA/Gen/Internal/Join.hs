@@ -177,6 +177,7 @@ keyedOutcomes key static =
 
 -- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::
+    (Eq symbol) =>
     Static symbol left ->
     Static symbol right ->
     [JoinGroup symbol left right] ->
@@ -199,6 +200,7 @@ joinOutcomeIndex left right groups = do
             totalOutcomes
             uniformMass
             select
+            (leafRanks pairRanks)
             selectValue
             rankSampler
             ( PlanChoice
@@ -263,6 +265,23 @@ joinOutcomeIndex left right groups = do
         let (_, leftOutcome, rightOutcome) = selectPair index
          in (outcomeValue leftOutcome, outcomeValue rightOutcome)
 
+    -- The key of a pair names its group, and each side is one enumerated outcome of its group.
+    pairRanks term = case term of
+        Tree.Node
+            Join
+            [ Tree.Node LeftKeyed [Tree.Node (Key key) [], leftTerm]
+                , Tree.Node RightKeyed [Tree.Node (Key key') [], rightTerm]
+                ]
+                | key == key' ->
+                    [ (offset + leftIndex * toInteger (Sequence.length $ joinGroupRight group) + rightIndex, True)
+                    | (offset, group) <- offsetJoinGroups groups
+                    , joinGroupIndex group == key
+                    , leftIndex <- positionsIn (joinGroupLeft group) leftTerm
+                    , rightIndex <- positionsIn (joinGroupRight group) rightTerm
+                    ]
+        _ -> []
+      where
+        positionsIn outcomes wanted = [index | (index, outcome) <- zip [0 ..] $ toList outcomes, outcomeTerm outcome == wanted]
     selectPair = selectPairIn groups
     selectPairIn groups' index =
         let (group, groupIndex) = selectJoinGroup index groups'
@@ -368,6 +387,7 @@ joinNBucketStatic componentIndex operation arguments =
             totalOutcomes
             uniformMass
             select
+            joinRanks
             selectValue
             rankSampler
             (chainPlan (outcomePlan operationOutcomes) arguments)
@@ -427,6 +447,24 @@ joinNBucketStatic componentIndex operation arguments =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
 
+    -- A node label replaces the private n-way join label and keeps its children.
+    joinRanks view = case view of
+        WholeTerm (Tree.Node JoinN children) -> childrenRanks children
+        WholeTerm _ -> []
+        LabelledView children -> childrenRanks children
+        SpineView [term] -> joinRanks $ WholeTerm term
+        SpineView _ -> []
+      where
+        childrenRanks (Tree.Node CenterKeyed centre : argumentTerms) = case reverse centre of
+            operationTerm : keys ->
+                let keysChecked = joinKeysMatch componentIndex (reverse keys) argumentTerms
+                 in [ (operationRank * argumentsCardinality + argumentRank, operationChecked && argumentsChecked && keysChecked)
+                    | (operationRank, operationChecked) <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
+                    , (argumentRank, argumentsChecked) <- chainRanks arguments argumentTerms
+                    ]
+            [] -> []
+        childrenRanks _ = []
+
 {- | Apply an operation to every argument of a chain with 'applyStatic'.
 
 The plan of the result is 'chainPlan', so its ranks are the ranks of the
@@ -462,7 +500,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
-            Nothing
+            (recursiveTerm operationRecursive >>= \terms -> recursiveChainTerms componentIndex operationIndex terms arguments)
             (joinInspection componentIndex (recursiveInspection operationRecursive) $ recursiveInspections arguments)
         )
         joinedMasses

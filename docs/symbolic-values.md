@@ -126,7 +126,7 @@ guard that reads below the root of a child with open values give
    completions as a sum of polynomials over polyhedral pieces. This is Pugh's
    method from "Counting solutions to Presburger formulas" (PLDI 1994).
 3. To decode a rank, it chooses each variable in turn by a binary search over
-   the counts of completions.
+   the counts of completions. To rank a point, it adds the same counts.
 
 The cost grows with the number of symbolic values that one formula joins, and
 with the number of bounds on each value. The bounded-reads contract joins two

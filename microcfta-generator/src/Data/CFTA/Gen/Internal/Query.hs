@@ -19,6 +19,9 @@ module Data.CFTA.Gen.Internal.Query (
     -- * Ranks
     unrank,
     termAt,
+    rankOf,
+    ranksOf,
+    rankOfTerm,
     smallest,
     sizeOfRank,
     shrinkRank,
@@ -39,7 +42,7 @@ import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Types
-import Data.CFTA.Gen.Label (Label)
+import Data.CFTA.Gen.Label (Label (Label))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (
     planMemberSize,
@@ -119,15 +122,65 @@ unrank (Cyclic result) index = do
                 $ sizeClassCounts recursiveIndex'
 unrank (Opaque _) _ = Left CannotInspectOpaqueGenerator
 
--- | The term of one member by rank.
+{- | The term of one member by rank.
+
+A recursive generator uses the size-major ranks of 'unrank'.
+-}
 termAt :: Gen symbol a -> Integer -> Either GenError (Tree.Tree (Label symbol))
 termAt _ index | index < 0 = Left $ NegativeRank index
 termAt (Transparent result) index = do
     static <- result
     outcomeTerm <$> outcomeSelect (staticOutcomes static) index
-termAt (Cyclic (Left err)) _ = Left err
-termAt (Cyclic (Right _)) _ = Left CannotInspectRecursiveGenerator
+termAt (Cyclic result) index = do
+    recursive <- result
+    terms <- maybe (Left CannotInspectRecursiveGenerator) (Right . recursiveTermIndex) $ recursiveTerm recursive
+    let recursiveIndex' = recursiveIndex recursive
+    case (minimumMemberSize recursiveIndex', sizeClassOf recursiveIndex' index) of
+        (Nothing, _) -> Left $ SelectionOutOfRange index 0
+        (_, Just (size, position)) -> pure $ snd $ sizeClassSelect terms size position
+        (_, Nothing) -> Left $ SelectionOutOfRange index $ sum $ map snd $ sizeClassCounts recursiveIndex'
 termAt (Opaque _) _ = Left CannotInspectOpaqueGenerator
+
+{- | The ranks whose term is the given engine term, in ascending order.
+
+This reads the terms that 'termAt' returns, with the private labels of the
+engine, and not a term written by hand; @rankOfTerm@ reads the terms that an
+imported automaton accepts. One term can have several ranks, because a node
+label removes the choice wrapper of its alternatives. A recursive generator
+gives the size-major ranks of 'unrank'. The ranking follows the private
+labels and checks the symbols where it can. 'termAt' checks each other rank,
+so a term with other user symbols has no rank.
+-}
+ranksOf :: (Eq symbol) => Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError [Integer]
+ranksOf generator term = map fst . filter checked <$> candidates generator
+  where
+    checked (rank, symbolsChecked) = symbolsChecked || termAt generator rank == Right term
+    candidates (Transparent result) = do
+        static <- result
+        pure $ outcomeRanks (staticOutcomes static) $ WholeTerm term
+    candidates (Cyclic result) = do
+        recursive <- result
+        maybe (Left CannotInspectRecursiveGenerator) Right $ recursivePositions recursive $ WholeTerm term
+    candidates (Opaque _) = Left CannotInspectOpaqueGenerator
+
+{- | The least rank whose term is the given engine term: the inverse of
+'termAt', so that @termAt g =<< rankOf g t@ gives @t@ back. A term that is not
+a member gives 'TermNotInLanguage'.
+-}
+rankOf :: (Eq symbol) => Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError Integer
+rankOf generator term = do
+    ranks <- ranksOf generator term
+    case ranks of
+        rank : _ -> Right rank
+        [] -> Left TermNotInLanguage
+
+{- | The least rank of a user term: the tree of user symbols that an imported
+automaton accepts, as 'fromAutomaton' returns it. A term that is not a member
+gives 'TermNotInLanguage'. An import keeps its terms under 'fmap', so the
+rank of a mapped import is the rank of the term it maps.
+-}
+rankOfTerm :: (Eq symbol) => Gen symbol a -> Tree.Tree symbol -> Either GenError Integer
+rankOfTerm generator = rankOf generator . fmap Label
 
 -- | Return the first member in structural size and rank order.
 smallest :: Gen symbol a -> Either GenError (Maybe a)

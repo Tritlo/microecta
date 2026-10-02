@@ -257,7 +257,7 @@ instance Functor (Grouped symbol key) where
                     (mapIndex transform $ recursiveIndex recursive)
                     (mapSampleIndex transform $ recursiveSampling recursive)
                     (recursiveWeighted recursive)
-                    Nothing
+                    (recursiveTerm recursive)
                     (recursiveInspection recursive)
                 )
                 (keyedRecursiveMasses group)
@@ -313,7 +313,7 @@ applyLanguages functions values = case (functions, values) of
                             (recursiveSampling right)
                         )
                         (recursiveWeighted left || recursiveWeighted right)
-                        Nothing
+                        (productTerms (recursiveIndex left) (recursiveIndex right) <$> recursiveTerm left <*> recursiveTerm right)
                         ( Inspection Nothing $
                             Node
                                 [ Edge (plainSymbol Apply) [inspectionGraph $ recursiveInspection left, inspectionGraph $ recursiveInspection right]
