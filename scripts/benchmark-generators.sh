@@ -10,3 +10,5 @@ fi
 
 cabal bench microcfta-generator:untyped-expression-speed --enable-optimization=2
 cabal bench microcfta-generator:typed-expression-speed --enable-optimization=2
+cabal bench microcfta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microcfta-generator:typed-expression-constraint-cost --enable-optimization=2
