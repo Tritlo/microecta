@@ -34,6 +34,7 @@ import qualified Data.Tree as Tree
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
+import Data.CFTA.Gen.Internal.Grouped (groupKeys)
 import Data.CFTA.Gen.Internal.Static (
     Outcome (outcomeMass, outcomeTerm),
     OutcomeIndex (outcomeCardinality, outcomeSelect),
@@ -82,7 +83,7 @@ reposition observationsOf grouped = regroupOn rekey grouped
   where
     positions =
         Map.fromListWith (\_ earlier -> earlier) $
-            zip (map observationsOf $ either (const []) Map.keys $ sizes grouped) [0 ..]
+            zip (map observationsOf $ groupKeys grouped) [0 ..]
     rekey key = ObservationKey (positions Map.! observationsOf key) (observationsOf key)
 
 -- | The number of child positions in an applicative spine.
