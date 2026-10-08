@@ -10,8 +10,8 @@ reads: the label at the child's root, and at deeper requested paths. The
 solver decides a guard once per tuple of child groups, the accepted tuples
 become one join per constructor, and an imported automaton is pruned and
 split by the same observations without enumerating its terms. The result is
-an ordinary finite generator of the engine, with exact counts, ranks, and
-structural shrinking. 'validOutcomes' is the explicit oracle: it enumerates
+an ordinary generator of the engine, finite or, for a recursive import,
+recursive, with exact counts, ranks, and structural shrinking. 'validOutcomes' is the explicit oracle: it enumerates
 every candidate and checks each complete witness.
 -}
 module Data.CFTA.Gen.Refinement.Internal.Compile (

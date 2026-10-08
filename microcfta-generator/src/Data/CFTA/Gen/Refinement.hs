@@ -10,8 +10,8 @@ guarded constructors, and the imports of the theory.
 
 A guard that the engine cannot decide without a solver defers the generator:
 its inspectors report 'SourceRequiresCompilation' until 'compile' has
-decided every guard once, with the solver, and returned an ordinary finite
-generator. A constructor without a guard needs no solver and is built at once.
+decided every guard once, with the solver, and returned an ordinary
+generator: finite, or recursive for a recursive import. A constructor without a guard needs no solver and is built at once.
 A guard of Boolean equality between subterms also defers the generator. An
 imported automaton counts Boolean equality symbolically and is built at once.
 -}
@@ -149,7 +149,8 @@ leaf member symbol refinement = Gen.node (RefinedSymbol symbol $ refinementFormu
 
 For each entry, the solver decides whether @v .== literal x@ implies the
 refinement. The result gives the values for which the answer is not 'Yes', in
-pool order. An empty result means that each refinement holds.
+pool order. An empty result means that each refinement holds. A query that
+reaches the time limit of the solver raises its exception, as 'entails' does.
 -}
 checkPool :: (Literal a) => Entailment -> [(a, Refinement)] -> IO [a]
 checkPool solver entries =
@@ -405,9 +406,11 @@ fromDatatypeUpToDepth depth datatype =
 {- | Compile a generator with Z3.
 
 The solver decides every guard, condition, and contract once, and the result
-is an ordinary finite generator. The call fails with the 'explain' text of the
-error when the generator cannot be compiled. Each free name in a refinement is
-an integer.
+is an ordinary generator: finite, or recursive for a recursive import. The
+call fails with the 'explain' text of the error when the generator cannot be
+compiled. A product with an empty part is empty, and its other parts are not
+compiled, so their errors are not reported; 'validOutcomes' reports them. Each
+free name in a refinement is an integer.
 -}
 compile :: LTAGen a -> IO (LTAGen a)
 compile = compileAssuming []
