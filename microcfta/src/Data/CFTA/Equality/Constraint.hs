@@ -18,7 +18,6 @@ module Data.CFTA.Equality.Constraint (
     hasSubsumingMember,
     EqConstraints (.., EmptyConstraints),
     unsafeGetEclasses,
-    hasSubsumingMemberListBased,
     isContradicting,
     mkEqConstraints,
     combineEqConstraints,
@@ -31,13 +30,13 @@ module Data.CFTA.Equality.Constraint (
 import Control.Monad (forM, forM_, when)
 import Control.Monad.ST (ST, runST)
 import Data.Array.ST (STUArray, newListArray, readArray, writeArray)
-import Data.Containers.ListUtils (nubOrd)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Lazy as IntMap
-import Data.List (compareLength, groupBy, nub, sort, sortBy, tails)
+import Data.List (groupBy, sort, sortBy, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Data.Set (Set)
 import qualified Data.Set as Set
 
 import Data.CFTA.Interned.Memo (memo2)
@@ -173,50 +172,54 @@ pathTrieDescend (PathTrie children) i =
 ---------- Path E-classes
 ---------------------------
 
-{- | Equality class of paths.
+-- TODO: Use set for clearer representation, consider sorted lists for
+-- performance. Ordering classes compares two sets, which is slower than
+-- comparing two sorted lists (the sort/path-eclasses rows of micro-bench).
 
-The trie drives subsumption and descent; the path list keeps the older public
-API and reduction code cheap to read; the hash is computed at most once,
-because every edge that carries the class hashes it when it is interned.
-Values built by @PathEClass@ and @mkPathEClassFromPathTrie@ keep the views
-consistent.
+{- | An equality class: a set of paths whose subterms must be equal.
+
+The set is the class. The trie holds the same paths for subsumption and
+descent, and the hash is computed at most once, because every edge that
+carries the class hashes it when it is interned. In values built by
+@PathEClass@ and @mkPathEClassFromPathTrie@, the set and the trie hold the
+same paths.
 -}
 data PathEClass = PathEClass'
     { getPathTrie :: !PathTrie
-    , getOrigPaths :: [Path]
+    , getPathSet :: Set Path
+    -- ^ Lazy: a class that descent makes builds its set only when it is read.
     , getPathHash :: Int
     -- ^ Lazy: a class that is only descended or compared never pays for it.
     }
 
 instance Show PathEClass where
-    showsPrec precedence pec = showParen (precedence > 10) $ showString "PathEClass " . showsPrec 11 (getOrigPaths pec)
+    showsPrec precedence pec = showParen (precedence > 10) $ showString "PathEClass " . showsPrec 11 (getPathSet pec)
 
 instance Eq PathEClass where
     (==) = (==) `on` getPathTrie
 
--- | Compare the cached sorted path lists instead of rebuilding them from tries.
+-- | Order classes by their sets, which compare as their ascending path lists.
 instance Ord PathEClass where
-    compare = compare `on` getOrigPaths
+    compare = compare `on` getPathSet
 
--- | Build or match an equality class from its sorted path list view.
-pattern PathEClass :: [Path] -> PathEClass
-pattern PathEClass ps <- PathEClass' _ ps _
+-- | Build or match an equality class from its set of paths.
+pattern PathEClass :: Set Path -> PathEClass
+pattern PathEClass paths <- PathEClass' _ paths _
   where
-    PathEClass ps =
-        let paths = Set.toAscList $ Set.fromList ps
-            trie = toPathTrie paths
+    PathEClass paths =
+        let trie = toPathTrie $ Set.toAscList paths
          in PathEClass' trie paths (hash trie)
 
--- | Extract the paths in an equality class.
-unPathEClass :: PathEClass -> [Path]
-unPathEClass (PathEClass' _ paths _) = paths
+-- | The paths of an equality class.
+unPathEClass :: PathEClass -> Set Path
+unPathEClass = getPathSet
 
 instance Hashable PathEClass where
     hashWithSalt salt = hashWithSalt salt . getPathHash
 
--- | Build an equality class from a trie, deriving the path list lazily.
+-- | Build an equality class from a trie, deriving the set lazily.
 mkPathEClassFromPathTrie :: PathTrie -> PathEClass
-mkPathEClassFromPathTrie pt = PathEClass' pt (fromPathTrie pt) (hash pt)
+mkPathEClassFromPathTrie pt = PathEClass' pt (Set.fromDistinctAscList $ fromPathTrie pt) (hash pt)
 
 -- | Whether one path in the first class strictly subsumes one path in the second.
 hasSubsumingMember :: PathEClass -> PathEClass -> Bool
@@ -265,11 +268,6 @@ instance Hashable EqConstraints where
 
 --------- Destructors and patterns
 
--- | Unsafe. Internal use only
-ecsGetPaths :: EqConstraints -> [[Path]]
-ecsGetPaths EqContradiction = error "ecsGetPaths: Illegal argument 'EqContradiction'"
-ecsGetPaths (EqConstraints eclasses) = map unPathEClass eclasses
-
 pattern EmptyConstraints :: EqConstraints
 pattern EmptyConstraints = EqConstraints []
 
@@ -284,15 +282,6 @@ constraintsAreContradictory = (== EqContradiction)
 
 --------- Construction
 
-{- | 'hasSubsumingMember' over raw path lists.
-
-Used by 'isContradicting', which works on un-classed path lists, and by the
-tests as the reference the trie-based 'hasSubsumingMember' is checked against.
--}
-hasSubsumingMemberListBased :: [Path] -> [Path] -> Bool
-hasSubsumingMemberListBased ps1 ps2 =
-    any (\p1 -> any (isStrictSubpath p1) ps2) ps1
-
 {- | Check whether a normalized path class forces a path equal to its subpath.
 
 After congruence closure, every subsumption cycle appears as an equality class
@@ -300,8 +289,8 @@ containing both a path and one of its strict prefixes. Such a class is
 unsatisfiable for finite trees: it would require a subterm to be equal to a
 proper descendant of itself.
 -}
-isContradicting :: [[Path]] -> Bool
-isContradicting cs = any (\pec -> hasSubsumingMemberListBased pec pec) cs
+isContradicting :: [Set Path] -> Bool
+isContradicting = any (\paths -> any (\p -> any (isStrictSubpath p) paths) paths)
 
 {- | Build normalized equality constraints.
 
@@ -312,7 +301,11 @@ constraint construction is not the main API boundary; class completion is a
 small union-find and the congruence step is the quadratic part.
 -}
 mkEqConstraints :: [[Path]] -> EqConstraints
-mkEqConstraints initialConstraints = case completedConstraints of
+mkEqConstraints = normalize . map Set.fromList
+
+-- | 'mkEqConstraints' over classes that are already sets.
+normalize :: [Set Path] -> EqConstraints
+normalize initialConstraints = case completedConstraints of
     Nothing -> EqContradiction
     Just cs -> EqConstraints $ sort $ map PathEClass cs
   where
@@ -323,22 +316,22 @@ mkEqConstraints initialConstraints = case completedConstraints of
     -- The last simplification must also be completion, to give a valid value.
     completedConstraints = fixMaybe congruenceStep $ complete $ removeTrivial initialConstraints
       where
-        removeTrivial :: (Eq a) => [[a]] -> [[a]]
-        removeTrivial = filter (\x -> compareLength x 1 == GT) . map nub
+        removeTrivial :: [Set Path] -> [Set Path]
+        removeTrivial = filter ((> 1) . Set.size)
 
         -- One step of congruence closure. It fails when a class forces a path to be
         -- equal to one of its strict subpaths.
-        congruenceStep :: [[Path]] -> Maybe [[Path]]
+        congruenceStep :: [Set Path] -> Maybe [Set Path]
         congruenceStep classes = do
             let closed = complete $ addCongruences classes
             when (isContradicting closed) Nothing
             pure closed
 
         -- Merge overlapping classes with a union-find over the distinct paths.
-        -- Members and classes come out sorted, so a stable input gives a stable output.
-        complete :: (Ord a) => [[a]] -> [[a]]
+        -- Classes come out sorted, so a stable input gives a stable output.
+        complete :: [Set Path] -> [Set Path]
         complete initialClasses = runST $ do
-            let members = Map.fromList (zip (nubOrd (concat initialClasses)) [0 :: Int ..])
+            let members = Map.fromDistinctAscList (zip (Set.toAscList (Set.unions initialClasses)) [0 :: Int ..])
             parent <- newListArray (0, Map.size members - 1) [0 .. Map.size members - 1] :: ST s (STUArray s Int Int)
             let find index = do
                     above <- readArray parent index
@@ -352,11 +345,12 @@ mkEqConstraints initialConstraints = case completedConstraints of
                     leftRoot <- find left
                     rightRoot <- find right
                     when (leftRoot /= rightRoot) $ writeArray parent leftRoot rightRoot
-            forM_ initialClasses $ \cls -> case map (members Map.!) cls of
+            forM_ initialClasses $ \cls -> case map (members Map.!) (Set.toList cls) of
                 [] -> pure ()
                 (first : rest) -> mapM_ (union first) rest
+            -- Members are visited in ascending order, so each group collects them in descending order.
             grouped <- forM (Map.toList members) $ \(member, index) -> (,[member]) <$> find index
-            pure $ sort $ map sort $ Map.elems $ Map.fromListWith (++) grouped
+            pure $ sort $ map Set.fromDistinctDescList $ Map.elems $ Map.fromListWith (++) grouped
 
         -- Iterate a partial step function until stable or failed.
         fixMaybe :: (Eq a) => (a -> Maybe a) -> a -> Maybe a
@@ -369,20 +363,20 @@ mkEqConstraints initialConstraints = case completedConstraints of
     -- If x is in a class and x ++ s is a recorded path, then z ++ s equals
     -- x ++ s for every z in that class. Every x with the same suffix s forces
     -- the same class, so one class for each distinct suffix is enough. In
-    -- sorted order, the strict extensions of a path follow it directly.
-    addCongruences :: [[Path]] -> [[Path]]
+    -- ascending order, the strict extensions of a path follow it directly.
+    addCongruences :: [Set Path] -> [Set Path]
     addCongruences cs
         | Map.null suffixes = cs
-        | otherwise = cs ++ [map (`extend` suffix) left | left <- cs, suffix <- nubOrd (concatMap suffixesOf left)]
+        | otherwise = cs ++ [Set.map (`extend` suffix) left | left <- cs, suffix <- Set.toList (foldMap suffixesOf left)]
       where
         suffixes =
             Map.fromList
-                [ (Path x, [Path (drop (length x) y) | Path y <- extensions])
-                | Path x : rest <- tails (sort (concat cs))
+                [ (Path x, Set.fromList [Path (drop (length x) y) | Path y <- extensions])
+                | Path x : rest <- tails (Set.toAscList (Set.unions cs))
                 , let extensions = takeWhile (isStrictSubpath (Path x)) rest
                 , not (null extensions)
                 ]
-        suffixesOf x = Map.findWithDefault [] x suffixes
+        suffixesOf x = Map.findWithDefault Set.empty x suffixes
         extend (Path prefix) (Path suffix) = Path (prefix ++ suffix)
 
 ---------- Operations
@@ -398,7 +392,7 @@ combineEqConstraints ec1 ec2 = combineEqConstraintsMemo ec1 ec2
 combineEqConstraintsMemo :: EqConstraints -> EqConstraints -> EqConstraints
 combineEqConstraintsMemo = memo2 go
   where
-    go ec1 ec2 = mkEqConstraints $ ecsGetPaths ec1 ++ ecsGetPaths ec2
+    go ec1 ec2 = normalize $ map unPathEClass $ unsafeGetEclasses ec1 ++ unsafeGetEclasses ec2
 {-# NOINLINE combineEqConstraintsMemo #-}
 
 {- | Descend every path in a constraint set through one child index.

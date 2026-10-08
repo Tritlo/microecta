@@ -2,6 +2,7 @@ module Data.CFTA.Equality.ConstraintSpec (spec) where
 
 import qualified Data.IntMap.Lazy as IntMap
 import Data.List (nub, sort, subsequences, (\\))
+import qualified Data.Set as Set
 
 import Test.Hspec
 import Test.QuickCheck
@@ -25,7 +26,7 @@ instance Arbitrary Path where
 
 instance Arbitrary PathTrie where
     arbitrary = do
-        paths <- suchThat arbitrary (\ps -> not (isContradicting [ps]))
+        paths <- suchThat arbitrary (\ps -> not (isContradicting [Set.fromList ps]))
         return $ toPathTrie $ nub paths
 
     shrink EmptyPathTrie = []
@@ -64,19 +65,19 @@ spec = do
         it "fromPathTrie and toPathTrie are inverses" $ do
             property $ \pt -> toPathTrie (fromPathTrie pt) == pt
 
-        it "PathTrie-based hasSubsumingMember same as list-based implementation" $ do
+        it "PathTrie-based hasSubsumingMember same as set-based definition" $ do
             property $ \pt1 pt2 ->
-                let pec1 = PathEClass (fromPathTrie pt1)
-                    pec2 = PathEClass (fromPathTrie pt2)
-                 in hasSubsumingMember pec1 pec2 == hasSubsumingMemberListBased (unPathEClass pec1) (unPathEClass pec2)
+                let pec1 = PathEClass (Set.fromList $ fromPathTrie pt1)
+                    pec2 = PathEClass (Set.fromList $ fromPathTrie pt2)
+                 in hasSubsumingMember pec1 pec2 == any (\p1 -> any (isStrictSubpath p1) (unPathEClass pec2)) (unPathEClass pec1)
 
     describe "PathEClass" $ do
-        it "both ways of getting list of paths from a PathEClass are identical" $ do
+        it "the trie and the set of a PathEClass hold the same paths" $ do
             property $ \pt ->
                 let paths = fromPathTrie pt
                  in forAll (shuffle $ paths <> paths) $ \duplicated ->
-                        let eclass = PathEClass duplicated
-                         in fromPathTrie (getPathTrie eclass) == paths && getOrigPaths eclass == paths
+                        let eclass = PathEClass $ Set.fromList duplicated
+                         in fromPathTrie (getPathTrie eclass) == paths && Set.toAscList (unPathEClass eclass) == paths
 
     describe "mkEqConstraints" $ do
         it "removes unitary" $
@@ -89,11 +90,15 @@ spec = do
 
         it "completes equalities" $
             mkEqConstraints (mkTestPaths1 [[1, 2], [2, 3], [4, 5], [6, 7], [7, 1]])
-                `shouldBe` EqConstraints (map PathEClass $ sort $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
+                `shouldBe` EqConstraints (sort $ map (PathEClass . Set.fromList) $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
 
         it "adds congruences" $
             mkEqConstraints (mkTestPathsN [[[0], [1]], [[2], [0]], [[0, 0], [0, 1]]])
-                `shouldBe` EqConstraints (map PathEClass $ sort $ mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]])
+                `shouldBe` EqConstraints
+                    ( sort
+                        $ map (PathEClass . Set.fromList)
+                        $ mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]
+                    )
 
         it "detects contradictions from congruences" $
             -- This test input is from unifying `(a -> b) -> (a -> b)` and `(a -> (a -> a)) -> (a -> ([a] -> a))`

@@ -2,6 +2,7 @@
 module Data.CFTA.Constraint (Constraint (..), HasEqualities (..), equalityIndicators) where
 
 import Data.Hashable (Hashable)
+import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality.Constraint (
@@ -53,7 +54,7 @@ class (Hashable constraint, Typeable constraint) => Constraint constraint where
 -- | Path equality classes as one indicator summand, or none when contradictory.
 equalityIndicators :: EqConstraints -> [(Integer, [[Path]])]
 equalityIndicators =
-    maybe [] (\classes -> [(1, map unPathEClass classes)]) . subsumptionOrderedEclasses
+    maybe [] (\classes -> [(1, map (Set.toAscList . unPathEClass) classes)]) . subsumptionOrderedEclasses
 
 instance Constraint () where
     noConstraint = ()
