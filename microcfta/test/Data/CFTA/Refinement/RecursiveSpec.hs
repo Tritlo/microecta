@@ -13,7 +13,7 @@ import Data.CFTA.Refinement (
     Guard (Same, Satisfies),
     Node (Mu, Node),
     Symbol (RefinedSymbol),
-    Verdict (Yes),
+    Verdict (No, Yes),
     accepts,
     noConstraint,
     path,
@@ -103,6 +103,17 @@ spec =
             case pruned of
                 Just (Right result) -> accepts alwaysEntails result term >>= (`shouldBe` Yes)
                 other -> expectationFailure $ show other
+
+        it "decides a deep term in linear time when a node has two transitions with one symbol" $ do
+            -- A search with no table tries both "f" transitions again at each
+            -- level of a rejected term, so its time is exponential in the depth.
+            let a = Transition "a" true [] noConstraint
+                f child = Transition "f" true [child] noConstraint
+                automaton = Mu $ \q -> Node [a, f q, f (Node [a, f q])]
+                label name = RefinedSymbol name true
+                deep leaf = iterate (\term -> Tree.Node (label "f") [term]) (Tree.Node (label leaf) [])
+            decided <- timeout 10000000 $ mapM (accepts alwaysEntails automaton . (!! 60) . deep) ["a", "b"]
+            decided `shouldBe` Just [Yes, No]
 
         it "rejects a guard that points into a recursive node" $ do
             let automaton = Mu $ \self ->
