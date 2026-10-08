@@ -831,7 +831,10 @@ compileOpenNode compiler requested labelling constraint child
                 else
                     if symbolic label
                         then Just (OpenKey observations total formula (Just $ pointCount found), kept, Nothing)
-                        else Just (closedKey observations, kept, Just (pointCount found, pointAt found))
+                        else
+                            -- Children without open variables have no point to select, so
+                            -- the constructor adds no source choice; closeOpen applies them.
+                            Just (closedKey observations, kept, if total == 0 then Nothing else Just (pointCount found, pointAt found))
 
 {- | Settle each tuple of child groups: drop it, leave its variables open under
 a new key, or close them by the integer points of its formula. The mass of a
