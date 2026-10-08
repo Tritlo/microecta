@@ -108,7 +108,9 @@ data GenError
       -}
       ConditionNeedsConstructor
     | {- | A guard reads the children of a constructor, and one child gives a
-      number of terms other than one, as a choice of products does.
+      number of terms other than one, as a choice of products or a source
+      without symbols does. Or an equality reads a node whose members are
+      leaves and non-leaves.
       -}
       ChildNotOneTerm
     deriving (Eq, Show)
@@ -347,10 +349,13 @@ explain ChildNotOneTerm =
     guidance
         [ "A guard reads the children of a constructor by position, and one child"
         , "does not give one term for each member: a choice of products gives"
-        , "several terms, and a choice of pure values gives none. The terms take"
-        , "that many positions, so the guard would read the wrong children."
+        , "several terms, and a choice of pure values or a source without symbols,"
+        , "such as fromIndexed, freeze, or samplePool, gives none. The terms take"
+        , "that many positions, so the guard would read the wrong children. Or"
+        , "isSameTermAs reads a node whose members are leaves and non-leaves, such"
+        , "as a node over a choice of pure values and constructors."
         , "Fix: put the choice around the whole constructor, or give each"
-        , "alternative a node of its own."
+        , "alternative or source a node of its own."
         ]
 explain SourceRequiresCompilation =
     guidance

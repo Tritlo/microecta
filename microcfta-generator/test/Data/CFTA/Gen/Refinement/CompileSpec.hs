@@ -22,8 +22,8 @@ import Data.CFTA.Refinement (
     nodeCount,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>=))
-import Data.CFTA.Refinement.Guard (allOf, isSameTermAs, isSubtypeOf, requires)
+import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>), (.>=))
+import Data.CFTA.Refinement.Guard (allOf, isSameTermAs, isSubtypeOf, notGuard, requires)
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -129,6 +129,41 @@ spec =
                     (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.ChildNotOneTerm
                 unguarded <- LTAGen.compileWith solver $ LTAGen.node "pair" pairs
                 (unguarded >>= LTAGen.cardinality) `shouldBe` Right 4
+
+        it "reads the leafness of a node from its term" $
+            -- The child of each node "a" has one position and gives no term,
+            -- so the term of the node is a leaf, as the term of the leaf is.
+            forM_ [LTAGen.oneof [pure 1, pure 2], LTAGen.fromIndexed (LTAGen.Indexed 2 (\(Rank rank) -> rank + 1))] $ \inner -> do
+                let pair :: LTAGen.LTAGen (Integer, Integer)
+                    pair = (,) <$> LTAGen.node "a" inner <*> LTAGen.leaf 3 "a" (const true)
+                    same = LTAGen.refinedNode "p" (const true) isSameTermAs pair
+                    different = LTAGen.refinedNode "p" (const true) (\x y -> notGuard (isSameTermAs x y)) pair
+                forM_ [(same, [(1, 3), (2, 3)]), (different, [])] $ \(generator, expected) -> do
+                    checked <- LTAGen.validOutcomes latticeEntailment generator
+                    checked `shouldBe` Right expected
+                    compiled <- LTAGen.compileWith latticeEntailment generator
+                    fmap (sort . values) compiled `shouldBe` Right expected
+
+        it "refuses an equality that reads a node whose members are leaves and non-leaves" $ do
+            let mixed :: LTAGen.LTAGen (Integer, Integer)
+                mixed =
+                    LTAGen.refinedNode "p" (const true) isSameTermAs $
+                        (,) <$> LTAGen.node "a" (LTAGen.oneof [pure 1, LTAGen.leaf 2 "b" (const true)]) <*> LTAGen.leaf 3 "a" (const true)
+            checked <- LTAGen.validOutcomes latticeEntailment mixed
+            checked `shouldBe` Right [(1, 3)]
+            compiled <- LTAGen.compileWith latticeEntailment mixed
+            (compiled >>= LTAGen.cardinality) `shouldBe` Left LTAGen.ChildNotOneTerm
+
+        it "refuses a guard that reads a position after a source without symbols" $
+            -- The source gives its constructor no term, so the term of "p" has
+            -- one child, and the guard reads the elements at the absent position 1.
+            forM_ [LTAGen.fromIndexed (LTAGen.Indexed 3 (\(Rank rank) -> rank)), LTAGen.freeze 0 3 (pure 7)] $ \source -> do
+                let generator :: LTAGen.LTAGen (Integer, Integer)
+                    generator = LTAGen.guarded "p" (\_ y -> y .> 0) $ (,) <$> source <*> LTAGen.elements [1, 2]
+                checked <- LTAGen.validOutcomes latticeEntailment generator
+                checked `shouldBe` Right []
+                compiled <- LTAGen.compileWith latticeEntailment generator
+                (compiled >>= LTAGen.cardinality) `shouldBe` Left LTAGen.ChildNotOneTerm
 
         it "recognizes a constant-false factor without evaluating either huge product" $ do
             let solver = Entailment $ \_ _ -> error "a constant-empty product queried the solver"
