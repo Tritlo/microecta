@@ -51,6 +51,7 @@ import Data.Kind (Type)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (Proxy))
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Tree as Tree
 import Data.Typeable (TypeRep, Typeable, splitTyConApp, tyConModule, tyConName, tyConPackage, typeRep)
@@ -126,11 +127,11 @@ annotateConstructors fallback named datatype
     | otherwise = Left $ UnknownConstructors unknown
   where
     table = Map.fromList named
-    unknown = nubOrd [name | (name, _) <- named, not $ Map.member name known]
+    unknown = nubOrd [name | (name, _) <- named, not $ Set.member name known]
       where
         known =
-            Map.fromList
-                [ (constructorName $ FTA.transitionSymbol transition, ())
+            Set.fromList
+                [ constructorName $ FTA.transitionSymbol transition
                 | transitions <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
                 , transition <- transitions
                 ]
