@@ -33,7 +33,7 @@ import Data.Array.ST (STUArray, newListArray, readArray, writeArray)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Lazy as IntMap
-import Data.List (groupBy, sort, sortBy, tails)
+import Data.List (sort, sortBy, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
@@ -128,18 +128,8 @@ toPathTrie ps@(firstPath : _) =
         then
             let child = toPathTrie $ map tailOf ps
              in child `seq` PathTrie (IntMap.singleton (headOf firstPath) child)
-        else
-            PathTrie (IntMap.fromDistinctAscList children)
+        else PathTrie $ IntMap.map toPathTrie $ IntMap.fromListWith (flip (<>)) [(headOf p, [tailOf p]) | p <- ps]
   where
-    children =
-        [ (headOf groupHead, toPathTrie $ map tailOf group)
-        | group@(groupHead : _) <- groups
-        ]
-      where
-        groups =
-            groupBy ((==) `on` headOf) $
-                sortBy (compare `on` headOf) ps
-
     headOf (ConsPath i _) = i
     headOf EmptyPath = malformed
 
