@@ -34,7 +34,7 @@ module Data.CFTA.Gen.Internal.Recursive (
 ) where
 
 import Data.Hashable (Hashable)
-import Data.List (sort)
+import Data.List (sort, (!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import qualified Data.Tree as Tree
@@ -201,12 +201,12 @@ choiceTerms indexes terms =
         SpineView [term] -> positions $ WholeTerm term
         SpineView _ -> []
         LabelledView _ -> concat [branchPositions branch view | branch <- map ChoiceIndex [0 .. length terms - 1]]
-    branchPositions branch@(ChoiceIndex index) view = case drop index terms of
-        branchTerms : _ ->
+    branchPositions branch@(ChoiceIndex index) view = case terms !? index of
+        Just branchTerms ->
             [ (SizedRank size (choicePosition indexes branch size position), checked)
             | (SizedRank size position, checked) <- recursiveTermPositions branchTerms view
             ]
-        [] -> []
+        Nothing -> []
 
 {- | The size-major ranks of the members of a recursive language whose term
 has the view, in ascending order, and whether the ranking checked every
