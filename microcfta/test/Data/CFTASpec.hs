@@ -219,6 +219,32 @@ spec = do
                         Enumeration.terms (Common.boundDepth depth imported)
                             `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
 
+        it "imports and unfolds a two-way chain in time polynomial in its length" $ do
+            -- Each state has its own leaf and edges to both neighbours, so each
+            -- state gets a binder inside the binder of the state before it.
+            -- Building or unfolding each binder again for each application of
+            -- its body took time exponential in the length.
+            let size = 40 :: Int
+                rows =
+                    [ ( state
+                      , Transition ("leaf" <> show state) [] noConstraint
+                            : [Transition "next" [state + 1] noConstraint | state < size - 1]
+                                <> [Transition "prev" [state - 1] noConstraint | state > 0]
+                      )
+                    | state <- [0 .. size - 1]
+                    ]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    finished <- timeout 10000000 $ do
+                        Common.nodeCount imported `shouldBe` size
+                        Common.nodeCount (Common.unfoldOuterRec imported) `shouldBe` 2 * size
+                    finished `shouldBe` Just ()
+                    forM_ [0 .. 3] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
+
         it "preserves recursive intersections and the explicit graph view" $ do
             let naturals = Common.createMu $ \rec ->
                     Common.Node
