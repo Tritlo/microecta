@@ -46,6 +46,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
     RankDecoder (..),
     compilePlan,
     planCardinality,
+    sharedChoiceBound,
  )
 import Data.CFTA.Ranked.Internal.Sampler (
     GenBackend (..),
@@ -271,7 +272,7 @@ frequency alternatives
         Right $
             makeRanked
                 ( PlanChoice
-                    [ (cardinality ranked, rankedPlan ranked)
+                    [ (cardinality ranked, alternativePlan ranked)
                     | (_, ranked) <- alternatives
                     ]
                 )
@@ -290,6 +291,13 @@ frequency alternatives
                         ]
                     )
                 )
+  where
+    -- An alternative with more than 'sharedChoiceBound' members is a shared
+    -- node, so a language that several alternatives reuse is compiled and
+    -- counted once.
+    alternativePlan ranked
+        | cardinality ranked > sharedChoiceBound = rankedPlan $ share ranked
+        | otherwise = rankedPlan ranked
 
 -- | Combine equally weighted non-empty alternatives.
 oneof :: [Ranked a] -> Either RankedError (Ranked a)
