@@ -8,7 +8,8 @@ module Data.CFTA.Gen.Internal.Table (
 ) where
 
 import Control.Monad (zipWithM)
-import Data.List (scanl')
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -90,7 +91,7 @@ tablePosition initial rows = Map.lookup initial . positionsOf
               , [(state, branch, transition, prefixes, indexes)]
               )
             | state <- Map.keys rows
-            , let indexes = map (last . snd) $ prefixesOf state
+            , let indexes = map (NonEmpty.last . snd) $ prefixesOf state
             , (branch, (transition, prefixes)) <- zip [0 :: TransitionIndex ..] $ prefixesOf state
             ]
     -- The size and position of a term in each state that accepts it. The
@@ -103,7 +104,7 @@ tablePosition initial rows = Map.lookup initial . positionsOf
                 Map.findWithDefault [] (symbol, length children) candidates
             , Just childPositions <- [zipWithM Map.lookup (FTA.transitionChildren transition) childMaps]
             , let SizedRank size position =
-                    foldl' addChild (SizedRank 1 0) $ zip3 prefixes (FTA.transitionChildren transition) childPositions
+                    foldl' addChild (SizedRank 1 0) $ zip3 (NonEmpty.toList prefixes) (FTA.transitionChildren transition) childPositions
             ]
       where
         childMaps = map positionsOf children
@@ -122,7 +123,7 @@ stateTable ::
     (Ord state) =>
     Map.Map state [FTA.Transition state symbol ()] ->
     ( state -> SizeIndex (Tree.Tree symbol)
-    , state -> [(FTA.Transition state symbol (), [SizeIndex ([Tree.Tree symbol] -> Tree.Tree symbol)])]
+    , state -> [(FTA.Transition state symbol (), NonEmpty (SizeIndex ([Tree.Tree symbol] -> Tree.Tree symbol)))]
     )
 stateTable rows = (indexOf, prefixesOf)
   where
@@ -130,7 +131,7 @@ stateTable rows = (indexOf, prefixesOf)
     prefixTable = LazyMap.map (map $ \transition -> (transition, childPrefixes transition)) rows
       where
         childPrefixes transition =
-            scanl'
+            NonEmpty.scanl
                 consumeChild
                 (constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
                 (map indexOf $ FTA.transitionChildren transition)
