@@ -37,7 +37,7 @@ rowsOf ::
     (Hashable symbol, Typeable symbol) =>
     Node symbol -> Map.Map NodeId [FTA.Transition NodeId symbol ()]
 rowsOf root =
-    Map.fromList
+    Map.fromDistinctAscList
         [ (NodeId ident, [FTA.Transition (edgeSymbol edge) (map nodeIdentity $ edgeChildren edge) () | edge <- edges])
         | (ident, edges) <- IntMap.toList (reachable root)
         ]
