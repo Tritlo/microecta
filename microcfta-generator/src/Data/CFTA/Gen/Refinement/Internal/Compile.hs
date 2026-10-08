@@ -355,9 +355,14 @@ constraintDecision entailment label leafness constraint childKeys = do
         -- the solver could not decide the rest.
         Unknown -> do
             semantic <- decide $ fst $ splitGuard $ constraintGuard constraint
+            -- With a solver that answers every query, the guard is decided when
+            -- the observations decide its equalities: then only the solver left
+            -- it undecided. This also covers an equality under 'Or' or 'Not'.
+            answered <- traverse (\answer -> decideWith (Entailment $ \_ _ -> pure answer) $ constraintAsGuard constraint) [Yes, No]
             pure $ case semantic of
                 Unknown -> Left SolverUnknown
                 _
+                    | Unknown `notElem` answered -> Left SolverUnknown
                     -- An equality reads a node whose members are leaves and non-leaves.
                     | any unknownLeaf $ guardPaths $ snd $ splitGuard $ constraintGuard constraint ->
                         Left ChildNotOneTerm
@@ -371,7 +376,8 @@ constraintDecision entailment label leafness constraint childKeys = do
     unknownLeaf target = case Map.lookup target observations of
         Just (Observed _ Mixed) -> True
         _ -> False
-    decide = evaluateGuardWithShape entailment (`Map.lookup` observations)
+    decide = decideWith entailment
+    decideWith entailment' = evaluateGuardWithShape entailment' (`Map.lookup` observations)
 
 -- | The observations a parent requests above one accepted node.
 parentObservations :: [Path] -> Symbol -> Leafness -> [ObservationKey] -> Observations

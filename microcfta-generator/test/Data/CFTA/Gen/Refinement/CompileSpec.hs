@@ -23,7 +23,7 @@ import Data.CFTA.Refinement (
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>), (.>=))
-import Data.CFTA.Refinement.Guard (allOf, isSameTermAs, isSubtypeOf, notGuard, requires)
+import Data.CFTA.Refinement.Guard (allOf, anyOf, isSameTermAs, isSubtypeOf, notGuard, requires)
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -221,6 +221,17 @@ spec =
             let g =
                     LTAGen.refinedNode "p" (const true) (\x y -> allOf [isSameTermAs x y, requires x (.>= 0)]) $
                         (,) <$> LTAGen.leaf () "a" (const true) <*> LTAGen.leaf () "a" (const true)
+            compiled <- LTAGen.compileWith latticeEntailment g
+            checked <- LTAGen.validOutcomes latticeEntailment g
+            (either Just (const Nothing) compiled, either Just (const Nothing) checked)
+                `shouldBe` (Just LTAGen.SolverUnknown, Just LTAGen.SolverUnknown)
+
+        it "report an undecided guard with an equality under a disjunction as SolverUnknown" $ do
+            -- The leaves differ, so the observations decide Same; the condition
+            -- is unbounded, so the lattice cannot decide it.
+            let g =
+                    LTAGen.refinedNode "p" (const true) (\x y -> anyOf [isSameTermAs x y, requires x (.> 5)]) $
+                        (,) <$> LTAGen.leaf () "a" (const true) <*> LTAGen.leaf () "b" (const true)
             compiled <- LTAGen.compileWith latticeEntailment g
             checked <- LTAGen.validOutcomes latticeEntailment g
             (either Just (const Nothing) compiled, either Just (const Nothing) checked)
