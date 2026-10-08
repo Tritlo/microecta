@@ -1021,8 +1021,9 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
     token = nextToken env
     withFamily family = interpretGrouped (Env flat (family : grouped)) body
     placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keyMinimums]
-    placeholder minimum' flags count classAt massAt =
-        Group (Model Nothing False True count classAt minimum' Nothing flags flags) 0 massAt
+    placeholder minimum' flags = flaggedPlaceholder minimum' (flags, flags)
+    flaggedPlaceholder minimum' (reaches, unguarded) count classAt massAt =
+        Group (Model Nothing False True count classAt minimum' Nothing reaches unguarded) 0 massAt
 
     probe minimum' = placeholder minimum' (IntSet.singleton token) probeError probeError probeError
     probeWith minimumAt = withFamily $ placeholders $ probe . minimumAt
@@ -1053,11 +1054,33 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
         Right groups -> fmap (\group -> group{groupModel = closeToken token $ groupModel group}) groups
         Left err -> error $ "Data.CFTA.Gen.Reference.recurGroupedFamily: the tied body failed with " <> show err
     tiedPlaceholders = placeholders $ \key ->
-        placeholder
+        flaggedPlaceholder
             (Map.lookup key minimumSizes)
-            IntSet.empty
+            (Map.findWithDefault (IntSet.empty, IntSet.empty) key keyFlags)
             (tiedAt key 0 $ modelCount . groupModel)
             (tiedAt key [] $ modelClass . groupModel)
             (tiedAt key 0 groupMassAt)
+    -- The enclosing occurrences that the body of each key reaches, and those it
+    -- leaves unguarded, also through other keys: each pass builds the body
+    -- around occurrences that carry the flags of the pass before.
+    keyFlags = converge Map.empty
+      where
+        converge previous
+            | next == previous = previous
+            | otherwise = converge next
+          where
+            next =
+                either (const Map.empty) (fmap $ flagsOf . groupModel) $
+                    familyGroups $
+                        withFamily $
+                            placeholders $
+                                \key ->
+                                    flaggedPlaceholder
+                                        (Map.lookup key minimumSizes)
+                                        (Map.findWithDefault (IntSet.empty, IntSet.empty) key previous)
+                                        probeError
+                                        probeError
+                                        probeError
+        flagsOf model' = (IntSet.delete token $ modelReaches model', IntSet.delete token $ modelUnguarded model')
     tiedAt :: Int -> b -> (Group Value -> Integer -> b) -> Integer -> b
     tiedAt key below field = maybe (const below) (memo below . field) $ Map.lookup key tiedGroups

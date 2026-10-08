@@ -47,6 +47,8 @@ module Data.CFTA.Ranked.Internal.Size (
     probeIndexWithMinimum,
     minimumOf,
     closedProbe,
+    closedProbeWithOccurrencesOf,
+    sameOccurrences,
     isUnguarded,
     usesOccurrence,
     reachesOccurrence,
@@ -422,6 +424,19 @@ closedProbe minimumSize' =
         { unguardedOccurrences = IntSet.empty
         , usedOccurrences = IntSet.empty
         }
+
+{- | 'closedProbe' with the occurrence flags of another index. A member of a
+recursive family stands for the body of its key, which can reach the probe of
+an enclosing recursion, and the flags carry that to the members that read it.
+-}
+closedProbeWithOccurrencesOf :: SizeIndex b -> MinimumSize -> SizeIndex a
+closedProbeWithOccurrencesOf flags minimumSize' =
+    (closedProbe minimumSize'){unguardedOccurrences = unguardedOccurrences flags, usedOccurrences = usedOccurrences flags}
+
+-- | Whether two indexes reach the same probes, and leave the same ones unguarded.
+sameOccurrences :: SizeIndex a -> SizeIndex b -> Bool
+sameOccurrences left right =
+    unguardedOccurrences left == unguardedOccurrences right && usedOccurrences left == usedOccurrences right
 
 {- | Give a tied index a minimum and the occurrence flags of a build that does
 not read the knot, leaving counts and decoding unchanged.

@@ -41,12 +41,14 @@ import Data.CFTA.Ranked.Internal.Size (
     choiceIndex,
     closedOccurrence,
     closedProbe,
+    closedProbeWithOccurrencesOf,
     fixIndex,
     isUnguarded,
     minimumMemberSize,
     minimumOf,
     probeIndexWithMinimum,
     reachesOccurrence,
+    sameOccurrences,
     sizeClassOf,
     usesOccurrence,
     withKnotMetadata,
@@ -219,14 +221,26 @@ recurGrouped build
     -- The family built around tied occurrences, which gives the flags of each
     -- key without reading the knot. Each occurrence has the least minimum of
     -- its key, as in the probe, so a nested definition whose finite members
-    -- all go through the family is not empty in this build.
-    closedIndexes =
-        either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage)
-            $ bodyGroups
-            $ Map.fromList
-                [ (key, placeholder EmptyNode (closedProbe $ minimumAt key) emptySampleIndex noMass)
-                | key <- keys
-                ]
+    -- all go through the family is not empty in this build. An occurrence
+    -- carries the flags that the body of its key had in the build before,
+    -- until they stop changing: a key that reaches the probe of an enclosing
+    -- recursion only through another key reaches it too.
+    closedIndexes = converge Map.empty
+      where
+        converge previous =
+            let built =
+                    either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage)
+                        $ bodyGroups
+                        $ Map.fromList
+                            [ ( key
+                              , placeholder EmptyNode (occurrence (Map.lookup key previous) (minimumAt key)) emptySampleIndex noMass
+                              )
+                            | key <- keys
+                            ]
+             in if Map.keys built == Map.keys previous && and (Map.intersectionWith sameOccurrences built previous)
+                    then built
+                    else converge built
+        occurrence = maybe closedProbe closedProbeWithOccurrencesOf
 
     -- The keys and the least minimum of each, from the empty family upward.
     -- Each pass builds the body around a probe of each key found so far, with
