@@ -132,17 +132,7 @@ mergeComponentsByKey components = do
     let totalAcceptedMass = sum $ keyedBucketMass <$> unnormalized
     pure $ fmap (normalizeBucket totalAcceptedMass) unnormalized
   where
-    grouped =
-        foldl'
-            ( \groups (resultKey, mass, static) ->
-                Map.insertWith
-                    (flip (<>))
-                    resultKey
-                    [(mass, static)]
-                    groups
-            )
-            Map.empty
-            components
+    grouped = groupOutcomes [(resultKey, (mass, static)) | (resultKey, mass, static) <- components]
 
     normalizeBucket totalAcceptedMass bucket =
         bucket
