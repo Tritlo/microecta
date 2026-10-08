@@ -346,14 +346,13 @@ labelRecursive symbol recursive =
         }
   where
     -- The label replaces the private root of each term, so the inner
-    -- language reads the children under it. The label checks its symbol.
+    -- language reads the children under it. A term with another label has
+    -- no rank here, so a choice of labels reads each term in one alternative.
     labelTerms terms = RecursiveTerms (mapIndex (labelTerm symbol) $ recursiveTermIndex terms) positions
       where
         positions view = case view of
-            WholeTerm (Tree.Node (Label found) children) ->
-                [ (position, checked && found == symbol)
-                | (position, checked) <- recursiveTermPositions terms $ LabelledView children
-                ]
+            WholeTerm (Tree.Node (Label found) children)
+                | found == symbol -> recursiveTermPositions terms $ LabelledView children
             SpineView [term] -> positions $ WholeTerm term
             LabelledView [term] -> positions $ WholeTerm term
             _ -> []

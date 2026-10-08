@@ -668,6 +668,30 @@ spec = do
             (ECTAGen.ranksOf choiceUnderNode =<< ECTAGen.termAt choiceUnderNode 0) `shouldBe` Right [0, 2]
             ECTAGen.rankOf rankTree (Tree.Node (ECTAGen.Label "other") []) `shouldBe` Left TermNotInLanguage
 
+        it "rank a deep term under a choice of labels in time linear in its depth" $ do
+            -- An alternative with another label than the term read the whole
+            -- term below it, so the work doubled at each level.
+            let literal = ECTAGen.node "lit" (ECTAGen.elements [True, False])
+                step :: ECTAGen Bool -> ECTAGen Bool
+                step smaller =
+                    ECTAGen.node "e" $
+                        ECTAGen.oneof
+                            [literal, ECTAGen.node "and" ((&&) <$> smaller <*> literal), ECTAGen.node "or" ((||) <$> smaller <*> literal)]
+                -- A finite twin, built by Haskell recursion.
+                nested :: Int -> ECTAGen Bool
+                nested depth = if depth == 0 then ECTAGen.node "e" literal else step (nested (depth - 1))
+                -- The term e(or(t, lit)), wrapped forty times around t = e(lit).
+                deep base =
+                    iterate (\term -> Tree.Node (ECTAGen.Label "e") [Tree.Node (ECTAGen.Label "or") (term : Tree.subForest base)]) base
+                        !! 40
+            mapM_
+                ( \generator -> do
+                    term <- either (fail . show) (pure . deep) $ ECTAGen.termAt generator 0
+                    result <- timeout 10000000 $ evaluateFully $ (== term) <$> (ECTAGen.termAt generator =<< ECTAGen.rankOf generator term)
+                    result `shouldBe` Just (Right True)
+                )
+                [ECTAGen.recur step, nested 40]
+
         it "rank the size-major terms of recursive generators" $ do
             let labelled = ECTAGen.recur $ \self ->
                     ECTAGen.oneof

@@ -53,6 +53,7 @@ import Data.CFTA.Gen.Internal.Static (
     addRootCounts,
     commonRootCount,
     holeStatic,
+    labelStaticMatching,
     mapStatic,
     pointsStatic,
  )
@@ -771,7 +772,7 @@ compileOpenNode compiler requested labelling constraint child
             Left err -> pure $ Left err
             Right childGroups -> do
                 retained <- filterGroupsM decide childGroups
-                pure $ retained >>= settleGroups settle . nodeWithKey closeLabel
+                pure $ retained >>= settleGroups settle . labelGroups
   where
     arity = spineArity child
     -- The term of the constructor is a leaf when its child description gives no
@@ -842,6 +843,18 @@ compileOpenNode compiler requested labelling constraint child
             error
                 "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileOpenNode: \
                 \an accepted group lost its label"
+    -- 'fillHoles' makes a label that names open variables exact and keeps
+    -- its name, so a filled term ranks under any label with that name.
+    -- 'settleGroups' refuses a cyclic group.
+    labelGroups (Grouped result) = Grouped $ Map.mapWithKey labelBucket <$> result
+    labelGroups cyclic = nodeWithKey closeLabel cyclic
+    labelBucket childKeys bucket =
+        bucket{keyedBucketStatic = labelStaticMatching (fills label) label $ keyedBucketStatic bucket}
+      where
+        label = closeLabel childKeys
+    fills label@(RefinedSymbol symbol _) found@(RefinedSymbol foundSymbol _)
+        | symbolic label = foundSymbol == symbol
+        | otherwise = found == label
     settle childKeys = do
         let label@(RefinedSymbol _ labelRefinement) = closeLabel childKeys
             total = sum $ map openCount childKeys
