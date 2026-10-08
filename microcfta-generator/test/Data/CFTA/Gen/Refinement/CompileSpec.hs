@@ -237,6 +237,13 @@ spec =
             (either Just (const Nothing) compiled, either Just (const Nothing) checked)
                 `shouldBe` (Just LTAGen.SolverUnknown, Just LTAGen.SolverUnknown)
 
+        it "compile uniformly over a deferred constructor, weighted by the members" $ do
+            -- The guard defers the first alternative, so the weights of uniformly wait for compile.
+            let positive = LTAGen.guarded "p" (\x -> x .>= 1) ((: []) <$> LTAGen.elements [0, 1, 2 :: Integer])
+            compiled <- compileOrFail latticeEntailment $ LTAGen.uniformly [positive, (: []) <$> LTAGen.elements [5]]
+            sort (values compiled) `shouldBe` [[1], [2], [5]]
+            map snd (massesByRank compiled) `shouldBe` replicate 3 (1 % 3)
+
         it "rank the parts of a compiled import independently of interning order" $ do
             -- Intern the later alternative first, as the import-order tests of
             -- GenSpec do.
