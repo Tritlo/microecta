@@ -69,7 +69,7 @@ import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Index (Cardinality (..), Depth, Rank (..), Weight)
 import Data.CFTA.Ranked.Internal.Decoder (RankDecoder (..), RankedValue (..))
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (mapIndex, productIndex)
+import Data.CFTA.Ranked.Internal.Size (productIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
 {- | A generator: the language it denotes and how it was built.
@@ -253,33 +253,14 @@ instance Functor (Grouped symbol key) where
     fmap transform (CyclicGrouped result) =
         CyclicGrouped $ fmap (fmap mapGroup) result
       where
-        mapGroup group =
-            KeyedRecursive
-                ( Recursive
-                    (recursiveSupport recursive)
-                    (mapIndex transform $ recursiveIndex recursive)
-                    (mapSampleIndex transform $ recursiveSampling recursive)
-                    (recursiveWeighted recursive)
-                    (recursiveTerm recursive)
-                    (recursiveInspection recursive)
-                )
-                (keyedRecursiveMasses group)
-                (keyedRecursiveMassWeighted group)
-          where
-            recursive = keyedRecursiveLanguage group
+        mapGroup group = group{keyedRecursiveLanguage = mapRecursive transform $ keyedRecursiveLanguage group}
 
 instance Functor (Gen symbol) where
     fmap transform generator =
         withRecipe (Mapped transform generator) $ case generator of
             Transparent result -> Transparent $ fmap (mapStatic transform) result
-            Cyclic result -> Cyclic $ fmap mapRecursive result
+            Cyclic result -> Cyclic $ fmap (mapRecursive transform) result
             Opaque generated -> Opaque $ fmap (fmap transform) generated
-      where
-        mapRecursive recursive =
-            recursive
-                { recursiveIndex = mapIndex transform $ recursiveIndex recursive
-                , recursiveSampling = mapSampleIndex transform $ recursiveSampling recursive
-                }
 
 instance (Hashable symbol, Typeable symbol) => Applicative (Gen symbol) where
     pure value = withRecipe (Lifted value) $ Transparent $ Right $ pureStatic value

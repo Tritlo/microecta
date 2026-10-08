@@ -16,12 +16,14 @@ module Data.CFTA.Gen.Internal.Recursive (
     recursivePositions,
     boundedStatic,
     labelRecursive,
+    mapRecursive,
 
     -- * Keyed recursive families
     KeyedRecursive (..),
     keyedRecursive,
     keyedRecursiveFromBuckets,
     mergeRecursiveGroups,
+    choiceRecursive,
 
     -- * Masses
     MassIndex,
@@ -368,6 +370,32 @@ data KeyedRecursive symbol a = KeyedRecursive
     , keyedRecursiveMassWeighted :: !Bool
     }
 
+{- | Map the values of a recursive language. The counts, ranks, terms,
+support, and inspection do not change.
+-}
+mapRecursive :: (a -> b) -> Recursive symbol a -> Recursive symbol b
+mapRecursive transform recursive =
+    recursive
+        { recursiveIndex = mapIndex transform $ recursiveIndex recursive
+        , recursiveSampling = mapSampleIndex transform $ recursiveSampling recursive
+        }
+
+{- | A choice of recursive languages, in the order of the alternatives. The
+caller gives the sampler, which selects an alternative by count or by mass,
+and whether the choice keeps weights of its own.
+-}
+choiceRecursive ::
+    (Hashable symbol, Typeable symbol) =>
+    SampleIndex a -> Bool -> [Recursive symbol a] -> Recursive symbol a
+choiceRecursive sampling weighted alternatives =
+    Recursive
+        (Node [Edge (Choice index) [recursiveSupport alternative] | (index, alternative) <- zip [0 ..] alternatives])
+        (choiceIndex $ map recursiveIndex alternatives)
+        sampling
+        weighted
+        (choiceTerms (map recursiveIndex alternatives) <$> traverse recursiveTerm alternatives)
+        (choiceInspection $ map recursiveInspection alternatives)
+
 -- | Put a complete recursive language under one key.
 keyedRecursive :: Recursive symbol a -> KeyedRecursive symbol a
 keyedRecursive recursive =
@@ -417,24 +445,10 @@ mergeRecursiveGroups [only] = Just only
 mergeRecursiveGroups alternatives =
     Just $
         KeyedRecursive
-            ( Recursive
-                ( Node
-                    [ Edge (Choice branchIndex) [recursiveSupport $ keyedRecursiveLanguage alternative]
-                    | (branchIndex, alternative) <- zip [0 ..] alternatives
-                    ]
-                )
-                index
-                (choiceMassSampleIndex indexedSamplers)
-                weighted
-                ( choiceTerms (map (recursiveIndex . keyedRecursiveLanguage) alternatives)
-                    <$> traverse (recursiveTerm . keyedRecursiveLanguage) alternatives
-                )
-                (choiceInspection $ map (recursiveInspection . keyedRecursiveLanguage) alternatives)
-            )
+            (choiceRecursive (choiceMassSampleIndex indexedSamplers) weighted $ map keyedRecursiveLanguage alternatives)
             masses
             massWeighted
   where
-    index = choiceIndex $ map (recursiveIndex . keyedRecursiveLanguage) alternatives
     masses = sumMassIndexes $ map keyedRecursiveMasses alternatives
     massWeighted = any keyedRecursiveMassWeighted alternatives
     weighted =
