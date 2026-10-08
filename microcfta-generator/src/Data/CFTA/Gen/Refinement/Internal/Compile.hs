@@ -24,7 +24,7 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 import Control.Exception (handle)
 import Data.Bifunctor (first)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (nub)
+import Data.List (nub, sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Ratio (denominator, numerator)
@@ -305,18 +305,26 @@ compileNode entailment requested labelOf needsRoots constraint child
 -- | Decide one guard from the already-grouped child observations.
 constraintDecision :: Entailment -> Symbol -> Constraint -> [ObservationKey] -> IO (Either GenError Bool)
 constraintDecision entailment label constraint childKeys = do
-    verdict <- evaluateGuardWithShape entailment (`Map.lookup` observations) (constraintAsGuard constraint)
-    pure $ case verdict of
-        Yes -> Right True
-        No -> Right False
-        Unknown
-            | constraintEqualities constraint /= EmptyConstraints ->
-                Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
-            | containsSyntacticEquality (constraintGuard constraint) ->
-                Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
-            | otherwise -> Left SolverUnknown
+    verdict <- decide $ constraintAsGuard constraint
+    case verdict of
+        Yes -> pure $ Right True
+        No -> pure $ Right False
+        -- Sparse observations cannot decide an equality of complete subtrees.
+        -- Report that only when the rest of the guard is decided: otherwise
+        -- the solver could not decide the rest.
+        Unknown -> do
+            semantic <- decide $ fst $ splitGuard $ constraintGuard constraint
+            pure $ case semantic of
+                Unknown -> Left SolverUnknown
+                _
+                    | constraintEqualities constraint /= EmptyConstraints ->
+                        Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
+                    | containsSyntacticEquality (constraintGuard constraint) ->
+                        Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
+                    | otherwise -> Left SolverUnknown
   where
     observations = completeObservations label childKeys
+    decide = evaluateGuardWithShape entailment (`Map.lookup` observations)
 
 -- | Sparse root observations cannot decide equality of complete subtrees.
 containsSyntacticEquality :: Guard -> Bool
@@ -369,10 +377,13 @@ compileImport entailment requested bound order automaton
         pure $ do
             reduced <- first pruningError pruned
             mapM_ (first ResidualGuard . constraintIndicators . edgeConstraint) $ concat $ IntMap.elems $ reachable reduced
+            -- The parts are sorted by their observations, which order by
+            -- symbol text and refinement, so the ranks do not depend on the
+            -- order in which the process interned the edges.
             pure $
                 uniformlyGrouped
                     [ keyed (ObservationKey position observations) $ Flat.fromAutomaton order part
-                    | (position, (observations, part)) <- zip [0 ..] $ splitByObservations requested reduced
+                    | (position, (observations, part)) <- zip [0 ..] $ sortOn fst $ splitByObservations requested reduced
                     ]
   where
     pruningError (PruneUnknown _) = SolverUnknown

@@ -1,8 +1,10 @@
 module Data.CFTA.Gen.Refinement.CompileSpec (spec) where
 
+import Control.Exception (evaluate)
 import Control.Monad (forM_, void)
 import Data.List (sort)
 import Data.Ratio ((%))
+import qualified Data.Tree as Tree
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
@@ -17,6 +19,7 @@ import Data.CFTA.Refinement (
     Symbol (RefinedSymbol),
     Verdict (Yes),
     noConstraint,
+    nodeCount,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>=))
@@ -176,6 +179,30 @@ spec =
                 values compiled `shouldBe` [replicate 3 0, replicate 3 1]
                 decided <- LTAGen.compileWith (Entailment $ \_ _ -> pure Yes) (homogeneousBits 2)
                 (decided >>= LTAGen.cardinality) `shouldBe` Right 4
+
+        it "report an undecided guard beside an equality as SolverUnknown" $ do
+            -- The two leaves are equal, so the observations decide Same. The
+            -- condition is unbounded, so the lattice cannot decide it.
+            let g =
+                    LTAGen.refinedNode "p" (const true) (\x y -> allOf [isSameTermAs x y, requires x (.>= 0)]) $
+                        (,) <$> LTAGen.leaf () "a" (const true) <*> LTAGen.leaf () "a" (const true)
+            compiled <- LTAGen.compileWith latticeEntailment g
+            checked <- LTAGen.validOutcomes latticeEntailment g
+            (either Just (const Nothing) compiled, either Just (const Nothing) checked)
+                `shouldBe` (Just LTAGen.SolverUnknown, Just LTAGen.SolverUnknown)
+
+        it "rank the parts of a compiled import independently of interning order" $ do
+            -- Intern the later alternative first, as the import-order tests of
+            -- GenSpec do.
+            let first' = Transition "interned-a" (refinementFormula (.== 0)) [] noConstraint
+                second' = Transition "interned-b" (refinementFormula (.== 1)) [] noConstraint
+            _ <- evaluate $ nodeCount $ Node [second']
+            compiled <-
+                LTAGen.compileWith
+                    latticeEntailment
+                    (LTAGen.fromAutomatonUpToDepth 0 (Node [first', second']) `LTAGen.satisfying` (.>= 0))
+            fmap (map Tree.rootLabel) (compiled >>= LTAGen.values)
+                `shouldBe` Right [RefinedSymbol "interned-a" (refinementFormula (.== 0)), RefinedSymbol "interned-b" (refinementFormula (.== 1))]
 
         it "give an empty language for an import that its condition empties" $ do
             -- The pruned automaton is empty, and reading it used to throw.
