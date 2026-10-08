@@ -10,7 +10,8 @@ substitutions, and the connectives. Every refinement is bounded, so
 definition decides each constraint by brute force over the integers of each
 refinement, without the evaluator of the library. A case where the library
 answers 'Unknown' is discarded. The same automata check the structural
-promises of 'minimize'.
+promises of 'minimize', and that 'reduce' adds no term when only equal
+transitions are similar.
 -}
 module Data.CFTA.Refinement.SimpleSpec (spec) where
 
@@ -51,6 +52,8 @@ import Data.CFTA.Constraint (
 import Data.CFTA.Path (getPath, path)
 import Data.CFTA.Refinement (
     PruneError (PruneUnknown),
+    ReductionError (ReductionPrune, ReductionSimilarity),
+    SimilarityError (SimilarityUnknown),
     Substitution (..),
     Symbol (RefinedSymbol),
     Verdict (..),
@@ -61,6 +64,7 @@ import Data.CFTA.Refinement (
     fromFTA,
     minimize,
     prune,
+    reduce,
     refinementSubtypingOn,
     similarity,
     similarityPairs,
@@ -126,6 +130,24 @@ spec = describe "liquid tree automata against Data.CFTA.Simple" $ do
                                         .&&. (nonEmpty (FTA.trim (mapConstraints (const noConstraint) original)) === nonEmpty trimmed)
                                         .&&. (count trimmed === count erased)
                                         .&&. property (all (`elem` labels original) (labels view))
+
+    it "reduce to an automaton whose terms the input accepts, when only equal transitions are similar" $
+        property $
+            forAll automaton $ \explicit -> ioProperty $ do
+                -- A transition is similar only to itself, so no step may add a term.
+                reduced <- reduce latticeEntailment (refinementSubtypingOn latticeEntailment Just) (fromFTA explicit)
+                case reduced of
+                    -- Pruning and similarity may stop at a query that the lattice cannot decide.
+                    Left (ReductionPrune (PruneUnknown _)) -> pure discard
+                    Left (ReductionSimilarity (SimilarityUnknown _ _)) -> pure discard
+                    Left err -> pure $ counterexample ("reduce failed: " <> show err) False
+                    Right result -> do
+                        denoted <- denotationAtMost latticeEntailment 3 result
+                        pure $ case denoted of
+                            Left _ -> discard
+                            Right terms ->
+                                let added = filter (not . simpleAccepts explicit) terms
+                                 in counterexample (show (result, added)) $ null added
 
 simpleAccepts :: FTA Int Symbol Constraint -> Tree.Tree Symbol -> Bool
 simpleAccepts explicit = runIdentity . Simple.acceptsM (\constraint -> Identity . holds constraint) explicit

@@ -168,6 +168,14 @@ replaced together, then removes only the selected original transition. Later
 steps can copy alternatives added by earlier steps. Equal transitions are
 deduplicated. The root stays the root.
 
+A copy replaces the node of the supertype by the node of the representative,
+so it reaches every alternative of that node. The similarity pair relates
+only the representative. Thus a step between two nodes applies only when the
+representative is the only alternative of its node in the input. The schedule
+skips the other steps between two nodes. A step within one node only removes
+the supertype. If the similarity relates only equal transitions, each term of
+the result is a term of the input.
+
 The first inferred dominator selects the representative when several subtypes
 are incomparable. Transitive representatives are resolved before the schedule.
 This does not promise a globally minimal automaton or an equal term language.
@@ -211,6 +219,9 @@ minimize automaton (Similarity original related) = do
         redirects = Map.fromListWith (<>) [(source, [destination]) | pair <- resolved, let (source, destination) = redirectFor pair]
         applyStep (table', steps) pair@(supertype, representative)
             | source == destination && removed == retained = (Map.adjust nub source table', steps)
+            -- A copy reaches every alternative of the destination, and only the
+            -- representative is similar to the removed transition.
+            | source /= destination && Map.findWithDefault [] destination table /= [retained] = (table', steps)
             | removed `notElem` Map.findWithDefault [] source table' = (table', steps)
             | retained `notElem` Map.findWithDefault [] destination table' = (table', steps)
             | otherwise =
