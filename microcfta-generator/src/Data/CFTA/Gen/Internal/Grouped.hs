@@ -29,6 +29,7 @@ module Data.CFTA.Gen.Internal.Grouped (
     filterGroupsM,
 
     -- * Inspection
+    groupKeys,
     sizes,
     countsAtSize,
     massesAtSize,
@@ -472,6 +473,11 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
                         else accepted
                     )
                     rest
+
+-- | The keys of the groups, in key order, of a finite or a recursive family. A failed family has none.
+groupKeys :: Grouped symbol key a -> [key]
+groupKeys (CyclicGrouped result) = either (const []) Map.keys result
+groupKeys (Grouped result) = either (const []) Map.keys result
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped symbol key a -> Either GenError (Map.Map key Cardinality)

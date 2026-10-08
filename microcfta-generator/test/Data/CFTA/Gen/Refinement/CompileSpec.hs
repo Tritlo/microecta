@@ -15,7 +15,7 @@ import Data.CFTA.Index (Cardinality (..), Rank (..))
 import Data.CFTA.Refinement (
     Entailment (Entailment),
     Guard (Bottom),
-    Node (Node),
+    Node (Mu, Node),
     Symbol (RefinedSymbol),
     Verdict (Yes),
     noConstraint,
@@ -246,6 +246,18 @@ spec =
             compiled <- LTAGen.compileWith latticeEntailment emptied
             checked <- LTAGen.validOutcomes latticeEntailment emptied
             (LTAGen.cardinality <$> compiled, checked) `shouldBe` (Right (Left LTAGen.EmptyGenerator), Left LTAGen.EmptyGenerator)
+
+        it "compile a choice of a recursive import and a deferred node" $ do
+            -- The deferred node makes compile read the choice, and the import gives a recursive group.
+            let lists =
+                    Mu $ \list ->
+                        Node
+                            [ Transition "nil" (refinementFormula (.== 0)) [] noConstraint
+                            , Transition "cons" (refinementFormula (.>= 1)) [list] noConstraint
+                            ]
+                dead = LTAGen.refinedNode "dead" (const true) Bottom (pure (Tree.Node "x" []))
+            compiled <- compileOrFail latticeEntailment $ LTAGen.oneof [LTAGen.fromAutomaton lists, dead]
+            map (LTAGen.countAtSize compiled) [1, 2] `shouldBe` [Right 1, Right 1]
 
 -- | Build a product whose candidate count exceeds machine integers at width 64.
 bitForest :: Int -> LTAGen.LTAGen [Int]
