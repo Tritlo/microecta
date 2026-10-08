@@ -118,7 +118,10 @@ termsUpToM satisfies (Depth depth) automaton = filterM (acceptsM satisfies autom
 termsUpTo :: (Ord state, Ord symbol) => Depth -> FTA state symbol Constraint -> Maybe [Tree symbol]
 termsUpTo = termsUpToM equalitiesOnly
 
--- | The terms of either automaton: a new initial state has the transitions of both initial states.
+{- | The terms of either automaton: a new initial state has the transitions of
+both initial states. The two automata must give each symbol one arity, as
+'mkFTA' requires of one automaton; otherwise 'union' raises an error.
+-}
 union ::
     (Ord left, Ord right, Ord symbol) =>
     FTA left symbol Constraint -> FTA right symbol Constraint -> FTA (Maybe (Either left right)) symbol Constraint
@@ -174,7 +177,8 @@ boundDepth bound automaton =
 build ::
     (Ord state, Ord symbol) => state -> [(state, [Transition state symbol Constraint])] -> FTA state symbol Constraint
 build initial rows =
-    fromRight (error "microcfta bug in Data.CFTA.Simple: a construction built an invalid automaton") $
+    -- Only 'union' can fail here: the product and the depth bound keep the arities of one automaton.
+    fromRight (error "Data.CFTA.Simple.union: the two automata give one symbol two arities") $
         mkFTA initial rows
 
 -- | Whether some element satisfies a monadic predicate, from the left.
