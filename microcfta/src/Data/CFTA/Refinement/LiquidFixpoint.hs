@@ -142,7 +142,7 @@ withZ3Timeout milliseconds given assumptions action =
             SMT.makeContextNoLog config
 
         freshDeclaration (fresh, original)
-            | fresh `elem` map fst declarations = Nothing
+            | HashSet.member fresh known = Nothing
             | otherwise = Just (fresh, fromMaybe Fixpoint.FInt $ lookup original declarations)
 
         responseVerdict (SMTTypes.Unsat, _) = pure Yes
