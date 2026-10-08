@@ -243,6 +243,8 @@ match ::
     Gen symbol (left, right)
 match _ (Transparent (Left err)) _ = Transparent $ Left err
 match _ _ (Transparent (Left err)) = Transparent $ Left err
+match _ (Cyclic (Left err)) _ = Transparent $ Left err
+match _ _ (Cyclic (Left err)) = Transparent $ Left err
 match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
 match _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
 match condition (Transparent (Right left)) (Transparent (Right right)) =
@@ -267,6 +269,8 @@ relate ::
     Gen symbol (left, right)
 relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
 relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
+relate _ _ _ (Cyclic (Left err)) _ = Transparent $ Left err
+relate _ _ _ _ (Cyclic (Left err)) = Transparent $ Left err
 relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
 relate _ _ _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
 relate leftKey rightKey relation (Transparent (Right left)) (Transparent (Right right)) =

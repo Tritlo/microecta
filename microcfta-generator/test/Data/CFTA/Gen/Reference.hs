@@ -35,7 +35,8 @@ directly:
   family with such a member.
 * Errors. The model gives the error that the engine gives, with the same
   precedence. A bound or an atomic boundary around a language that reaches the
-  occurrence of an enclosing recursion is an error.
+  occurrence of an enclosing recursion is an error. A join, a grouping, or an
+  application over a recursion that failed gives the error of that recursion.
 
 The model lists every member of a size class, so it is slow. It is correct
 because it is simple.
@@ -573,6 +574,8 @@ joinLang :: (Ord key) => (key -> key -> Bool) -> (Value -> key) -> Lang Value ->
 joinLang relation key left right = case (left, right) of
     (Lang False (Left err), _) -> Lang False $ Left err
     (_, Lang False (Left err)) -> Lang False $ Left err
+    (Lang True (Left err), _) -> Lang False $ Left err
+    (_, Lang True (Left err)) -> Lang False $ Left err
     (Lang True _, _) -> Lang False $ Left UnboundedGenerator
     (_, Lang True _) -> Lang False $ Left UnboundedGenerator
     (Lang False (Right leftModel), Lang False (Right rightModel))
@@ -824,6 +827,7 @@ classes, and the atomic marker of the language.
 -}
 groupOnFamily :: (Ord key) => (a -> key) -> Lang a -> Family key a
 groupOnFamily _ (Lang False (Left err)) = Family False $ Left err
+groupOnFamily _ (Lang True (Left err)) = Family False $ Left err
 groupOnFamily _ (Lang True _) = Family False $ Left UnboundedGenerator
 groupOnFamily key (Lang False (Right model'))
     | not $ modelTerms model' = Family False $ Left CannotInspectRecursiveGenerator
@@ -941,6 +945,7 @@ application merges the components by result key and normalizes their masses. A
 recursive one merges them as a recursive family.
 -}
 applyFamily :: Family ([Int], Int) ([a] -> b) -> [Family Int a] -> Family Int b
+applyFamily (Family True (Left err)) _ = Family False $ Left err
 applyFamily (Family True _) _ = Family False $ Left RecursiveOperationFamily
 applyFamily (Family False (Left err)) _ = Family False $ Left err
 applyFamily (Family False (Right operations)) arguments

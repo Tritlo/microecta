@@ -82,6 +82,7 @@ groupOn key (Transparent (Right static)) =
                 [ (key $ outcomeValue outcome, (weight, outcome))
                 | (weight, outcome) <- outcomes
                 ]
+groupOn _ (Cyclic (Left err)) = Grouped $ Left err
 groupOn _ (Cyclic _) = Grouped $ Left UnboundedGenerator
 groupOn _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
@@ -202,6 +203,7 @@ apply ::
     Grouped symbol resultKey result
 -- Which components an application has is decided by the operation signatures,
 -- so the operation family has to be finite; only arguments may recurse.
+apply (CyclicGrouped (Left err)) _ = Grouped $ Left err
 apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
 apply (Grouped (Left err)) _ = Grouped $ Left err
 apply (Grouped (Right operations)) arguments
@@ -237,6 +239,7 @@ argsMaps ::
     Either GenError (ArgMaps (KeyedBucket symbol) argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
+argsMaps (CyclicGrouped (Left err) :& _) = Left err
 argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
 
 {- | Apply an operation family to argument families of which at least one is
@@ -401,6 +404,8 @@ relateGroupsM relation resultKey left right =
     case (left, right) of
         (Grouped (Left err), _) -> pure $ Right $ Grouped $ Left err
         (_, Grouped (Left err)) -> pure $ Right $ Grouped $ Left err
+        (CyclicGrouped (Left err), _) -> pure $ Right $ Grouped $ Left err
+        (_, CyclicGrouped (Left err)) -> pure $ Right $ Grouped $ Left err
         (CyclicGrouped _, _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
         (_, CyclicGrouped _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
         (Grouped (Right leftBuckets), Grouped (Right rightBuckets)) -> do
@@ -476,6 +481,7 @@ filterGroupsM ::
     Grouped symbol key a ->
     IO (Either relationError (Grouped symbol key a))
 filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
+filterGroupsM _ (CyclicGrouped (Left err)) = pure $ Right $ Grouped $ Left err
 filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
 filterGroupsM predicate (Grouped (Right buckets)) = do
     retained <- go [] $ Map.toAscList buckets
@@ -496,6 +502,7 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped symbol key a -> Either GenError (Map.Map key Cardinality)
+sizes (CyclicGrouped (Left err)) = Left err
 sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result

@@ -22,6 +22,7 @@ import qualified Test.QuickCheck as QC
 import Control.Monad (void)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (noConstraint)
+import Data.CFTA.Gen (On ((:==:)))
 import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
@@ -148,6 +149,13 @@ spec = do
                     )
 
     describe "ordinary FTA generator syntax" $ do
+        it "reports the error of a failed recursion through joins, groups, and lowering" $ do
+            let failed = FTAGen.recur id :: FTAGen.FTAGen String Int
+            sampled <- QC.generate (FTAGen.toGenEither failed)
+            (sampled, FTAGen.cardinality (FTAGen.match (id :==: id) failed (FTAGen.elements [1 :: Int])))
+                `shouldBe` (Left FTAGen.UnguardedRecursion, Left FTAGen.UnguardedRecursion)
+            FTAGen.sizes (FTAGen.groupOn id failed) `shouldBe` Left FTAGen.UnguardedRecursion
+
         it "needs the smaller-member search to remove members before a failing one" $ do
             -- A greedy shrink loop takes the first candidate that still fails.
             -- In a product, structural candidates shrink each component on its

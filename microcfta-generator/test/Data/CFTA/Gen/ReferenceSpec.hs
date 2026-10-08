@@ -453,7 +453,7 @@ familyAgreement (ClosedFamily desc) =
         Left err -> "error " <> takeWhile (/= ' ') (show err)
         Right groups -> (if familyRecursive family' then "recursive, " else "finite, ") <> show (Map.size groups) <> " keys"
     expectedSizes
-        | familyRecursive family' = Left UnboundedGenerator
+        | familyRecursive family' = familyGroups family' >> Left UnboundedGenerator
         | otherwise = fmap (maybe 0 (Cardinality . fst) . modelFinite . groupModel) <$> familyGroups family'
     expectedCounts size = do
         groups <- familyGroups family'
