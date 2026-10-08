@@ -5,6 +5,7 @@ import qualified Control.Monad.State.Lazy as State
 import Data.Hashable (Hashable)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
+import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -218,9 +219,9 @@ resolve problem (Target (Variable variable) position) =
             _ -> Expand variable
 resolve _ (Target fragment []) = Resolved fragment
 resolve problem (Target (Constructor _ children) (index : rest)) =
-    case drop index children of
-        child : _ | index >= 0 -> resolve problem $ Target child rest
-        _ -> Absent
+    case children !? index of
+        Just child -> resolve problem $ Target child rest
+        Nothing -> Absent
 
 {- | Remove resolved path prefixes and renumber the remaining variables.
 
@@ -245,9 +246,7 @@ normalize problem = do
         Nothing -> Just $ Target (Variable variable) position
         Just fragment -> follow fragment position
     follow fragment [] = Just $ Target (inline fragment) []
-    follow (Constructor _ children) (index : rest) = case drop index children of
-        child : _ | index >= 0 -> follow child rest
-        _ -> Nothing
+    follow (Constructor _ children) (index : rest) = (`follow` rest) =<< children !? index
 
     target (Target fragment position) = do
         Target resolved rest <- follow fragment position
@@ -380,7 +379,7 @@ condition (index : rest) constructor node =
         [ setChildren edge $ take index children <> [condition rest constructor child] <> drop (index + 1) children
         | edge <- nodeEdges node
         , let children = edgeChildren edge
-        , child : _ <- [drop index children]
+        , Just child <- [children !? index]
         ]
 
 {- | Read possible constructors at a path without enumerating subterms, by
@@ -408,7 +407,7 @@ project position root = Node $ concatMap nodeEdges $ Set.toList $ go position $ 
         go rest
             $ Set.fromList
             $ mapMaybe
-                (\edge -> case drop index $ edgeChildren edge of child : _ -> Just child; [] -> Nothing)
+                ((!? index) . edgeChildren)
                 [edge | node <- Set.toList nodes, edge <- nodeEdges node]
 
 -- | Select one term in constructor order, carrying counts for the remaining suffix.
