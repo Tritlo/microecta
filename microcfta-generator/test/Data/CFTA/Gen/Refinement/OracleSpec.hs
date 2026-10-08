@@ -15,7 +15,7 @@ number of term nodes, and a finite one by its terms.
 -}
 module Data.CFTA.Gen.Refinement.OracleSpec (spec) where
 
-import Control.Monad (forM, when)
+import Control.Monad (filterM, forM, when)
 import Data.CFTA.Index (Depth (..), Rank (..), everyRank)
 import Data.Either (isRight)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -98,6 +98,26 @@ spec = describe "the refinement compiler against validOutcomes" $ do
                 $ maybe id (\bound imported -> imported `LTAGen.satisfying` (.>= literal bound)) condition
                 $ LTAGen.fromAutomatonUpToDepth depth automaton
 
+    it "gives the terms of a bounded liquid import that the simple definition accepts"
+        $
+        -- validOutcomes reads an import through the pruning that compile uses,
+        -- so this property compares compile with the simple definition instead.
+        property
+        $ forAllShow
+            ((,,) <$> liquidAutomaton <*> (Depth <$> chooseInt (0, 3)) <*> elements [Nothing, Just (1 :: Integer), Just 3])
+            (\((described, _), depth, condition) -> show (described, depth, condition))
+        $ \((_, automaton), depth, condition) -> ioProperty $ do
+            let imported = LTAGen.fromAutomatonUpToDepth depth automaton
+                conditioned = maybe imported (\bound -> imported `LTAGen.satisfying` (.>= literal bound)) condition
+            compiled <- LTAGen.compileWith latticeEntailment conditioned
+            expected <- boundedTerms automaton depth condition
+            pure $ case (compiled, expected) of
+                (_, Nothing) -> discard
+                (Left (LTAGen.ResidualGuard _), _) -> property True
+                (Left LTAGen.EmptyGenerator, Just terms) -> terms === []
+                (Left err, _) -> counterexample (show err) False
+                (Right generated, Just terms) -> sort (values generated) === sort terms
+
     it "gives the terms of an unbounded liquid import that the simple definition accepts" $
         property $
             forAllShow (liquidAutomaton `suchThat` (isRight . validate . snd)) fst $ \(_, automaton) -> ioProperty $ do
@@ -141,6 +161,24 @@ simpleTerms automaton = do
     unknown <- readIORef undecided
     pure $ if unknown then Nothing else Just (bySize, shallow)
 
+{- | The terms of a liquid automaton up to a depth that "Data.CFTA.Simple"
+accepts, and whose root satisfies the condition. 'Nothing' when the lattice
+cannot decide a guard.
+-}
+boundedTerms :: Automaton -> Depth -> Maybe Integer -> IO (Maybe [Tree.Tree Symbol])
+boundedTerms automaton depth condition = do
+    undecided <- newIORef False
+    let explicit = either (error . show) id $ explicitView automaton
+        decide constraint term = do
+            verdict <- evaluateConstraint latticeEntailment constraint term
+            when (verdict == Unknown) $ writeIORef undecided True
+            pure $ verdict == Yes
+        rootCondition bound = semanticConstraint $ Satisfies (path []) (refinementFormula (.>= literal bound))
+    terms <- Simple.termsUpToM decide depth explicit
+    kept <- maybe (pure terms) (\bound -> filterM (decide (rootCondition bound)) terms) condition
+    unknown <- readIORef undecided
+    pure $ if unknown then Nothing else Just kept
+
 -- | Compile a generator and list its values beside the values of 'LTAGen.validOutcomes'.
 agreesWithOracle :: (Ord a, Show a) => String -> LTAGen.LTAGen a -> IO Property
 agreesWithOracle description generator' = do
@@ -156,12 +194,17 @@ agreesWithOracle description generator' = do
                      , any (\candidate -> candidate < 0 || candidate >= rank) candidates
                      ]
                     === []
-        (Left err, Left other) -> counterexample (show (err, other)) True
+        -- Both sides report the same kind of error.
+        (Left err, Left other) -> counterexample (show (err, other)) $ errorName err === errorName other
         -- validOutcomes reports an empty language as an error.
         (Right generated, Left LTAGen.EmptyGenerator) -> values generated === []
         -- Compile decides a guard from grouped observations, and cannot compare complete subtrees.
         (Left (LTAGen.RelationalSyntacticEqualityUnsupported _), Right _) -> property True
         _ -> counterexample (show (fmap values compiled, checked)) False
+
+-- | The constructor of an error, without its fields.
+errorName :: LTAGen.GenError -> String
+errorName = takeWhile (/= ' ') . show
 
 -- | A random liquid automaton of at most three states with integer leaves and guarded pairs.
 liquidAutomaton :: Gen (String, Automaton)
