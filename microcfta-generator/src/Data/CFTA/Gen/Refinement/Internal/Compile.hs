@@ -29,9 +29,9 @@ import Data.Bifunctor (first)
 import Data.Either (fromLeft)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (isPrefixOf, mapAccumL, nub, sortOn)
+import Data.List (isPrefixOf, mapAccumL, nub, sortOn, (!?))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import Data.Ratio (denominator, numerator)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -395,9 +395,7 @@ groupBuilt requested generator
     labelAt target = go (unPath target)
       where
         go [] (Tree.Node label children) = Just $ Observed label $ leafnessOf children
-        go (ChildIndex index : rest) (Tree.Node _ children) = case drop index children of
-            child : _ -> go rest child
-            [] -> Nothing
+        go (ChildIndex index : rest) (Tree.Node _ children) = go rest =<< children !? index
 
 -- | A generator of one value whose term has the given children.
 withChildren :: [Tree.Tree Symbol] -> a -> LTAGen a
@@ -793,14 +791,14 @@ compileOpenNode compiler requested labelling constraint child
         | childIndex <- childIndexes arity
         ]
     parts = conjuncts $ constraintGuard constraint
-    open childKeys (ChildIndex index) = maybe False ((> 0) . openCount) $ listToMaybe $ drop index childKeys
+    open childKeys (ChildIndex index) = maybe False ((> 0) . openCount) $ childKeys !? index
     -- A parent reads only the root of a child that leaves variables open.
     readsInsideOpen childKeys target = case unPath target of
         index : _ : _ -> open childKeys index
         _ -> False
     equalityPaths = constraintPaths $ equalityConstraint $ constraintEqualities constraint
     renamedRoot childKeys (ChildIndex index) = do
-        key <- listToMaybe $ drop index childKeys
+        key <- childKeys !? index
         Observed (RefinedSymbol symbol refinement) _ <- Map.lookup (path []) $ keyObservations $ openObservations key
         pure $ RefinedSymbol symbol $ renameFrom (offsets childKeys !! index) key refinement
     labelOf childKeys = case labelling of
