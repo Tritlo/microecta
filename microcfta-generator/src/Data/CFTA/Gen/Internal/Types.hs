@@ -331,6 +331,7 @@ lowerWithRank = runQuickCheckBackend . lowerWithRankVia
 lowerVia :: (GenBackend gen) => Gen symbol a -> gen (Either GenError a)
 lowerVia (Transparent (Left err)) = pure $ Left err
 lowerVia (Transparent (Right static)) = sampleStatic static
+lowerVia (Cyclic (Left err)) = pure $ Left err
 lowerVia (Cyclic _) = pure $ Left UnboundedGenerator
 lowerVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
@@ -338,6 +339,7 @@ lowerVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 lowerWithRankVia :: (GenBackend gen) => Gen symbol a -> gen (Either GenError (RankedValue a))
 lowerWithRankVia (Transparent (Left err)) = pure $ Left err
 lowerWithRankVia (Transparent (Right static)) = sampleStaticWithRank static
+lowerWithRankVia (Cyclic (Left err)) = pure $ Left err
 lowerWithRankVia (Cyclic _) = pure $ Left UnboundedGenerator
 lowerWithRankVia (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
