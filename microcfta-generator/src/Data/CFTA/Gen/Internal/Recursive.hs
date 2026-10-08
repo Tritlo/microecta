@@ -39,7 +39,7 @@ import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm)
 import Data.CFTA.Gen.Label (Label (..))
-import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size)
+import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size, everyRank)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
@@ -131,6 +131,10 @@ boundedStatic bound recursive
                     }
                 False
                 (recursiveInspection recursive)
+                -- A recursive language does not keep the root count of its members.
+                ( commonRootCount
+                    [either (const Nothing) (Just . termRootCount . outcomeTerm) $ select rank | rank <- everyRank totalOutcomes]
+                )
   where
     select index = case recursiveTerm recursive of
         Nothing -> Left CannotInspectRecursiveGenerator

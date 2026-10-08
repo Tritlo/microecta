@@ -168,6 +168,15 @@ spec =
                 compiled <- LTAGen.compileWith latticeEntailment generator
                 (compiled >>= LTAGen.cardinality) `shouldBe` Left LTAGen.ChildNotOneTerm
 
+        it "compiles a guard over, and a choice with, a large source without listing it" $ do
+            -- The source knows that its members give no root without listing them.
+            let large = LTAGen.fromIndexed (LTAGen.Indexed (2 ^ (40 :: Int)) (\(Rank rank) -> rank)) :: LTAGen.LTAGen Integer
+                guarded = LTAGen.refinedNode "w" (.>= 1) noConstraint large `LTAGen.satisfying` (.>= 1)
+                chosen = LTAGen.oneof [large, LTAGen.elements [1] `LTAGen.satisfying` (.>= 1)]
+            forM_ [(guarded, 2 ^ (40 :: Int)), (chosen, 2 ^ (40 :: Int) + 1)] $ \(generator, expected) -> do
+                compiled <- timeout 10000000 $ LTAGen.compileWith latticeEntailment generator >>= evaluate . (>>= LTAGen.cardinality)
+                compiled `shouldBe` Just (Right expected)
+
         it "recognizes a constant-false factor without evaluating either huge product" $ do
             let solver = Entailment $ \_ _ -> error "a constant-empty product queried the solver"
                 dead = LTAGen.refinedNode "dead" (const true) Bottom (pure ())

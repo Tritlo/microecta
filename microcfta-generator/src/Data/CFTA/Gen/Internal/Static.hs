@@ -17,6 +17,8 @@ module Data.CFTA.Gen.Internal.Static (
     seqPlan,
     Static (..),
     staticSampling,
+    termRootCount,
+    commonRootCount,
 
     -- * Building languages
     pureStatic,
@@ -161,6 +163,13 @@ data Static symbol a = Static
     -}
     , staticInspection :: Inspection symbol
     -- ^ Diagnostic structure. Counting and decoding do not force this field.
+    , staticRootCount :: Maybe Int
+    {- ^ The number of user roots that the term of each member has, as
+    'termRootCount' counts them, when all members have the same number, and
+    'Nothing' otherwise. Each combinator sets it from its parts, so reading it
+    lists no member. A language that does not know it lists its members on
+    first use.
+    -}
     }
 
 {- | The sampler of each size class of a finite language, and the weight of
@@ -207,6 +216,7 @@ pureStatic value =
         )
         False
         (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
+        (Just 0)
 
 -- | The language of one finite indexed source.
 indexedStatic :: (Hashable symbol, Typeable symbol) => Indexed a -> Static symbol a
@@ -229,6 +239,7 @@ indexedStaticWithLabels label indexed =
         )
         False
         (Inspection Nothing $ Node [Edge (namedSymbol index) [] | index <- everyRank totalOutcomes])
+        (Just 0)
   where
     namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
@@ -257,6 +268,7 @@ termStatic root ranked =
         (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
         False
         (plainInspection supportNode)
+        (Just 1)
   where
     supportNode = relabel Label root
     total = Ranked.cardinality ranked
@@ -304,6 +316,7 @@ applyStatic functions values =
                 [ Edge (plainSymbol Apply) [inspectionGraph $ staticInspection functions, inspectionGraph $ staticInspection values]
                 ]
         )
+        ((+) <$> staticRootCount functions <*> staticRootCount values)
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
@@ -381,6 +394,7 @@ frequencyStatic alternatives =
             }
         False
         (choiceInspection $ map (staticInspection . snd) alternatives)
+        (commonRootCount $ map (staticRootCount . snd) alternatives)
   where
     totalWeight = sum $ map fst alternatives
     numbered = zip [0 :: ChoiceIndex ..] alternatives
@@ -469,6 +483,7 @@ mapStatic transform static =
         (mapOutcomeIndex transform $ staticOutcomes static)
         (staticAtomic static)
         (staticInspection static)
+        (staticRootCount static)
 
 -- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex symbol a -> OutcomeIndex symbol b
@@ -531,6 +546,7 @@ labelStatic symbol static =
         { staticSupport = labelSupport symbol $ staticSupport static
         , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
         , staticInspection = labelInspection symbol $ staticInspection static
+        , staticRootCount = Just 1
         }
 
 -- | Relabel the retained term of every outcome that the index selects.
@@ -675,6 +691,21 @@ compileOutcomes :: Static symbol a -> Either GenError [(Rational, a)]
 compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]
+
+-- | The number of user roots of an engine term: the length of 'surface' of the term.
+termRootCount :: Tree.Tree (Label symbol) -> Int
+termRootCount (Tree.Node (Label _) _) = 1
+termRootCount (Tree.Node _ children) = sum $ map termRootCount children
+
+{- | The root count that every part gives, when the parts agree. A list
+without parts gives one, so that a language without members does not refuse
+a guard that reads its children.
+-}
+commonRootCount :: [Maybe Int] -> Maybe Int
+commonRootCount counts = case counts of
+    [] -> Just 1
+    count : rest | all (== count) rest -> count
+    _ -> Nothing
 
 -- | The value shared by every entry, if any.
 commonValue :: (Eq a) => [Maybe a] -> Maybe a
