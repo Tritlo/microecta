@@ -77,6 +77,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
     RankedValue (RankedValue, rankedValue),
     compilePlan,
     offsetRankedValue,
+    sharedChoiceBound,
  )
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeIndex)
@@ -370,7 +371,7 @@ frequencyStatic alternatives =
             sampler
             ( PlanChoice
                 [ ( outcomeCardinality $ staticOutcomes static
-                  , outcomePlan $ staticOutcomes static
+                  , alternativePlan $ staticOutcomes static
                   )
                 | (_, static) <- alternatives
                 ]
@@ -444,6 +445,21 @@ frequencyStatic alternatives =
     selectBranch index@(Rank rank) ((RankOffset upperBound, offset, branchIndex, weight, static) : remaining)
         | rank < upperBound = (branchIndex, weight, static, rebaseRank offset index)
         | otherwise = selectBranch index remaining
+
+{- | The plan of one alternative of a choice.
+
+An alternative with more than 'sharedChoiceBound' members is a shared node:
+the choice calls its compiled decoder and reads its size classes, and does not
+copy its plan. A plan that is shared already stays as it is, because a second
+shared node would add one call to each decode.
+-}
+alternativePlan :: OutcomeIndex symbol a -> Plan a
+alternativePlan outcomes = case outcomePlan outcomes of
+    plan@PlanShared{} -> plan
+    plan
+        | outcomeCardinality outcomes > sharedChoiceBound ->
+            PlanShared (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) plan
+        | otherwise -> plan
 
 -- | Map the values of a static language.
 mapStatic :: (a -> b) -> Static symbol a -> Static symbol b
