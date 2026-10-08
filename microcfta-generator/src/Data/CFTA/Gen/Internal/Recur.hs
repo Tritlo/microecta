@@ -97,7 +97,7 @@ recur build
     placeholder supportNode index sampling =
         Recursive supportNode index sampling False Nothing (plainInspection supportNode)
 
-    tied = fixIndex $ \self ->
+    tied = fixIndex occurrenceMinimum $ \self ->
         either (const emptyIndex) recursiveIndex $
             bodyOf (Cyclic $ Right $ placeholder EmptyNode self emptySampleIndex)
       where
@@ -137,6 +137,11 @@ recur build
                     (smallest, NoFiniteMember) -> smallest
              in if next == assumed then body else converge next
     probed = recursiveView probeBody
+
+    -- The smallest member of the occurrence: the minimum that the probe
+    -- converged to. The knots read their flags from a build around a closed
+    -- occurrence of this size, so that build has the shape of the probe.
+    occurrenceMinimum = either (const NoFiniteMember) (minimumMemberSize . recursiveIndex) probed
 
     result = do
         body <- probed
@@ -233,11 +238,16 @@ recurGrouped build
             (Map.findWithDefault (choiceIndex []) key closedIndexes)
             (rawIndexAt key)
     -- The family built around tied occurrences, which gives the flags of each
-    -- key without reading the knot.
+    -- key without reading the knot. Each occurrence has the least minimum of
+    -- its key, as in the probe, so a nested definition whose finite members
+    -- all go through the family is not empty in this build.
     closedIndexes =
         either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage)
             $ bodyGroups
-            $ Map.fromList [(key, placeholder EmptyNode closedProbe emptySampleIndex noMass) | key <- keys]
+            $ Map.fromList
+                [ (key, placeholder EmptyNode (closedProbe $ minimumAt key) emptySampleIndex noMass)
+                | key <- keys
+                ]
 
     -- A key is live when its body can close using finite branches or keys
     -- already known to be live. Repeating this over the settled finite key set

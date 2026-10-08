@@ -66,7 +66,7 @@ tableIndex initial rows = indexOf initial
             -- The rows are closed, so they reach no probe of an enclosing definition.
             withKnotMetadata
                 (maybe NoFiniteMember MinimumSize $ Map.lookup state minima)
-                closedProbe
+                (closedProbe NoFiniteMember)
                 (choiceIndex $ map transitionIndex transitions)
 
         transitionIndex transition =

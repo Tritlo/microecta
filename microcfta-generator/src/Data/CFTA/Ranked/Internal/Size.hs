@@ -410,19 +410,26 @@ one 'productIndex'), so that counting a size only consults smaller sizes.
 Callers check that with a probe first, because an unguarded knot diverges
 rather than failing. The minimum and the flags come from one build around
 'closedProbe', which does not read the knot.
+
+The closed occurrence has the given smallest member size: the minimum that
+the probe of the recursion converged to. A nested definition whose finite
+members all go through the occurrence is then not empty in the closed build,
+so the flags of the index keep the occurrences that the nested definition
+reaches.
 -}
-fixIndex :: (SizeIndex a -> SizeIndex a) -> SizeIndex a
-fixIndex build = index
+fixIndex :: MinimumSize -> (SizeIndex a -> SizeIndex a) -> SizeIndex a
+fixIndex minimumSize' build = index
   where
-    closed = build closedProbe
+    closed = build $ closedProbe minimumSize'
     index = withKnotMetadata (minimumMemberSize closed) closed (build index)
 
-{- | An occurrence of a definition that is already tied. No probe is reached
-through it: the definition answered its own probe when it was tied.
+{- | An occurrence of a definition that is already tied, with the smallest
+size of its members. No probe is reached through it: the definition answered
+its own probe when it was tied.
 -}
-closedProbe :: SizeIndex a
-closedProbe =
-    (probeIndexWithMinimum closedOccurrence NoFiniteMember)
+closedProbe :: MinimumSize -> SizeIndex a
+closedProbe minimumSize' =
+    (probeIndexWithMinimum closedOccurrence minimumSize')
         { unguardedOccurrences = IntSet.empty
         , usedOccurrences = IntSet.empty
         }
