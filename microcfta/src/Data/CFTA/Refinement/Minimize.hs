@@ -20,12 +20,13 @@ module Data.CFTA.Refinement.Minimize (
 ) where
 
 import Data.Bifunctor (first)
+import qualified Data.IntMap.Strict as IntMap
 import Data.List (elemIndex, nub, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Interned (InternedState (..), fromFTA, nodeIdentity)
+import Data.CFTA.Interned (InternedState (..), NodeId (..), fromFTA, nodeIdentity)
 
 import Data.CFTA.Constraint (Constraint)
 import Data.CFTA.Refinement.Automaton (
@@ -271,11 +272,13 @@ minimize automaton (Similarity original related) = do
                         Left err -> Left $ InvalidMinimizedAutomaton err
                         Right () -> Right minimized
   where
-    alternativesOf = located automaton
+    alternativesOf = IntMap.fromList [(ident, edges) | (node, edges) <- located automaton, let NodeId ident = nodeIdentity node]
 
-    address (TransitionId node edge) = case lookup node alternativesOf >>= elemIndex edge of
+    address (TransitionId node edge) = case IntMap.lookup ident alternativesOf >>= elemIndex edge of
         Just ordinal -> Right (InternedState (nodeIdentity node), ordinal)
         Nothing -> Left StaleSimilarity
+      where
+        NodeId ident = nodeIdentity node
 
     both (left, right) = [left, right]
 
