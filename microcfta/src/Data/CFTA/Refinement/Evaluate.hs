@@ -321,7 +321,7 @@ substitutionValues observedAt sameAt guard =
             Set.fromList $
                 concat
                     [ Fixpoint.symbol name : Fixpoint.syms refinement
-                    | target <- guardPaths guard
+                    | target <- Set.toList $ guardPaths guard
                     , Just (Observed (RefinedSymbol (Symbol name) refinement) _) <- [observedAt target]
                     ]
                     <> concatMap Fixpoint.syms (requirements guard)
