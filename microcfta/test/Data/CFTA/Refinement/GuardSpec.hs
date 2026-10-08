@@ -306,6 +306,22 @@ spec =
                 results <- mapM (uncurry $ entails solver) [(positive, nonNegative), (nonNegative, positive), (positive, nonNegative)]
                 results `shouldBe` [Yes, No, Yes]
 
+        it "answers correctly after a query is interrupted" $ do
+            -- An interrupted query can leave its answer unread in the solver
+            -- process. The next query goes to a new process, so it reads its
+            -- own answer. The waits cover interruptions before the query is
+            -- sent, while Z3 runs, and after it answers.
+            let v = variable "v"
+            withZ3 [] $ \solver -> do
+                answers <-
+                    mapM
+                        ( \micros -> do
+                            _ <- timeout micros (entails solver (v .== 0) (v .>= 0))
+                            entails solver (v .== 0) (v .== 1)
+                        )
+                        [1, 5, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+                answers `shouldBe` replicate 10 No
+
         it "raises TimeLimitReached when a query reaches the time limit" $ do
             -- Z3 did not decide this query about cubes in five minutes, so a
             -- limit of 200 milliseconds stops it. The next query still gets

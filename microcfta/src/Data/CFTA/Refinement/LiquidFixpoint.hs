@@ -9,7 +9,7 @@ module Data.CFTA.Refinement.LiquidFixpoint (
 ) where
 
 import Control.Concurrent.MVar (modifyMVar, newMVar, withMVar)
-import Control.Exception (Exception (..), bracket, throwIO)
+import Control.Exception (Exception (..), SomeException, bracket, throwIO, try, uninterruptibleMask_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Lazy (runStateT)
 import qualified Data.HashSet as HashSet
@@ -99,26 +99,33 @@ withZ3Timeout milliseconds given assumptions action =
         case traverse freshDeclaration bindings of
             Nothing -> pure Unknown
             Just freshDeclarations -> do
-                answer <- modifyMVar contextVar $ \context -> do
+                outcome <- modifyMVar contextVar $ \context -> do
                     let mentioned = foldMap Fixpoint.exprSymbolsSet (antecedent : consequent : assumptions)
                         declared = HashSet.union known $ HashSet.fromList $ map fst freshDeclarations
                         undeclared =
                             [(name, Fixpoint.FInt) | name <- HashSet.toList $ HashSet.difference mentioned declared]
-                    (answer@(response, _), nextContext) <- runStateT (check (freshDeclarations <> undeclared)) context
-                    case response of
-                        -- Z3 answers the rejected command and then the check-sat.
-                        -- Liquid Fixpoint reads only the first answer, so the next
-                        -- query would read the second. A new process replaces the
-                        -- old one. Each query sends its own declarations. The test
-                        -- "answers correctly after the solver rejects a query"
-                        -- gets shifted answers without the new process (checked
-                        -- with Z3 4.15.3 and Liquid Fixpoint 0.9.6.3.7).
-                        SMTTypes.Error _ -> do
-                            SMT.cleanupContext nextContext
-                            fresh <- SMT.makeContextNoLog config
-                            pure (fresh, answer)
-                        _ -> pure (nextContext, answer)
-                responseVerdict answer
+                    attempt <- try $ runStateT (check (freshDeclarations <> undeclared)) context
+                    case attempt of
+                        -- An exception during the query, such as a time limit
+                        -- of the caller, can leave an open scope and an unread
+                        -- answer in the process. The next query would read that
+                        -- answer, so a new process replaces the old one.
+                        Left err -> do
+                            fresh <- replaceContext context
+                            pure (fresh, Left (err :: SomeException))
+                        Right (answer@(response, _), nextContext) -> case response of
+                            -- Z3 answers the rejected command and then the check-sat.
+                            -- Liquid Fixpoint reads only the first answer, so the next
+                            -- query would read the second. A new process replaces the
+                            -- old one. Each query sends its own declarations. The test
+                            -- "answers correctly after the solver rejects a query"
+                            -- gets shifted answers without the new process (checked
+                            -- with Z3 4.15.3 and Liquid Fixpoint 0.9.6.3.7).
+                            SMTTypes.Error _ -> do
+                                fresh <- replaceContext nextContext
+                                pure (fresh, Right answer)
+                            _ -> pure (nextContext, Right answer)
+                either throwIO responseVerdict outcome
       where
         check freshDeclarations = SMT.smtBracket "microcfta entailment" $ do
             SMT.smtDecls $ declarations <> freshDeclarations
@@ -128,6 +135,11 @@ withZ3Timeout milliseconds given assumptions action =
             response <- SMT.command SMTTypes.CheckSat
             end <- liftIO getMonotonicTime
             pure (response, end - start)
+
+        -- Another interruption must not leave the old process in the variable.
+        replaceContext context = uninterruptibleMask_ $ do
+            _ <- try (SMT.cleanupContext context) :: IO (Either SomeException ())
+            SMT.makeContextNoLog config
 
         freshDeclaration (fresh, original)
             | fresh `elem` map fst declarations = Nothing
