@@ -47,8 +47,9 @@ cyclic automaton gives a recursive generator counted by size, the number of
 term nodes, and uses the same order within each size; it must be
 unambiguous, because its count sums over accepting runs. A symbolic count has
 no size classes, so its members report size one, and `smallerMembers` and the
-size-minimal search of `forAll` find no smaller member. `fromAutomatonUpToDepth` bounds the automaton by
-constructor depth first, a leaf having depth zero, and `upToSize` bounds any
+size-minimal search of `forAll` find no smaller member.
+`fromAutomatonUpToDepth` bounds the automaton by constructor depth first, a
+leaf having depth zero, and `upToSize` bounds any
 generator to the members of at most a given number of source choices, in
 size-major rank order. Use `Data.CFTA.Interned.fromFTA` first when the source
 is an explicit-state automaton; the import is total and retains shared states.
