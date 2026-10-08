@@ -38,6 +38,7 @@ module Data.CFTA.Gen.Internal.Static (
     mapStatic,
     atomicStatic,
     labelStatic,
+    labelStaticMatching,
 
     -- * Sampling and lowering
     sequenceSampler,
@@ -757,28 +758,40 @@ choice wrappers distribute the new label over their alternatives.
 labelStatic ::
     (Hashable symbol, Typeable symbol) =>
     symbol -> Static symbol a -> Static symbol a
-labelStatic symbol static =
+labelStatic symbol = labelStaticMatching (== symbol) symbol
+
+{- | 'labelStatic' for a label that a theory rewrites when it fills the
+term, as the rewrite of 'pointsStatic' can. The test gives the labels that
+the label can become. A term ranks under a label that passes the test, and
+a label other than the given one leaves its ranks unchecked.
+-}
+labelStaticMatching ::
+    (Hashable symbol, Typeable symbol) =>
+    (symbol -> Bool) -> symbol -> Static symbol a -> Static symbol a
+labelStaticMatching matches symbol static =
     static
         { staticSupport = labelSupport symbol $ staticSupport static
-        , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
+        , staticOutcomes = labelOutcomeTerms matches symbol $ staticOutcomes static
         , staticInspection = labelInspection symbol $ staticInspection static
         , staticRootCount = RootCount 1
         }
 
 -- | Relabel the retained term of every outcome that the index selects.
-labelOutcomeTerms :: (Eq symbol) => symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
-labelOutcomeTerms symbol outcomes =
+labelOutcomeTerms :: (Eq symbol) => (symbol -> Bool) -> symbol -> OutcomeIndex symbol a -> OutcomeIndex symbol a
+labelOutcomeTerms matches symbol outcomes =
     outcomes
         { outcomeSelect = fmap (labelOutcome symbol) . outcomeSelect outcomes
         , outcomeRanks = leafRanks labelledRanks
         }
   where
     -- The label replaces the private root of the inner term, so the inner
-    -- language reads the children under it. A term with another label keeps
-    -- its ranks unchecked, because a theory can rewrite the labels of a term.
+    -- language reads the children under it. A term with a label that fails
+    -- the test has no rank here, so a choice of labels reads each term in
+    -- one alternative.
     labelledRanks term = case term of
-        Tree.Node (Label found) children ->
-            [(rank, checked && found == symbol) | (rank, checked) <- outcomeRanks outcomes $ LabelledView children]
+        Tree.Node (Label found) children
+            | matches found ->
+                [(rank, checked && found == symbol) | (rank, checked) <- outcomeRanks outcomes $ LabelledView children]
         _ -> []
 
 -- | Relabel the retained term of one finite outcome.
