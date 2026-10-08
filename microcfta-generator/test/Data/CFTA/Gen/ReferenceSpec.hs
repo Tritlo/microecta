@@ -69,8 +69,10 @@ description depth grouped budget
                 <> [(1, Var <$> QC.chooseInt (0, depth - 1)) | depth > 0]
     inner = description depth grouped (budget - 1)
     half = description depth grouped (budget `div` 2)
-    -- Mostly a closed language: a bound around an occurrence is an error.
-    bounded = QC.frequency [(6, description 0 0 (budget - 1)), (1, inner)]
+    -- Mostly a closed language: a bound around an occurrence is an error. A
+    -- bound around three nested recursions can keep tens of thousands of
+    -- members, and a join reads each of them, so a bound has fewer.
+    bounded = QC.frequency [(6, description 0 0 (budget - 1)), (1, inner)] `QC.suchThat` ((< 3) . recursionDepth)
     alternatives = weighted (description depth grouped) budget
     -- A recursion with a base case and an occurrence under a product.
     productive = do
@@ -160,6 +162,37 @@ weighted alternative budget = do
             , (1, QC.vectorOf count $ QC.chooseInteger (0, 2))
             ]
     zip weights <$> QC.vectorOf count (alternative $ budget `div` count)
+
+-- | The largest number of recursions, ordinary and grouped, that enclose one another in a description.
+recursionDepth :: Desc -> Int
+recursionDepth = \case
+    Pure _ -> 0
+    Elements _ -> 0
+    Node _ inner -> recursionDepth inner
+    Tag _ inner -> recursionDepth inner
+    Pair left right -> max (recursionDepth left) (recursionDepth right)
+    Frequency alternatives -> maximum $ 0 : map (recursionDepth . snd) alternatives
+    Uniformly alternatives -> maximum $ 0 : map recursionDepth alternatives
+    Atomic inner -> recursionDepth inner
+    UpToSize _ inner -> recursionDepth inner
+    Recur body -> 1 + recursionDepth body
+    Var _ -> 0
+    AtKey _ family' -> familyDepth family'
+    Ungroup family' -> familyDepth family'
+    Match _ left right -> max (recursionDepth left) (recursionDepth right)
+    Relate _ left right -> max (recursionDepth left) (recursionDepth right)
+  where
+    familyDepth = \case
+        Keyed _ inner -> recursionDepth inner
+        GroupOn _ inner -> recursionDepth inner
+        Regroup _ family' -> familyDepth family'
+        MapWithKey family' -> familyDepth family'
+        Frequencies alternatives -> maximum $ 0 : map (familyDepth . snd) alternatives
+        Apply1 operations argument -> maximum $ familyDepth argument : [recursionDepth operation | (_, _, operation) <- operations]
+        Apply2 operations first second ->
+            maximum $ familyDepth first : familyDepth second : [recursionDepth operation | (_, _, _, operation) <- operations]
+        RecurGrouped body -> 1 + familyDepth body
+        GVar _ -> 0
 
 -- | Smaller descriptions: the direct parts first, then each part made smaller.
 shrinkDesc :: Desc -> [Desc]
