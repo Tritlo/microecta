@@ -69,7 +69,7 @@ module Data.CFTA.Interned (
 ) where
 
 import Data.Bifunctor (first)
-import Data.Graph (flattenSCC, stronglyConnComp)
+import Data.Graph (SCC (CyclicSCC), flattenSCC, stronglyConnComp)
 import Data.Hashable (Hashable)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -155,12 +155,16 @@ reachable root = collect IntMap.empty [root]
 
 {- | Intern an explicit-state graph without interpreting constraints.
 
-The graph is trimmed first. Each reachable state becomes one node, and a state
-on a cycle becomes a 'Mu' whose body refers back to it through 'Rec', so a
+The graph is trimmed first. Each reachable state becomes one node. A state on
+a cycle becomes a 'Mu' whose body refers back to it through 'Rec', so a
 recursive graph imports without a bound. Inside a 'Mu', a state that an
-enclosing 'Mu' binds refers to that binder. Thus a path through the result
-passes at most one binder for each state of a strongly connected component.
-Constraint layers can annotate the source before this conversion.
+enclosing 'Mu' binds refers to that binder, and a state becomes a 'Mu' only
+when a cycle through it avoids the bound states. Thus a path through the
+result passes at most one binder for each state of a strongly connected
+component. Each node is built once for each set of enclosing binders. When
+each of the k states of a component refers to all k states, the result can
+have about e * (k - 1)! binders. Constraint layers can annotate the source
+before this conversion.
 -}
 fromFTA ::
     forall state symbol.
@@ -169,29 +173,47 @@ fromFTA ::
 fromFTA graph = shared Map.! FTA.initialState trimmed
   where
     trimmed = FTA.trim graph
-    cyclic = FTA.cyclicStates trimmed
-    component =
-        Map.fromList
-            [ (state, index)
-            | (index, states) <- zip [0 :: Int ..] (map flattenSCC (stronglyConnComp (map dependencies (FTA.states trimmed))))
-            , state <- states
-            ]
-      where
-        dependencies state = (state, state, concatMap FTA.transitionChildren (FTA.transitionsFrom trimmed state))
+    successors state = concatMap FTA.transitionChildren (FTA.transitionsFrom trimmed state)
+    components = map flattenSCC (stronglyConnComp [(state, state, successors state) | state <- FTA.states trimmed])
+    component = Map.fromList [(state, index) | (index, states) <- zip [0 :: Int ..] components, state <- states]
+    -- The states of the component of each state.
+    members = Map.fromList [(state, set) | states <- components, let set = Set.fromList states, state <- states]
+
+    -- The given states that are on a cycle through the given states only.
+    cycles states =
+        Set.fromList $
+            concat
+                [ scc
+                | CyclicSCC scc <- stronglyConnComp [(state, state, successors state) | state <- Set.toList states]
+                ]
+
     -- The node of each state outside every binder. The lazy map builds each
     -- node once, when a parent or the root first needs it.
-    shared = LazyMap.fromSet (build Map.empty) (Map.keysSet component)
+    shared = LazyMap.fromSet (build (cycles (Map.keysSet component)) Map.empty shared) (Map.keysSet component)
 
-    -- A state bound by an enclosing 'Mu' is replaced by that binder's
-    -- placeholder. A child in another component cannot reach a bound state,
-    -- so it is the shared node of that child.
-    build :: Map.Map state (Node symbol) -> state -> Node symbol
-    build binders state
+    -- Build the node of a state in one binder context. The context has the
+    -- states of a component that are on a cycle that avoids the bound states,
+    -- the bound states with the placeholders of their binders, and a lazy map
+    -- with the node of each state of the component in the context. Thus each
+    -- node is built once in each context, not once for each occurrence. A
+    -- bound state is its placeholder. A state on a cycle that avoids the bound
+    -- states gets a binder and starts a new context. Another state gets no
+    -- binder: the binder would not occur in the body, and 'createMu' would
+    -- remove it after it evaluated the body two or three times.
+    build :: Set.Set state -> Map.Map state (Node symbol) -> Map.Map state (Node symbol) -> state -> Node symbol
+    build free binders nodes state
         | Just self <- Map.lookup state binders = self
-        | Set.member state cyclic = createMu $ \self -> body (Map.insert state self binders) state
-        | otherwise = body binders state
+        | Set.member state free =
+            let free' = cycles (Set.delete state (Set.difference (members Map.! state) (Map.keysSet binders)))
+             in createMu $ \self ->
+                    let binders' = Map.insert state self binders
+                        nodes' = LazyMap.fromSet (build free' binders' nodes') (members Map.! state)
+                     in body nodes' state
+        | otherwise = body nodes state
 
-    body binders state = mkNode (map edge (FTA.transitionsFrom trimmed state))
+    -- A child in another component cannot reach a bound state, so it is the
+    -- shared node of that child.
+    body nodes state = mkNode (map edge (FTA.transitionsFrom trimmed state))
       where
         edge transition =
             mkEdge
@@ -199,7 +221,7 @@ fromFTA graph = shared Map.! FTA.initialState trimmed
                 (map child (FTA.transitionChildren transition))
                 (FTA.transitionConstraint transition)
         child next
-            | component Map.! next == component Map.! state = build binders next
+            | component Map.! next == component Map.! state = nodes Map.! next
             | otherwise = shared Map.! next
 
 -- | Name the empty state or read the shared canonical identity.
