@@ -14,7 +14,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatch
 
 import Data.CFTA (Transition (Transition), statesAt)
 import qualified Data.CFTA as Automaton
-import Data.CFTA.Constraint (Guard (..), equalityConstraint, noConstraint, residual, semanticConstraint)
+import Data.CFTA.Constraint (Guard (..), equalitiesHold, equalityConstraint, noConstraint, residual, semanticConstraint)
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import qualified Data.CFTA.Generic as Datatype
 import Data.CFTA.Interned (pathsMatching, requirePath)
@@ -249,6 +249,15 @@ spec = do
             Common.edgeCount (Common.withoutRedundantEdges redundant) `shouldBe` 3
             acceptPlain (Common.withoutRedundantEdges redundant) (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` True
 
+    describe "explicit-state recognition" $
+        it "rejects a transition whose guard is Bottom, as the interned view does" $ do
+            let bottom = case Automaton.mkFTA ("q" :: String) [("q", [Transition "a" [] (semanticConstraint Bottom)])] of
+                    Right fta -> fta
+                    Left err -> error $ show err
+                leaf = Tree.Node "a" [] :: Tree.Tree String
+            (Automaton.accepts bottom leaf, Common.acceptsWith equalitiesHold (Common.fromFTA bottom) leaf)
+                `shouldBe` (False, False)
+
     describe "derived datatype grammars" $ do
         it "accepts a type argument that grows and then stops" $
             -- From Grows Int the states are Grows Int, Int, Stop, Grows (Maybe Int),
@@ -261,6 +270,14 @@ spec = do
                 (Automaton.states . Datatype.datatypeFTA)
                 (Datatype.deriveFTAWithGrowthLimit @(Grows Int) 0 (Datatype.domain @Int [0]))
                 `shouldBe` Left (Datatype.NonRegularRecursion 0 (typeRep $ Proxy @(Grows Int)) (typeRep $ Proxy @(Grows (Maybe Int))))
+
+        it "counts a growth only against the nearest type with the same constructor" $
+            -- Maybe Chain2, Maybe Chain3, and Maybe (Maybe Bool) are on one path.
+            -- Only the last is larger than the one before it.
+            fmap
+                (Automaton.states . Datatype.datatypeFTA)
+                (Datatype.deriveFTAWithGrowthLimit @Chain1 1 mempty)
+                `shouldSatisfy` either (const False) (not . null)
 
         it "rejects a type argument that grows without end" $
             case Datatype.deriveFTAWith @(Nested Int) (Datatype.domain @Int [0]) of
@@ -289,6 +306,22 @@ newtype Stop = Stop (Grows (Maybe Int))
     deriving (Eq, Show, Generic)
 
 instance Datatype.HasFTA Stop
+
+-- | A chain of distinct types under 'Maybe' that ends in a larger 'Maybe'.
+newtype Chain1 = Chain1 (Maybe Chain2)
+    deriving (Eq, Show, Generic)
+
+instance Datatype.HasFTA Chain1
+
+newtype Chain2 = Chain2 (Maybe Chain3)
+    deriving (Eq, Show, Generic)
+
+instance Datatype.HasFTA Chain2
+
+newtype Chain3 = Chain3 (Maybe (Maybe Bool))
+    deriving (Eq, Show, Generic)
+
+instance Datatype.HasFTA Chain3
 
 -- | A nested datatype: every level grows the type argument.
 data Nested a = Nested a (Nested (Maybe a)) | Flat
