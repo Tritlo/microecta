@@ -211,9 +211,11 @@ oneof ::
     (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]
 
-{- | Choose among generators so that every member of the combined language is
-equally likely. If all alternatives are finite, each alternative is weighted by
-its cardinality. If any alternative is recursive, this is 'oneof', whose
+{- | Choose among generators in proportion to their members. If all
+alternatives are finite, each alternative is weighted by its cardinality, so
+every member of the combined language is equally likely when every alternative
+is uniform. An alternative with its own weights, such as a 'frequency', keeps
+them inside its share. If any alternative is recursive, this is 'oneof', whose
 recursive choice draws each alternative in proportion to its members at the
 drawn size. A member of several alternatives counts once for each.
 -}

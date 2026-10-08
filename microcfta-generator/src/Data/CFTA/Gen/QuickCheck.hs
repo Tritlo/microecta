@@ -184,9 +184,10 @@ smallerMemberLimit = 1000
 
 {- | Build the generator from QuickCheck's size parameter.
 
-The generator for each size is built /and compiled/ once and shared across
-samples, so neither the generator nor its decode plan is reconstructed on every
-draw.
+The generator for each size is built once and shared across samples, so
+neither the generator nor its decode plan is reconstructed on every draw. It
+does not call 'Data.CFTA.Gen.Refinement.compile': a generator that needs it
+raises 'SourceRequiresCompilation' at the first draw.
 -}
 sized :: (Int -> Gen symbol a) -> QC.Gen a
 sized build = QC.sized $ \size -> towers !! max 0 size

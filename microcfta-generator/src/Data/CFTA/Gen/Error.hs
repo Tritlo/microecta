@@ -263,9 +263,9 @@ explain BoundedRecursiveOccurrence =
 explain (InvalidSupport (GuardArityMismatch (Symbol symbol) childrenCount argumentCount)) =
     guidance
         [ "Constructor " <> show symbol <> " has " <> show childrenCount <> " children, but its"
-        , "named guard takes " <> show argumentCount <> " arguments."
-        , "Fix: give the guard one argument per direct child, including unused"
-        , "children."
+        , "named guard or contract takes " <> show argumentCount <> " arguments."
+        , "Fix: give the guard or the contract one argument per direct child,"
+        , "including unused children."
         ]
 explain (InvalidSupport err) =
     guidance
@@ -329,14 +329,17 @@ explain (ResidualGuard guard) =
     guidance
         [ "The guard " <> show guard <> " remained after pruning, and the symbolic"
         , "ranker cannot count it. Scoped equality on compound subtrees stays"
-        , "unsupported by the compiler."
-        , "Fix: use validOutcomes for explicit diagnostics on small inputs."
+        , "unsupported by the compiler. validOutcomes reads an import through the"
+        , "same pruning, so it reports the same error."
+        , "Fix: write the guard of the imported automaton without scoped equality"
+        , "on compound subtrees."
         ]
 explain ConditionNeedsConstructor =
     guidance
         [ "A condition applies to the root constructor of each term, and this"
         , "generator does not end in one: it is a product, pure, a recursive"
-        , "language, or an opaque source."
+        , "language, an opaque source, or a source without symbols, such as"
+        , "fromIndexed, freeze, a join, upToSize, or a compiled generator."
         , "Fix: put the condition on a pool, a leaf, or a node, or state it as the"
         , "contract of the enclosing guarded node."
         ]
