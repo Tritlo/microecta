@@ -23,7 +23,7 @@ import qualified Language.Fixpoint.Types as Fixpoint
 import Data.CFTA.Constraint (Constraint)
 import Data.CFTA.Enumeration (plainTermsAtMost, runs, unconstrained)
 import Data.CFTA.Index (Depth (..))
-import Data.CFTA.Internal.Tree (andM, orM)
+import Data.CFTA.Internal.Tree (acceptsBy, andM)
 import Data.CFTA.Interned (boundDepth, edgeChildren, edgeConstraint, edgeSymbol, nodeEdges)
 import Data.CFTA.Refinement.Automaton (Automaton)
 import Data.CFTA.Refinement.Evaluate (evaluateConstraint)
@@ -41,25 +41,19 @@ data DenotationError
 The result is 'Yes' when some run accepts the term with every guard decided
 'Yes'. It is 'No' when no run accepts the term and the solver decided every
 guard the search evaluated. It is 'Unknown' otherwise. A guard is decided
-only after the children of its transition have accepted their subterms.
+only after the children of its transition have accepted their subterms. When
+the search comes to a subterm again with the same node, it uses the first
+result, so the solver decides each guard at most once at each position in the
+term.
 -}
 accepts :: Entailment -> Automaton -> Tree.Tree Symbol -> IO Verdict
 accepts entailment automaton term = do
     undecided <- newIORef False
-    accepted <- acceptsAt undecided automaton term
+    accepted <- acceptsBy nodeEdges edgeSymbol edgeChildren (check undecided) automaton term
     unknown <- readIORef undecided
     pure $ if accepted then Yes else if unknown then Unknown else No
   where
-    acceptsAt undecided node candidate@(Tree.Node symbol children) =
-        orM
-            [ andM (zipWith (acceptsAt undecided) (edgeChildren edge) children) >>= \ok ->
-                if ok then check undecided edge candidate else pure False
-            | edge <- nodeEdges node
-            , edgeSymbol edge == symbol
-            , length (edgeChildren edge) == length children
-            ]
-
-    check undecided edge candidate = do
+    check undecided _ edge candidate = do
         verdict <- evaluateConstraint entailment (edgeConstraint edge) candidate
         case verdict of
             Yes -> pure True
