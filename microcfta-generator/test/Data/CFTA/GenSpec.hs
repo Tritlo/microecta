@@ -257,6 +257,37 @@ spec = do
                         ]
                     )
 
+        it "compiles and walks a language that two alternatives reuse once" $ do
+            let depth = 40 :: Int
+                chain :: Int -> FTAGen.FTAGen String (Tree.Tree String)
+                chain 0 = pure (Tree.Node "z" [])
+                chain n = FTAGen.oneof [wrap "a" <$> rest, wrap "b" <$> rest]
+                  where
+                    rest = chain (n - 1)
+                rankedChain :: Int -> Either Ranked.RankedError (Ranked.Ranked (Tree.Tree String))
+                rankedChain 0 = Right (pure (Tree.Node "z" []))
+                rankedChain n = do
+                    rest <- rankedChain (n - 1)
+                    Ranked.oneof [wrap "a" <$> rest, wrap "b" <$> rest]
+                wrap symbol term = Tree.Node symbol [term]
+                path symbol = iterate (wrap symbol) (Tree.Node "z" []) !! depth
+                generator = chain depth
+                ranked = rankedChain depth
+                lastRank = 2 ^ depth - 1
+            -- The walks come before the decoders: without shared alternatives
+            -- a walk takes exponential time in little memory, and the timeout
+            -- stops it before a decoder fills the heap.
+            completed <- timeout 10000000 $ do
+                drawn <- QC.generate (FTAGen.toGen generator)
+                evaluate $
+                    FTAGen.minimumSize generator == Right (Just 1)
+                        && FTAGen.smallest generator == Right (Just (path "a"))
+                        && take 1 (FTAGen.shrinkRank generator lastRank) == [0]
+                        && fmap (\language -> take 1 (Ranked.shrinkRank language lastRank)) ranked == Right [0]
+                        && length (Tree.flatten drawn) == depth + 1
+                        && (ranked >>= (`Ranked.unrank` lastRank)) == Right (path "b")
+            completed `shouldBe` Just True
+
         it "builds exact support accepting the term of every rank" $
             case (FTAGen.support pairs, traverse (FTAGen.termAt pairs) [0 .. 3]) of
                 (Right support, Right terms) -> do
