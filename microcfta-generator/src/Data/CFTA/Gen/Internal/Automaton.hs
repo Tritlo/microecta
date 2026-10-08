@@ -86,8 +86,7 @@ automatonIndex order root
   where
     alternatives = IntMap.elems (reachable root)
     rows = Ordinary.rowsOf root
-    classes =
-        canonicalClasses $ IntMap.fromList [(state, map edgeKey transitions) | (NodeId state, transitions) <- Map.toList rows]
+    classes = canonicalClasses $ IntMap.fromDistinctAscList [(ident, map edgeKey row) | (NodeId ident, row) <- Map.toAscList rows]
       where
         edgeKey transition =
             ( (length $ FTA.transitionChildren transition, order $ FTA.transitionSymbol transition)
