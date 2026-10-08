@@ -81,11 +81,16 @@ tablePosition ::
 tablePosition initial rows = Map.lookup initial . positionsOf
   where
     (indexOf, prefixesOf) = stateTable rows
+    -- The candidates by symbol and arity. The candidates of a state share
+    -- its transition indexes, so they are built once for each state.
     candidates =
         Map.fromListWith
             (flip (<>))
-            [ ((FTA.transitionSymbol transition, length $ FTA.transitionChildren transition), [(state, branch, transition, prefixes)])
+            [ ( (FTA.transitionSymbol transition, length $ FTA.transitionChildren transition)
+              , [(state, branch, transition, prefixes, indexes)]
+              )
             | state <- Map.keys rows
+            , let indexes = map (last . snd) $ prefixesOf state
             , (branch, (transition, prefixes)) <- zip [0 :: TransitionIndex ..] $ prefixesOf state
             ]
     -- The size and position of a term in each state that accepts it. The
@@ -93,8 +98,9 @@ tablePosition initial rows = Map.lookup initial . positionsOf
     -- transition is its choice index.
     positionsOf (Tree.Node symbol children) =
         Map.fromList
-            [ (state, SizedRank size (choicePosition (map (last . snd) $ prefixesOf state) (ChoiceIndex branch) size position))
-            | (state, TransitionIndex branch, transition, prefixes) <- Map.findWithDefault [] (symbol, length children) candidates
+            [ (state, SizedRank size (choicePosition indexes (ChoiceIndex branch) size position))
+            | (state, TransitionIndex branch, transition, prefixes, indexes) <-
+                Map.findWithDefault [] (symbol, length children) candidates
             , Just childPositions <- [zipWithM Map.lookup (FTA.transitionChildren transition) childMaps]
             , let SizedRank size position =
                     foldl' addChild (SizedRank 1 0) $ zip3 prefixes (FTA.transitionChildren transition) childPositions
