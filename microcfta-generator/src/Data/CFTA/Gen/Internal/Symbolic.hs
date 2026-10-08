@@ -383,14 +383,17 @@ condition (index : rest) constructor node =
         , child : _ <- [drop index children]
         ]
 
--- | Read possible constructors at a path without enumerating subterms, by arity, then in key order.
+{- | Read possible constructors at a path without enumerating subterms, by
+arity, then in key order. Two symbols with one key stay apart, in symbol
+order, so a key that does not tell symbols apart loses no constructor.
+-}
 constructorsAt ::
     (Theory symbol, Ord key) => (symbol -> key) -> [Int] -> Node symbol -> [(symbol, Arity)]
 constructorsAt order position root =
     map snd
         $ Map.toAscList
         $ Map.fromList
-            [ ((arity, order symbol), (symbol, arity))
+            [ ((arity, order symbol, symbol), (symbol, arity))
             | edge <- nodeEdges $ project position root
             , let symbol = edgeSymbol edge
                   arity = Arity $ length $ edgeChildren edge

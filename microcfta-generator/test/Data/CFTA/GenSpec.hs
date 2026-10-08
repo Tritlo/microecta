@@ -23,6 +23,7 @@ import Control.Monad (void)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (noConstraint)
 import Data.CFTA.Gen (On ((:==:)))
+import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import qualified Data.CFTA.Gen.QuickCheck as FTAGen
 import qualified Data.CFTA.Gen.UntypedExpressionLanguage as Expressions
 import qualified Data.CFTA.Generic as Datatype
@@ -384,6 +385,19 @@ spec = do
                 Right automaton ->
                     FTAGen.values (FTAGen.upToSize 1 $ FTAGen.fromAutomaton $ Common.fromFTA automaton)
                         `shouldBe` Right leaves
+
+        it "keeps the constructors of one arity apart when the order key does not tell them apart" $ do
+            -- Every symbol has the key (), so only the symbol keeps "tie-a" and "tie-b" apart.
+            let rows =
+                    [ ("q", [Automaton.Transition "tie-f" ["r"] noConstraint, Automaton.Transition "tie-f" ["s"] noConstraint])
+                    , ("r", [Automaton.Transition "tie-a" [] noConstraint, Automaton.Transition "tie-b" [] noConstraint])
+                    , ("s", [Automaton.Transition "tie-a" [] noConstraint])
+                    ]
+            case Automaton.mkFTA ("q" :: String) rows of
+                Left err -> expectationFailure $ show err
+                Right automaton ->
+                    FTAGen.values (Flat.fromAutomaton (const ()) $ Common.fromFTA automaton)
+                        `shouldBe` Right [Tree.Node "tie-f" [Tree.Node symbol []] | symbol <- ["tie-a", "tie-b"]]
 
         it "ranks alternatives with one symbol by their children, not in interning order" $ do
             -- Interning is global: these symbols appear in no other test.
