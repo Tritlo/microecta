@@ -16,7 +16,8 @@ import Data.CFTA.Refinement (
     Symbol (RefinedSymbol),
     Transition,
     TransitionId (TransitionId),
-    Verdict (No),
+    Verdict (No, Yes),
+    accepts,
     automatonAlphabet,
     denotationAtMost,
     edgeChildren,
@@ -34,7 +35,10 @@ import Data.CFTA.Refinement (
     transitionSymbol,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (refinementFormula, (.==), (.>=))
+import Data.CFTA.Refinement.Expression (refinementFormula, true, (./=), (.==), (.>=))
+import Data.CFTA.Refinement.Guard (requires)
+import qualified Data.CFTA.Refinement.Guard as Guard
+import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Refinement.TestSupport (declarations)
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -94,6 +98,26 @@ spec =
                     map edgeChildren (nodeEdges reduced)
                         `shouldMatchList` [[naturalNode], [Node [otherAtom]], [naturalNode]]
                     denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 3)
+
+        it "does not give a parent the other alternatives of the representative's node" $ do
+            let ints =
+                    Node
+                        [ Transition "Int" (refinementFormula (.== 0)) [] noConstraint
+                        , Transition "Int" (refinementFormula (.== 1)) [] noConstraint
+                        ]
+                root = case Guard.transition "div" (const true) [ints, ints] (\_ d -> d `requires` (./= 0)) of
+                    Right edge -> Node [edge]
+                    Left err -> error (show err)
+                subtyping = refinementSubtypingOn latticeEntailment (Just . length . edgeChildren)
+                int k = Tree.Node (RefinedSymbol "Int" (refinementFormula (.== k))) []
+                divide left right = Tree.Node (RefinedSymbol "div" true) [int left, int right]
+            accepts latticeEntailment root (divide 0 0) >>= (`shouldBe` No)
+            reduced <- reduce latticeEntailment subtyping root
+            case reduced of
+                Left err -> expectationFailure $ show err
+                Right result -> do
+                    accepts latticeEntailment result (divide 0 0) >>= (`shouldBe` No)
+                    accepts latticeEntailment result (divide 0 1) >>= (`shouldBe` Yes)
 
         it "does not strand the root during minimization" $
             withZ3 declarations $ \solver -> do
@@ -164,7 +188,7 @@ spec =
 
         it "retains a batch whose copied guard would inspect a recursive node" $
             withZ3 declarations $ \solver ->
-                checkRetainedBatch solver (atomSubtyping solver) cyclicGuardRepresentative 4
+                checkRetainedBatch solver (atomSubtyping solver) cyclicGuardRepresentative 2
 
 -- | Inspect a successful schedule while reporting inference failures.
 checkMinimization :: Subtyping -> Automaton -> (Automaton -> IO ()) -> IO ()
@@ -303,13 +327,17 @@ copiedSupertype =
         , wrap "use-b" [specificBNode]
         ]
 
--- | A representative's other alternative makes its node recursive.
+-- | The representative is the only alternative of its node, and the node is recursive.
 cyclicGuardRepresentative :: Automaton
 cyclicGuardRepresentative =
     Node
         [ Transition "goal" Fixpoint.PTrue [Node [unknownAtom]] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue
-        , wrap "use" [Mu $ \self -> Node [naturalAtom, wrap "loop" [self]]]
+        , wrap "use" [recursiveNatural]
         ]
+  where
+    recursiveNatural = Mu $ \self -> Node [Transition "natural" natural [zeroOrLoop self] noConstraint]
+    zeroOrLoop self = Node [plain "zero", wrap "loop" [self]]
+    natural = refinementFormula (\v -> v .>= 0)
 
 -- | Three program nodes ordered exact-zero <: natural <: unknown.
 transitiveSimilarAtoms :: Automaton

@@ -1004,7 +1004,12 @@ representative's node in the children. Repeated occurrences of that node change
 together. Later steps can copy transitions added by earlier steps. The step
 removes only the selected original supertype transition and deduplicates equal
 transitions. A shared target node retains unrelated alternatives. One target can
-have multiple representatives, and root transitions can participate.
+have multiple representatives, and root transitions can participate. A step
+between two nodes applies only when the representative is the only alternative
+of its node, because a copy reaches every alternative of that node and the
+similarity relates only the representative. Other steps between two nodes are
+skipped. When the similarity relates only equal transitions, every term of the
+result is a term of the input.
 
 Equivalent types keep the first transition in node order. When incomparable
 subtypes can replace one supertype, the first inferred dominator selects its
