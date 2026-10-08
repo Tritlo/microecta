@@ -1004,12 +1004,12 @@ mergeComponents components = do
     let total = sum $ map groupMass $ Map.elems merged
     pure $ fmap (\group -> group{groupMass = groupMass group / total}) merged
 
-{- | A grouped recursion, as the engine builds it. The keys grow from none: each
-pass builds the body around empty groups for the keys found so far. The
-minimum of each key converges as the minimum of 'recurLang' does. A probe
-around these minimums decides whether the body reaches the family and whether
-a product guards it. Then the counts, the masses, and the size classes of
-every key tie through the family.
+{- | A grouped recursion, as the engine builds it. The keys grow from none, and
+the minimum of each key converges as the minimum of 'recurLang' does: each
+pass builds the body around a probe of each key found so far, with the least
+minimum found so far. A probe around the final minimums decides whether the
+body reaches the family and whether a product guards it. Then the counts, the
+masses, and the size classes of every key tie through the family.
 -}
 recurGroupedFamily :: Env -> GDesc -> Family Int Value
 recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
@@ -1020,35 +1020,26 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
   where
     token = nextToken env
     withFamily family = interpretGrouped (Env flat (family : grouped)) body
-    placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keySet]
+    placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keyMinimums]
     placeholder minimum' flags count classAt massAt =
         Group (Model Nothing False True count classAt minimum' Nothing flags flags) 0 massAt
 
-    keySet = converge Map.empty
-      where
-        converge current
-            | Map.keys grown == Map.keys current = current
-            | otherwise = converge grown
-          where
-            empty' = placeholder Nothing IntSet.empty (const 0) (const []) (const 0)
-            reached = either (const Map.empty) (() <$) $ familyGroups $ withFamily $ fmap (const empty') current
-            grown = Map.union current reached
+    probe minimum' = placeholder minimum' (IntSet.singleton token) probeError probeError probeError
+    probeWith minimumAt = withFamily $ placeholders $ probe . minimumAt
 
-    probeWith minimumAt =
-        withFamily $ placeholders $ \key ->
-            placeholder (minimumAt key) (IntSet.singleton token) probeError probeError probeError
-
-    minimumSizes = converge Map.empty
+    keyMinimums = converge Map.empty
       where
         converge current
             | grown == current = current
             | otherwise = converge grown
           where
             reached =
-                either (const Map.empty) (Map.mapMaybe $ modelMinimum . groupModel)
+                either (const Map.empty) (fmap $ modelMinimum . groupModel)
                     $ familyGroups
-                    $ probeWith (`Map.lookup` current)
-            grown = Map.unionWith min current reached
+                    $ withFamily
+                    $ fmap probe current
+            grown = Map.unionWith (\left right -> minimumOf [left, right]) current reached
+    minimumSizes = Map.mapMaybe id keyMinimums
 
     probed = probeWith (`Map.lookup` minimumSizes)
 
