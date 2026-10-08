@@ -82,6 +82,28 @@ spec =
                 Just (Right result) -> accepts alwaysEntails result term >>= (`shouldBe` Yes)
                 other -> expectationFailure $ show other
 
+        it "prunes an equality that reaches the recursive reference through an inner recursive node" $ do
+            let leaf = Node [Transition "a" true [] noConstraint]
+                automaton = Mu $ \self ->
+                    Node
+                        [ Transition "g" true [leaf] noConstraint
+                        , Transition
+                            "f"
+                            true
+                            [leaf, Mu $ \inner -> Node [Transition "h" true [inner, self] noConstraint, Transition "b" true [] noConstraint]]
+                            (semanticConstraint $ Same (path [0]) (path [1, 1, 0]))
+                        ]
+                a = Tree.Node (RefinedSymbol "a" true) []
+                term =
+                    Tree.Node
+                        (RefinedSymbol "f" true)
+                        [a, Tree.Node (RefinedSymbol "h" true) [Tree.Node (RefinedSymbol "b" true) [], Tree.Node (RefinedSymbol "g" true) [a]]]
+            validate automaton `shouldBe` Right ()
+            pruned <- timeout 10000000 $ prune alwaysEntails automaton
+            case pruned of
+                Just (Right result) -> accepts alwaysEntails result term >>= (`shouldBe` Yes)
+                other -> expectationFailure $ show other
+
         it "rejects a guard that points into a recursive node" $ do
             let automaton = Mu $ \self ->
                     Node [Transition "loop" true [self] (semanticConstraint $ Satisfies (path [0]) true)]
