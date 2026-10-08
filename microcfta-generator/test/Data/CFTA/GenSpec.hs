@@ -209,6 +209,32 @@ spec = do
             FTAGen.isRecursive calls `shouldBe` True
             map (FTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
 
+        it "keeps the outer occurrence through a recursion whose finite members all use the middle occurrence" $ do
+            -- The outer recursion reaches its own occurrence only through the
+            -- inner recursion. The inner recursion has finite members only
+            -- through a product of the middle occurrence and the outer one.
+            let pair a b = (+) <$> a <*> b
+                inner m o = FTAGen.recur $ \n -> FTAGen.oneof [pair m o, pair n n]
+                middle o = FTAGen.recur $ \m -> FTAGen.oneof [pure 1, inner m o]
+                outer :: FTAGen.FTAGen String Int
+                outer = FTAGen.recur $ \o -> FTAGen.oneof [pure 0, middle o]
+                bounded :: FTAGen.FTAGen String Int
+                bounded = FTAGen.recur $ \o -> FTAGen.oneof [pure 0, FTAGen.upToSize 3 $ middle o]
+                grouped :: FTAGen.FTAGen String Int
+                grouped =
+                    FTAGen.recur $ \o ->
+                        FTAGen.oneof
+                            [ pure 0
+                            , FTAGen.atKey () $ FTAGen.recurGrouped $ \m ->
+                                FTAGen.keyed () $ FTAGen.oneof [pure 1, inner (FTAGen.atKey () m) o]
+                            ]
+            -- In each language, O = 0 | M, M = 1 | N, and N = M * O | N * N.
+            map (FTAGen.countAtSize outer) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            traverse (FTAGen.unrank outer) [0 .. 3] `shouldBe` Right [0, 1, 1, 2]
+            map (FTAGen.countAtSize grouped) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            -- A bound around the middle recursion reaches the outer occurrence.
+            FTAGen.cardinality bounded `shouldBe` Left FTAGen.BoundedRecursiveOccurrence
+
         it "closes a single do binding as one direct constructor child" $ do
             let boxed = FTAGen.node "box" $ FTAGen.do
                     value <- atoms

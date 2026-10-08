@@ -54,6 +54,7 @@ description depth grouped budget
             , (2, UpToSize <$> QC.chooseInt (0, 5) <*> bounded)
             , (if depth < 2 then 1 else 0, Recur <$> description (depth + 1) grouped (budget - 1))
             , (if depth < 2 then 4 else 0, productive)
+            , (if depth == 0 then 2 else 0, crossing)
             , (1, AtKey <$> QC.chooseInt (0, 2) <*> family depth grouped (budget - 1))
             , (1, Ungroup <$> family depth grouped (budget - 1))
             , (1, Match <$> QC.chooseInt (1, 3) <*> half <*> half)
@@ -79,6 +80,30 @@ description depth grouped budget
         occurrenceLeft <- QC.arbitrary
         let product' = if occurrenceLeft then Pair (Var 0) other else Pair other (Var 0)
         pure $ Recur $ Frequency [(1, base), (weight, product')]
+    -- Three nested recursions. The finite members of the innermost one all go
+    -- through a product of the middle occurrence and the outer occurrence, so
+    -- the innermost recursion is empty unless the middle occurrence has a
+    -- member. The middle level is a recursion or a recursive family.
+    crossing = do
+        outerBase <- description 1 grouped (budget `div` 3)
+        middleLeft <- QC.arbitrary
+        let across first second = if middleLeft then Pair first second else Pair second first
+        middle <-
+            QC.oneof
+                [ do
+                    middleBase <- description 2 grouped (budget `div` 3)
+                    other <- description 3 grouped (budget `div` 3)
+                    let innermost = Recur $ Frequency [(1, across (Var 1) (Var 2)), (1, Pair (Var 0) other)]
+                    pure $ Recur $ Frequency [(1, middleBase), (1, innermost)]
+                , do
+                    key <- QC.chooseInt (0, 2)
+                    middleBase <- description 1 (grouped + 1) (budget `div` 3)
+                    other <- description 2 (grouped + 1) (budget `div` 3)
+                    let innermost =
+                            Recur $ Frequency [(1, across (AtKey key (GVar 0)) (Var 1)), (1, Pair (Var 0) other)]
+                    pure $ AtKey key $ RecurGrouped $ Keyed key $ Frequency [(1, middleBase), (1, innermost)]
+                ]
+        pure $ Recur $ Frequency [(1, outerBase), (1, middle)]
 
 -- | A random grouped description, as 'description' gives an ordinary one.
 family :: Int -> Int -> Int -> QC.Gen GDesc
