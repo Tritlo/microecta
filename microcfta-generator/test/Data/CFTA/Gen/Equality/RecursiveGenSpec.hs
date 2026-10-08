@@ -277,6 +277,16 @@ spec = do
             ECTAGen.isRecursive calls `shouldBe` True
             map (ECTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
 
+        it "finds a key that the body reaches only through a nested recursion over another key" $ do
+            -- Every member of key 1 reads key 0, so a pass around empty groups finds no member.
+            let family :: ECTAGen.Grouped Int Int
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed 0 (pure 0)
+                        , ECTAGen.keyed 1 $ ECTAGen.recur $ \n -> ECTAGen.oneof [(+) <$> ECTAGen.atKey 0 self <*> pure 1, (+) <$> n <*> n]
+                        ]
+            ECTAGen.smallest (ECTAGen.atKey 1 family) `shouldBe` Right (Just 1)
+
         it "starts QuickCheck at the first live recursive size" $ do
             let minimumTwo :: ECTAGen.ECTAGen _
                 minimumTwo = ECTAGen.recur $ \self ->
