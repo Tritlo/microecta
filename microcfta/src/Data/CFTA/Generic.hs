@@ -263,13 +263,14 @@ defaultGrowthLimit = 8
 {- | 'deriveFTAWith' with a growth limit: the number of times that one type
 constructor may grow its argument along one path.
 
-A type that is larger than more than that many ancestors with the same type
-constructor on its path gives 'NonRegularRecursion'. Every grammar with an
+A type constructor grows where a type is larger than the nearest ancestor with
+the same type constructor on its path. A path where one type constructor grows
+more than that many times gives 'NonRegularRecursion'. Every grammar with an
 infinite state set has such a path: it reaches types of every size, and there
-are finitely many type constructors. So the check rejects every infinite state
-set, whatever the limit. It rejects a finite one only when one type constructor
-grows more often than the limit along one path. A limit of zero rejects every
-growth.
+are finitely many type constructors, so the sizes of one type constructor grow
+without bound along it. So the check rejects every infinite state set, whatever
+the limit. It rejects a finite one only when one type constructor grows more
+often than the limit along one path. A limit of zero rejects every growth.
 -}
 deriveFTAWithGrowthLimit :: forall a. (HasFTA a) => Int -> Domains -> Either DeriveError (TypedFTA Constraint a)
 deriveFTAWithGrowthLimit growthLimit (Domains domains) = do
@@ -279,11 +280,12 @@ deriveFTAWithGrowthLimit growthLimit (Domains domains) = do
   where
     visit ancestors rows description
         | Map.member typ rows = Right rows
-        -- The ancestors come nearest first, so the first two of the reversed
-        -- list, followed by this type, are the first growth step.
-        | grown <- filter (growsInto typ) ancestors
+        -- The ancestors come nearest first. The chain lists the types with the
+        -- type constructor of this type from the root down to this type.
+        | chain <- reverse (filter (sameConstructor typ) ancestors) <> [typ]
+        , grown <- [(outer, next) | (outer, next) <- zip chain (drop 1 chain), typeSize next > typeSize outer]
         , length grown > growthLimit
-        , outer : next : _ <- reverse grown <> [typ] =
+        , (outer, next) : _ <- grown =
             Left $ NonRegularRecursion growthLimit outer next
         | otherwise = case description of
             AtomicType _ -> case Map.lookup typ domains of
@@ -297,8 +299,7 @@ deriveFTAWithGrowthLimit growthLimit (Domains domains) = do
                      in foldM (visit $ typ : ancestors) allocated (concatMap snd constructors)
       where
         typ = descriptionType description
-    growsInto typ ancestor =
-        fst (splitTyConApp typ) == fst (splitTyConApp ancestor) && typeSize typ > typeSize ancestor
+    sameConstructor typ ancestor = fst (splitTyConApp typ) == fst (splitTyConApp ancestor)
     typeSize typ = 1 + sum (map typeSize $ snd $ splitTyConApp typ) :: Integer
 
 -- | Read the type identity without inspecting a recursive description.
