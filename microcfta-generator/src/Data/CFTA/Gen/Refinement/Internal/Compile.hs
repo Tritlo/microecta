@@ -309,8 +309,6 @@ compileGenOnce compiler requested generator
     uniformWeights groups
         | any recursiveGroup groups = map (const 1) groups
         | otherwise = map (either (const 1) (countWeight . sum) . sizes) groups
-    recursiveGroup (CyclicGrouped _) = True
-    recursiveGroup _ = False
 
 -- | The name of the value in a refinement.
 valueName :: String
@@ -332,6 +330,11 @@ integerDomain constraint = foldr (.&&) true $ conditions $ constraintAsGuard con
             "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.integerDomain: \
             \an integer leaf carries the guard "
                 <> show guard
+
+-- | Whether a grouped generator is a recursive family.
+recursiveGroup :: LTAGrouped key a -> Bool
+recursiveGroup (CyclicGrouped _) = True
+recursiveGroup _ = False
 
 -- | Whether a grouped generator has no member.
 emptyGroups :: LTAGrouped key a -> Bool
@@ -574,9 +577,33 @@ compileOpen compiler requested generator =
                                         | (index :: ChoiceIndex, (weight, grouped)) <- zip [0 ..] weighted
                                         , not $ emptyGroups grouped
                                         ]
+                        Uniform alternatives -> do
+                            compiled <- traverse (compileOpen compiler requested) alternatives
+                            pure $ do
+                                groups <- sequence compiled
+                                -- As 'uniformly', each alternative weighs its members, which are
+                                -- the points of its open groups, and a recursive one makes the
+                                -- choice equal. A leaf without bounds has no number of points.
+                                weights <- case filter (not . emptyGroups) groups of
+                                    _ : _ : _ | not $ any recursiveGroup groups -> traverse members groups
+                                    _ -> Right $ map (const 1) groups
+                                pure
+                                    $ repositionOpen
+                                    $ frequencies
+                                        [ (weight, regroupOn (index,) grouped)
+                                        | (index :: ChoiceIndex, (weight, grouped)) <- zip [0 ..] $ zip weights groups
+                                        , not $ emptyGroups grouped
+                                        ]
                         Closed symbol constraint child -> compileOpenNode compiler requested (FixedLabel symbol) constraint child
                         ClosedBy symbolOf constraint child -> compileOpenNode compiler requested (ComputedLabel symbolOf) constraint child
                         _ -> pure $ Left SourceRequiresCompilation
+  where
+    members grouped = case sizes grouped of
+        Right counts -> countWeight . sum <$> traverse (uncurry pointsOf) (Map.toList counts)
+        Left _ -> Right 1
+    pointsOf key count = case openPoints key of
+        Just found -> Right $ count * found
+        Nothing -> Left $ fromLeft UnboundedGenerator $ countPoints integerLabel (openCount key) (openFormula key)
 
 {- | One integer leaf as an open group: one variable, which the conditions of
 the leaf bound. A leaf without values is empty.

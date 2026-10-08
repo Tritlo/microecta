@@ -331,6 +331,13 @@ spec = do
             outer <- compileOrFail latticeEntailment $ LTAGen.node "q" closed
             map (LTAGen.sizeOfRank outer) [0, 1] `shouldBe` map (LTAGen.sizeOfRank inner) [0, 1]
 
+        it "compile uniformly over integer leaves, weighted by their points" $ do
+            let leaves :: Integer -> Integer -> LTAGen.LTAGen Integer
+                leaves low high = LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+            compiled <- compileOrFail latticeEntailment $ LTAGen.uniformly [leaves 0 1, leaves 10 12]
+            sort (values compiled) `shouldBe` [0, 1, 10, 11, 12]
+            map snd (massesByRank compiled) `shouldBe` replicate 5 (1 % 5)
+
         it "agree with validOutcomes and weigh their members as pools do" $
             withZ3 declarations $ \solver ->
                 forM_ integerCases $ \(name, integerCase) -> do
