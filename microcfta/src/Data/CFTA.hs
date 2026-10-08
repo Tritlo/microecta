@@ -50,6 +50,7 @@ module Data.CFTA (
 import Control.Monad (foldM_)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.Bifunctor as Bifunctor
+import Data.Functor.Identity (Identity (..))
 import Data.Graph (SCC (CyclicSCC), stronglyConnComp)
 import Data.Hashable (Hashable)
 import Data.List ((!?))
@@ -65,8 +66,7 @@ import Data.CFTA.Internal.Tree (
     StateView (..),
     ViewPath,
     ViewStep (..),
-    andM,
-    orM,
+    acceptsBy,
     termsBy,
     termsUpToBy,
     toTreeBy,
@@ -376,23 +376,12 @@ intersectWith matchSymbol combineConstraint left right =
 {- | Decide whether an automaton accepts a concrete term. The path equalities
 of each constraint are checked, as 'Data.CFTA.Equality.accepts' checks them. A
 residual guard beyond the equalities is not decided; use 'acceptsM' for it.
+This is 'acceptsM' with 'equalitiesHold' as the check.
 -}
 accepts :: (Ord state, Eq symbol) => PlainFTA state symbol -> Tree.Tree symbol -> Bool
-accepts automaton = acceptsFrom (initialState automaton)
+accepts automaton = runIdentity . acceptsM check automaton
   where
-    acceptsFrom state (Tree.Node symbol children) =
-        any (acceptsTransition symbol children) (transitionsFrom automaton state)
-
-    acceptsTransition symbol children transition =
-        transitionSymbol transition == symbol
-            && length (transitionChildren transition) == length children
-            && and
-                ( zipWith
-                    acceptsFrom
-                    (transitionChildren transition)
-                    children
-                )
-            && equalitiesHold (transitionConstraint transition) (Tree.Node symbol children)
+    check _ transition term = Identity $ equalitiesHold (transitionConstraint transition) term
 
 {- | Every accepted term, ordered by depth and produced lazily.
 
@@ -439,7 +428,10 @@ The check sees the state, the transition, and the complete term at that
 position, so a constraint theory can decide a constraint there. It runs only
 after the children have been accepted, and only for transitions whose
 symbol and arity match the term. The term is accepted when some transition
-matches and passes the check.
+matches and passes the check. The transitions of a state are tried in order,
+and the children from left to right. When the search comes to a subterm again
+with the same state, it uses the first result. So the check runs at most once
+for each state, transition, and position in the term.
 -}
 acceptsM ::
     (Monad m, Ord state, Eq symbol) =>
@@ -447,16 +439,8 @@ acceptsM ::
     FTA state symbol constraint ->
     Tree.Tree symbol ->
     m Bool
-acceptsM check automaton = acceptsFrom (initialState automaton)
-  where
-    acceptsFrom state term@(Tree.Node symbol children) =
-        orM
-            [ andM (zipWith acceptsFrom (transitionChildren transition) children) >>= \accepted ->
-                if accepted then check state transition term else pure False
-            | transition <- transitionsFrom automaton state
-            , transitionSymbol transition == symbol
-            , length (transitionChildren transition) == length children
-            ]
+acceptsM check automaton =
+    acceptsBy (transitionsFrom automaton) transitionSymbol transitionChildren check (initialState automaton)
 
 {- | The states at a child-index path below a transition of an explicit-state automaton.
 
