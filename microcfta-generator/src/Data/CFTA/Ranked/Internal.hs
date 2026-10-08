@@ -200,19 +200,31 @@ fromWeightedIndexedOnDemand
 
 {- | Reuse a compiled subplan without expanding it at each parent occurrence.
 
-The original plan remains available for structural sizes and shrinking. A
-language with one member is a sized leaf instead: one size class with one
+The shared node keeps the compiled decoder and the size classes of the plan.
+The decoder, the size classes of a parent, and the smallest member read them,
+so a plan that several parents reach is compiled and counted once. The walks
+that follow one member, for its size and for its shrink candidates, go into
+the original plan. A part with two or more members cannot occur that often in
+one member: each occurrence multiplies the cardinality by at least two.
+
+A language with one member is a sized leaf instead: one size class with one
 member. Its plan can be a shared tree with far more nodes than the plan has,
-for example a balanced tree whose two children are one node. A walk of the
-plan for sizes or for shrinking follows every path, so it would visit every
-node of that tree. The leaf gives the size and the member directly. A part
-with two or more members cannot occur that often in one member: each
-occurrence multiplies the cardinality by at least two.
+for example a balanced tree whose two children are one node. A walk of its
+one member visits every node of that tree. The leaf gives the size and the
+member directly.
 -}
 share :: Ranked a -> Ranked a
 share ranked
     | cardinality ranked == 1 = ranked{rankedPlan = PlanSized [(size, 1, const member, const member)]}
-    | otherwise = ranked{rankedPlan = PlanShared (cardinality ranked) (rankedDecoder ranked) (rankedPlan ranked)}
+    | otherwise =
+        ranked
+            { rankedPlan =
+                PlanShared
+                    (cardinality ranked)
+                    (rankedDecoder ranked)
+                    (rankedSizeIndex ranked)
+                    (rankedPlan ranked)
+            }
   where
     member = decode (rankedDecoder ranked) 0
     size = case minimumMemberSize (rankedSizeIndex ranked) of
