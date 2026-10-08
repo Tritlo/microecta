@@ -1,5 +1,8 @@
 module Data.CFTA.Gen.Refinement.CompileSpec (spec) where
 
+-- A test reads the product @elements [2] <* pure ()@, which has one term.
+{- HLINT ignore "Redundant <*" -}
+
 import Control.Exception (evaluate)
 import Control.Monad (forM_, void)
 import Data.List (sort)
@@ -243,6 +246,17 @@ spec =
             compiled <- compileOrFail latticeEntailment $ LTAGen.uniformly [positive, (: []) <$> LTAGen.elements [5]]
             sort (values compiled) `shouldBe` [[1], [2], [5]]
             map snd (massesByRank compiled) `shouldBe` replicate 3 (1 % 3)
+
+        it "read the root of a product with one term inside a choice" $ do
+            -- The product gives its constructor the one term of its first part.
+            let g =
+                    LTAGen.guarded
+                        "g"
+                        (\x -> x .> 0)
+                        (LTAGen.oneof [LTAGen.elements [1 :: Integer], LTAGen.elements [2] <* pure ()])
+            compiled <- compileOrFail latticeEntailment g
+            checked <- LTAGen.validOutcomes latticeEntailment g
+            (sort (values compiled), fmap sort checked) `shouldBe` ([1, 2], Right [1, 2])
 
         it "rank the parts of a compiled import independently of interning order" $ do
             -- Intern the later alternative first, as the import-order tests of

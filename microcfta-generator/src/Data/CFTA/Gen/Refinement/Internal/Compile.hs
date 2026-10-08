@@ -115,6 +115,14 @@ alignedSpine generator = case genRecipe generator of
     Applied functions arguments -> alignedSpine functions && alignedSpine arguments
     _ -> rootCount generator == Just 1
 
+-- | The 'rootCount' of each position of an applicative spine, as 'spineArity' counts the positions.
+spineRootCounts :: Gen symbol a -> [Maybe Int]
+spineRootCounts generator = case genRecipe generator of
+    Lifted _ -> []
+    Mapped _ inner -> spineRootCounts inner
+    Applied functions arguments -> spineRootCounts functions <> spineRootCounts arguments
+    _ -> [rootCount generator]
+
 {- | The number of children that each member of a generator gives its
 constructor, when all members give the same number. The children are the
 roots that 'surface' gives for the term of the member, and 'validOutcomes'
@@ -186,9 +194,18 @@ compileGen entailment requested generator
         Built -> pure $ groupBuilt requested generator
         Lifted value -> pure $ Right $ keyed noObservations $ pure value
         Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen entailment requested inner
-        Applied _ _ ->
-            fmap (regroupOn (const noObservations))
-                <$> compileSpine entailment (replicate (fromEnum $ spineArity generator) []) generator
+        Applied _ _
+            -- A product whose one term comes from one part, such as @elements [2] <* pure ()@,
+            -- answers the requested paths of that part. Another product observes nothing.
+            | not (null requested)
+            , counts <- spineRootCounts generator
+            , all (`elem` [Just 0, Just 1]) counts
+            , [position] <- [index | (index, Just 1) <- zip [0 ..] counts] ->
+                fmap (regroupOn (!! position))
+                    <$> compileSpine entailment [if index == position then requested else [] | index <- [0 .. length counts - 1]] generator
+            | otherwise ->
+                fmap (regroupOn (const noObservations))
+                    <$> compileSpine entailment (replicate (fromEnum $ spineArity generator) []) generator
         Chosen alternatives -> do
             compiled <- traverse (compileGen entailment requested . snd) alternatives
             pure $ choose (map fst alternatives) <$> sequence compiled
