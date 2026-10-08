@@ -19,6 +19,7 @@ module Data.CFTA.Ranked.Internal.Decoder (
     SizeIndex (..),
     planCardinality,
     compilePlan,
+    sharedChoiceBound,
 ) where
 
 import qualified Data.Map.Lazy as Map
@@ -186,6 +187,20 @@ rebuildChoice branches = PlanChoice branches
 -- | Leaves at most this large are tabulated into arrays at compile time.
 tabulationBound :: Cardinality
 tabulationBound = 4096
+
+{- | A choice alternative with more members than this is a shared node in the
+plan of its choice.
+
+'normalizePlan' splices a small alternative into the flat choice of its
+parent and pushes maps into it. That gives the fastest decoder, but it copies
+the alternative at each path to it. A generator that reuses a language in
+several alternatives, such as @rest@ in @oneof [f <$> rest, g <$> rest]@, has
+a number of paths that grows exponentially with the depth. A shared
+alternative is compiled and counted once. A small alternative has at most
+this many members, so each of its copies stays small.
+-}
+sharedChoiceBound :: Cardinality
+sharedChoiceBound = 4096
 
 {- | Compile a plan, choosing the machine-'Int' path when the language fits.
 
