@@ -99,13 +99,25 @@ The antecedent implies the consequent when no integer point satisfies the
 antecedent and falsifies the consequent. Every free name is an integer
 variable, and so is the fresh name of each binding. A formula that 'points'
 cannot count, such as one with a variable that no bound limits, gives
-'Unknown'. The count can take time exponential in the number of disjunctions
-and disequalities of the two formulas.
+'Unknown'. The count does not depend on the order of the variables, but
+whether 'points' can count does: a variable with a coefficient other than one
+or minus one can need others summed out first. So a 'NonUnitCoefficient'
+moves that variable to the front, which sums it out last, and the count runs
+again, at most once for each variable. The count can take time exponential in
+the number of disjunctions and disequalities of the two formulas.
 -}
 latticeEntailment :: Entailment
 latticeEntailment = entailmentWithBindings $ \_ antecedent consequent ->
     let counterexamples = Fixpoint.PAnd [antecedent, Fixpoint.PNot consequent]
-     in pure $ case points (nub $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples) counterexamples of
+        names = nub $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples
+        attempt tries order = case points order counterexamples of
+            Left (NonUnitCoefficient name)
+                | tries > 0
+                , moved <- Fixpoint.symbolString name
+                , take 1 order /= [moved] ->
+                    attempt (tries - 1 :: Int) (moved : filter (/= moved) order)
+            result -> result
+     in pure $ case attempt (length names) names of
             Right found
                 | pointCount found == 0 -> Yes
                 | otherwise -> No
