@@ -200,7 +200,9 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
     -- Whether a path meets a recursive node with constraints, at the end of
     -- the path or before it. A free recursive reference counts as such a
     -- node: pruning a recursive body leaves references to the node that is
-    -- being pruned, and its edges are not known there.
+    -- being pruned, and its edges are not known there. So does a node with
+    -- free references at the end of the path, and an unconstrained recursive
+    -- node with free references is followed through its unfolding.
     meetsConstrainedMu :: [Node symbol] -> Path -> Bool
     meetsConstrainedMu ns (ConsPath (ChildIndex index) rest) = maybe False (nodeMeetsConstrainedMu rest) (ns !? index)
     meetsConstrainedMu _ EmptyPath = False
@@ -208,7 +210,11 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
     nodeMeetsConstrainedMu :: Path -> Node symbol -> Bool
     nodeMeetsConstrainedMu _ (Rec _) = True
     nodeMeetsConstrainedMu _ n | numNestedMu n == 0 && null (freeVars n) = False
-    nodeMeetsConstrainedMu _ n@(InternedMu _) = not (unconstrained n)
+    nodeMeetsConstrainedMu p n@(InternedMu _)
+        | not (unconstrained n) = True
+        | null (freeVars n) = False
+        | otherwise = nodeMeetsConstrainedMu p (unfoldOuterRec n)
+    nodeMeetsConstrainedMu EmptyPath n = not (null (freeVars n))
     nodeMeetsConstrainedMu p (Node es) = any (\e -> meetsConstrainedMu (edgeChildren e) p) es
     nodeMeetsConstrainedMu _ _ = False
 
@@ -281,8 +287,8 @@ keeps an edge only if its symbol and arity can match, restricts its children
 with the child templates, and keeps the edge constraints. The reduction only
 narrows the children and removes no accepted term. So the result accepts
 exactly the terms of the node that match the template. 'restrict' does not end
-on a 'Mu' whose body is its own variable, such as @createMu (\r -> r)@, which
-has no terms.
+on a 'Mu' whose body is its own variable, which only 'createMuDontCleanup' can
+build: @createMu (\r -> r)@ is 'EmptyNode'.
 -}
 termsMatching ::
     (Hashable symbol, Typeable symbol) =>
