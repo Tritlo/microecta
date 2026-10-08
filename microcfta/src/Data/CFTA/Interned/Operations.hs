@@ -490,7 +490,10 @@ intersectOpenEdge input =
 
 'EmptyNode' and 'Rec' contribute no alternatives, and the @Node@ constructor
 maps an empty alternative list back to 'EmptyNode', so the empty cases need no
-special handling.
+special handling. Inside a binder, the union with the binder's own reference is
+the least fixed point, which is correct. The union with a reference to an
+enclosing binder also loses that binder's terms, because a node holds only
+edges and a reference has none.
 -}
 {-# INLINEABLE union #-}
 union :: (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
