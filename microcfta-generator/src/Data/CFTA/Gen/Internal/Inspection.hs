@@ -12,7 +12,7 @@ module Data.CFTA.Gen.Internal.Inspection (
 
 import Data.CFTA.Constraint (equalities)
 import Data.Hashable (Hashable)
-import Data.List (intercalate)
+import Data.List (intercalate, (!?))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -102,8 +102,7 @@ joinInspection component operation arguments =
     Inspection Nothing $
         joinNodeWith namedSymbol component (inspectionGraph operation) (map inspectionGraph arguments)
   where
-    names = Map.fromList $ zip [0 ..] $ map inspectionName arguments
-    namedSymbol symbol@(ArgKey _ position) = InspectionSymbol symbol $ Map.findWithDefault Nothing position names
+    namedSymbol symbol@(ArgKey _ position) = InspectionSymbol symbol $ inspectionName =<< arguments !? position
     namedSymbol symbol = plainSymbol symbol
 
 {- | Draw an inspection graph as an indented tree.
