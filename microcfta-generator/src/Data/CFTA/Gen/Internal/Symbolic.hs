@@ -39,8 +39,8 @@ data Obligation symbol = Exists (Target symbol) | Equal (Target symbol) (Target 
 
 -- | Independent variable domains, substitutions, and pending equalities.
 data Problem symbol = Problem
-    { domains :: Map.Map Int (Node symbol)
-    , bindings :: Map.Map Int (Fragment symbol)
+    { domains :: IntMap.IntMap (Node symbol)
+    , bindings :: IntMap.IntMap (Fragment symbol)
     , nextVariable :: VarIndex
     , obligations :: [Obligation symbol]
     }
@@ -194,8 +194,8 @@ countEdge interpret edge =
     count constraint =
         solve interpret $
             Problem
-                (Map.fromList $ zip [0 ..] children)
-                Map.empty
+                (IntMap.fromList $ zip [0 ..] children)
+                IntMap.empty
                 (VarIndex (length children))
                 (edgeObligations context constraint)
     children = edgeChildren edge
@@ -212,7 +212,7 @@ edgeObligations context = concatMap obligationsFor
 -- | Follow substitutions without expanding a variable's language.
 resolve :: Problem symbol -> Target symbol -> Resolution symbol
 resolve problem (Target (Variable variable) position) =
-    case Map.lookup (fromEnum variable) $ bindings problem of
+    case IntMap.lookup (fromEnum variable) $ bindings problem of
         Just fragment -> resolve problem $ Target fragment position
         Nothing -> case position of
             [] -> Resolved $ Variable variable
@@ -233,16 +233,16 @@ normalize :: (Ord symbol) => Problem symbol -> Maybe (Problem symbol)
 normalize problem = do
     pending <- concat <$> traverse normalizeObligation (obligations problem)
     pure
-        $ Problem renamedDomains Map.empty (VarIndex (Map.size renamedDomains))
+        $ Problem renamedDomains IntMap.empty (VarIndex (IntMap.size renamedDomains))
         $ Set.toAscList
         $ Set.fromList pending
   where
-    names = Map.fromList $ zip (Map.keys $ domains problem) [0 ..]
-    renamedDomains = Map.mapKeysMonotonic (fromEnum . (names Map.!)) $ domains problem
-    inline (Variable variable) = maybe (Variable variable) inline $ Map.lookup (fromEnum variable) $ bindings problem
+    names = IntMap.fromList $ zip (IntMap.keys $ domains problem) [0 ..]
+    renamedDomains = IntMap.mapKeysMonotonic (fromEnum . (names IntMap.!)) $ domains problem
+    inline (Variable variable) = maybe (Variable variable) inline $ IntMap.lookup (fromEnum variable) $ bindings problem
     inline (Constructor symbol children) = Constructor symbol $ map inline children
 
-    follow (Variable variable) position = case Map.lookup (fromEnum variable) $ bindings problem of
+    follow (Variable variable) position = case IntMap.lookup (fromEnum variable) $ bindings problem of
         Nothing -> Just $ Target (Variable variable) position
         Just fragment -> follow fragment position
     follow fragment [] = Just $ Target (inline fragment) []
@@ -252,7 +252,7 @@ normalize problem = do
         Target resolved rest <- follow fragment position
         pure $ Target (rename resolved) rest
       where
-        rename (Variable variable) = Variable $ names Map.! fromEnum variable
+        rename (Variable variable) = Variable $ names IntMap.! fromEnum variable
         rename (Constructor symbol children) = Constructor symbol $ map rename children
     required (Target _ []) = []
     required remaining = [Exists remaining]
@@ -267,13 +267,13 @@ solve ::
     (Theory symbol) =>
     Interpretation -> Problem symbol -> State.State (Counts symbol) Cardinality
 solve interpret problem
-    | any (null . nodeEdges) $ Map.elems $ domains problem = pure 0
+    | any (null . nodeEdges) $ IntMap.elems $ domains problem = pure 0
     | otherwise = case normalize problem of
         Nothing -> pure 0
         Just normalized -> do
             cache <- State.get
             let key =
-                    ( [(VarIndex variable, nodeIdentity node) | (variable, node) <- Map.toList $ domains normalized]
+                    ( [(VarIndex variable, nodeIdentity node) | (variable, node) <- IntMap.toList $ domains normalized]
                     , obligations normalized
                     )
             case Map.lookup key $ contextCounts cache of
@@ -288,7 +288,7 @@ solveStep ::
     (Theory symbol) =>
     Interpretation -> Problem symbol -> State.State (Counts symbol) Cardinality
 solveStep interpret problem = case obligations problem of
-    [] -> product <$> traverse (countNode interpret) (Map.elems $ domains problem)
+    [] -> product <$> traverse (countNode interpret) (IntMap.elems $ domains problem)
     Exists target : rest -> case resolve problem target of
         Absent -> pure 0
         Expand variable -> expandVariable interpret problem variable
@@ -314,13 +314,13 @@ unify interpret problem (Variable left) (Variable right)
         solve
             interpret
             problem
-                { domains = Map.insert (fromEnum right) common $ Map.delete (fromEnum left) $ domains problem
-                , bindings = Map.insert (fromEnum left) (Variable right) $ bindings problem
+                { domains = IntMap.insert (fromEnum right) common $ IntMap.delete (fromEnum left) $ domains problem
+                , bindings = IntMap.insert (fromEnum left) (Variable right) $ bindings problem
                 }
   where
     common =
-        (domains problem Map.! fromEnum left)
-            `intersect` (domains problem Map.! fromEnum right)
+        (domains problem IntMap.! fromEnum left)
+            `intersect` (domains problem IntMap.! fromEnum right)
 unify interpret problem (Variable variable) fragment
     | occurs problem variable fragment = pure 0
     | otherwise =
@@ -348,7 +348,7 @@ expandVariable ::
     (Theory symbol) =>
     Interpretation -> Problem symbol -> VarIndex -> State.State (Counts symbol) Cardinality
 expandVariable interpret problem variable =
-    countUnion expand $ nodeEdges $ domains problem Map.! fromEnum variable
+    countUnion expand $ nodeEdges $ domains problem IntMap.! fromEnum variable
   where
     expand edge =
         sum
@@ -359,15 +359,15 @@ expandVariable interpret problem variable =
         solve
             interpret
             problem
-                { domains = Map.union fresh $ Map.delete (fromEnum variable) $ domains problem
-                , bindings = Map.insert (fromEnum variable) context $ bindings problem
+                { domains = IntMap.union fresh $ IntMap.delete (fromEnum variable) $ domains problem
+                , bindings = IntMap.insert (fromEnum variable) context $ bindings problem
                 , nextVariable = nextVariable problem + VarIndex (length children)
                 , obligations = edgeObligations context constraint <> obligations problem
                 }
       where
         children = edgeChildren edge
         variables = take (length children) [nextVariable problem ..]
-        fresh = Map.fromList $ zip (map fromEnum variables) children
+        fresh = IntMap.fromList $ zip (map fromEnum variables) children
         context = Constructor (edgeSymbol edge) $ map Variable variables
 
 -- | Keep one constructor at a selected position in the graph.
