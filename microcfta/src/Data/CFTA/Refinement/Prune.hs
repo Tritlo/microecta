@@ -20,6 +20,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, gets, modify')
 import Data.Bifunctor (first)
 import qualified Data.IntMap.Strict as IntMap
+import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
@@ -199,7 +200,7 @@ readsThroughRecursion plan children =
     or
         [ reaches child childPlan
         | (index, childPlan) <- Map.toList $ planChildren plan
-        , child <- take 1 $ drop index children
+        , Just child <- [children !? index]
         ]
   where
     reaches (Rec _) _ = True
