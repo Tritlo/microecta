@@ -351,10 +351,10 @@ planGuard guard = foldl' (flip $ uncurry insertPlan) emptyPlan observations
   where
     observations =
         [ (target, if Set.member target sensitive then SymbolNeed else RefinementNeed)
-        | target <- Set.toList $ Set.fromList $ guardPaths guard
+        | target <- Set.toList $ guardPaths guard
         ]
       where
-        sensitive = Set.fromList $ symbolSensitivePaths guard
+        sensitive = symbolSensitivePaths guard
 
 -- | An observation plan containing no positions.
 emptyPlan :: PathPlan
