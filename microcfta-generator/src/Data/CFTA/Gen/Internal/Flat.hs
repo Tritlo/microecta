@@ -33,7 +33,7 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Node)
 import Data.CFTA.Gen.Error
 import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, finiteAutomaton)
 import Data.CFTA.Gen.Internal.Grouped (groupOn, relateGroupsM, ungroup)
@@ -50,7 +50,7 @@ import Data.CFTA.Index (Depth, Weight, countWeight)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
-import Data.CFTA.Ranked.Internal.Size (choiceIndex, mapIndex)
+import Data.CFTA.Ranked.Internal.Size (mapIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
 -- | Interpret a reified condition as one key projection per side.
@@ -174,21 +174,10 @@ chooseLanguage weighted
             if allWeightsEqual alternatives
                 then
                     pure $
-                        Recursive
-                            ( Node
-                                [ Edge (Choice index) [recursiveSupport view]
-                                | (index, view) <- zip [0 ..] views
-                                ]
-                            )
-                            (choiceIndex $ map recursiveIndex views)
-                            ( choiceSampleIndex
-                                [ (recursiveIndex view, recursiveSampling view)
-                                | view <- views
-                                ]
-                            )
+                        choiceRecursive
+                            (choiceSampleIndex [(recursiveIndex view, recursiveSampling view) | view <- views])
                             (any recursiveWeighted views)
-                            (choiceTerms (map recursiveIndex views) <$> traverse recursiveTerm views)
-                            (choiceInspection $ map recursiveInspection views)
+                            views
                 else Left WeightedRecursiveAlternatives
     | otherwise =
         Opaque $ case frequencyGen [(weight, QuickCheckBackend $ lower generator) | (weight, generator) <- alternatives] of
