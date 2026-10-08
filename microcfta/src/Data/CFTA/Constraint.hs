@@ -140,13 +140,17 @@ equalities Constraint{constraintEqualities, constraintGuard} =
 {- | Whether a complete term satisfies the path equalities of a constraint.
 
 Every path of a class must exist in the term, as in enumeration, and the
-subterms at the paths must be equal. Contradictory equalities hold for no
-term. The residual beyond the equalities is not decided here.
+subterms at the paths must be equal. A constraint that 'contradictory'
+recognizes, such as contradictory equalities or the guard 'Bottom', holds for
+no term, as interning drops its edge. The rest of the residual beyond the
+equalities is not decided here.
 -}
 equalitiesHold :: (Eq symbol) => Constraint -> Tree.Tree symbol -> Bool
-equalitiesHold constraint term = case equalities constraint of
-    EqContradiction -> False
-    EqConstraints classes -> all (maybe False allSame . traverse (`getPath` term) . Set.toList . unPathEClass) classes
+equalitiesHold constraint term
+    | contradictory constraint = False
+    | otherwise = case equalities constraint of
+        EqContradiction -> False
+        EqConstraints classes -> all (maybe False allSame . traverse (`getPath` term) . Set.toList . unPathEClass) classes
   where
     allSame (first : rest) = all (== first) rest
     allSame [] = True
