@@ -135,6 +135,7 @@ benchmark enumeration-speed
   type: exitcode-stdio-1.0
   main-is: EnumerationSpeed.hs
   hs-source-dirs: benchmarks
+  ghc-options: -rtsopts
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
