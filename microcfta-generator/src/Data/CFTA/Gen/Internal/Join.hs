@@ -15,6 +15,7 @@ module Data.CFTA.Gen.Internal.Join (
 import Data.CFTA.Constraint (equalityConstraint)
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Sequence (Seq)
@@ -37,7 +38,6 @@ import Data.CFTA.Index (
     Cardinality,
     Rank (..),
     RankOffset (..),
-    hasRank,
     nextOffset,
     offsetRank,
     pairRank,
@@ -247,8 +247,9 @@ joinOutcomeIndex left right groups = do
         withMass mass outcome = outcome{outcomeMass = mass}
     totalWeight = sum $ map joinGroupMass weightGroups
     weight index =
-        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroups index
+        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroupsByOffset index
          in toRational totalOutcomes * outcomeMass leftOutcome * outcomeMass rightOutcome / totalWeight
+    weightGroupsByOffset = joinGroupsByOffset weightGroups
 
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
@@ -292,17 +293,20 @@ joinOutcomeIndex left right groups = do
                 ]
                 | key == key' ->
                     [ (offsetRank offset $ pairRank (toEnum $ Sequence.length $ joinGroupRight group) leftIndex rightIndex, True)
-                    | (offset, group) <- offsetJoinGroups groups
-                    , joinGroupIndex group == GroupIndex key
+                    | Just (offset, group) <- [IntMap.lookup key groupsByIndex]
                     , leftIndex <- positionsIn (joinGroupLeft group) leftTerm
                     , rightIndex <- positionsIn (joinGroupRight group) rightTerm
                     ]
         _ -> []
       where
         positionsIn outcomes wanted = [index | (index, outcome) <- zip [0 ..] $ toList outcomes, outcomeTerm outcome == wanted]
-    selectPair = selectPairIn groups
-    selectPairIn groups' index =
-        let (group, groupIndex) = selectJoinGroup index groups'
+    groupsByIndex =
+        IntMap.fromList
+            [(index, entry) | entry@(_, group) <- offsetJoinGroups groups, let GroupIndex index = joinGroupIndex group]
+    groupsByOffset = joinGroupsByOffset groups
+    selectPair = selectPairIn groupsByOffset
+    selectPairIn byOffset index =
+        let (group, groupIndex) = selectJoinGroup index byOffset
             rightCardinality = toEnum $ Sequence.length $ joinGroupRight group
             (leftIndex, rightIndex) = splitRank rightCardinality groupIndex
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromEnum leftIndex
@@ -321,20 +325,21 @@ joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
 
+-- | The matched groups with pairs, by the first rank of each.
+joinGroupsByOffset :: [JoinGroup symbol left right] -> Map.Map RankOffset (JoinGroup symbol left right)
+joinGroupsByOffset groups = Map.fromList [entry | entry@(_, group) <- offsetJoinGroups groups, joinGroupCardinality group > 0]
+
 -- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Rank ->
-    [JoinGroup symbol left right] ->
+    Map.Map RankOffset (JoinGroup symbol left right) ->
     (JoinGroup symbol left right, Rank)
-selectJoinGroup _ [] =
-    error
-        "microcfta-generator bug in Data.CFTA.Gen.Internal.Join.selectJoinGroup: \
-        \rank outside the matched groups"
-selectJoinGroup index (group : remaining)
-    | hasRank groupSize index = (group, index)
-    | otherwise = selectJoinGroup (rebaseRank (nextOffset 0 groupSize) index) remaining
-  where
-    groupSize = joinGroupCardinality group
+selectJoinGroup index@(Rank rank) groups = case Map.lookupLE (RankOffset rank) groups of
+    Just (offset, group) -> (group, rebaseRank offset index)
+    Nothing ->
+        error
+            "microcfta-generator bug in Data.CFTA.Gen.Internal.Join.selectJoinGroup: \
+            \rank outside the matched groups"
 
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
