@@ -345,8 +345,12 @@ closeGuarded symbol guardBuilder child recipe immediate
 
 An automaton whose guards the engine can count is read at once, as
 'Data.CFTA.Gen.fromAutomaton' reads it. One with guards that need the solver
-is deferred to 'compile', which prunes it first. Ranks order constructors by
-arity, then by symbol text and refinement.
+is deferred to 'compile', which prunes it first. An automaton read at once
+ranks constructors by arity, then by symbol text and refinement. A compiled
+one is split by the labels that its parents read, at least the label of the
+root, and ranks the parts by those labels: by symbol text and refinement, with
+a constructor before a leaf of the same symbol. Arity orders the constructors
+within one part.
 -}
 fromAutomaton :: Automaton -> LTAGen (Tree.Tree Symbol)
 fromAutomaton = deferConstrained . Flat.fromAutomaton liquidOrder
@@ -370,8 +374,10 @@ The grammar is bounded, interned, and validated as an LTA, and read as
 'fromAutomatonUpToDepth' reads it. The datatype codec supplies the generated
 values; the constructor terms keep their ranks. Ranks order the constructors
 of a type by arity, then in declaration order, and atomic literals in domain
-order, as 'Data.CFTA.Gen.fromDatatype' does. A codec that rejects a term of
-its own grammar gives 'UndecodableConstructor'.
+order, as 'Data.CFTA.Gen.fromDatatype' does. When the guards need 'compile',
+the compiled generator ranks the root constructors by the text and refinement
+of their labels instead, as 'fromAutomaton' says. A codec that rejects a term
+of its own grammar gives 'UndecodableConstructor'.
 -}
 fromDatatypeUpToDepth :: Depth -> TypedFTA (Refinement, Constraint) a -> LTAGen a
 fromDatatypeUpToDepth depth datatype =
