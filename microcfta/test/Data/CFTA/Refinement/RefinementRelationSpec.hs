@@ -132,6 +132,15 @@ spec = do
                 counted `shouldBe` map (uncurry searched) pairs
                 decide solver >>= (`shouldBe` counted)
 
+        it "decides an implication whatever the names of its variables" $ do
+            -- One order of a and b sums out the variable with coefficient two
+            -- first and cannot count; the other order can.
+            let a = variable "a"
+                b = variable "b"
+            forward <- entails latticeEntailment (0 .<= a .&& a .<= 5 .&& 0 .<= b .&& 2 * a + b .<= 10) (b .<= 5)
+            swapped <- entails latticeEntailment (0 .<= b .&& b .<= 5 .&& 0 .<= a .&& 2 * b + a .<= 10) (a .<= 5)
+            (forward, swapped) `shouldBe` (No, No)
+
         it "answers Unknown where a variable has no bound or a term is not linear" $ do
             let y = variable "y"
             verdicts <-
