@@ -11,6 +11,7 @@ import Data.Proxy (Proxy (Proxy))
 import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
 import Data.CFTA (Transition (Transition), statesAt)
@@ -186,9 +187,37 @@ spec = do
                     Right graph -> do
                         let imported = Common.fromFTA graph :: Common.Node String
                         Common.numNestedMu imported `shouldBe` MuDepth size
+                        -- One binder, with one body, for each sequence of distinct
+                        -- states from the root: the sum of (size - 1)! / (size - d)!.
+                        Common.nodeCount imported `shouldBe` [1, 2, 5, 16] !! (size - 1)
                         forM_ [0 .. 2] $ \depth ->
                             Enumeration.terms (Common.boundDepth depth imported)
                                 `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
+
+        it "imports a long cycle with one binder" $ do
+            -- Each state has its own leaf and an edge to the next state. Only the
+            -- first state needs a binder: every other state is on a cycle only
+            -- through the first state.
+            let size = 32 :: Int
+                rows =
+                    [ ( state
+                      ,
+                          [ Transition ("leaf" <> show state) [] noConstraint
+                          , Transition "next" [(state + 1) `mod` size] noConstraint
+                          ]
+                      )
+                    | state <- [0 .. size - 1]
+                    ]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    finished <- timeout 10000000 $ Common.nodeCount imported `shouldBe` size
+                    finished `shouldBe` Just ()
+                    Common.numNestedMu imported `shouldBe` 1
+                    forM_ [0 .. 3] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
 
         it "preserves recursive intersections and the explicit graph view" $ do
             let naturals = Common.createMu $ \rec ->
