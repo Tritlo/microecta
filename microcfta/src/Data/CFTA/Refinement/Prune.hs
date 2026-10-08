@@ -19,6 +19,7 @@ import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, gets, modify')
 import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrdOn)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List ((!?))
 import qualified Data.Map.Strict as Map
@@ -329,12 +330,12 @@ specializeChildren plans = go 0
 
 -- | Regroup transition candidates by signature without disturbing first-seen order.
 groupVariants :: [(Signature, Symbols, Transition)] -> [(Signature, Symbols, [Transition])]
-groupVariants = foldl' insertVariant []
+groupVariants candidates =
+    [ (signature, symbols, grouped Map.! signature)
+    | (signature, symbols) <- nubOrdOn fst [(signature, symbols) | (signature, symbols, _) <- candidates]
+    ]
   where
-    insertVariant [] (signature, symbols, edge) = [(signature, symbols, [edge])]
-    insertVariant (group@(signature, symbols, edges) : rest) candidate@(candidateSignature, _, edge)
-        | signature == candidateSignature = (signature, symbols, edges <> [edge]) : rest
-        | otherwise = group : insertVariant rest candidate
+    grouped = Map.fromListWith (flip (<>)) [(signature, [edge]) | (signature, _, edge) <- candidates]
 
 -- | Observation used to partition a node's transitions.
 observe :: ObservationNeed -> Transition -> Observation
