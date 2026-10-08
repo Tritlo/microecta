@@ -21,7 +21,9 @@ import Test.QuickCheck (
 
 import Data.CFTA.Index (Rank (..), everyRank)
 import qualified Data.CFTA.Ranked as Tree
+import Data.CFTA.Ranked.Internal (rankedPlan, share)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
+import Data.CFTA.Ranked.Internal.Shrink (smallestPlanRank)
 
 spec :: Spec
 spec = do
@@ -43,6 +45,7 @@ spec = do
                                     , Map.fromListWith (+) [(value, mass) | (mass, value) <- runExact $ Tree.lower ranked]
                                         === Map.fromListWith (+) [(value, mass) | (mass, value, _) <- listed]
                                     , map (Tree.sizeOfRank ranked) ranks === [Just size | (_, _, size) <- listed]
+                                    , smallestPlanRank (rankedPlan $ share ranked) === smallestPlanRank (rankedPlan ranked)
                                     ]
                                         <> [ counterexample ("shrink " <> show rank) $
                                                 [ candidate

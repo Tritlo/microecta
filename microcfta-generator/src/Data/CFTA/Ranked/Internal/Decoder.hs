@@ -4,6 +4,10 @@ A 'Plan' preserves the choice, product, and map structure of a generator's
 rank space. 'compilePlan' normalizes it and compiles one flat decoder, narrowing
 each locally bounded rank to machine 'Int' arithmetic whenever it fits.
 
+The module also defines t'SizeIndex', the size classes of a language, so that
+a shared subplan can keep its size classes beside its decoder.
+"Data.CFTA.Ranked.Internal.Size" builds and reads them.
+
 This module is an exposed internal module. The generator layers of
 microcfta-generator use it directly. Its exports are not covered by the PVP
 contract of the package.
@@ -11,6 +15,8 @@ contract of the package.
 module Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
+    SizeCounts,
+    SizeIndex (..),
     planCardinality,
     compilePlan,
 ) where
@@ -41,8 +47,16 @@ data Plan a where
     accepted terms merely to fill the ordinary small-leaf lookup table.
     -}
     PlanSelectOnDemand :: !Cardinality -> (Rank -> a) -> Plan a
-    -- | A shared subplan with its cardinality and compiled decoder.
-    PlanShared :: !Cardinality -> RankDecoder a -> Plan a -> Plan a
+    {- | A shared subplan with its cardinality, its compiled decoder, and its
+    size classes.
+
+    The decoder and the walks for size classes and for the smallest member
+    read these fields and do not go into the subplan again. A subplan that a
+    plan reaches through several paths is then compiled and counted once, not
+    once for each path. The size classes must be the @sizeIndex@ of the
+    subplan. The walks that follow one rank go into the subplan.
+    -}
+    PlanShared :: !Cardinality -> RankDecoder a -> SizeIndex a -> Plan a -> Plan a
     -- | Map decoded values.
     PlanMap :: (b -> a) -> Plan b -> Plan a
     -- | Ordered alternatives; each pair is a branch cardinality and branch.
@@ -72,11 +86,43 @@ data RankDecoder a
     = SmallDecoder !Int (Int -> a)
     | LargeDecoder !Cardinality (Rank -> a)
 
+-- | Members per size: sizes in ascending order, each with its count, which can be zero.
+type SizeCounts = [(Integer, Cardinality)]
+
+{- | The size classes of one language: how many members each holds, and how
+to select one by its position in the class.
+
+"Data.CFTA.Ranked.Internal.Size" builds and reads this type. This module
+defines it, so that a 'PlanShared' node can keep the size classes of its
+subplan.
+-}
+data SizeIndex a = SizeIndex
+    { sizeClassCounts :: SizeCounts
+    -- ^ Members per size, for ascending sizes.
+    , sizeClassSelect :: Integer -> Integer -> (Rank, a)
+    -- ^ Rank and value of one member of one size class.
+    , sizeClassValueInt :: Integer -> Int -> a
+    {- ^ Value of one member using machine arithmetic. Called only when the
+    requested size class fits in 'Int'.
+    -}
+    , minimumMemberSize :: Maybe Integer
+    -- ^ Smallest live size, or 'Nothing' when no finite member is known.
+    , unguardedOccurrence :: Bool
+    {- ^ Whether a 'probeIndex' can be reached without passing through a
+    product. Counting such an index would consult its own size, so a
+    recursive definition shaped this way has no smallest member.
+    -}
+    , usedOccurrence :: Bool
+    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
+    whose body never reaches its own occurrence is not recursive.
+    -}
+    }
+
 -- | The exact number of ranks a plan decodes.
 planCardinality :: Plan a -> Cardinality
 planCardinality (PlanSelect cardinality' _) = cardinality'
 planCardinality (PlanSelectOnDemand cardinality' _) = cardinality'
-planCardinality (PlanShared cardinality' _ _) = cardinality'
+planCardinality (PlanShared cardinality' _ _ _) = cardinality'
 planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
 planCardinality (PlanAp rightCardinality planF _) =
@@ -196,8 +242,8 @@ compileRankWith _ (PlanSelect cardinality'@(Cardinality count) decode)
          in \index -> unsafeAt table (fromIntegral index)
     | otherwise = decode . Rank . toInteger
 compileRankWith _ (PlanSelectOnDemand _ decode) = decode . Rank . toInteger
-compileRankWith _ (PlanShared _ (SmallDecoder _ decode) _) = decode . fromIntegral
-compileRankWith _ (PlanShared _ (LargeDecoder _ decode) _) = decode . Rank . toInteger
+compileRankWith _ (PlanShared _ (SmallDecoder _ decode) _ _) = decode . fromIntegral
+compileRankWith _ (PlanShared _ (LargeDecoder _ decode) _ _) = decode . Rank . toInteger
 compileRankWith child (PlanMap transform plan) =
     let decode = child plan
      in \index ->

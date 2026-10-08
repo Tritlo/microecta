@@ -67,35 +67,7 @@ import Data.CFTA.Index (
     offsetRank,
     pairRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
-
--- | Members per size: sizes in ascending order, each with its count, which can be zero.
-type SizeCounts = [(Integer, Cardinality)]
-
-{- | The size classes of one language: how many members each holds, and how
-to select one by its position in the class.
--}
-data SizeIndex a = SizeIndex
-    { sizeClassCounts :: SizeCounts
-    -- ^ Members per size, for ascending sizes.
-    , sizeClassSelect :: Integer -> Integer -> (Rank, a)
-    -- ^ Rank and value of one member of one size class.
-    , sizeClassValueInt :: Integer -> Int -> a
-    {- ^ Value of one member using machine arithmetic. Called only when the
-    requested size class fits in 'Int'.
-    -}
-    , minimumMemberSize :: Maybe Integer
-    -- ^ Smallest live size, or 'Nothing' when no finite member is known.
-    , unguardedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' can be reached without passing through a
-    product. Counting such an index would consult its own size, so a
-    recursive definition shaped this way has no smallest member.
-    -}
-    , usedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
-    whose body never reaches its own occurrence is not recursive.
-    -}
-    }
+import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeCounts, SizeIndex (..))
 
 {- | A stand-in for a recursive occurrence, used to check that a recursive
 definition is guarded before it is tied.
@@ -204,7 +176,7 @@ sizeIndex (PlanSelect cardinality' decode) =
                 <> show size
 sizeIndex (PlanSelectOnDemand cardinality' decode) =
     sizeIndex $ PlanSelect cardinality' decode
-sizeIndex (PlanShared _ _ plan) = sizeIndex plan
+sizeIndex (PlanShared _ _ index _) = index
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
     SizeIndex counts select selectInt minimumSize' False False
