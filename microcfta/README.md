@@ -723,7 +723,7 @@ maps in `IORef`s, updated atomically and sharded 1024 ways.
 ### Memory
 
 Those tables never evict. Retained memory is proportional to the number of
-*distinct* nodes, edges and symbols the process has ever constructed, and to
+distinct nodes, edges and symbols the process has ever constructed, and to
 the memoized operations run over them. It is not proportional to the amount of
 work done: repeating operations on values that already exist retains nothing
 further.
@@ -747,7 +747,7 @@ tables are read far more often than written, and a pure lookup in a HAMT is
 faster than an IO-boxed probe into a cuckoo table.
 
 Aim for the first row. The other rows grow without bound, and nothing can
-release them: a long-running process that keeps building *distinct* ECTAs
+release them: a long-running process that keeps building distinct ECTAs
 grows until it runs out of memory. Hash-consing gives O(1) equality and the
 memoized graph algorithms at this cost, so the interned API does not suit a
 long-lived service that constructs unboundedly many unrelated automata. Batch
@@ -757,14 +757,14 @@ work in a process that exits, or keep the set of distinct nodes bounded.
 
 Two ways to release memory were measured, and neither is in the library.
 
-Emptying the memo tables while keeping the intern cache is *safe*, because
+Emptying the memo tables while keeping the intern cache is safe, because
 every memoized function here is pure: dropping entries costs recomputation
 only. It recovers almost nothing. Most of what those tables hold is interned
 nodes, which the intern cache retains anyway, and the registry needed to find
 the tables is itself unbounded. Clearing every 1000 iterations
 of the third workload above moved live bytes by about 3%.
 
-Emptying the intern cache is not safe at all. Identity comes from it: two
+Emptying the intern cache is not safe. Identity comes from it: two
 structurally equal nodes interned either side of a clear get different identities
 and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
 `Symbol` from before the clear is still reachable, which nothing can check.
@@ -772,7 +772,7 @@ and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
 The standard remedy for that retention is a cache that holds its entries
 weakly, so unreferenced nodes are collected and their table entries go with
 them. [Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
-(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) build exactly
+(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) build
 that on OCaml's weak arrays. In Haskell the mechanism is weak pointers and
 finalisers, from [Peyton Jones, Marlow and Elliott, *Stretching the Storage
 Manager: Weak Pointers and Stable Names in Haskell*, IFL
