@@ -178,6 +178,8 @@ fromFTA graph = shared Map.! FTA.initialState trimmed
     component = Map.fromList [(state, index) | (index, states) <- zip [0 :: Int ..] components, state <- states]
     -- The states of the component of each state.
     members = Map.fromList [(state, set) | states <- components, let set = Set.fromList states, state <- states]
+    -- The reference to each state while its binder is built.
+    reference = Map.fromList $ zip (FTA.states trimmed) $ map RecState [0 ..]
 
     -- The given states that are on a cycle through the given states only.
     cycles states =
@@ -193,22 +195,26 @@ fromFTA graph = shared Map.! FTA.initialState trimmed
 
     -- Build the node of a state in one binder context. The context has the
     -- states of a component that are on a cycle that avoids the bound states,
-    -- the bound states with the placeholders of their binders, and a lazy map
+    -- the bound states with the references of their binders, and a lazy map
     -- with the node of each state of the component in the context. Thus each
     -- node is built once in each context, not once for each occurrence. A
-    -- bound state is its placeholder. A state on a cycle that avoids the bound
-    -- states gets a binder and starts a new context. Another state gets no
+    -- bound state is its reference. A state on a cycle that avoids the bound
+    -- states gets a binder and starts a new context. Its body is built once,
+    -- with a reference to the state, and 'createMu' substitutes for the
+    -- reference: 'createMu' applies its function more than once, and building
+    -- the body for each application would build the nested contexts again,
+    -- in time exponential in the depth of the binders. Another state gets no
     -- binder: the binder would not occur in the body, and 'createMu' would
-    -- remove it after it evaluated the body two or three times.
+    -- remove it.
     build :: Set.Set state -> Map.Map state (Node symbol) -> Map.Map state (Node symbol) -> state -> Node symbol
     build free binders nodes state
         | Just self <- Map.lookup state binders = self
         | Set.member state free =
             let free' = cycles (Set.delete state (Set.difference (members Map.! state) (Map.keysSet binders)))
-             in createMu $ \self ->
-                    let binders' = Map.insert state self binders
-                        nodes' = LazyMap.fromSet (build free' binders' nodes') (members Map.! state)
-                     in body nodes' state
+                binders' = Map.insert state (Rec $ reference Map.! state) binders
+                nodes' = LazyMap.fromSet (build free' binders' nodes') (members Map.! state)
+                open = body nodes' state
+             in createMu $ \self -> substFree (reference Map.! state) self open
         | otherwise = body nodes state
 
     -- A child in another component cannot reach a bound state, so it is the
