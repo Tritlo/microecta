@@ -85,6 +85,15 @@ data RecNodeId
       'internedMuDepthShape').
       -}
       RecIntersect IntersectId
+    | {- | Refer to a state that @fromFTA@ is about to bind, by the position of
+      the state in the automaton.
+
+      Only @fromFTA@ uses this constructor. It builds the body of a binder once
+      with this reference, and then substitutes the binder for it. So
+      'createMu' applies a substitution to the body, and does not build the
+      body again for each argument.
+      -}
+      RecState !Int
     deriving (Eq, Ord, Show)
 
 {- | Pair of node identities naming the recursive node introduced by @intersect@.
@@ -128,6 +137,8 @@ instance Hashable RecNodeId where
         salt `hashWithSalt` (2 :: Int)
     hashWithSalt salt (RecIntersect intersectionId) =
         salt `hashWithSalt` (3 :: Int) `hashWithSalt` intersectionId
+    hashWithSalt salt (RecState position) =
+        salt `hashWithSalt` (4 :: Int) `hashWithSalt` position
 
 instance Hashable IntersectId where
     hashWithSalt salt (UnsafeIntersectId left right) =
@@ -780,9 +791,24 @@ substitutionPlan inputNode = memoTypeableWith @symbol genericSubstitutionPlanCac
             EmptyNode -> const EmptyNode
             InternedNode node -> case sequenceSubstitutionPlans $ map edgeSubstitutionPlan (internedNodeEdges node) of
                 SubstitutionPlan !f -> \env -> mkNode (f env)
+            -- 'createMu' applies its function more than once, and each
+            -- application substitutes into the nested binders again. So the
+            -- result for each binder and the bindings of its free variables is
+            -- kept: without it, a chain of nested binders costs time
+            -- exponential in its depth.
             InternedMu mu -> case onNode (internedMuBody mu) of
-                SubstitutionPlan !f -> \env -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r env)
+                SubstitutionPlan !f ->
+                    \env ->
+                        memoTypeableWith @symbol
+                            genericMuSubstitutionCache
+                            (\(_, bindings) -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r (Map.fromDistinctAscList bindings)))
+                            (n, Map.toAscList $ Map.restrictKeys env $ freeVars n)
             Rec i -> \env -> fromMaybe n (Map.lookup i env)
+
+-- | The memo cache of the substitution into one binder, by its free bindings.
+genericMuSubstitutionCache :: TypeableMemoCache
+genericMuSubstitutionCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericMuSubstitutionCache #-}
 
 -- | Prepare substitution for an edge's children.
 genericEdgeSubstitutionPlanCache :: TypeableMemoCache
