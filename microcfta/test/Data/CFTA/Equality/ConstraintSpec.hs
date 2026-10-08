@@ -52,18 +52,6 @@ mkTestPathsN = map (map path)
 spec :: Spec
 spec = do
     describe "subpath checking" $ do
-        it "empty path is always subpath" $
-            property $
-                \p -> isSubpath EmptyPath p
-
-        it "is subpath of concatenation" $
-            property $
-                \xs ys -> isSubpath (path xs) (path $ xs ++ ys)
-
-        it "non-empty concatenation is not subpath of orig" $
-            property $
-                \xs ys -> ys /= [] ==> not $ isSubpath (path $ xs ++ ys) (path xs)
-
         it "empty path is strict subpath of nonempty" $
             property $
                 \p -> p /= EmptyPath ==> isStrictSubpath EmptyPath p
@@ -71,11 +59,6 @@ spec = do
         it "nothing is strict subpath of itself" $
             property $
                 \p -> not $ isStrictSubpath p p
-
-    describe "substSubpath" $ do
-        it "replaces prefix" $
-            property $
-                \xs ys zs -> substSubpath (path zs) (path ys) (path $ ys ++ xs) `shouldBe` path (zs ++ xs)
 
     describe "path tries" $ do
         it "fromPathTrie and toPathTrie are inverses" $ do
@@ -106,11 +89,11 @@ spec = do
 
         it "completes equalities" $
             mkEqConstraints (mkTestPaths1 [[1, 2], [2, 3], [4, 5], [6, 7], [7, 1]])
-                `shouldBe` rawMkEqConstraints (sort $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
+                `shouldBe` EqConstraints (map PathEClass $ sort $ mkTestPaths1 [[1, 2, 3, 6, 7], [4, 5]])
 
         it "adds congruences" $
             mkEqConstraints (mkTestPathsN [[[0], [1]], [[2], [0]], [[0, 0], [0, 1]]])
-                `shouldBe` rawMkEqConstraints (sort (mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]]))
+                `shouldBe` EqConstraints (map PathEClass $ sort $ mkTestPathsN [[[0], [1], [2]], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]]])
 
         it "detects contradictions from congruences" $
             -- This test input is from unifying `(a -> b) -> (a -> b)` and `(a -> (a -> a)) -> (a -> ([a] -> a))`
@@ -123,27 +106,3 @@ spec = do
                         ]
                 )
                 `shouldBe` True
-
-    constraintsImplySpec
-
--- Skipped, not deleted: QuickCheck generates path lists far larger than any
--- real input, and 'mkEqConstraints' saturates congruences quadratically in
--- them, so these take too long to keep in the suite. Open since 2021-06-23.
--- 'constraintsImply' is covered by the examples above instead.
-constraintsImplySpec :: Spec
-constraintsImplySpec = describe "constraintsImply" $ do
-    xit "implies removed constraints" $
-        property $ \cs1 cs2 ->
-            length (concat cs1) < 300
-                && length (concat cs2)
-                    < 300
-                ==> constraintsImply (mkEqConstraints $ cs1 ++ cs2) (mkEqConstraints cs1)
-
-    xit "does not imply added constraints" $
-        property $ \cs1 cs2 ->
-            length (concat cs1) < 300
-                && length (concat cs2)
-                    < 300
-                ==> let ecs1 = mkEqConstraints $ cs1 ++ cs2
-                        ecs2 = mkEqConstraints cs1
-                     in ecs1 /= ecs2 ==> not (constraintsImply ecs2 ecs1)

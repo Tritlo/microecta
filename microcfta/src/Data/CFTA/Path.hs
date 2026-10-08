@@ -12,9 +12,7 @@ module Data.CFTA.Path (
     Path (.., EmptyPath, ConsPath),
     unPath,
     path,
-    isSubpath,
     isStrictSubpath,
-    substSubpath,
     Pathable (..),
 ) where
 
@@ -50,13 +48,6 @@ pattern ConsPath p ps <- Path (p : (Path -> ps))
   where
     ConsPath p (Path ps) = Path (p : ps)
 
--- | Whether the first path is a prefix of the second path.
-isSubpath :: Path -> Path -> Bool
-isSubpath EmptyPath _ = True
-isSubpath (ConsPath p1 ps1) (ConsPath p2 ps2)
-    | p1 == p2 = isSubpath ps1 ps2
-isSubpath _ _ = False
-
 -- | Whether the first path is a strict prefix of the second path.
 isStrictSubpath :: Path -> Path -> Bool
 isStrictSubpath EmptyPath EmptyPath = False
@@ -64,14 +55,6 @@ isStrictSubpath EmptyPath _ = True
 isStrictSubpath (ConsPath p1 ps1) (ConsPath p2 ps2)
     | p1 == p2 = isStrictSubpath ps1 ps2
 isStrictSubpath _ _ = False
-
-{- | Replace a prefix of a path.
-
-@substSubpath replacement toReplace target@ requires @toReplace@ to be a
-prefix of @target@, and replaces it by @replacement@.
--}
-substSubpath :: Path -> Path -> Path -> Path
-substSubpath replacement toReplace target = Path $ unPath replacement ++ drop (length $ unPath toReplace) (unPath target)
 
 -- | Things that can be inspected or edited by child-index paths.
 class Pathable t t' | t -> t' where

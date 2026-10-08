@@ -17,7 +17,6 @@ module Data.CFTA.Equality.Constraint (
     unPathEClass,
     hasSubsumingMember,
     EqConstraints (.., EmptyConstraints),
-    rawMkEqConstraints,
     unsafeGetEclasses,
     hasSubsumingMemberListBased,
     isContradicting,
@@ -25,7 +24,6 @@ module Data.CFTA.Equality.Constraint (
     combineEqConstraints,
     eqConstraintsDescend,
     constraintsAreContradictory,
-    constraintsImply,
     subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
 ) where
@@ -37,7 +35,7 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Lazy as IntMap
-import Data.List (compareLength, groupBy, isSubsequenceOf, nub, sort, sortBy, tails)
+import Data.List (compareLength, groupBy, nub, sort, sortBy, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -280,10 +278,6 @@ unsafeGetEclasses :: EqConstraints -> [PathEClass]
 unsafeGetEclasses EqContradiction = error "unsafeGetEclasses: Illegal argument 'EqContradiction'"
 unsafeGetEclasses (EqConstraints eclasses) = eclasses
 
--- | Construct constraints without congruence closure or contradiction checks.
-rawMkEqConstraints :: [[Path]] -> EqConstraints
-rawMkEqConstraints = EqConstraints . map PathEClass
-
 -- | Check whether a constraint set is already contradictory.
 constraintsAreContradictory :: EqConstraints -> Bool
 constraintsAreContradictory = (== EqContradiction)
@@ -425,18 +419,6 @@ eqConstraintsDescend (EqConstraints sourceEclasses) i = case mapMaybe (`pathECla
          in if pathTrieHasAtLeastTwoPaths pt'
                 then Just (mkPathEClassFromPathTrie pt')
                 else Nothing
-
-{- | Conservative implication check between two constraint sets.
-
-This is intentionally cheaper than rebuilding the combined closure: every
-class required by the second set must occur as a subsequence of some class in
-the first set. That is sufficient for redundant-edge pruning, but it is not a
-complete theorem prover for arbitrary constraint implication.
--}
-constraintsImply :: EqConstraints -> EqConstraints -> Bool
-constraintsImply EqContradiction _ = True
-constraintsImply _ EqContradiction = False
-constraintsImply ecs1 ecs2 = all (\cs -> any (isSubsequenceOf cs) (ecsGetPaths ecs1)) (ecsGetPaths ecs2)
 
 -- | Equality classes sorted for constraint propagation, if not contradictory.
 subsumptionOrderedEclasses :: EqConstraints -> Maybe [PathEClass]

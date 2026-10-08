@@ -32,7 +32,6 @@ module Data.CFTA.Interned.Memo (
     memo,
     memo2,
     memoWith,
-    memo2With,
     memoTypeableWith,
     memo2TypeableWith,
 ) where
@@ -83,11 +82,6 @@ newMemoCache = MemoCache <$> newTable 0
 memoWith :: (Hashable a) => MemoCache a b -> (a -> b) -> a -> b
 {-# INLINEABLE memoWith #-}
 memoWith (MemoCache table) f x = unsafeDupablePerformIO $ insertKeepingFirst table x (f x)
-
--- | Binary variant of 'memoWith', using one table keyed by the pair.
-memo2With :: (Hashable a, Hashable b) => MemoCache (a, b) c -> (a -> b -> c) -> a -> b -> c
-{-# INLINE memo2With #-}
-memo2With cache f = curry (memoWith cache (uncurry f))
 
 {- | A family of memo tables for one function.
 
