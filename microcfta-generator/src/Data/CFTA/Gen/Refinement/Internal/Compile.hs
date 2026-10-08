@@ -34,7 +34,11 @@ import qualified Data.Tree as Tree
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
-import Data.CFTA.Gen.Internal.Static (Outcome (outcomeMass), OutcomeIndex (outcomeSelect), Static (staticOutcomes))
+import Data.CFTA.Gen.Internal.Static (
+    Outcome (outcomeMass, outcomeTerm),
+    OutcomeIndex (outcomeCardinality, outcomeSelect),
+    Static (staticOutcomes),
+ )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Index (
@@ -93,12 +97,13 @@ spineArity generator = case genRecipe generator of
 -- give the same number of children, so that a guard can read the children of
 -- a choice of products such as @oneof [pair1, pair2]@. That changes
 -- 'spineArity', the observations, and 'candidatesOf'. A built child that gives
--- several terms, such as a join, reads the wrong positions in the same way.
+-- several terms, such as a join, or no term, such as 'fromIndexed', has the
+-- same problem, and 'alignedSpine' refuses it in the same way.
 
 {- | Whether each part of an applicative spine gives its constructor one
-child, as 'spineArity' counts it. A choice removes its own wrapper, so a
-choice of products gives several children and a choice of @pure@ values gives
-none. A guard that reads the children by position then reads the wrong ones.
+child, as 'spineArity' counts it. 'rootCount' gives the number of children of
+each part. When a part gives another number, a guard that reads the children
+by position reads the wrong ones.
 -}
 alignedSpine :: Gen symbol a -> Bool
 alignedSpine generator = case genRecipe generator of
@@ -106,18 +111,46 @@ alignedSpine generator = case genRecipe generator of
     Mapped _ inner -> alignedSpine inner
     Applied functions arguments -> alignedSpine functions && alignedSpine arguments
     _ -> rootCount generator == Just 1
+
+{- | The number of children that each member of a generator gives its
+constructor, when all members give the same number. The children are the
+roots that 'surface' gives for the term of the member, and 'validOutcomes'
+reads the same children.
+
+A constructor, an import, and an integer leaf give one child, and @pure@
+gives none. A choice removes its own wrapper, so a choice of products gives
+several children, and a choice of @pure@ values gives none. A built language
+gives the number that its members give: a source without symbols, such as
+'fromIndexed' and the pools of @freeze@ and @samplePool@, gives none, and a
+join gives one for each side. A language without members gives one, so that
+it does not refuse a guard. The result is 'Nothing' when two members give
+different numbers, and for a recursive or opaque built language.
+-}
+rootCount :: Gen symbol a -> Maybe Int
+rootCount generator = case genRecipe generator of
+    Lifted _ -> Just 0
+    Mapped _ inner -> rootCount inner
+    Applied functions arguments -> (+) <$> rootCount functions <*> rootCount arguments
+    Chosen alternatives -> common $ map (rootCount . snd) alternatives
+    Closed{} -> Just 1
+    ClosedBy{} -> Just 1
+    Imported{} -> Just 1
+    Built -> case genLanguage generator of
+        TransparentLanguage (Right static) ->
+            let outcomes = staticOutcomes static
+             in common
+                    [ either (const Nothing) (Just . length . surface . outcomeTerm) $ outcomeSelect outcomes rank
+                    | rank <- everyRank $ outcomeCardinality outcomes
+                    ]
+        TransparentLanguage (Left _) -> Just 1
+        CyclicLanguage (Left _) -> Just 1
+        _ -> Nothing
   where
-    -- The number of children that each member gives, when all members give the same number.
-    rootCount :: Gen symbol b -> Maybe Int
-    rootCount part = case genRecipe part of
-        Lifted _ -> Just 0
-        Mapped _ inner -> rootCount inner
-        Applied functions arguments -> (+) <$> rootCount functions <*> rootCount arguments
-        Chosen alternatives -> case nub $ map (rootCount . snd) alternatives of
-            [] -> Just 1
-            [count] -> count
-            _ -> Nothing
-        _ -> Just 1
+    -- The number that every member gives. A list without members gives one.
+    common counts = case counts of
+        [] -> Just 1
+        count : rest | all (== count) rest -> count
+        _ -> Nothing
 
 -- | Whether a generator waits for 'compile'.
 deferred :: Gen symbol a -> Bool
@@ -281,6 +314,13 @@ compileNode entailment requested labelOf needsRoots constraint child
                 pure $ reposition closeObservations . nodeWithKey closeLabel <$> retained
   where
     arity = spineArity child
+    -- The term of the constructor is a leaf when its child description gives no
+    -- term. When 'rootCount' gives no number, the leafness is 'Mixed', which an
+    -- observer reads as not known.
+    leafness = case rootCount child of
+        Just 0 -> Leaf
+        Just _ -> Inner
+        Nothing -> Mixed
     observed = nub $ requested <> constraintPaths constraint <> roots
       where
         roots
@@ -292,7 +332,7 @@ compileNode entailment requested labelOf needsRoots constraint child
         ]
     decide childKeys = case labelOf childKeys of
         Left err -> pure $ Left err
-        Right label -> constraintDecision entailment label constraint childKeys
+        Right label -> constraintDecision entailment label leafness constraint childKeys
     -- Only accepted tuples are closed, and their labels were computed to accept them.
     closeLabel childKeys = case labelOf childKeys of
         Right label -> label
@@ -300,11 +340,11 @@ compileNode entailment requested labelOf needsRoots constraint child
             error
                 "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileNode: \
                 \an accepted group lost its root observation"
-    closeObservations childKeys = parentObservations requested (closeLabel childKeys) childKeys
+    closeObservations childKeys = parentObservations requested (closeLabel childKeys) leafness childKeys
 
--- | Decide one guard from the already-grouped child observations.
-constraintDecision :: Entailment -> Symbol -> Constraint -> [ObservationKey] -> IO (Either GenError Bool)
-constraintDecision entailment label constraint childKeys = do
+-- | Decide one guard from the leafness of the constructor and the already-grouped child observations.
+constraintDecision :: Entailment -> Symbol -> Leafness -> Constraint -> [ObservationKey] -> IO (Either GenError Bool)
+constraintDecision entailment label leafness constraint childKeys = do
     verdict <- decide $ constraintAsGuard constraint
     case verdict of
         Yes -> pure $ Right True
@@ -317,25 +357,33 @@ constraintDecision entailment label constraint childKeys = do
             pure $ case semantic of
                 Unknown -> Left SolverUnknown
                 _
+                    -- An equality reads a node whose members are leaves and non-leaves.
+                    | any unknownLeaf $ guardPaths $ snd $ splitGuard $ constraintGuard constraint ->
+                        Left ChildNotOneTerm
                     | constraintEqualities constraint /= EmptyConstraints ->
                         Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
                     | containsSame (constraintGuard constraint) ->
                         Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
                     | otherwise -> Left SolverUnknown
   where
-    observations = completeObservations label childKeys
+    observations = completeObservations label leafness childKeys
+    unknownLeaf target = case Map.lookup target observations of
+        Just (Observed _ Mixed) -> True
+        _ -> False
     decide = evaluateGuardWithShape entailment (`Map.lookup` observations)
 
 -- | The observations a parent requests above one accepted node.
-parentObservations :: [Path] -> Symbol -> [ObservationKey] -> Observations
-parentObservations requested label childKeys =
-    Map.restrictKeys (completeObservations label childKeys) $ Set.insert (path []) $ Set.fromList requested
+parentObservations :: [Path] -> Symbol -> Leafness -> [ObservationKey] -> Observations
+parentObservations requested label leafness childKeys =
+    Map.restrictKeys (completeObservations label leafness childKeys) $ Set.insert (path []) $ Set.fromList requested
 
--- | The root plus the sparse observations retained by every direct child group.
-completeObservations :: Symbol -> [ObservationKey] -> Observations
-completeObservations label childKeys =
+{- | The root, with its label and leafness, plus the sparse observations
+retained by every direct child group.
+-}
+completeObservations :: Symbol -> Leafness -> [ObservationKey] -> Observations
+completeObservations label leafness childKeys =
     Map.fromList $
-        (path [], Observed label $ leafnessOf childKeys)
+        (path [], Observed label leafness)
             : [ (path $ childIndex : unPath target, observed)
               | (childIndex, childKey) <- zip [0 ..] childKeys
               , (target, observed) <- Map.toList $ keyObservations childKey
