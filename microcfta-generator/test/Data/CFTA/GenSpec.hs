@@ -399,6 +399,15 @@ spec = do
                                 && FTAGen.unrank generator 0 == Right (chain "a")
                                 && FTAGen.unrank generator (2 ^ depth - 1) == Right (chain "b")
                     completed `shouldBe` Just True
+                    -- The size and shrink walks read each shared state once.
+                    walked <-
+                        timeout 60000000
+                            $ evaluate
+                            $ FTAGen.minimumSize generator == Right (Just (toEnum depth + 1))
+                                && FTAGen.smallest generator == Right (Just (chain "a"))
+                                && null (FTAGen.smallerMembers generator 0)
+                                && take 1 (FTAGen.shrinkRank generator (2 ^ depth - 1)) == [0]
+                    walked `shouldBe` Just True
 
         it "preserves ranks and structural shrinking through shared states" $ do
             let rows =
