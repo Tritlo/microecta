@@ -39,6 +39,7 @@ module Data.CFTA.Simple (
 
 import Control.Monad (filterM)
 import Data.Either (fromRight)
+import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Tree (Tree (..))
@@ -54,7 +55,7 @@ subtermAt path term = go (unPath path) term
   where
     go [] subterm = Just subterm
     go (ChildIndex index : rest) (Node _ children)
-        | index >= 0, child : _ <- drop index children = go rest child
+        | Just child <- children !? index = go rest child
         | otherwise = Nothing
 
 {- | Whether a complete term satisfies a guard. 'Same' compares subterms, the
