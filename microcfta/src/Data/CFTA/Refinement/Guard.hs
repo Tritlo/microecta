@@ -35,7 +35,7 @@ import Data.CFTA.Refinement (
     ChildIndex (..),
     Constraint,
     Formula,
-    Guard (Entails, Holds, Not, Or, Same, Satisfies, Substitute),
+    Guard (And, Entails, Holds, Not, Or, Same, Satisfies, Substitute),
     Node (Node),
     Substitution (Substitution),
     Symbol,
@@ -46,6 +46,7 @@ import Data.CFTA.Refinement (
     noConstraint,
     path,
     semanticConstraint,
+    unPath,
     validate,
     pattern Transition,
  )
@@ -239,8 +240,9 @@ notGuard = semanticConstraint . Not . constraintAsGuard
 {- | Build a transition from a guard that names the constructor arguments.
 
 A guard written as a function receives one position per child, in order, and
-the construction fails when the counts differ. 'automaton' collects the
-checked transitions of one node.
+the construction fails when the counts differ. It also fails when a 'contract'
+names more terms than the constructor has children, because such a contract
+holds for no term. 'automaton' collects the checked transitions of one node.
 -}
 transition ::
     (GuardBuilder guard) =>
@@ -254,7 +256,27 @@ transition symbol refinement children guard =
         Just supplied
             | supplied /= Arity (length children) ->
                 Left $ GuardArityMismatch symbol (Arity (length children)) supplied
-        _ -> Right $ Transition symbol (refinementFormula refinement) children (buildGuard guard)
+        _
+            | Just named <- contractReach built
+            , named > Arity (length children) ->
+                Left $ GuardArityMismatch symbol (Arity (length children)) named
+            | otherwise -> Right $ Transition symbol (refinementFormula refinement) children built
+  where
+    built = buildGuard guard
+
+{- | One more than the largest child index that a 'Holds' atom of a constraint
+names, when the constraint has such an atom. Only 'contract' makes these atoms.
+-}
+contractReach :: Constraint -> Maybe Arity
+contractReach constraint = case [index | Holds targets _ <- atoms (constraintAsGuard constraint), ChildIndex index : _ <- map unPath targets] of
+    [] -> Nothing
+    indices -> Just (Arity (maximum indices + 1))
+  where
+    atoms (Not nested) = atoms nested
+    atoms (And guards) = concatMap atoms guards
+    atoms (Or guards) = concatMap atoms guards
+    atoms (Substitute _ nested) = atoms nested
+    atoms atom = [atom]
 
 -- | Collect checked transitions into one validated node.
 automaton :: [Either AutomatonError Transition] -> Either AutomatonError Automaton

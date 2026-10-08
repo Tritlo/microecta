@@ -27,8 +27,8 @@ import Data.CFTA.Refinement (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (refinementFormula, true, (.>=))
-import Data.CFTA.Refinement.Guard (automaton, isSubtypeOf, requires, transition, unconstrained)
+import Data.CFTA.Refinement.Expression (refinementFormula, true, (.==), (.>=))
+import Data.CFTA.Refinement.Guard (automaton, contract, isSubtypeOf, requires, transition, unconstrained)
 import Data.CFTA.Refinement.TestSupport (tableEntailment)
 
 spec :: Spec
@@ -38,6 +38,13 @@ spec =
             let leaf = Node [Transition "leaf" true [] noConstraint]
             automaton [transition "wrap" (const true) [leaf] (\actual expected -> actual `isSubtypeOf` expected)]
                 `shouldBe` Left (GuardArityMismatch "wrap" 1 2)
+
+        it "reports a contract that names more terms than the constructor has children" $ do
+            let leaf = Node [Transition "leaf" true [] noConstraint]
+            automaton [transition "pair" (const true) [leaf, leaf] (contract (\x y z -> x + y .== z))]
+                `shouldBe` Left (GuardArityMismatch "pair" 2 3)
+            either (const False) (const True) (automaton [transition "pair" (const true) [leaf, leaf] (contract (\x y -> x .== y))])
+                `shouldBe` True
 
         it "builds transitions from refinements and named guards" $ do
             let nonNegative v = v .>= 0
