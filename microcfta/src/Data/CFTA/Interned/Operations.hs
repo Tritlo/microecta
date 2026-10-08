@@ -27,6 +27,7 @@ module Data.CFTA.Interned.Operations (
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
+import Data.Functor.Identity (Identity (..))
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
 import Data.IntMap.Strict (IntMap)
@@ -44,7 +45,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable)
 
 import Data.CFTA.Constraint (Constraint (..), conjoinConstraints)
-import Data.CFTA.Internal.Tree (adjustAt)
+import Data.CFTA.Internal.Tree (acceptsBy, adjustAt)
 import Data.CFTA.Interned.Cache (Id)
 import Data.CFTA.Interned.Memo
 import Data.CFTA.Interned.Type
@@ -498,15 +499,20 @@ edges and a reference has none.
 union :: (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
 union = Node . concatMap nodeEdges
 
--- | Recognize a term with an explicit pure constraint interpreter.
+{- | Recognize a term with an explicit pure constraint interpreter.
+
+The edges of a node are tried in order, and the children of an edge from left
+to right. When the search comes to a subterm again with the same node, it uses
+the first result. So each node is decided at most once at each position in the
+term.
+-}
 {-# INLINEABLE acceptsWith #-}
 acceptsWith ::
     (Hashable symbol, Typeable symbol) =>
     (Constraint -> Tree.Tree symbol -> Bool) -> Node symbol -> Tree.Tree symbol -> Bool
-acceptsWith _ EmptyNode _ = False
-acceptsWith acceptsConstraint (Node es) term = any (\edge -> edgeAcceptsWith acceptsConstraint edge term) es
-acceptsWith acceptsConstraint node@(Mu _) term = acceptsWith acceptsConstraint (unfoldOuterRec node) term
-acceptsWith _ _ _ = False
+acceptsWith acceptsConstraint node = runIdentity . acceptsBy nodeEdges edgeSymbol edgeChildren check node
+  where
+    check _ edge term = Identity $ acceptsConstraint (edgeConstraint edge) term
 
 -- | Recognize one constructor and apply its constraint interpreter.
 {-# INLINEABLE edgeAcceptsWith #-}
