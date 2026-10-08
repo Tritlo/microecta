@@ -93,13 +93,15 @@ data AutomatonError
         !Arity
         -- | The other arity.
         !Arity
-    | -- | Named guard arguments do not match the constructor's child count.
+    | {- | A named guard or a contract names a number of children other than
+      the constructor's child count.
+      -}
       GuardArityMismatch
         -- | The symbol.
         !Symbol
         -- | The child count of the constructor.
         !Arity
-        -- | The count that the guard names.
+        -- | The count that the guard or contract names.
         !Arity
     deriving (Eq, Show)
 
