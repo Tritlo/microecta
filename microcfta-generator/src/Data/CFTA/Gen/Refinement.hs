@@ -231,6 +231,7 @@ satisfying generator condition = case generator of
         Closed label constraint child -> deferred (Closed label (conditioned constraint) child)
         ClosedBy labelOf constraint child -> deferred (ClosedBy labelOf (conditioned constraint) child)
         Chosen alternatives -> Flat.frequency [(weight, alternative `satisfying` condition) | (weight, alternative) <- alternatives]
+        Uniform alternatives -> Flat.uniformly [alternative `satisfying` condition | alternative <- alternatives]
         Mapped transform inner -> transform <$> (inner `satisfying` condition)
         Imported bound order graph -> case unfoldRoot $ maybe graph (`boundDepth` graph) bound of
             EmptyNode -> generator

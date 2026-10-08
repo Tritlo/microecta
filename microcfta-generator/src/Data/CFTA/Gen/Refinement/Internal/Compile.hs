@@ -40,13 +40,15 @@ import Data.CFTA.Gen.Internal.Static (
     OutcomeIndex (outcomeCardinality, outcomeSelect),
     Static (staticOutcomes),
  )
-import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..))
+import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
+import Data.CFTA.Gen.Label (ChoiceIndex)
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Index (
     Arity (..),
     Depth (..),
     Weight (..),
     childIndexes,
+    countWeight,
     everyRank,
  )
 import Data.CFTA.Refinement
@@ -133,6 +135,7 @@ rootCount generator = case genRecipe generator of
     Mapped _ inner -> rootCount inner
     Applied functions arguments -> (+) <$> rootCount functions <*> rootCount arguments
     Chosen alternatives -> common $ map (rootCount . snd) alternatives
+    Uniform alternatives -> common $ map rootCount alternatives
     Closed{} -> Just 1
     ClosedBy{} -> Just 1
     Imported{} -> Just 1
@@ -187,21 +190,30 @@ compileGen entailment requested generator
             fmap (regroupOn (const noObservations))
                 <$> compileSpine entailment (replicate (fromEnum $ spineArity generator) []) generator
         Chosen alternatives -> do
-            compiled <-
-                traverse (\(weight, alternative) -> fmap (weight,) <$> compileGen entailment requested alternative) alternatives
-            pure $ do
-                weighted <- sequence compiled
-                pure
-                    $ reposition (keyObservations . snd)
-                    $ frequencies
-                        [ (weight, regroupOn (index,) grouped)
-                        | (index :: Int, (weight, grouped)) <- zip [0 ..] weighted
-                        , not $ emptyGroups grouped
-                        ]
+            compiled <- traverse (compileGen entailment requested . snd) alternatives
+            pure $ choose (map fst alternatives) <$> sequence compiled
+        Uniform alternatives -> do
+            compiled <- traverse (compileGen entailment requested) alternatives
+            pure $ (\groups -> choose (uniformWeights groups) groups) <$> sequence compiled
         Closed symbol constraint child -> compileNode entailment requested (const $ Right symbol) False constraint child
         ClosedBy symbolOf constraint child -> compileNode entailment requested (fmap symbolOf . traverse rootOf) True constraint child
         Imported bound order automaton -> compileImport entailment requested bound order automaton
   where
+    -- A choice of the compiled alternatives, with one weight for each.
+    choose weights groups =
+        reposition (keyObservations . snd) $
+            frequencies
+                [ (weight, regroupOn (index,) grouped)
+                | (index :: ChoiceIndex, (weight, grouped)) <- zip [0 ..] $ zip weights groups
+                , not $ emptyGroups grouped
+                ]
+    -- The weights of 'uniformly': each finite alternative weighs its members,
+    -- and a recursive alternative makes the choice equal.
+    uniformWeights groups
+        | any recursiveGroup groups = map (const 1) groups
+        | otherwise = map (either (const 1) (countWeight . sum) . sizes) groups
+    recursiveGroup (CyclicGrouped _) = True
+    recursiveGroup _ = False
     -- The root label retained by a group, which a root-computed constructor needs.
     rootOf :: ObservationKey -> Either GenError Symbol
     rootOf key =
@@ -522,6 +534,7 @@ candidatesOf entailment generator = case genRecipe generator of
                 <$> functionCandidates
                 <*> argumentCandidates
     Chosen alternatives -> fmap concat . sequence <$> traverse (candidatesOf entailment . snd) alternatives
+    Uniform alternatives -> fmap concat . sequence <$> traverse (candidatesOf entailment) alternatives
     Closed label constraint child -> fmap (close (const label) constraint) <$> candidatesOf entailment child
     ClosedBy labelOf constraint child -> fmap (close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
     Imported bound order automaton -> do
