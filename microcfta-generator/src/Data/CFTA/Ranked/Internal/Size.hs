@@ -47,6 +47,7 @@ module Data.CFTA.Ranked.Internal.Size (
     Occurrence (..),
     closedOccurrence,
     probeIndexWithMinimum,
+    minimumOf,
     closedProbe,
     isUnguarded,
     usesOccurrence,

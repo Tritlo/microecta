@@ -13,7 +13,7 @@ module Data.CFTA.Gen.Internal.Recur (
     upToSize,
 ) where
 
-import Control.Monad (void, when)
+import Control.Monad (when)
 import Data.Either (fromRight)
 import Data.Hashable (Hashable)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
@@ -44,6 +44,7 @@ import Data.CFTA.Ranked.Internal.Size (
     fixIndex,
     isUnguarded,
     minimumMemberSize,
+    minimumOf,
     probeIndexWithMinimum,
     reachesOccurrence,
     sizeClassOf,
@@ -165,10 +166,12 @@ recur build
 {- | Build a recursive grouped family from its own languages.
 
 The family has the keys that the body reaches from the keys it already has,
-starting from no keys. The body must reach finitely many keys. A key function
-that makes a new key from each key, such as @regroupOn (+ 1)@ on the
-occurrence, makes the key set infinite, and then 'recurGrouped' does not
-return.
+starting from no keys. Each pass builds the body around the keys found so
+far, each with the least size of its members found so far, so a nested
+'recur' whose members all read the family reaches its keys too. The body
+must reach finitely many keys. A key function that makes a new key from each
+key, such as @regroupOn (+ 1)@ on the occurrence, makes the key set infinite,
+and then 'recurGrouped' does not return.
 -}
 recurGrouped ::
     (Ord key, Hashable symbol, Typeable symbol) =>
@@ -187,31 +190,7 @@ recurGrouped build
 
     bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
 
-    keys = Map.keys keySet
-      where
-        -- The key set, from the empty family upward. Each pass keeps its keys
-        -- and adds the keys that the body reaches, so the key set only grows,
-        -- and the loop ends when the body reaches finitely many keys. If the
-        -- body is monotone in the key set, the first pass that adds nothing
-        -- gives the least fixpoint.
-        -- TODO: Investigate whether the loop can find an unbounded key set and
-        -- report an error, instead of the requirement in the documentation of
-        -- 'recurGrouped'.
-        -- TODO: The passes build the body around empty groups. A key that the
-        -- body reaches only through a nested definition whose finite members
-        -- all go through an occurrence is then not found. Converging the keys
-        -- and their minimums together would find it.
-        keySet = converge Map.empty
-
-        converge current =
-            let reached =
-                    either (const Map.empty) (void)
-                        $ bodyGroups
-                        $ fmap (const emptyGroup) current
-                grown = Map.union current reached
-             in if Map.keys grown == Map.keys current then current else converge grown
-
-        emptyGroup = placeholder EmptyNode (choiceIndex []) emptySampleIndex noMass
+    keys = Map.keys keyMinimums
     -- The placeholders stand for the occurrence, so bounding one is bounding
     -- the family that is still being defined.
     placeholder supportNode index sampling masses =
@@ -249,29 +228,29 @@ recurGrouped build
                 | key <- keys
                 ]
 
-    -- A key is live when its body can close using finite branches or keys
-    -- already known to be live. Repeating this over the settled finite key set
-    -- gives the least minimum for every mutually recursive language.
-    minimumSizes = convergeMinimums Map.empty
-    convergeMinimums current =
-        let reached =
-                either (const Map.empty) (Map.filter (/= NoFiniteMember) . fmap minimumOfGroup)
-                    $ bodyGroups
-                    $ Map.fromList
-                        [ ( key
-                          , placeholder
-                                EmptyNode
-                                (probeIndexWithMinimum token $ Map.findWithDefault NoFiniteMember key current)
-                                emptySampleIndex
-                                noMass
-                          )
-                        | key <- keys
-                        ]
-            grown = Map.unionWith smaller current reached
-         in if grown == current then current else convergeMinimums grown
-    smaller (MinimumSize left) (MinimumSize right) = MinimumSize $ min left right
-    smaller NoFiniteMember right = right
-    smaller left NoFiniteMember = left
+    -- The keys and the least minimum of each, from the empty family upward.
+    -- Each pass builds the body around a probe of each key found so far, with
+    -- the least minimum found so far, and keeps the keys that the body reaches
+    -- and their minimums. A key is live when its body can close using finite
+    -- branches or keys already known to be live, and a nested definition whose
+    -- finite members all go through a live key is live too. The key set only
+    -- grows and the minimums only fall, so the loop ends when the body reaches
+    -- finitely many keys, with the least minimum of every mutually recursive
+    -- language.
+    -- TODO: Investigate whether the loop can find an unbounded key set and
+    -- report an error, instead of the requirement in the documentation of
+    -- 'recurGrouped'.
+    keyMinimums = converge Map.empty
+      where
+        converge current =
+            let reached =
+                    either (const Map.empty) (fmap minimumOfGroup)
+                        $ bodyGroups
+                        $ fmap (\minimum' -> placeholder EmptyNode (probeIndexWithMinimum token minimum') emptySampleIndex noMass) current
+                grown = Map.unionWith (\left right -> minimumOf [left, right]) current reached
+             in if grown == current then current else converge grown
+    -- The keys with a finite member, with their least minimums.
+    minimumSizes = Map.filter (/= NoFiniteMember) keyMinimums
     minimumAt key = Map.findWithDefault NoFiniteMember key minimumSizes
     minimumOfGroup = minimumMemberSize . recursiveIndex . keyedRecursiveLanguage
 
