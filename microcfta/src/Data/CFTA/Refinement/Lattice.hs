@@ -28,10 +28,11 @@ module Data.CFTA.Refinement.Lattice (
 ) where
 
 import Control.Monad (when)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (lefts, rights)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (elemIndex, nub, partition)
+import Data.List (elemIndex, partition)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
@@ -109,7 +110,7 @@ the number of disjunctions and disequalities of the two formulas.
 latticeEntailment :: Entailment
 latticeEntailment = entailmentWithBindings $ \_ antecedent consequent ->
     let counterexamples = Fixpoint.PAnd [antecedent, Fixpoint.PNot consequent]
-        names = nub $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples
+        names = nubOrd $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples
         attempt tries order = case points order counterexamples of
             Left (NonUnitCoefficient name)
                 | tries > 0

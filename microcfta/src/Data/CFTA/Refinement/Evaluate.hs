@@ -11,7 +11,7 @@ module Data.CFTA.Refinement.Evaluate (
     substitutionValues,
 ) where
 
-import Data.List (nub)
+import Data.Containers.ListUtils (nubOrd)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as Set
@@ -109,7 +109,7 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
             _ -> verdict
       where
         bindings =
-            nub $
+            nubOrd $
                 extraBindings
                     <> [ binding
                        | scope <- substitutions
@@ -269,7 +269,7 @@ substitutionValues lookupObservation leafAt sameAt guard =
       where
         names = Map.fromListWith (+) [(name, 1 :: Int) | (_, name) <- values]
 
-        values = nub [(representative actual, name) | actual@(_, name, _) <- actuals]
+        values = nubOrd [(representative actual, name) | actual@(_, name, _) <- actuals]
     allocated = Map.fromList $ zipWith allocate conflicts available
       where
         allocate (target, original) fresh = (target, (fresh, original))
