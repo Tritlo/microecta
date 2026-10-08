@@ -36,9 +36,10 @@ import Data.CFTA.Gen
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Grouped (groupKeys)
 import Data.CFTA.Gen.Internal.Static (
-    Outcome (outcomeMass, outcomeTerm),
-    OutcomeIndex (outcomeCardinality, outcomeSelect),
-    Static (staticOutcomes),
+    Outcome (outcomeMass),
+    OutcomeIndex (outcomeSelect),
+    Static (staticOutcomes, staticRootCount),
+    commonRootCount,
  )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Label (ChoiceIndex)
@@ -131,37 +132,27 @@ reads the same children.
 A constructor, an import, and an integer leaf give one child, and @pure@
 gives none. A choice removes its own wrapper, so a choice of products gives
 several children, and a choice of @pure@ values gives none. A built language
-gives the number that its members give: a source without symbols, such as
-'fromIndexed' and the pools of @freeze@ and @samplePool@, gives none, and a
-join gives one for each side. A language without members gives one, so that
-it does not refuse a guard. The result is 'Nothing' when two members give
-different numbers, and for a recursive or opaque built language.
+gives the number that its members give, which 'staticRootCount' keeps: a
+source without symbols, such as 'fromIndexed' and the pools of @freeze@ and
+@samplePool@, gives none, and a join gives one for each side. A language
+without members gives one, so that it does not refuse a guard. The result is
+'Nothing' when two members give different numbers, and for a recursive or
+opaque built language.
 -}
 rootCount :: Gen symbol a -> Maybe Int
 rootCount generator = case genRecipe generator of
     Lifted _ -> Just 0
     Mapped _ inner -> rootCount inner
     Applied functions arguments -> (+) <$> rootCount functions <*> rootCount arguments
-    Chosen alternatives -> common $ map (rootCount . snd) alternatives
-    Uniform alternatives -> common $ map rootCount alternatives
+    Chosen alternatives -> commonRootCount $ map (rootCount . snd) alternatives
+    Uniform alternatives -> commonRootCount $ map rootCount alternatives
     Closed{} -> Just 1
     ClosedBy{} -> Just 1
     Imported{} -> Just 1
     Built -> case genLanguage generator of
-        TransparentLanguage (Right static) ->
-            let outcomes = staticOutcomes static
-             in common
-                    [ either (const Nothing) (Just . length . surface . outcomeTerm) $ outcomeSelect outcomes rank
-                    | rank <- everyRank $ outcomeCardinality outcomes
-                    ]
+        TransparentLanguage (Right static) -> staticRootCount static
         TransparentLanguage (Left _) -> Just 1
         CyclicLanguage (Left _) -> Just 1
-        _ -> Nothing
-  where
-    -- The number that every member gives. A list without members gives one.
-    common counts = case counts of
-        [] -> Just 1
-        count : rest | all (== count) rest -> count
         _ -> Nothing
 
 -- | Whether a generator waits for 'compile'.
@@ -245,14 +236,17 @@ emptyGroups grouped = case sizes grouped of
 
 {- | Group a language the engine built by the requested observations.
 
-Without observations the language is one group. With observations every
-member is read back with its term; a member's term is the user's part of the
+Without observations the language is one group, and so is a language whose
+members have no root, such as 'fromIndexed'. With observations every member
+is read back with its term; a member's term is the user's part of the
 engine's labelled term.
 -}
 groupBuilt :: [Path] -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator
     | deferred generator = Left SourceRequiresCompilation
     | null requested = Right $ keyed noObservations generator
+    -- A member without a root has no observation, so all members form one group.
+    | rootCount generator == Just 0 = Right $ keyed noObservations generator
     | otherwise = do
         total <- cardinality generator
         members <- traverse member $ everyRank total

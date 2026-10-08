@@ -18,6 +18,7 @@ module Data.CFTA.Gen.Internal.Chain (
     chainLength,
     chainSupports,
     chainInspections,
+    chainRootCounts,
     chainCardinality,
     chainUniformMass,
     chainSampler,
@@ -111,6 +112,11 @@ chainSupports ::
     ArgStatics symbol operation result -> [Node (Label symbol)]
 chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
+
+-- | The root count of every argument group, in order.
+chainRootCounts :: ArgStatics symbol operation result -> [Maybe Int]
+chainRootCounts ChainNil = []
+chainRootCounts (ChainCons static rest) = staticRootCount static : chainRootCounts rest
 
 -- | Diagnostic metadata of each matched finite argument group.
 chainInspections ::

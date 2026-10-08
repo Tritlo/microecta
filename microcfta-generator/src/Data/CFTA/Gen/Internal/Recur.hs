@@ -470,6 +470,8 @@ boundedFinite bound static = do
                     { outcomeSelect = select
                     , outcomeSizeSampling = (\(sampling, _) -> (sampling, weight)) <$> outcomeSizeSampling outcomes
                     }
+            , -- The bound keeps members of the language, so it keeps their root count.
+              staticRootCount = staticRootCount static
             }
   where
     original = staticOutcomes static
