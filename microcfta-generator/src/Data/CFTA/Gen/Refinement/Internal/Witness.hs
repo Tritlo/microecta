@@ -72,8 +72,9 @@ making the cache part of the public API.
 
 The cache also stores 'Unknown' verdicts. That is safe, because 'Unknown' is
 the conservative answer, and the cache makes it the same for every repeat in
-one compile. Z3 runs with no timeout. In the test suite and in the benchmark
-cells, it gave no 'Unknown'.
+one compile. Each Z3 query has the time limit of the solver, and a query at
+the limit raises 'TimeLimitReached' instead of giving 'Unknown'. In the test
+suite and in the benchmark cells, Z3 gave no 'Unknown'.
 -}
 cacheEntailment :: Entailment -> IO Entailment
 cacheEntailment underlying = do
