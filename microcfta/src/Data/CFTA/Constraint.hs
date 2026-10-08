@@ -47,6 +47,7 @@ module Data.CFTA.Constraint (
     symbolSensitivePaths,
     constraintPaths,
     splitGuard,
+    containsSame,
     conjoin,
     contractTermName,
 ) where

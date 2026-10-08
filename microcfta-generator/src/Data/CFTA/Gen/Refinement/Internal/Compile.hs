@@ -319,25 +319,12 @@ constraintDecision entailment label constraint childKeys = do
                 _
                     | constraintEqualities constraint /= EmptyConstraints ->
                         Left $ RelationalEqualityUnsupported $ constraintEqualities constraint
-                    | containsSyntacticEquality (constraintGuard constraint) ->
+                    | containsSame (constraintGuard constraint) ->
                         Left $ RelationalSyntacticEqualityUnsupported $ constraintGuard constraint
                     | otherwise -> Left SolverUnknown
   where
     observations = completeObservations label childKeys
     decide = evaluateGuardWithShape entailment (`Map.lookup` observations)
-
--- | Sparse root observations cannot decide equality of complete subtrees.
-containsSyntacticEquality :: Guard -> Bool
-containsSyntacticEquality Top = False
-containsSyntacticEquality Bottom = False
-containsSyntacticEquality (Same _ _) = True
-containsSyntacticEquality (Entails _ _) = False
-containsSyntacticEquality (Satisfies _ _) = False
-containsSyntacticEquality (Holds _ _) = False
-containsSyntacticEquality (Substitute _ nested) = containsSyntacticEquality nested
-containsSyntacticEquality (Not nested) = containsSyntacticEquality nested
-containsSyntacticEquality (And guards) = any containsSyntacticEquality guards
-containsSyntacticEquality (Or guards) = any containsSyntacticEquality guards
 
 -- | The observations a parent requests above one accepted node.
 parentObservations :: [Path] -> Symbol -> [ObservationKey] -> Observations
