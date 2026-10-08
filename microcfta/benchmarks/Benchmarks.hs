@@ -3,8 +3,8 @@
 module Main (main) where
 
 import Control.Exception (evaluate)
-import Data.Function (on)
 import Data.List (sort, sortBy)
+import Data.Ord (comparing)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import System.CPUTime (getCPUTime)
@@ -175,7 +175,7 @@ divergentBranchPathOrderInputs = pathOrderInputs divergentBranchPathSets
 pathOrderInputs :: [[Path]] -> [[PathEClass]]
 pathOrderInputs pathSets =
     [ map snd
-        $ sortBy (compare `on` fst)
+        $ sortBy (comparing fst)
         $ [ ((index * 73 + salt * 37) `rem` 257, pec)
           | (index, pec) <- zip [(0 :: Int) ..] corpus
           ]
