@@ -108,11 +108,10 @@ alternatives. Rank selection conditions the graph on one constructor at a time.
 Only the selected term is constructed. No accepted-term table is retained.
 
 Ranks follow the order of the constructors at each position, and the
-constructors are ordered by arity, then by the given key. The key must give
-distinct values to distinct symbols of the same arity. Two such symbols with
-equal keys merge into one constructor, and the counts are then wrong. Pass a
-key with a stable order, such as the text of an interned symbol, so that ranks
-do not depend on interning order.
+constructors are ordered by arity, then by the given key. Two symbols of one
+arity with equal keys stay apart, ordered by the symbol. Pass a key with a
+stable order, such as the text of an interned symbol, so that ranks do not
+depend on interning order.
 
 The second result is the inverse of the ranks. It gives the rank of a term,
 or 'Nothing' when the language does not contain the term. The two results
