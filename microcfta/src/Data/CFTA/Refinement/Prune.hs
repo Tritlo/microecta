@@ -200,7 +200,7 @@ readsThroughRecursion :: PathPlan -> [Automaton] -> Bool
 readsThroughRecursion plan children =
     or
         [ reaches child childPlan
-        | (index, childPlan) <- Map.toList $ planChildren plan
+        | (index, childPlan) <- IntMap.toList $ planChildren plan
         , Just child <- [children !? index]
         ]
   where
@@ -223,7 +223,7 @@ data ObservationNeed
 -- | Trie of the finite term positions inspected by one semantic guard.
 data PathPlan = PathPlan
     { planObservation :: !(Maybe ObservationNeed)
-    , planChildren :: !(Map.Map Int PathPlan)
+    , planChildren :: !(IntMap.IntMap PathPlan)
     }
     deriving (Eq, Ord, Show)
 
@@ -306,12 +306,12 @@ specializeEdge plan edge = do
     rootSymbols = rootSymbolsOf plan edge
 
 -- | Cartesian product of child variants, sharing every unobserved child.
-specializeChildren :: Map.Map Int PathPlan -> [Automaton] -> PruneM [([Automaton], Signature, Symbols)]
+specializeChildren :: IntMap.IntMap PathPlan -> [Automaton] -> PruneM [([Automaton], Signature, Symbols)]
 specializeChildren plans = go 0
   where
     go _ [] = pure [([], Map.empty, Map.empty)]
     go index (child : rest) = do
-        variants <- case Map.lookup index plans of
+        variants <- case IntMap.lookup index plans of
             Nothing -> pure [Variant child Map.empty Map.empty]
             Just plan -> specializeNode child plan
         suffixes <- go (index + 1) rest
@@ -355,7 +355,7 @@ planGuard guard = foldl' (flip $ uncurry insertPlan) emptyPlan observations
 
 -- | An observation plan containing no positions.
 emptyPlan :: PathPlan
-emptyPlan = PathPlan Nothing Map.empty
+emptyPlan = PathPlan Nothing IntMap.empty
 
 -- | Insert or strengthen one observed position in a path trie.
 insertPlan :: [ChildIndex] -> ObservationNeed -> PathPlan -> PathPlan
@@ -364,7 +364,7 @@ insertPlan [] need plan =
 insertPlan (ChildIndex index : rest) need plan =
     plan
         { planChildren =
-            Map.alter
+            IntMap.alter
                 (Just . insertPlan rest need . fromMaybe emptyPlan)
                 index
                 (planChildren plan)
