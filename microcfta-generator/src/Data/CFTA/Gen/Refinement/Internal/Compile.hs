@@ -203,8 +203,8 @@ compileGen entailment requested generator
         Uniform alternatives -> do
             compiled <- traverse (compileGen entailment requested) alternatives
             pure $ (\groups -> choose (uniformWeights groups) groups) <$> sequence compiled
-        Closed symbol constraint child -> compileNode entailment requested (const $ Right symbol) False constraint child
-        ClosedBy symbolOf constraint child -> compileNode entailment requested (fmap symbolOf . traverse rootOf) True constraint child
+        Closed symbol constraint child -> compileNode entailment requested (FixedLabel symbol) constraint child
+        ClosedBy symbolOf constraint child -> compileNode entailment requested (ComputedLabel (Right . symbolOf)) constraint child
         Imported bound order automaton -> compileImport entailment requested bound order automaton
   where
     -- A choice of the compiled alternatives, with one weight for each.
@@ -222,10 +222,6 @@ compileGen entailment requested generator
         | otherwise = map (either (const 1) (countWeight . sum) . sizes) groups
     recursiveGroup (CyclicGrouped _) = True
     recursiveGroup _ = False
-    -- The root label retained by a group, which a root-computed constructor needs.
-    rootOf :: ObservationKey -> Either GenError Symbol
-    rootOf key =
-        maybe (Left MissingRootObservation) (\(Observed label _) -> Right label) $ Map.lookup (path []) $ keyObservations key
 
 -- | Whether a grouped generator has no member.
 emptyGroups :: LTAGrouped key a -> Bool
@@ -311,6 +307,13 @@ compileSpine entailment requirements generator = case genRecipe generator of
                             pure $ mapWithKey (\_ (function, argument) -> function argument) <$> related
     _ -> fmap (regroupOn pure) <$> compileGen entailment (concat $ take 1 requirements) generator
 
+{- | How a constructor gets its label: a fixed label, or a label that a
+function computes from the root labels of the children.
+-}
+data Labelling
+    = FixedLabel !Symbol
+    | ComputedLabel ([Symbol] -> Either GenError Symbol)
+
 {- | Compile one guarded constructor.
 
 The children are grouped by the paths the guard reads below each position,
@@ -322,12 +325,11 @@ the parent's observations.
 compileNode ::
     Entailment ->
     [Path] ->
-    ([ObservationKey] -> Either GenError Symbol) ->
-    Bool ->
+    Labelling ->
     Constraint ->
     LTAGen a ->
     IO (Either GenError (LTAGrouped ObservationKey a))
-compileNode entailment requested labelOf needsRoots constraint child
+compileNode entailment requested labelling constraint child
     | not (all null childRequirements) && not (alignedSpine child) = pure $ Left ChildNotOneTerm
     | otherwise = do
         compiledChild <- compileSpine entailment childRequirements child
@@ -347,13 +349,20 @@ compileNode entailment requested labelOf needsRoots constraint child
         Nothing -> Mixed
     observed = nub $ requested <> constraintPaths constraint <> roots
       where
-        roots
-            | needsRoots = [path [index] | index <- childIndexes arity]
-            | otherwise = []
+        roots = case labelling of
+            FixedLabel _ -> []
+            ComputedLabel _ -> [path [index] | index <- childIndexes arity]
     childRequirements =
         [ nub [path suffix | target <- observed, index : suffix <- [unPath target], index == childIndex]
         | childIndex <- childIndexes arity
         ]
+    labelOf childKeys = case labelling of
+        FixedLabel label -> Right label
+        ComputedLabel symbolOf -> traverse rootOf childKeys >>= symbolOf
+    -- The root label retained by a group, which a computed label needs.
+    rootOf :: ObservationKey -> Either GenError Symbol
+    rootOf key =
+        maybe (Left MissingRootObservation) (\(Observed label _) -> Right label) $ Map.lookup (path []) $ keyObservations key
     decide childKeys = case labelOf childKeys of
         Left err -> pure $ Left err
         Right label -> constraintDecision entailment label leafness constraint childKeys
