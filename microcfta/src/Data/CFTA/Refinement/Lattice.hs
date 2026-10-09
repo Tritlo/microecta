@@ -38,6 +38,7 @@ import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
 import qualified Language.Fixpoint.Types as Fixpoint
 
+import Data.CFTA.Index (VarIndex (..))
 import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entailmentWithBindings)
 import Data.CFTA.Symbol (Formula)
 
@@ -74,17 +75,17 @@ points :: [String] -> Formula -> Either LatticeError Points
 points names formula = do
     terms <- signed variableOf formula
     let initial = [Piece region $ polynomialConstant $ fromInteger sign | (region, sign) <- Map.toList terms]
-    levels <- sumOut (dimension - 1) [initial]
+    levels <- sumOut (VarIndex (dimension - 1)) [initial]
     total <- integral $ sum [polynomialValue polynomial | Piece _ polynomial <- concat $ take 1 levels]
     pure $ Points dimension levels total
   where
     dimension = length names
     symbols = map Fixpoint.symbol names
-    variableOf name = elemIndex name symbols
+    variableOf name = VarIndex <$> elemIndex name symbols
     sumOut variable levels@(current : _)
         | variable < 0 = Right levels
         | otherwise = do
-            next <- eliminate (symbols !! variable) variable current
+            next <- eliminate (symbols !! fromEnum variable) variable current
             sumOut (variable - 1) (next : levels)
     sumOut _ [] = Right []
     integral value
@@ -132,11 +133,11 @@ pointAt :: Points -> Integer -> [Integer]
 pointAt (Points dimension levels _) = go 0 IntMap.empty
   where
     go variable prefix rank
-        | variable == dimension = IntMap.elems prefix
+        | variable == VarIndex dimension = IntMap.elems prefix
         | otherwise =
             let candidates =
                     [ (low, high, substitute prefix polynomial)
-                    | Piece region polynomial <- levels !! (variable + 1)
+                    | Piece region polynomial <- levels !! (fromEnum variable + 1)
                     , Just (low, high) <- [interval variable prefix region]
                     ]
                 through bound =
@@ -150,19 +151,22 @@ pointAt (Points dimension levels _) = go 0 IntMap.empty
                         (minimum [low | (low, _, _) <- candidates])
                         (maximum [high | (_, high, _) <- candidates])
                         (\bound -> through bound > fromInteger rank)
-             in go (variable + 1) (IntMap.insert variable value prefix) (rank - numerator (through $ value - 1))
+             in go
+                    (variable + 1)
+                    (IntMap.insert (fromEnum variable) value prefix)
+                    (rank - numerator (through $ value - 1))
 
 {- | The interval of one variable in a region, when the earlier variables have
 the given values.
 -}
-interval :: Int -> IntMap Integer -> [Linear] -> Maybe (Integer, Integer)
+interval :: VarIndex -> IntMap Integer -> [Linear] -> Maybe (Integer, Integer)
 interval variable prefix region = case foldr (narrow . substituteLinear prefix) (Just (Nothing, Nothing)) region of
     Just (Just low, Just high) | low <= high -> Just (low, high)
     _ -> Nothing
   where
     -- 'eliminate' requires a lower and an upper bound in each piece, so both ends become known.
     narrow _ Nothing = Nothing
-    narrow (Linear coefficients offset) (Just (low, high)) = case IntMap.findWithDefault 0 variable coefficients of
+    narrow (Linear coefficients offset) (Just (low, high)) = case IntMap.findWithDefault 0 (fromEnum variable) coefficients of
         0
             | offset >= 0 -> Just (low, high)
             | otherwise -> Nothing
@@ -212,16 +216,18 @@ substituteLinear values (Linear coefficients offset) =
         (offset + sum (IntMap.intersectionWith (*) coefficients values))
 
 -- | Whether a form has a coefficient on the variable.
-mentions :: Int -> Linear -> Bool
-mentions variable (Linear coefficients _) = IntMap.member variable coefficients
+mentions :: VarIndex -> Linear -> Bool
+mentions variable (Linear coefficients _) = IntMap.member (fromEnum variable) coefficients
 
 -- | Read a term of the formula as a linear form.
-linearTerm :: (Fixpoint.Symbol -> Maybe Int) -> Formula -> Either LatticeError Linear
+linearTerm :: (Fixpoint.Symbol -> Maybe VarIndex) -> Formula -> Either LatticeError Linear
 linearTerm variableOf = go
   where
     go term = case term of
         Fixpoint.ECon (Fixpoint.I value) -> Right $ constant value
-        Fixpoint.EVar name -> maybe (Left $ UnknownName name) (\variable -> Right $ Linear (IntMap.singleton variable 1) 0) $ variableOf name
+        Fixpoint.EVar name ->
+            maybe (Left $ UnknownName name) (\variable -> Right $ Linear (IntMap.singleton (fromEnum variable) 1) 0) $
+                variableOf name
         Fixpoint.ENeg inner -> scale (-1) <$> go inner
         Fixpoint.ECst inner _ -> go inner
         Fixpoint.EBin Fixpoint.Plus left right -> plus <$> go left <*> go right
@@ -250,7 +256,7 @@ type Signed = Map [Linear] Integer
 Negation moves down to the atoms by De Morgan's laws. A negated atom has the
 opposite relation, so each bound under a negation stays a bound.
 -}
-signed :: (Fixpoint.Symbol -> Maybe Int) -> Formula -> Either LatticeError Signed
+signed :: (Fixpoint.Symbol -> Maybe VarIndex) -> Formula -> Either LatticeError Signed
 signed variableOf = go True
   where
     -- The first argument is False when the formula is negated.
@@ -381,7 +387,7 @@ feasible forms = case normalize forms of
                 [ ( length (filter ((> 0) . coefficientOf variable) reduced) * length (filter ((< 0) . coefficientOf variable) reduced)
                   , variable
                   )
-                | variable <- IntMap.keys $ IntMap.unions [coefficients | Linear coefficients _ <- reduced]
+                | variable <- map VarIndex $ IntMap.keys $ IntMap.unions [coefficients | Linear coefficients _ <- reduced]
                 ]
       where
         minimumOn [] = Nothing
@@ -396,8 +402,8 @@ feasible forms = case normalize forms of
                ]
 
 -- | The coefficient of a variable in a form.
-coefficientOf :: Int -> Linear -> Integer
-coefficientOf variable (Linear coefficients _) = IntMap.findWithDefault 0 variable coefficients
+coefficientOf :: VarIndex -> Linear -> Integer
+coefficientOf variable (Linear coefficients _) = IntMap.findWithDefault 0 (fromEnum variable) coefficients
 
 -- Summation
 
@@ -413,7 +419,7 @@ For each choice of the largest lower bound and the smallest upper bound, the
 variable ranges over one interval, and the piece requires that choice. Ties go
 to the first bound, so the choices of one piece are disjoint.
 -}
-eliminate :: Fixpoint.Symbol -> Int -> [Piece] -> Either LatticeError [Piece]
+eliminate :: Fixpoint.Symbol -> VarIndex -> [Piece] -> Either LatticeError [Piece]
 eliminate name variable = fmap concat . traverse split
   where
     split (Piece constraints polynomial) = do
@@ -447,9 +453,9 @@ eliminate name variable = fmap concat . traverse split
             | index < chosen = difference `minus` constant 1
             | otherwise = difference
 
-        bound (Linear coefficients offset) = case IntMap.lookup variable coefficients of
-            Just 1 -> Right $ Left $ scale (-1) $ Linear (IntMap.delete variable coefficients) offset
-            Just (-1) -> Right $ Right $ Linear (IntMap.delete variable coefficients) offset
+        bound (Linear coefficients offset) = case IntMap.lookup (fromEnum variable) coefficients of
+            Just 1 -> Right $ Left $ scale (-1) $ Linear (IntMap.delete (fromEnum variable) coefficients) offset
+            Just (-1) -> Right $ Right $ Linear (IntMap.delete (fromEnum variable) coefficients) offset
             _ -> Left $ NonUnitCoefficient name
 
 -- Polynomials
@@ -509,14 +515,14 @@ form, as a polynomial in the other variables.
 
 The result is exact when the upper form is at least the lower form minus one.
 -}
-sumOver :: Int -> Linear -> Linear -> Polynomial -> Polynomial
+sumOver :: VarIndex -> Linear -> Linear -> Polynomial -> Polynomial
 sumOver variable low high (Polynomial terms) =
     foldr
         addPolynomials
         (polynomialConstant 0)
         [ multiplyPolynomials
-            (Polynomial $ Map.singleton (IntMap.delete variable monomial) coefficient)
-            (powerSum $ IntMap.findWithDefault 0 variable monomial)
+            (Polynomial $ Map.singleton (IntMap.delete (fromEnum variable) monomial) coefficient)
+            (powerSum $ IntMap.findWithDefault 0 (fromEnum variable) monomial)
         | (monomial, coefficient) <- Map.toList terms
         ]
   where
