@@ -75,8 +75,11 @@ module Data.CFTA.Ranked.Internal.Size (
     valueAtSize,
 ) where
 
+import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.IntSet as IntSet
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 
 import Data.CFTA.Index (
     Cardinality (..),
@@ -222,7 +225,7 @@ planPosition plan rank
         PlanSelectOnDemand _ _ -> Just (SizedRank 1 leafRank)
         PlanShared _ _ _ inner -> planPosition inner rank
         PlanMap _ inner -> planPosition inner rank
-        PlanChoice branches -> branchPosition [] 0 branches
+        PlanChoice branches -> branchPosition Empty 0 branches
         PlanAp radix planF planX -> do
             let (rankF, rankX) = splitRank radix rank
             positionF <- planPosition planF rankF
@@ -236,8 +239,8 @@ planPosition plan rank
         | hasRank count remaining = do
             SizedRank size position <- planPosition branch remaining
             pure $
-                SizedRank size (choicePosition (map sizeIndex $ reverse earlier) (ChoiceIndex $ length earlier) size position)
-        | otherwise = branchPosition (branch : earlier) (nextOffset offset count) rest
+                SizedRank size (choicePosition (map sizeIndex $ toList earlier) (ChoiceIndex $ Sequence.length earlier) size position)
+        | otherwise = branchPosition (earlier :|> branch) (nextOffset offset count) rest
       where
         remaining = rebaseRank offset rank
     classPosition _ [] = Nothing
