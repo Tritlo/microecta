@@ -43,6 +43,10 @@ module Data.CFTA.Refinement (
     semanticIntersection,
     evaluateGuard,
     evaluateGuardWithShape,
+    Observed (..),
+    Leafness (..),
+    Observations,
+    leafnessOf,
     evaluateConstraint,
 
     -- * Automata

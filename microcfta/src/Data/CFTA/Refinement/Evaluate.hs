@@ -5,6 +5,10 @@ only the positions a guard names, which lets the pruner decide a guard without
 enumerating terms. Both share one evaluator, so the two views cannot drift.
 -}
 module Data.CFTA.Refinement.Evaluate (
+    Observed (..),
+    Leafness (..),
+    Observations,
+    leafnessOf,
     evaluateGuard,
     evaluateGuardWithShape,
     evaluateConstraint,
@@ -38,68 +42,102 @@ import Data.CFTA.Refinement.Verdict (
     negateVerdict,
     orM,
  )
-import Data.CFTA.Symbol (Formula, Symbol (RefinedSymbol, Symbol))
+import Data.CFTA.Symbol (Formula, Symbol (RefinedSymbol, Symbol), liquidOrder)
+
+{- | What a guard reads at one path: the symbol, and whether the node there is
+a leaf.
+
+The order compares the symbol texts, then the refinements, then the
+leafness. It does not compare the interned identities of the symbols, because
+these differ between processes. The refinement compiler orders its groups by
+their observations, so ranks follow this order.
+-}
+data Observed = Observed
+    { observedSymbol :: !Symbol
+    , observedLeaf :: !Leafness
+    }
+    deriving (Eq, Show)
+
+instance Ord Observed where
+    compare (Observed leftSymbol leftLeaf) (Observed rightSymbol rightLeaf) =
+        compare (liquidOrder leftSymbol, leftLeaf) (liquidOrder rightSymbol, rightLeaf)
+
+{- | Whether the node at a path is a leaf. 'Mixed' is for a group of terms:
+some members of the group are leaves and some are not. An observer reads
+'Mixed' as not known.
+
+The constructors are in the order that ranks follow: 'Mixed', then 'Inner',
+then 'Leaf'.
+-}
+data Leafness = Mixed | Inner | Leaf
+    deriving (Eq, Ord, Show)
+
+-- | The observation at each observed path of a term or of a group.
+type Observations = Map.Map Path Observed
+
+-- | 'Leaf' for a node without children, and 'Inner' for a node with children.
+leafnessOf :: [child] -> Leafness
+leafnessOf children = if null children then Leaf else Inner
+{-# INLINE leafnessOf #-}
 
 -- | Evaluate a guard against one candidate term.
 evaluateGuard :: Entailment -> Guard -> Tree.Tree Symbol -> IO Verdict
 evaluateGuard entailment guard term =
-    evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard
+    evaluateGuardWithSame entailment observedAt sameAt guard
   where
-    lookupObservation target = do
-        Tree.Node (RefinedSymbol symbol refinement) _ <- getPath target term
-        pure (symbol, refinement)
+    observedAt target = do
+        Tree.Node symbol children <- getPath target term
+        pure $ Observed symbol $ leafnessOf children
 
     sameAt substitutions left right = do
         leftTerm <- getPath left term
         rightTerm <- getPath right term
         pure $ substituteTerm substitutions leftTerm == substituteTerm substitutions rightTerm
 
-    leafAt target = null . Tree.subForest <$> getPath target term
-
 {- | Evaluate a guard from sparse observations of its referenced paths.
 
-The first callback returns the unrefined constructor symbol and refinement at
-one path. 'Same' rejects absent paths and accepts an existing path compared
-with itself. The shape callback returns 'Just' 'True' for a leaf and 'Just'
-'False' for a non-leaf; equal named leaves denote the same ambient value,
-while separate non-leaf positions may denote different results despite equal
-constructor labels. With no shape information, a comparison of complete
-subtrees at distinct positions yields 'Unknown', so an optimizer must reject
-that fast path or supply a complete-term equality oracle. The refinement
-compiler rejects it: it reports
+The callback returns the symbol at one path and whether the node there is a
+leaf. 'Same' rejects absent paths and accepts an existing path compared with
+itself. Equal named leaves denote the same ambient value, while separate
+'Inner' positions may denote different results despite equal constructor
+labels. 'Mixed' gives no shape information. Without shape information, a
+comparison of complete subtrees at distinct positions yields 'Unknown', so an
+optimizer must reject that fast path or supply a complete-term equality
+oracle. The refinement compiler rejects it: it reports
 @RelationalSyntacticEqualityUnsupported@ for such a comparison.
 -}
 evaluateGuardWithShape ::
     Entailment ->
-    (Path -> Maybe (Symbol, Formula)) ->
-    (Path -> Maybe Bool) ->
+    (Path -> Maybe Observed) ->
     Guard ->
     IO Verdict
-evaluateGuardWithShape entailment lookupObservation leafAt =
-    evaluateGuardWithSame entailment lookupObservation leafAt sameAt
+evaluateGuardWithShape entailment observedAt =
+    evaluateGuardWithSame entailment observedAt sameAt
   where
     sameAt scopes left right = do
-        leftObservation <- substituteObservation scopes <$> lookupObservation left
-        rightObservation <- substituteObservation scopes <$> lookupObservation right
-        if leftObservation /= rightObservation
+        Observed leftSymbol leftLeaf <- observedAt left
+        Observed rightSymbol rightLeaf <- observedAt right
+        if substituted leftSymbol /= substituted rightSymbol
             then Just False
-            else case (leafAt left, leafAt right) of
-                (Just True, Just True) -> Just True
-                (Just leftLeaf, Just rightLeaf) | leftLeaf /= rightLeaf -> Just False
+            else case (leftLeaf, rightLeaf) of
+                (Leaf, Leaf) -> Just True
+                (Leaf, Inner) -> Just False
+                (Inner, Leaf) -> Just False
                 _ -> Nothing
+      where
+        substituted (RefinedSymbol symbol refinement) = substituteObservation scopes (symbol, refinement)
 
 -- | Shared evaluator with an optional complete-subtree equality oracle.
 evaluateGuardWithSame ::
     Entailment ->
-    (Path -> Maybe (Symbol, Formula)) ->
-    (Path -> Maybe Bool) ->
+    (Path -> Maybe Observed) ->
     ([[ResolvedSubstitution]] -> Path -> Path -> Maybe Bool) ->
     Guard ->
     IO Verdict
-evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guard
+evaluateGuardWithSame entailment observedAt sameAt guard = go guard
   where
     go = evaluateWith []
-    (freshValues, ambiguousValues) = substitutionValues lookupObservation leafAt (sameAt []) guard
+    (freshValues, ambiguousValues) = substitutionValues observedAt (sameAt []) guard
 
     decide = decideWith []
 
@@ -121,7 +159,7 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
     evaluateWith _ Top = pure Yes
     evaluateWith _ Bottom = pure No
     evaluateWith substitutions (Same left right) =
-        pure $ case (lookupObservation left, lookupObservation right) of
+        pure $ case (observedAt left, observedAt right) of
             (Just _, Just _)
                 | left == right -> Yes
                 | otherwise -> case sameAt substitutions left right of
@@ -130,8 +168,8 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
                     Nothing -> Unknown
             _ -> No
     evaluateWith substitutions (Entails antecedent consequent) =
-        case (lookupObservation antecedent, lookupObservation consequent) of
-            (Just (_, leftRefinement), Just (_, rightRefinement)) ->
+        case (observedAt antecedent, observedAt consequent) of
+            (Just (Observed (RefinedSymbol _ leftRefinement) _), Just (Observed (RefinedSymbol _ rightRefinement) _)) ->
                 decide
                     substitutions
                     ( withActualAssumptions substitutions $
@@ -142,8 +180,8 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
                     (applySubstitutions substitutions rightRefinement)
             _ -> pure No
     evaluateWith substitutions (Satisfies target requirement) =
-        case lookupObservation target of
-            Just (_, targetRefinement) ->
+        case observedAt target of
+            Just (Observed (RefinedSymbol _ targetRefinement) _) ->
                 decide
                     substitutions
                     ( withActualAssumptions substitutions $
@@ -154,13 +192,13 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
                     (applySubstitutions substitutions requirement)
             Nothing -> pure No
     evaluateWith substitutions (Holds targets formula) =
-        case traverse lookupObservation targets of
+        case traverse observedAt targets of
             Just observations ->
                 let formals = [Fixpoint.symbol (contractTermName index) | index <- map ArgumentIndex [0 .. length targets - 1]]
                     assumed =
                         Fixpoint.pAnd
                             [ substituteRefinement [(refinementValueSymbol, Fixpoint.EVar formal)] refinement
-                            | (formal, (_, refinement)) <- zip formals observations
+                            | (formal, Observed (RefinedSymbol _ refinement) _) <- zip formals observations
                             ]
                  in decideWith
                         [(formal, refinementValueSymbol) | formal <- formals]
@@ -169,7 +207,7 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
                         (applySubstitutions substitutions formula)
             Nothing -> pure No
     evaluateWith substitutions (Substitute additions nested) =
-        case traverse (resolveSubstitutionWith lookupObservation freshValues ambiguousValues) additions of
+        case traverse (resolveSubstitutionWith observedAt freshValues ambiguousValues) additions of
             Just resolved -> evaluateWith (resolved : substitutions) nested
             Nothing -> pure No
     -- A 'No' for a condition or a contract only means that the refinements do
@@ -181,13 +219,13 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
         And guards -> evaluateWith substitutions $ Or $ map Not guards
         Or guards -> evaluateWith substitutions $ And $ map Not guards
         Satisfies target requirement
-            | isJust (lookupObservation target) ->
+            | isJust (observedAt target) ->
                 evaluateWith substitutions $ Satisfies target $ Fixpoint.PNot requirement
         Holds targets formula
-            | all (isJust . lookupObservation) targets ->
+            | all (isJust . observedAt) targets ->
                 evaluateWith substitutions $ Holds targets $ Fixpoint.PNot formula
         Substitute additions inner
-            | all (isJust . resolveSubstitutionWith lookupObservation freshValues ambiguousValues) additions ->
+            | all (isJust . resolveSubstitutionWith observedAt freshValues ambiguousValues) additions ->
                 evaluateWith substitutions $ Substitute additions $ Not inner
         _ -> negateVerdict <$> evaluateWith substitutions nested
     evaluateWith substitutions (And guards) =
@@ -230,12 +268,11 @@ An unambiguous name retains its ambient meaning. Repeated positions share one
 value. Distinct positions with the same name receive separate solver values.
 -}
 substitutionValues ::
-    (Path -> Maybe (Symbol, Formula)) ->
-    (Path -> Maybe Bool) ->
+    (Path -> Maybe Observed) ->
     (Path -> Path -> Maybe Bool) ->
     Guard ->
     (Map.Map Path (Fixpoint.Symbol, Fixpoint.Symbol), Set.Set Path)
-substitutionValues lookupObservation leafAt sameAt guard =
+substitutionValues observedAt sameAt guard =
     ( Map.fromList
         [ (target, binding)
         | actual@(target, _, _) <- actuals
@@ -244,10 +281,11 @@ substitutionValues lookupObservation leafAt sameAt guard =
     , ambiguous
     )
   where
+    leafAt target = observedLeaf <$> observedAt target
     actuals =
         [ (target, Fixpoint.symbol name, refinement)
         | target <- Set.toAscList $ Set.fromList $ actualPaths guard
-        , Just (Symbol name, refinement) <- [lookupObservation target]
+        , Just (Observed (RefinedSymbol (Symbol name) refinement) _) <- [observedAt target]
         ]
       where
         actualPaths (Substitute substitutions nested) =
@@ -262,7 +300,7 @@ substitutionValues lookupObservation leafAt sameAt guard =
              , otherName == name
              , otherRefinement == refinement
              , sameAt target other == Just True
-                || (leafAt target == Just True && leafAt other == Just True)
+                || (leafAt target == Just Leaf && leafAt other == Just Leaf)
              ] of
             canonical : _ -> canonical
             [] -> target
@@ -284,7 +322,7 @@ substitutionValues lookupObservation leafAt sameAt guard =
                 concat
                     [ Fixpoint.symbol name : Fixpoint.syms refinement
                     | target <- guardPaths guard
-                    , Just (Symbol name, refinement) <- [lookupObservation target]
+                    , Just (Observed (RefinedSymbol (Symbol name) refinement) _) <- [observedAt target]
                     ]
                     <> concatMap Fixpoint.syms (requirements guard)
 
@@ -304,19 +342,19 @@ substitutionValues lookupObservation leafAt sameAt guard =
             , name == otherName
             , refinement == otherRefinement
             , isNothing (sameAt target other)
-            , leafAt target /= Just True || leafAt other /= Just True
+            , leafAt target /= Just Leaf || leafAt other /= Just Leaf
             ]
 
 -- | Resolve actual and formal positions within one simultaneous scope.
 resolveSubstitutionWith ::
-    (Path -> Maybe (Symbol, Formula)) ->
+    (Path -> Maybe Observed) ->
     Map.Map Path (Fixpoint.Symbol, Fixpoint.Symbol) ->
     Set.Set Path ->
     Substitution ->
     Maybe ResolvedSubstitution
-resolveSubstitutionWith lookupObservation freshValues ambiguousValues Substitution{substitutionActual, substitutionFormal} = do
-    (Symbol actualName, actualRefinement) <- lookupObservation substitutionActual
-    (Symbol formalName, _) <- lookupObservation substitutionFormal
+resolveSubstitutionWith observedAt freshValues ambiguousValues Substitution{substitutionActual, substitutionFormal} = do
+    Observed (RefinedSymbol (Symbol actualName) actualRefinement) _ <- observedAt substitutionActual
+    Observed (Symbol formalName) _ <- observedAt substitutionFormal
     let declaration = Map.lookup substitutionActual freshValues
         actualSymbol = maybe (Fixpoint.symbol actualName) fst declaration
         actualVariable = Fixpoint.EVar actualSymbol
