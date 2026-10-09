@@ -58,7 +58,7 @@ import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, relabel)
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ChoiceIndex, Label (..))
 import Data.CFTA.Index (
     Cardinality (..),
     Rank (..),
@@ -383,7 +383,7 @@ frequencyStatic alternatives =
         (choiceInspection $ map (staticInspection . snd) alternatives)
   where
     totalWeight = sum $ map fst alternatives
-    numbered = zip [0 :: Int ..] alternatives
+    numbered = zip [0 :: ChoiceIndex ..] alternatives
     rankedBranches =
         [ ( nextOffset offset $ outcomeCardinality (staticOutcomes static)
           , offset
@@ -392,7 +392,7 @@ frequencyStatic alternatives =
           , static
           )
         | (branchIndex, (offset, (weight, static))) <-
-            zip [0 :: Int ..] $ offsetAlternatives alternatives
+            zip [0 :: ChoiceIndex ..] $ offsetAlternatives alternatives
         ]
     totalOutcomes = sum [outcomeCardinality $ staticOutcomes static | (_, static) <- alternatives]
     uniformMass = commonValue $ map branchUniformMass alternatives

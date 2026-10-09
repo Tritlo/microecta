@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 {- | Size-stratified counting and indexing.
 
 A language's members split into size classes, where size is the number of
@@ -55,6 +57,7 @@ module Data.CFTA.Ranked.Internal.Size (
     sizeIndex,
     countAtSize,
     sizeClassOf,
+    ChoiceIndex (..),
     constantIndex,
     mapIndex,
     productIndex,
@@ -67,6 +70,7 @@ module Data.CFTA.Ranked.Internal.Size (
     valueAtSize,
 ) where
 
+import Data.Hashable (Hashable)
 import qualified Data.IntSet as IntSet
 
 import Data.CFTA.Index (
@@ -185,6 +189,14 @@ sizeClassOf index (Rank rank)
     go position ((size, Cardinality count) : rest)
         | position < count = Just (SizedRank size (ClassRank position))
         | otherwise = go (position - count) rest
+
+{- | The zero-based index of an alternative in a choice.
+
+A choice of size indexes ('choiceIndex') and a generator choice
+('Data.CFTA.Gen.Label.Choice') number their alternatives in order, from zero.
+-}
+newtype ChoiceIndex = ChoiceIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
 
 {- | The non-empty size classes up to a bound.
 
