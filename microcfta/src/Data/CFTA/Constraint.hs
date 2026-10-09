@@ -66,6 +66,7 @@ import Data.CFTA.Equality.Constraint (
     subsumptionOrderedEclasses,
     unPathEClass,
  )
+import Data.CFTA.Index (ArgumentIndex)
 import Data.CFTA.Path (Path, getPath)
 import Data.CFTA.Symbol (Formula)
 
@@ -355,7 +356,7 @@ also uses for its integer and pool names. 'Data.CFTA.Refinement.Expression.varia
 documents the reservation. A user name with that prefix can collide with these
 names, and nothing checks for such a name.
 -}
-contractTermName :: Int -> String
+contractTermName :: ArgumentIndex -> String
 contractTermName index = "__microcfta_contract_" <> show index
 
 -- | Build a conjunction without redundant Boolean structure.
