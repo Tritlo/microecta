@@ -5,11 +5,13 @@
 module Data.CFTASpec (spec) where
 
 import Control.Monad (forM_)
+import Data.Bits (testBit)
 import Data.Monoid (Sum (..))
 import Data.Proxy (Proxy (Proxy))
 import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
 import Data.CFTA (Transition (Transition), statesAt)
@@ -218,6 +220,182 @@ spec = do
                     case Common.toFTA node of
                         Left err -> expectationFailure $ show err
                         Right view -> length (Automaton.states view) `shouldBe` 2
+
+        it "imports empty and nonproductive recursive roots as closed empty nodes" $
+            forM_ [[], [Transition "loop" [0] noConstraint]] $ \edges ->
+                case Automaton.mkFTA (0 :: Int) [(0, edges)] of
+                    Left err -> expectationFailure $ show err
+                    Right graph -> do
+                        let imported = Common.fromFTA graph :: Common.Node String
+                        imported `shouldBe` Common.EmptyNode
+                        Common.freeVars imported `shouldBe` mempty
+
+        it "preserves equality constraints beneath nested recursive binders" $ do
+            let same = equalityConstraint $ mkEqConstraints [[path [0], path [1]]]
+                rows =
+                    [ (0 :: Int, [Transition "z" [] noConstraint, Transition "p" [1, 1] same])
+                    ,
+                        ( 1
+                        ,
+                            [ Transition "a" [] noConstraint
+                            , Transition "b" [] noConstraint
+                            , Transition "back" [0] noConstraint
+                            , Transition "next" [1] noConstraint
+                            ]
+                        )
+                    ]
+                a = Tree.Node "a" []
+                b = Tree.Node "b" []
+                back term = Tree.Node "back" [term]
+                pair left right = Tree.Node "p" [left, right]
+                terms = [pair a a, pair a b, pair (back (pair b b)) (back (pair b b)), pair (back (pair a b)) (back (pair a b))]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    map (Automaton.accepts graph) terms `shouldBe` [True, False, True, False]
+                    map (Common.acceptsWith equalitiesHold imported) terms `shouldBe` [True, False, True, False]
+                    case Common.toFTA imported of
+                        Left err -> expectationFailure $ show err
+                        Right view -> map (Automaton.accepts view) terms `shouldBe` [True, False, True, False]
+
+        it "keeps long recursive imports closed through complete cycles and unfolding" $
+            forM_ [False, True] $ \chain -> do
+                let size = if chain then 40 else 32 :: Int
+                    rows =
+                        [ ( state
+                          , Transition ("leaf" <> show state) [] noConstraint
+                                : [Transition "next" [if chain then state + 1 else (state + 1) `mod` size] noConstraint | not chain || state < size - 1]
+                                    <> [Transition "prev" [state - 1] noConstraint | chain && state > 0]
+                          )
+                        | state <- [0 .. size - 1]
+                        ]
+                    walk :: [String] -> Int -> Tree.Tree String
+                    walk steps ending = foldr (\symbol child -> Tree.Node symbol [child]) (Tree.Node ("leaf" <> show ending) []) steps
+                    labels = if chain then replicate (size - 1) "next" <> replicate (size - 1) "prev" else replicate (2 * size) "next"
+                case Automaton.mkFTA 0 rows of
+                    Left err -> expectationFailure $ show err
+                    Right graph -> do
+                        let imported = Common.fromFTA graph :: Common.Node String
+                        finished <- timeout 10000000 $ do
+                            Common.nodeCount imported `shouldBe` size
+                            Common.numNestedMu imported `shouldBe` if chain then size - 1 else 1
+                            Common.freeVars imported `shouldBe` mempty
+                            let unfolded = Common.unfoldOuterRec imported
+                            Common.freeVars unfolded `shouldBe` mempty
+                            forM_ [imported, unfolded] $ \node ->
+                                map (acceptPlain node) [walk labels 0, walk labels 1] `shouldBe` [True, False]
+                        finished `shouldBe` Just ()
+
+        it "preserves every three-state unary graph through import and export" $ do
+            -- Exhaust all 512 adjacency matrices, including disconnected SCCs,
+            -- cycles broken by enclosing binders, and shared cyclic children.
+            -- Distinct leaves and destination labels expose mistaken references.
+            let terms =
+                    concat
+                        $ take 4
+                        $ iterate
+                            (\previous -> [Tree.Node ("to" <> show next) [term] | next <- [0 .. 2 :: Int], term <- previous])
+                            [Tree.Node ("leaf" <> show state) [] | state <- [0 .. 2 :: Int]]
+            forM_ [0 .. 511 :: Int] $ \mask -> do
+                let rows =
+                        [ ( state
+                          , Transition ("leaf" <> show state) [] noConstraint
+                                : [Transition ("to" <> show next) [next] noConstraint | next <- [0 .. 2], testBit mask (3 * state + next)]
+                          )
+                        | state <- [0 .. 2 :: Int]
+                        ]
+                    -- An independent path oracle, rather than the shared
+                    -- recognition implementation used by both representations.
+                    accepts state (Tree.Node symbol children) = case children of
+                        [] -> symbol == "leaf" <> show state
+                        [child] ->
+                            or
+                                [symbol == "to" <> show next && testBit mask (3 * state + next) && accepts next child | next <- [0 .. 2]]
+                        _ -> False
+                case Automaton.mkFTA 0 rows of
+                    Left err -> expectationFailure $ show err
+                    Right graph -> do
+                        let imported = Common.fromFTA graph :: Common.Node String
+                            expected = map (accepts 0) terms
+                        Common.freeVars imported `shouldBe` mempty
+                        map (acceptPlain imported) terms `shouldBe` expected
+                        -- Change the state ordering: RecState positions change,
+                        -- but binder identity and the closed result must not.
+                        forM_ [negate . (+ 1), \state -> (state + 1) `mod` 3] $ \rename ->
+                            Common.fromFTA (Automaton.mapStates rename graph) `shouldBe` imported
+                        case Common.toFTA imported of
+                            Left err -> expectationFailure $ show err
+                            Right view -> map (Automaton.accepts view) terms `shouldBe` expected
+                        case imported of
+                            Common.InternedMu _ -> do
+                                let unfolded = Common.unfoldOuterRec imported
+                                Common.freeVars unfolded `shouldBe` mempty
+                                map (acceptPlain unfolded) terms `shouldBe` expected
+                            _ -> pure ()
+
+        it "shares a downstream SCC across nested binder contexts" $ do
+            let rows =
+                    [ (0 :: Int, [Transition "a" [] noConstraint, Transition "p" [1, 2] noConstraint])
+                    , (1, [Transition "b" [] noConstraint, Transition "q" [0, 1] noConstraint, Transition "down" [2] noConstraint])
+                    , (2, [Transition "z" [] noConstraint, Transition "s" [3] noConstraint])
+                    , (3, [Transition "w" [] noConstraint, Transition "t" [2, 3] noConstraint])
+                    ]
+                terms =
+                    concat
+                        $ take 3
+                        $ iterate
+                            ( \previous ->
+                                [Tree.Node symbol [child] | symbol <- ["down", "s"], child <- previous]
+                                    <> [Tree.Node symbol [left, right] | symbol <- ["p", "q", "t"], left <- previous, right <- previous]
+                            )
+                            [Tree.Node symbol [] | symbol <- ["a", "b", "z", "w"]]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    Common.freeVars imported `shouldBe` mempty
+                    map (acceptPlain imported) terms `shouldBe` map (Automaton.accepts graph) terms
+                    case Common.toFTA imported of
+                        Left err -> expectationFailure $ show err
+                        Right view -> do
+                            -- The second SCC is closed and shared by both parents.
+                            let downstream =
+                                    [ state
+                                    | state <- Automaton.states view
+                                    , any ((== "s") . Automaton.transitionSymbol) (Automaton.transitionsFrom view state)
+                                    ]
+                            length downstream `shouldBe` 1
+                            map (Automaton.accepts view) terms `shouldBe` map (Automaton.accepts graph) terms
+
+        it "substitutes nested binders using all and only their free bindings" $ do
+            let x = Common.RecState 0
+                y = Common.RecState 1
+                unused = Common.RecState 2
+                leaf symbol = Common.Node [Common.Edge symbol []] :: Common.Node String
+                open = Common.createMu $ \self ->
+                    Common.Node
+                        [Common.Edge "z" [], Common.Edge "p" [Common.Rec x, Common.Rec y, self]]
+                close a b = Common.substFree y (leaf b) $ Common.substFree x (leaf a) open
+                expected a b = Common.createMu $ \self ->
+                    Common.Node
+                        [Common.Edge "z" [], Common.Edge "p" [leaf a, leaf b, self]]
+            Common.freeVars open
+                `shouldBe` Common.freeVars (Common.Node [Common.Edge "free" [Common.Rec x, Common.Rec y]] :: Common.Node String)
+            Common.substFree unused (leaf "unused") open `shouldBe` open
+            forM_ [("a", "b"), ("a", "c"), ("d", "b"), ("a", "b")] $ \(a, b) -> do
+                close a b `shouldBe` expected a b
+                Common.freeVars (close a b) `shouldBe` mempty
+            -- Substituting an open node keeps its reference free, including
+            -- beneath the nested binder, until the enclosing binder binds it.
+            let nested = Common.createMu $ \outer -> Common.substFree x outer open
+                closed = Common.substFree y (leaf "b") nested
+            closed
+                `shouldBe` Common.createMu
+                    ( \outer -> Common.createMu $ \inner ->
+                        Common.Node [Common.Edge "z" [], Common.Edge "p" [outer, leaf "b", inner]]
+                    )
+            Common.freeVars closed `shouldBe` mempty
 
         it "reads, requires, and finds child-index paths" $ do
             let a = Common.Node [Common.Edge "a" []] :: Common.Node String
