@@ -22,7 +22,7 @@ import Data.CFTA.Index (Arity (..), Cardinality (..), Rank (..), VarIndex (..), 
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, NodeId (..), edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
-import Data.CFTA.Path (ChildIndex (..), Path, adjustAt, unPath)
+import Data.CFTA.Path (ChildIndex (..), Path (ConsPath, EmptyPath), adjustAt, path)
 import qualified Data.CFTA.Ranked.Internal as Ranked
 
 -- | A constructor context whose variables denote whole subtree languages.
@@ -30,7 +30,7 @@ data Fragment symbol = Variable VarIndex | Constructor symbol [Fragment symbol]
     deriving (Eq, Ord)
 
 -- | A position in a constructor context.
-data Target symbol = Target (Fragment symbol) [Int]
+data Target symbol = Target (Fragment symbol) Path
     deriving (Eq, Ord)
 
 -- | A required position or an equality between two positions.
@@ -144,7 +144,7 @@ symbolicRankedWith order interpret root =
   where
     (total, counts) = State.runState (countNode interpret root) emptyCounts
     cache = newCountCache counts
-    select rank = selectCached cache $ selectTerm order interpret root [] rank
+    select rank = selectCached cache $ selectTerm order interpret root EmptyPath rank
 
 -- | Count a shared graph once per interned identity.
 countNode ::
@@ -205,7 +205,7 @@ countEdge interpret edge =
 edgeObligations :: Fragment symbol -> [[Path]] -> [Obligation symbol]
 edgeObligations context = concatMap obligationsFor
   where
-    obligationsFor paths = case map (Target context . map (\(ChildIndex index) -> index) . unPath) paths of
+    obligationsFor paths = case map (Target context) paths of
         [] -> []
         first : rest -> Exists first : map (Equal first) rest
 
@@ -215,10 +215,10 @@ resolve problem (Target (Variable variable) position) =
     case IntMap.lookup (fromEnum variable) $ bindings problem of
         Just fragment -> resolve problem $ Target fragment position
         Nothing -> case position of
-            [] -> Resolved $ Variable variable
+            EmptyPath -> Resolved $ Variable variable
             _ -> Expand variable
-resolve _ (Target fragment []) = Resolved fragment
-resolve problem (Target (Constructor _ children) (index : rest)) =
+resolve _ (Target fragment EmptyPath) = Resolved fragment
+resolve problem (Target (Constructor _ children) (ConsPath (ChildIndex index) rest)) =
     case children !? index of
         Just child -> resolve problem $ Target child rest
         Nothing -> Absent
@@ -245,8 +245,8 @@ normalize problem = do
     follow (Variable variable) position = case IntMap.lookup (fromEnum variable) $ bindings problem of
         Nothing -> Just $ Target (Variable variable) position
         Just fragment -> follow fragment position
-    follow fragment [] = Just $ Target (inline fragment) []
-    follow (Constructor _ children) (index : rest) = (`follow` rest) =<< children !? index
+    follow fragment EmptyPath = Just $ Target (inline fragment) EmptyPath
+    follow (Constructor _ children) (ConsPath (ChildIndex index) rest) = (`follow` rest) =<< children !? index
 
     target (Target fragment position) = do
         Target resolved rest <- follow fragment position
@@ -254,7 +254,7 @@ normalize problem = do
       where
         rename (Variable variable) = Variable $ names IntMap.! fromEnum variable
         rename (Constructor symbol children) = Constructor symbol $ map rename children
-    required (Target _ []) = []
+    required (Target _ EmptyPath) = []
     required remaining = [Exists remaining]
     normalizeObligation (Exists position) = required <$> target position
     normalizeObligation (Equal left right) = do
@@ -326,7 +326,7 @@ unify interpret problem (Variable variable) fragment
     | otherwise =
         expandVariable
             interpret
-            problem{obligations = Equal (Target (Variable variable) []) (Target fragment []) : obligations problem}
+            problem{obligations = Equal (Target (Variable variable) EmptyPath) (Target fragment EmptyPath) : obligations problem}
             variable
 unify interpret problem fragment (Variable variable) = unify interpret problem (Variable variable) fragment
 unify interpret problem (Constructor left children) (Constructor right others)
@@ -334,11 +334,13 @@ unify interpret problem (Constructor left children) (Constructor right others)
     | otherwise =
         solve
             interpret
-            problem{obligations = zipWith (\a b -> Equal (Target a []) (Target b [])) children others <> obligations problem}
+            problem
+                { obligations = zipWith (\a b -> Equal (Target a EmptyPath) (Target b EmptyPath)) children others <> obligations problem
+                }
 
 -- | Reject an equality between a finite tree and its proper subtree.
 occurs :: Problem symbol -> VarIndex -> Fragment symbol -> Bool
-occurs problem variable fragment = case resolve problem $ Target fragment [] of
+occurs problem variable fragment = case resolve problem $ Target fragment EmptyPath of
     Resolved (Variable other) -> variable == other
     Resolved (Constructor _ children) -> any (occurs problem variable) children
     _ -> False
@@ -371,15 +373,15 @@ expandVariable interpret problem variable =
         context = Constructor (edgeSymbol edge) $ map Variable variables
 
 -- | Keep one constructor at a selected position in the graph.
-condition :: (Theory symbol) => [Int] -> (symbol, Arity) -> Node symbol -> Node symbol
-condition [] (symbol, arity) node =
+condition :: (Theory symbol) => Path -> (symbol, Arity) -> Node symbol -> Node symbol
+condition EmptyPath (symbol, arity) node =
     Node [edge | edge <- nodeEdges node, edgeSymbol edge == symbol, Arity (length (edgeChildren edge)) == arity]
-condition (index : rest) constructor node =
+condition (ConsPath index@(ChildIndex child) rest) constructor node =
     Node
-        [ setChildren edge $ adjustAt (ChildIndex index) (condition rest constructor) children
+        [ setChildren edge $ adjustAt index (condition rest constructor) children
         | edge <- nodeEdges node
         , let children = edgeChildren edge
-        , Just _ <- [children !? index]
+        , Just _ <- [children !? child]
         ]
 
 {- | Read possible constructors at a path without enumerating subterms, by
@@ -387,7 +389,7 @@ arity, then in key order. Two symbols with one key stay apart, in symbol
 order, so a key that does not tell symbols apart loses no constructor.
 -}
 constructorsAt ::
-    (Theory symbol, Ord key) => (symbol -> key) -> [Int] -> Node symbol -> [(symbol, Arity)]
+    (Theory symbol, Ord key) => (symbol -> key) -> Path -> Node symbol -> [(symbol, Arity)]
 constructorsAt order position root =
     map snd
         $ Map.toAscList
@@ -399,11 +401,11 @@ constructorsAt order position root =
             ]
 
 -- | An upper bound on the subtree language at one position.
-project :: (Theory symbol) => [Int] -> Node symbol -> Node symbol
+project :: (Theory symbol) => Path -> Node symbol -> Node symbol
 project position root = Node $ concatMap nodeEdges $ Set.toList $ go position $ Set.singleton root
   where
-    go [] nodes = nodes
-    go (index : rest) nodes =
+    go EmptyPath nodes = nodes
+    go (ConsPath (ChildIndex index) rest) nodes =
         go rest
             $ Set.fromList
             $ mapMaybe
@@ -416,7 +418,7 @@ selectTerm ::
     (symbol -> key) ->
     Interpretation ->
     Node symbol ->
-    [Int] ->
+    Path ->
     Rank ->
     State.State (Counts symbol) (Tree.Tree symbol)
 selectTerm order interpret root position (Rank rank) = do
@@ -429,7 +431,7 @@ selectAt ::
     (symbol -> key) ->
     Interpretation ->
     Node symbol ->
-    [Int] ->
+    Path ->
     Integer ->
     State.State (Counts symbol) (Tree.Tree symbol, Node symbol, Integer)
 selectAt order interpret root position rank = do
@@ -438,7 +440,7 @@ selectAt order interpret root position rank = do
     if count == 1
         then do
             counts <- State.get
-            pure (State.evalState (selectUniqueAt order interpret local []) counts, root, rank)
+            pure (State.evalState (selectUniqueAt order interpret local EmptyPath) counts, root, rank)
         else choose rank $ constructorsAt order position root
   where
     choose _ [] = error "symbolicRanked: rank outside the retained language"
@@ -448,11 +450,11 @@ selectAt order interpret root position rank = do
         if remaining >= count
             then choose (remaining - count) rest
             else do
-                ~(children, final, suffixRank) <- selectChildren restricted remaining (map fromEnum (childIndexes arity))
+                ~(children, final, suffixRank) <- selectChildren restricted remaining (childIndexes arity)
                 pure (Tree.Node symbol children, final, suffixRank)
     selectChildren graph remaining [] = pure ([], graph, remaining)
     selectChildren graph remaining (index : rest) = do
-        ~(term, restricted, suffixRank) <- selectAt order interpret graph (position <> [index]) remaining
+        ~(term, restricted, suffixRank) <- selectAt order interpret graph (position <> path [index]) remaining
         ~(children, final, finalRank) <- selectChildren restricted suffixRank rest
         pure (term : children, final, finalRank)
 
@@ -462,7 +464,7 @@ selectUniqueAt ::
     (symbol -> key) ->
     Interpretation ->
     Node symbol ->
-    [Int] ->
+    Path ->
     State.State (Counts symbol) (Tree.Tree symbol)
 selectUniqueAt order interpret root position = choose $ constructorsAt order position root
   where
@@ -476,6 +478,6 @@ selectUniqueAt order interpret root position = choose $ constructorsAt order pos
                 pure $
                     Tree.Node
                         symbol
-                        [ State.evalState (selectUniqueAt order interpret root $ position <> [index]) counts
-                        | index <- map fromEnum (childIndexes arity)
+                        [ State.evalState (selectUniqueAt order interpret root $ position <> path [index]) counts
+                        | index <- childIndexes arity
                         ]
