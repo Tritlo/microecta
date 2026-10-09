@@ -292,7 +292,7 @@ joinOutcomeIndex left right groups = do
                 , Tree.Node RightKeyed [Tree.Node (Group (GroupIndex key')) [], rightTerm]
                 ]
                 | key == key' ->
-                    [ (offsetRank offset $ pairRank (toEnum $ Sequence.length $ joinGroupRight group) leftIndex rightIndex, True)
+                    [ CheckedRank (offsetRank offset $ pairRank (toEnum $ Sequence.length $ joinGroupRight group) leftIndex rightIndex) True
                     | Just (offset, group) <- [IntMap.lookup key groupsByIndex]
                     , leftIndex <- positionsIn (joinGroupLeft group) leftTerm
                     , rightIndex <- positionsIn (joinGroupRight group) rightTerm
@@ -481,9 +481,11 @@ joinNBucketStatic componentIndex operation arguments =
         childrenRanks (Tree.Node CenterKeyed centre : argumentTerms) = case centre of
             operationTerm : keys ->
                 let keysChecked = joinKeysMatch componentIndex keys argumentTerms
-                 in [ (pairRank argumentsCardinality operationRank argumentRank, operationChecked && argumentsChecked && keysChecked)
-                    | (operationRank, operationChecked) <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
-                    , (argumentRank, argumentsChecked) <- chainRanks arguments argumentTerms
+                 in [ CheckedRank
+                        (pairRank argumentsCardinality operationRank argumentRank)
+                        (operationChecked && argumentsChecked && keysChecked)
+                    | CheckedRank operationRank operationChecked <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
+                    , CheckedRank argumentRank argumentsChecked <- chainRanks arguments argumentTerms
                     ]
             [] -> []
         childrenRanks _ = []

@@ -110,7 +110,7 @@ order.
 data RecursiveTerms symbol = RecursiveTerms
     { recursiveTermIndex :: SizeIndex (Tree.Tree (Label symbol))
     -- ^ The term of each member.
-    , recursiveTermPositions :: TermView symbol -> [(SizedRank, Bool)]
+    , recursiveTermPositions :: TermView symbol -> [CheckedRank SizedRank]
     {- ^ The size class and position of each member whose term has the view,
     and whether the ranking checked every symbol of the term, as for
     'outcomeRanks'.
@@ -139,8 +139,8 @@ staticTerms static =
         (mapIndexWithRank (\rank _ -> termOf rank) $ outcomeSizeIndex outcomes)
         ( \view ->
             sort
-                [ (position, checked)
-                | (rank, checked) <- outcomeRanks outcomes view
+                [ CheckedRank position checked
+                | CheckedRank rank checked <- outcomeRanks outcomes view
                 , Just position <- [planPosition (outcomePlan outcomes) rank]
                 ]
         )
@@ -179,10 +179,10 @@ productTerms indexF indexX termsF termsX =
             Empty -> []
 
         positionsFrom functionView argument =
-            [ (productPosition indexF indexX functionPosition argumentPosition, functionChecked && argumentChecked)
-            | (functionPosition, functionChecked) <- recursiveTermPositions termsF functionView
-            , (argumentPosition, argumentChecked) <- recursiveTermPositions termsX $ WholeTerm argument
-            ]
+            checkedProduct
+                (productPosition indexF indexX)
+                (recursiveTermPositions termsF functionView)
+                (recursiveTermPositions termsX $ WholeTerm argument)
 
 {- | The terms of ordered alternatives, whose value indexes give the counts.
 The term of a member is the private choice wrapper of its alternative.
@@ -205,8 +205,8 @@ choiceTerms indexes terms =
         LabelledView _ -> concat [branchPositions branch view | branch <- map ChoiceIndex [0 .. length terms - 1]]
     branchPositions branch@(ChoiceIndex index) view = case terms !? index of
         Just branchTerms ->
-            [ (SizedRank size (choicePosition indexes branch size position), checked)
-            | (SizedRank size position, checked) <- recursiveTermPositions branchTerms view
+            [ CheckedRank (SizedRank size (choicePosition indexes branch size position)) checked
+            | CheckedRank (SizedRank size position) checked <- recursiveTermPositions branchTerms view
             ]
         Nothing -> []
 
@@ -214,12 +214,12 @@ choiceTerms indexes terms =
 has the view, in ascending order, and whether the ranking checked every
 symbol of the term.
 -}
-recursivePositions :: Recursive symbol a -> TermView symbol -> Maybe [(Rank, Bool)]
+recursivePositions :: Recursive symbol a -> TermView symbol -> Maybe [CheckedRank Rank]
 recursivePositions recursive view = do
     terms <- recursiveTerm recursive
     pure
-        [ (sizeMajorRank (recursiveIndex recursive) position, checked)
-        | (position, checked) <- recursiveTermPositions terms view
+        [ CheckedRank (sizeMajorRank (recursiveIndex recursive) position) checked
+        | CheckedRank position checked <- recursiveTermPositions terms view
         ]
 
 {- | Bound a recursive language to its members of size at most the bound.
@@ -261,9 +261,9 @@ boundedStatic bound recursive
   where
     -- A bound keeps the size-major ranks of the members that it keeps.
     boundedRanks view =
-        [ (sizeMajorRank (recursiveIndex recursive) position, checked)
+        [ CheckedRank (sizeMajorRank (recursiveIndex recursive) position) checked
         | Just terms <- [recursiveTerm recursive]
-        , (position, checked) <- recursiveTermPositions terms view
+        , CheckedRank position checked <- recursiveTermPositions terms view
         , rankSize position <= bound
         ]
     select index = case recursiveTermIndex <$> recursiveTerm recursive of

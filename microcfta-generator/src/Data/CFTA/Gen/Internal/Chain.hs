@@ -218,13 +218,13 @@ keys of the arguments are not checked here: see 'joinKeysMatch'.
 chainRanks ::
     ArgStatics symbol operation result ->
     [Tree.Tree (Label symbol)] ->
-    [(Rank, Bool)]
-chainRanks ChainNil [] = [(0, True)]
+    [CheckedRank Rank]
+chainRanks ChainNil [] = [CheckedRank 0 True]
 chainRanks (ChainCons static rest) (Tree.Node ArgKeyed [_, term] : terms) =
-    [ (pairRank (chainCardinality rest) here there, hereChecked && thereChecked)
-    | (here, hereChecked) <- outcomeRanks (staticOutcomes static) $ WholeTerm term
-    , (there, thereChecked) <- chainRanks rest terms
-    ]
+    checkedProduct
+        (pairRank $ chainCardinality rest)
+        (outcomeRanks (staticOutcomes static) $ WholeTerm term)
+        (chainRanks rest terms)
 chainRanks _ _ = []
 
 {- | Whether the children of an n-way join carry the keys of the component in
@@ -318,13 +318,13 @@ recursiveChainTerms componentIndex operationIndex operationTerms arguments = do
                 let keysChecked = joinKeysMatch componentIndex keys argumentNodes
                  in foldl
                         ( \partialPositions (partialIndex, (argumentIndex, terms), argument) ->
-                            [ (productPosition partialIndex argumentIndex partialPosition argumentPosition, partialChecked && argumentChecked)
-                            | (partialPosition, partialChecked) <- partialPositions
-                            , (argumentPosition, argumentChecked) <- recursiveTermPositions terms $ WholeTerm argument
-                            ]
+                            checkedProduct
+                                (productPosition partialIndex argumentIndex)
+                                partialPositions
+                                (recursiveTermPositions terms $ WholeTerm argument)
                         )
-                        [ (position, checked && keysChecked)
-                        | (position, checked) <- recursiveTermPositions operationTerms $ WholeTerm operation
+                        [ CheckedRank position (checked && keysChecked)
+                        | CheckedRank position checked <- recursiveTermPositions operationTerms $ WholeTerm operation
                         ]
                         (zip3 chainIndexes argumentTerms arguments')
         childrenPositions _ = []
