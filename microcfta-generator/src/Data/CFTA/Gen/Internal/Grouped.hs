@@ -34,8 +34,10 @@ module Data.CFTA.Gen.Internal.Grouped (
     massesAtSize,
 ) where
 
+import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
 import Data.Text (Text)
 import Data.Typeable (Typeable)
 
@@ -410,8 +412,8 @@ relateGroupsM relation resultKey left right =
         (CyclicGrouped _, _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
         (_, CyclicGrouped _) -> pure $ Right $ Grouped $ Left UnboundedGenerator
         (Grouped (Right leftBuckets), Grouped (Right rightBuckets)) -> do
-            related <- decidePairs 0 [] $ Map.toAscList leftBuckets
-            pure $ fmap (Grouped . mergeComponentsByKey . reverse) related
+            related <- decidePairs 0 Empty $ Map.toAscList leftBuckets
+            pure $ fmap (Grouped . mergeComponentsByKey . toList) related
           where
             rightEntries = Map.toAscList rightBuckets
 
@@ -432,17 +434,17 @@ relateGroupsM relation resultKey left right =
                         let retained =
                                 if keep
                                     then
-                                        ( resultKey leftGroupKey rightGroupKey
-                                        , keyedBucketMass leftBucket * keyedBucketMass rightBucket
-                                        , joinNBucketStatic
-                                            componentIndex
-                                            (pureStatic (,))
-                                            ( ChainCons
-                                                (keyedBucketStatic leftBucket)
-                                                (ChainCons (keyedBucketStatic rightBucket) ChainNil)
-                                            )
-                                        )
-                                            : accepted
+                                        accepted
+                                            :|> ( resultKey leftGroupKey rightGroupKey
+                                                , keyedBucketMass leftBucket * keyedBucketMass rightBucket
+                                                , joinNBucketStatic
+                                                    componentIndex
+                                                    (pureStatic (,))
+                                                    ( ChainCons
+                                                        (keyedBucketStatic leftBucket)
+                                                        (ChainCons (keyedBucketStatic rightBucket) ChainNil)
+                                                    )
+                                                )
                                     else accepted
                             nextIndex = if keep then componentIndex + 1 else componentIndex
                          in decideRights nextIndex retained leftGroupKey leftBucket rest
@@ -485,8 +487,8 @@ filterGroupsM _ (Grouped (Left err)) = pure $ Right $ Grouped $ Left err
 filterGroupsM _ (CyclicGrouped (Left err)) = pure $ Right $ Grouped $ Left err
 filterGroupsM _ (CyclicGrouped _) = pure $ Right $ Grouped $ Left UnboundedGenerator
 filterGroupsM predicate (Grouped (Right buckets)) = do
-    retained <- go [] $ Map.toAscList buckets
-    pure $ fmap (Grouped . mergeComponentsByKey . reverse) retained
+    retained <- go Empty $ Map.toAscList buckets
+    pure $ fmap (Grouped . mergeComponentsByKey . toList) retained
   where
     go accepted [] = pure $ Right accepted
     go accepted ((key, bucket) : rest) = do
@@ -496,7 +498,7 @@ filterGroupsM predicate (Grouped (Right buckets)) = do
             Right keep ->
                 go
                     ( if keep
-                        then (key, keyedBucketMass bucket, keyedBucketStatic bucket) : accepted
+                        then accepted :|> (key, keyedBucketMass bucket, keyedBucketStatic bucket)
                         else accepted
                     )
                     rest
