@@ -68,7 +68,7 @@ toGen ranked = case Tree.lower ranked of
     QuickCheckBackend generated -> generated
 
 -- | Lower a ranked language with its deterministic replay rank.
-toGenWithRank :: Tree.Ranked a -> QC.Gen (Rank, a)
+toGenWithRank :: Tree.Ranked a -> QC.Gen (Tree.RankedValue a)
 toGenWithRank ranked = case Tree.lowerWithRank ranked of
     QuickCheckBackend generated -> generated
 
@@ -77,7 +77,7 @@ forAll :: (QC.Testable prop, Show a) => Tree.Ranked a -> (a -> prop) -> QC.Prope
 forAll ranked = forAllWith (toGenWithRank ranked) shrink
   where
     shrink rank =
-        [ (candidate, value)
+        [ Tree.RankedValue candidate value
         | candidate <- Tree.shrinkRank ranked rank
         , Right value <- [Tree.unrank ranked candidate]
         ]
@@ -88,13 +88,13 @@ The failing rank is printed with the counterexample.
 -}
 forAllWith ::
     (QC.Testable prop, Show a) =>
-    QC.Gen (Rank, a) ->
-    (Rank -> [(Rank, a)]) ->
+    QC.Gen (Tree.RankedValue a) ->
+    (Rank -> [Tree.RankedValue a]) ->
     (a -> prop) ->
     QC.Property
 forAllWith ranked shrink prop =
     QC.forAllShrinkShow
         ranked
-        (shrink . fst)
-        (\(rank, value) -> "rank " <> show rank <> ": " <> show value)
-        (prop . snd)
+        (shrink . Tree.valueRank)
+        (\(Tree.RankedValue rank value) -> "rank " <> show rank <> ": " <> show value)
+        (prop . Tree.rankedValue)

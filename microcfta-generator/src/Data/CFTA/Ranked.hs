@@ -25,6 +25,9 @@ The types are defined in "Data.CFTA.Ranked.Internal"; in short:
 * t'Ranked' is a compiled language; it is abstract here and has 'Functor' and
   'Applicative' instances.
 
+* t'RankedValue' is a value with its rank, as 'lowerWithRank' and
+  'smallerMembers' give it.
+
 The functions below are the public contracts. Their implementations live in
 "Data.CFTA.Ranked.Internal", which the generator layers of this package use
 directly.
@@ -34,6 +37,7 @@ module Data.CFTA.Ranked (
     WeightedIndexed (..),
     Ranked,
     RankedError (..),
+    RankedValue (..),
     GenBackend (..),
     fromIndexed,
     fromIndexedOnDemand,
@@ -53,6 +57,7 @@ module Data.CFTA.Ranked (
 import Data.CFTA.Index (Cardinality, Rank, Size, Weight)
 import Data.CFTA.Ranked.Internal (Indexed (..), Ranked, RankedError (..), WeightedIndexed (..))
 import qualified Data.CFTA.Ranked.Internal as Internal
+import Data.CFTA.Ranked.Internal.Decoder (RankedValue (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (..))
 
 -- | Build a ranked language from an indexed source.
@@ -106,7 +111,7 @@ lower :: (GenBackend gen) => Ranked a -> gen a
 lower = Internal.lower
 
 -- | Lower a ranked language while retaining the selected replay rank.
-lowerWithRank :: (GenBackend gen) => Ranked a -> gen (Rank, a)
+lowerWithRank :: (GenBackend gen) => Ranked a -> gen (RankedValue a)
 lowerWithRank = Internal.lowerWithRank
 
 {- | Structural shrink candidates for one rank.
@@ -121,7 +126,7 @@ shrinkRank :: Ranked a -> Rank -> [Rank]
 shrinkRank = Internal.shrinkRank
 
 -- | Every member structurally smaller than the selected member, in size order.
-smallerMembers :: Ranked a -> Rank -> [(Rank, a)]
+smallerMembers :: Ranked a -> Rank -> [RankedValue a]
 smallerMembers = Internal.smallerMembers
 
 -- | Structural size of the member at a valid rank.

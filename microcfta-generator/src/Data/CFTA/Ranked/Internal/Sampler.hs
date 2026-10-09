@@ -27,7 +27,6 @@ module Data.CFTA.Ranked.Internal.Sampler (
     uniformSampler,
 ) where
 
-import qualified Data.Bifunctor as Bifunctor
 import Data.List (mapAccumL)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
@@ -46,7 +45,7 @@ import Data.CFTA.Index (
     offsetRank,
     pairRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (SizeClass (..))
+import Data.CFTA.Ranked.Internal.Decoder (RankedValue (..), SizeClass (..), offsetRankedValue)
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex,
     countAtSize,
@@ -131,7 +130,7 @@ instance GenBackend Exact where
 -- | Backend-independent plans for sampling a value, with or without its rank.
 data Sampler a = Sampler
     { runValueSampler :: forall gen. (GenBackend gen) => gen a
-    , runRankSampler :: forall gen. (GenBackend gen) => gen (Rank, a)
+    , runRankSampler :: forall gen. (GenBackend gen) => gen (RankedValue a)
     }
 
 {- | The sampler for each recursive size class.
@@ -150,7 +149,7 @@ runValueAtSize sampling = runValueSampler . samplerAtSize sampling
 {- | Sample one value of the given size class with its rank. The rank is a
 position in that size class.
 -}
-runRankAtSize :: (GenBackend gen) => SampleIndex a -> Size -> gen (Rank, a)
+runRankAtSize :: (GenBackend gen) => SampleIndex a -> Size -> gen (RankedValue a)
 runRankAtSize sampling = runRankSampler . samplerAtSize sampling
 
 {- | Aggregate the exact value distribution of one recursive size class.
@@ -171,13 +170,11 @@ mapSampler :: (a -> b) -> Sampler a -> Sampler b
 mapSampler transform sampler =
     Sampler
         (transform <$> runValueSampler sampler)
-        ( (Bifunctor.second transform)
-            <$> runRankSampler sampler
-        )
+        (fmap transform <$> runRankSampler sampler)
 
 -- | Sample uniformly with one selection, using a machine 'Int' when it fits.
 uniformSampler :: Cardinality -> (Rank -> a) -> Sampler a
-uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure (0, valueAt 0))
+uniformSampler 1 valueAt = Sampler (pure $ valueAt 0) (pure $ RankedValue 0 (valueAt 0))
 uniformSampler (Cardinality totalOutcomes) valueAt
     | totalOutcomes <= toInteger (maxBound :: Int) =
         let bound = fromInteger totalOutcomes
@@ -185,11 +182,11 @@ uniformSampler (Cardinality totalOutcomes) valueAt
             valueAtInt = valueAt . rankOfInt
          in Sampler
                 (valueAtInt <$> selectInt bound)
-                ((\index -> (rankOfInt index, valueAtInt index)) <$> selectInt bound)
+                ((\index -> RankedValue (rankOfInt index) (valueAtInt index)) <$> selectInt bound)
 uniformSampler totalOutcomes valueAt =
     Sampler
         (valueAt <$> selectInteger totalOutcomes)
-        ((\rank -> (rank, valueAt rank)) <$> selectInteger totalOutcomes)
+        ((\rank -> RankedValue rank (valueAt rank)) <$> selectInteger totalOutcomes)
 
 -- | Sample a product, composing ranks in mixed radix.
 productSampler :: Cardinality -> Sampler (a -> b) -> Sampler a -> Sampler b
@@ -197,8 +194,8 @@ productSampler rightCardinality leftSampler rightSampler =
     Sampler
         (runValueSampler leftSampler <*> runValueSampler rightSampler)
         ( liftA2
-            ( \(leftRank, partial) (rightRank, value) ->
-                (pairRank rightCardinality leftRank rightRank, partial value)
+            ( \(RankedValue leftRank partial) (RankedValue rightRank value) ->
+                RankedValue (pairRank rightCardinality leftRank rightRank) (partial value)
             )
             (runRankSampler leftSampler)
             (runRankSampler rightSampler)
@@ -211,7 +208,7 @@ uniformSampleIndex index =
         -- The ranks of this sampler are the positions in the size class.
         uniformSampler
             (countAtSize index size)
-            (\(Rank position) -> snd $ sizeClassSelect index size $ ClassRank position)
+            (\(Rank position) -> rankedValue $ sizeClassSelect index size $ ClassRank position)
 
 -- | Use one finite atomic sampler as the only size-one class.
 atomicSampleIndex :: Sampler a -> SampleIndex a
@@ -311,10 +308,8 @@ productSampleIndexBy choose weightOf indexF samplingF indexX samplingX =
                 ]
             )
   where
-    combine offset argumentCount (functionPosition, function) (argumentPosition, argument) =
-        ( offsetRank offset $ pairRank argumentCount functionPosition argumentPosition
-        , function argument
-        )
+    combine offset argumentCount (RankedValue functionPosition function) (RankedValue argumentPosition argument) =
+        RankedValue (offsetRank offset $ pairRank argumentCount functionPosition argumentPosition) (function argument)
 
 -- | Sample a product at one exact size, weighting splits by member count.
 productSampleIndex ::
@@ -385,10 +380,7 @@ choiceSampleIndexBy choose alternatives =
             )
             ( runChoose
                 choose
-                [ ( weight
-                  , (Bifunctor.first (offsetRank offset))
-                        <$> runRankAtSize sampling size
-                  )
+                [ (weight, offsetRankedValue offset <$> runRankAtSize sampling size)
                 | (weight, offset, sampling) <- parts size
                 ]
             )
@@ -448,10 +440,7 @@ boundedSampler classes sampling =
             ]
         )
         ( chooseWeighted
-            [ ( countWeight count
-              , (Bifunctor.first (offsetRank offset))
-                    <$> runRankAtSize sampling size
-              )
+            [ (countWeight count, offsetRankedValue offset <$> runRankAtSize sampling size)
             | (size, count, offset) <- offsetClasses 0 classes
             ]
         )

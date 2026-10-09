@@ -38,14 +38,15 @@ module Data.CFTA.Ranked.Internal (
 ) where
 
 import Data.Array (listArray, (!))
-import qualified Data.Bifunctor as Bifunctor
 
-import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), countWeight, hasRank, offsetRank)
+import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), countWeight, hasRank)
 import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
+    RankedValue (..),
     SizeClass (..),
     compilePlan,
+    offsetRankedValue,
     planCardinality,
     sharedChoiceBound,
  )
@@ -194,7 +195,7 @@ fromWeightedIndexedOnDemand
                     (PlanSelectOnDemand weightedIndexedCardinality weightedIndexedSelect)
                     ( Sampler
                         (weightedIndexedSelect <$> runValueSampler tickets)
-                        ((\rank -> (rank, weightedIndexedSelect rank)) <$> runValueSampler tickets)
+                        ((\rank -> RankedValue rank (weightedIndexedSelect rank)) <$> runValueSampler tickets)
                     )
       where
         -- The tickets are the ranks of a uniform language with one member for each ticket.
@@ -254,7 +255,7 @@ fromWeighted weighted
                 ( Sampler
                     (frequencyGen [(weight, pure value) | (weight, value) <- weighted])
                     ( frequencyGen
-                        [ (weight, pure (rank, value))
+                        [ (weight, pure $ RankedValue rank value)
                         | (rank, (weight, value)) <- zip [0 ..] weighted
                         ]
                     )
@@ -285,10 +286,7 @@ frequency alternatives
                         ]
                     )
                     ( frequencyGen
-                        [ ( weight
-                          , (Bifunctor.first (offsetRank offset))
-                                <$> runRankSampler (rankedSampler ranked)
-                          )
+                        [ (weight, offsetRankedValue offset <$> runRankSampler (rankedSampler ranked))
                         | (offset, (weight, ranked)) <- withOffsets (cardinality . snd) alternatives
                         ]
                     )
@@ -327,7 +325,7 @@ lower :: (GenBackend gen) => Ranked a -> gen a
 lower = runValueSampler . rankedSampler
 
 -- | Lower a ranked language while retaining the selected replay rank.
-lowerWithRank :: (GenBackend gen) => Ranked a -> gen (Rank, a)
+lowerWithRank :: (GenBackend gen) => Ranked a -> gen (RankedValue a)
 lowerWithRank = runRankSampler . rankedSampler
 
 {- | Structural shrink candidates for one rank.
@@ -344,7 +342,7 @@ shrinkRank ranked rank
     | otherwise = shrinkPlanRank (rankedPlan ranked) rank
 
 -- | Every member structurally smaller than the selected member, in size order.
-smallerMembers :: Ranked a -> Rank -> [(Rank, a)]
+smallerMembers :: Ranked a -> Rank -> [RankedValue a]
 smallerMembers ranked rank
     | not $ hasRank (cardinality ranked) rank = []
     | otherwise = smallerPlanMembers (rankedSizeIndex ranked) (rankedPlan ranked) rank

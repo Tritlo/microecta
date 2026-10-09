@@ -18,6 +18,8 @@ module Data.CFTA.Ranked.Internal.Decoder (
     RankDecoder (..),
     SizeCounts,
     SizeIndex (..),
+    RankedValue (..),
+    offsetRankedValue,
     planCardinality,
     compilePlan,
     sharedChoiceBound,
@@ -26,7 +28,7 @@ module Data.CFTA.Ranked.Internal.Decoder (
 import qualified Data.Map.Lazy as Map
 import GHC.Arr (listArray, unsafeAt)
 
-import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size)
+import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), RankOffset, Size, offsetRank)
 
 {- | Symbolic rank-decoding structure retained beside every outcome index.
 
@@ -121,7 +123,7 @@ subplan.
 data SizeIndex a = SizeIndex
     { sizeClassCounts :: SizeCounts
     -- ^ Members per size, for ascending sizes.
-    , sizeClassSelect :: Size -> ClassRank -> (Rank, a)
+    , sizeClassSelect :: Size -> ClassRank -> RankedValue a
     -- ^ Rank and value of one member of one size class.
     , sizeClassValueInt :: Size -> Int -> a
     {- ^ Value of one member using machine arithmetic. Called only when the
@@ -139,6 +141,29 @@ data SizeIndex a = SizeIndex
     whose body never reaches its own occurrence is not recursive.
     -}
     }
+
+{- | A value with its rank in a language.
+
+A sampler gives a value with its rank, so that a caller can replay the value
+from the rank. Many callers read only the rank or only the value, so the
+fields are lazy: the program does not compute a field that no caller reads.
+-}
+data RankedValue a = RankedValue
+    { valueRank :: Rank
+    -- ^ The rank of the value.
+    , rankedValue :: a
+    -- ^ The value.
+    }
+    deriving (Eq, Ord, Show)
+
+-- | Map the value and keep the rank.
+instance Functor RankedValue where
+    fmap transform (RankedValue rank value) = RankedValue rank (transform value)
+
+-- | A value of a group, with its rank in the larger language. The offset is the first rank of the group.
+offsetRankedValue :: RankOffset -> RankedValue a -> RankedValue a
+offsetRankedValue offset (RankedValue rank value) = RankedValue (offsetRank offset rank) value
+{-# INLINE offsetRankedValue #-}
 
 -- | The exact number of ranks a plan decodes.
 planCardinality :: Plan a -> Cardinality

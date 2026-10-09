@@ -52,7 +52,7 @@ import Data.CFTA.Index (
     rebaseRank,
     splitRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeClass (..))
+import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex (minimumMemberSize, sizeClassCounts, sizeClassSelect),
     countAtSize,
@@ -79,7 +79,7 @@ smallestPlanMember (PlanSelectOnDemand cardinality _) =
 -- its members in rank order, so position zero has the least rank.
 smallestPlanMember (PlanShared _ _ index _) = do
     size <- minimumMemberSize index
-    pure (size, fst $ sizeClassSelect index size 0)
+    pure (size, valueRank $ sizeClassSelect index size 0)
 smallestPlanMember (PlanMap _ plan) = smallestPlanMember plan
 smallestPlanMember (PlanChoice branches) = go 0 branches
   where
@@ -217,7 +217,7 @@ than enumerating everything before it. The stream is lazy in both
 directions: consumers may cap it, and a size class larger than the
 consumer's demand is never forced completely.
 -}
-smallerPlanMembers :: SizeIndex a -> Plan a -> Rank -> [(Rank, a)]
+smallerPlanMembers :: SizeIndex a -> Plan a -> Rank -> [RankedValue a]
 smallerPlanMembers index plan rank =
     concatMap (classMembers . fst) $ takeWhile ((< planMemberSize plan rank) . fst) (sizeClassCounts index)
   where
