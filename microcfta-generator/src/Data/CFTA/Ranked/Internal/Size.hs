@@ -39,6 +39,7 @@ contract of the package.
 module Data.CFTA.Ranked.Internal.Size (
     SizeCounts,
     SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
+    MinimumSize (..),
     SizedRank (..),
     probeIndex,
     probeIndexWithMinimum,
@@ -72,6 +73,7 @@ import Data.CFTA.Index (
     pairRank,
  )
 import Data.CFTA.Ranked.Internal.Decoder (
+    MinimumSize (..),
     Plan (..),
     RankedValue (..),
     SizeClass (..),
@@ -87,14 +89,14 @@ whether the recursion passes through a product and whether it can close to a
 finite member, without counting anything.
 -}
 probeIndex :: SizeIndex a
-probeIndex = probeIndexWithMinimum Nothing
+probeIndex = probeIndexWithMinimum NoFiniteMember
 
 {- | A recursive-occurrence probe with an assumed minimum.
 
 Grouped recursion uses this to solve the least live size of mutually
 recursive keys without forcing their count knots.
 -}
-probeIndexWithMinimum :: Maybe Size -> SizeIndex a
+probeIndexWithMinimum :: MinimumSize -> SizeIndex a
 probeIndexWithMinimum minimumSize' =
     SizeIndex
         ( error
@@ -179,8 +181,8 @@ sizeIndex (PlanSelect cardinality' decode) =
     SizeIndex [(1, cardinality') | cardinality' > 0] select selectInt minimumSize' False False
   where
     minimumSize'
-        | cardinality' > 0 = Just 1
-        | otherwise = Nothing
+        | cardinality' > 0 = MinimumSize 1
+        | otherwise = NoFiniteMember
     -- A leaf has one size class, so a rank in that class is a rank.
     select 1 (ClassRank position) = let rank = Rank position in RankedValue rank (decode rank)
     select size _ =
@@ -221,7 +223,7 @@ sizeIndex (PlanAp radix planF planX) =
     indexF = sizeIndex planF
     indexX = sizeIndex planX
     counts = productCounts indexF indexX
-    minimumSize' = (+) <$> minimumMemberSize indexF <*> minimumMemberSize indexX
+    minimumSize' = productMinimum (minimumMemberSize indexF) (minimumMemberSize indexX)
 
     select size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
@@ -240,8 +242,8 @@ sizeIndex (PlanSized classes) =
   where
     counts = [(size, count) | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0]
     minimumSize' = case [size | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0] of
-        [] -> Nothing
-        liveSizes -> Just $ minimum liveSizes
+        [] -> NoFiniteMember
+        liveSizes -> MinimumSize $ minimum liveSizes
     offsets = offsetClasses 0 classes
     offsetClasses _ [] = []
     offsetClasses offset (sizeClass@SizeClass{classCardinality = count} : rest) =
@@ -265,7 +267,7 @@ sizeIndex (PlanSized classes) =
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [(1, 1)] select selectInt (Just 1) False False
+    SizeIndex [(1, 1)] select selectInt (MinimumSize 1) False False
   where
     select 1 0 = RankedValue 0 value
     select size position =
@@ -313,7 +315,7 @@ productIndex indexF indexX =
         counts
         select
         selectInt
-        ((+) <$> minimumMemberSize indexF <*> minimumMemberSize indexX)
+        (productMinimum (minimumMemberSize indexF) (minimumMemberSize indexX))
         False
         (usedOccurrence indexF || usedOccurrence indexX)
   where
@@ -390,7 +392,7 @@ that reads them before its own occurrence does not terminate. A build around
 a new record, not an update of the index: an update would evaluate the index,
 and a nested definition in its body can read the flags of this one.
 -}
-withKnotMetadata :: Maybe Size -> SizeIndex b -> SizeIndex a -> SizeIndex a
+withKnotMetadata :: MinimumSize -> SizeIndex b -> SizeIndex a -> SizeIndex a
 withKnotMetadata minimumSize' closed index =
     SizeIndex
         { sizeClassCounts = sizeClassCounts index
@@ -401,13 +403,20 @@ withKnotMetadata minimumSize' closed index =
         , usedOccurrence = usedOccurrence closed
         }
 
--- | The least present value, ignoring absent entries.
-minimumOf :: [Maybe Size] -> Maybe Size
-minimumOf = foldr combine Nothing
+-- | The least of the minimum sizes, ignoring 'NoFiniteMember'.
+minimumOf :: [MinimumSize] -> MinimumSize
+minimumOf = foldr combine NoFiniteMember
   where
-    combine Nothing current = current
-    combine current Nothing = current
-    combine (Just left) (Just right) = Just $ min left right
+    combine NoFiniteMember current = current
+    combine current NoFiniteMember = current
+    combine (MinimumSize left) (MinimumSize right) = MinimumSize $ min left right
+
+{- | The minimum size of a product: the sum of the minimum sizes of its two
+sides. A product has a finite member only when both sides have one.
+-}
+productMinimum :: MinimumSize -> MinimumSize -> MinimumSize
+productMinimum (MinimumSize left) (MinimumSize right) = MinimumSize $ left + right
+productMinimum _ _ = NoFiniteMember
 
 -- | Each size class with the rank that its first member takes.
 sizeMajorRanks :: SizeCounts -> [(Size, RankOffset)]

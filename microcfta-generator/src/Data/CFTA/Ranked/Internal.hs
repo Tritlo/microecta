@@ -63,7 +63,7 @@ import Data.CFTA.Ranked.Internal.Shrink (
     smallerPlanMembers,
     withOffsets,
  )
-import Data.CFTA.Ranked.Internal.Size (SizeIndex (minimumMemberSize), sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (MinimumSize (..), SizeIndex (minimumMemberSize), sizeIndex)
 
 -- | A finite source addressed by a stable zero-based rank.
 data Indexed a = Indexed
@@ -232,8 +232,8 @@ share ranked
   where
     member = decode (rankedDecoder ranked) 0
     size = case minimumMemberSize (rankedSizeIndex ranked) of
-        Just size' -> size'
-        Nothing ->
+        MinimumSize size' -> size'
+        NoFiniteMember ->
             error
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.share: \
                 \a language with one member has no size"
