@@ -9,6 +9,7 @@ module Data.CFTA.Interned (
     -- * Nodes and edges
     Node (EmptyNode, InternedNode, InternedMu, Rec, Node, Mu),
     Edge (InternedEdge, Edge),
+    NodeId (..),
     RecNodeId (..),
     UninternedEdge (..),
     InternedNode (..),
@@ -88,7 +89,7 @@ import Data.CFTA.Interned.Operations
 import Data.CFTA.Interned.Type
 
 -- | State identity in the explicit view of an interned automaton.
-data InternedState = EmptyState | InternedState !Int
+data InternedState = EmptyState | InternedState !NodeId
     deriving (Eq, Ord, Show)
 
 -- | Failure while exposing an interned graph as an explicit-state automaton.
@@ -115,7 +116,7 @@ toFTA root
   where
     rows = case root of
         EmptyNode -> [(EmptyState, [])]
-        _ -> [(InternedState ident, map transition edges) | (ident, edges) <- IntMap.toList (reachable root)]
+        _ -> [(InternedState (NodeId ident), map transition edges) | (ident, edges) <- IntMap.toList (reachable root)]
       where
         transition edge =
             FTA.Transition
@@ -139,7 +140,9 @@ toTree root
     | not (Set.null $ freeVars root) = Left OpenNode
     | otherwise = Right $ toTreeBy nodeEdges edgeChildren root
 
--- | Outgoing alternatives of every node reachable from a root, by identity. An empty root reaches no node.
+{- | Outgoing alternatives of every node reachable from a root. The key is the
+'Int' of the 'NodeId' of the node. An empty root reaches no node.
+-}
 reachable ::
     (Hashable symbol, Typeable symbol) =>
     Node symbol -> IntMap [Edge symbol]
@@ -151,7 +154,7 @@ reachable root = collect IntMap.empty [root]
         | IntMap.member ident seen = collect seen pending
         | otherwise = collect (IntMap.insert ident edges seen) (concatMap edgeChildren edges <> pending)
       where
-        ident = nodeIdentity node
+        NodeId ident = nodeIdentity node
         edges = nodeEdges node
 
 {- | Intern an explicit-state graph without interpreting constraints.

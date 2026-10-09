@@ -1,5 +1,8 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | Interned nodes and edges with a constraint parameter.
 module Data.CFTA.Interned.Type (
+    NodeId (..),
     RecNodeId (..),
     Edge (.., Edge),
     UninternedEdge (..),
@@ -54,15 +57,24 @@ import Data.CFTA.Interned.Memo
 
 -- Mu node table
 
+{- | The identity of an interned node.
+
+The interning cache gives each new node a fresh identity. Identities are
+unique, but they are not dense. A recursive node and an ordinary node draw
+identities from one counter.
+-}
+newtype NodeId = NodeId Int
+    deriving newtype (Eq, Ord, Show, Hashable)
+
 -- | Internal identifier for references to recursive Interned automaton nodes.
 data RecNodeId
-    = -- | Reference to the 'Id' of an interned 'Mu' node
-      RecInt !Id
-    | {- | Reference to an as-yet uninterned 'Mu' node, for which the 'Id' is not yet known
+    = -- | Reference to the 'NodeId' of an interned 'Mu' node
+      RecInt !NodeId
+    | {- | Reference to an as-yet uninterned 'Mu' node, for which the 'NodeId' is not yet known
 
       The 'Int' argument is used to distinguish between multiple nested 'Mu' nodes.
 
-      NOTE: This is intentionally not an 'Id': it does not refer to the 'Id' of any interned node.
+      NOTE: This is intentionally not a 'NodeId': it does not refer to the 'NodeId' of any interned node.
       -}
       RecUnint Int
     | {- | Placeholder variable for depth calculations
@@ -100,30 +112,30 @@ data RecNodeId
 
 {- | Pair of node identities naming the recursive node introduced by @intersect@.
 
-This is a context-free way to name a 'Mu' node before its 'Id' exists. It
+This is a context-free way to name a 'Mu' node before its 'NodeId' exists. It
 generalizes "refer to the immediately enclosing binder": all we need is /some/
-concrete way to name that node without an 'Id'. Intersection introduces a 'Mu'
+concrete way to name that node without a 'NodeId'. Intersection introduces a 'Mu'
 whenever it meets a 'Mu' on either side, and does not introduce a second one
-for the same intersection problem in the same scope, so the 'Id's of the two
+for the same intersection problem in the same scope, so the 'NodeId's of the two
 operands identify the node to be constructed uniquely. Seeing a call to
 intersect again with those same two operands, whatever kind of nodes they are,
 can therefore refer back to it.
 
 Intersection introduces a 'Mu' in three cases ('Mu' on both sides, on the left
 only, or on the right only), but the distinction does not matter here: the two
-operand 'Id's are the whole name.
+operand 'NodeId's are the whole name.
 
 Because free variables are cached in a term, checking whether the 'Mu' node is
 needed at all is cheap. So if the input graphs never refer past a 'Mu', the
 output does not either: no redundant 'Mu' nodes are introduced.
 -}
 data IntersectId
-    = -- Invariant: the two 'Id's should be ordered (guaranteed by the pattern synonym constructor)
-      UnsafeIntersectId !Id !Id
+    = -- Invariant: the two 'NodeId's should be ordered (guaranteed by the pattern synonym constructor)
+      UnsafeIntersectId !NodeId !NodeId
     deriving (Eq, Ord, Show)
 
 -- | Smart pattern that stores the two ids in canonical order.
-pattern IntersectId :: Id -> Id -> IntersectId
+pattern IntersectId :: NodeId -> NodeId -> IntersectId
 pattern IntersectId i j <- (UnsafeIntersectId i j)
   where
     IntersectId i j
@@ -195,8 +207,8 @@ instance Hashable (Edge symbol) where
 
 -- | Interned recursive node payload.
 data InternedMu symbol = MkInternedMu
-    { internedMuId :: {-# UNPACK #-} !Id
-    -- ^ 'Id' of the node itself
+    { internedMuId :: {-# UNPACK #-} !NodeId
+    -- ^ 'NodeId' of the node itself
     , internedMuBody :: !(Node symbol)
     {- ^ The body of the 'Mu'
 
@@ -205,7 +217,7 @@ data InternedMu symbol = MkInternedMu
     > Rec (RecInt internedMuId)
     -}
     , internedMuShape :: !(Node symbol)
-    {- ^ The body of the 'Mu', before it was assigned an 'Id'
+    {- ^ The body of the 'Mu', before it was assigned a 'NodeId'
 
     Invariant, when the function given to 'Mu' is parametric in its variable:
 
@@ -223,8 +235,8 @@ data InternedMu symbol = MkInternedMu
 
 -- | Interned non-recursive node payload.
 data InternedNode symbol = MkInternedNode
-    { internedNodeId :: {-# UNPACK #-} !Id
-    -- ^ The 'Id' of the node itself
+    { internedNodeId :: {-# UNPACK #-} !NodeId
+    -- ^ The 'NodeId' of the node itself
     , internedNodeEdges :: ![Edge symbol]
     -- ^ All outgoing edges
     , internedNodeNumNestedMu :: !Int
@@ -264,14 +276,14 @@ instance Ord (Node symbol) where
         nodeDescriptorInt EmptyNode = -1
         nodeDescriptorInt (InternedNode node) = 3 * i
           where
-            i = internedNodeId node
+            NodeId i = internedNodeId node
         nodeDescriptorInt (InternedMu mu) = 3 * i + 1
           where
-            i = internedMuId mu
+            NodeId i = internedMuId mu
         nodeDescriptorInt (Rec recId) = 3 * i + 2
           where
             i = case recId of
-                RecInt nid -> nid
+                RecInt (NodeId nid) -> nid
                 _otherwise -> error $ "compare: unexpected " <> show recId
 
 instance Hashable (Node symbol) where
@@ -312,7 +324,7 @@ freeVars (Rec i) = Set.singleton i
 
 -- | Stable interned identity for non-empty, interned nodes.
 {-# INLINEABLE nodeIdentity #-}
-nodeIdentity :: Node symbol -> Id
+nodeIdentity :: Node symbol -> NodeId
 nodeIdentity (InternedMu mu) = internedMuId mu
 nodeIdentity (InternedNode node) = internedNodeId node
 nodeIdentity (Rec (RecInt i)) = i
@@ -339,7 +351,7 @@ data UninternedNode symbol
     | UninternedEmptyNode
     | {- | Recursive node, carrying its shape alongside the function.
 
-      The function should be parametric in the Id:
+      The function should be parametric in the 'RecNodeId':
 
       > substFree i (Rec j) (f i) == f j
 
@@ -394,10 +406,10 @@ nodeIds = unsafePerformIO newIdSupply
 internNode ::
     forall symbol.
     (Typeable symbol) => UninternedNode symbol -> Node symbol
-internNode = intern (selectCache @symbol nodeCaches (freshCacheWith nodeIds)) identifyNode
+internNode = intern (selectCache @symbol nodeCaches (freshCacheWith nodeIds)) (identifyNode . NodeId)
 
 {-# INLINEABLE identifyNode #-}
-identifyNode :: Id -> UninternedNode symbol -> Node symbol
+identifyNode :: NodeId -> UninternedNode symbol -> Node symbol
 identifyNode i (UninternedNode es) =
     InternedNode $
         MkInternedNode
@@ -438,7 +450,7 @@ identifyNode i (UninternedMu depthShape s n) =
 
 {- | Compute the " shape " of the body of a 'Mu'
 
-During interning we need to know the shape of the body of a 'Mu' node /before/ we know the 'Id' of that node. We do
+During interning we need to know the shape of the body of a 'Mu' node /before/ we know the 'NodeId' of that node. We do
 this by replacing any 'Rec' nodes in the node by placeholders. We have to be careful here however to correctly assign
 placeholders in the presence of nested 'Mu' nodes. For example, if the user writes a term such as
 

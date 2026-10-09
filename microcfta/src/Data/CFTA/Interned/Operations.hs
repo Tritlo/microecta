@@ -27,6 +27,7 @@ module Data.CFTA.Interned.Operations (
 ) where
 
 import Control.Monad.State.Strict (State, evalState, get, modify')
+import Data.Coerce (coerce)
 import Data.Functor.Identity (Identity (..))
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Hashable (Hashable (..))
@@ -47,7 +48,6 @@ import Type.Reflection (Typeable)
 import Data.CFTA.Constraint (Constraint (..), conjoinConstraints)
 import Data.CFTA.Index (Depth (..))
 import Data.CFTA.Internal.Tree (acceptsBy, adjustAt)
-import Data.CFTA.Interned.Cache (Id)
 import Data.CFTA.Interned.Memo
 import Data.CFTA.Interned.Type
 import Data.CFTA.Path (ChildIndex (..), Path (ConsPath, EmptyPath), Pathable (..))
@@ -110,7 +110,7 @@ crush f = \n -> evalState (go n) IntSet.empty
     go (Rec _) = return mempty
     go n = do
         seen <- get
-        let nId = nodeIdentity n
+        let NodeId nId = nodeIdentity n
         if IntSet.member nId seen
             then return mempty
             else do
@@ -219,7 +219,7 @@ boundDepth ::
     Depth -> Node symbol -> Node symbol
 boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
   where
-    go :: Depth -> Node symbol -> State (Map.Map (Depth, Id) (Node symbol)) (Node symbol)
+    go :: Depth -> Node symbol -> State (Map.Map (Depth, NodeId) (Node symbol)) (Node symbol)
     go _ EmptyNode = pure EmptyNode
     go _ (Rec _) = error "boundDepth: unexpected Rec"
     go remaining node
@@ -361,7 +361,7 @@ Information required to compute the intersection of open terms.
 -}
 data IntersectionDom symbol = ID
     { idFree :: IntMap (Node symbol)
-    -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
+    -- ^ Value of all free variables inside the term, by the 'NodeId' of their 'Mu' (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
     -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
     , idHash :: !Int
@@ -407,7 +407,7 @@ intersectOpen input =
             (_, EmptyNode) -> EmptyNode
             -- For closed terms, improve memoization performance by using the empty environment
             _ | Set.null (freeVars l), Set.null (freeVars r), not (IntMap.null (idFree dom)) -> l `intersect` r
-            -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'Id')
+            -- Special case for self-intersection (equality check is cheap of course: just uses the interned 'NodeId')
             _ | l == r, Set.null (freeVars l) -> l
             -- Always intersect nodes in the same order. This is important for two reasons:
             --
@@ -434,22 +434,22 @@ intersectOpen input =
                         (internedNodeEdges r')
       where
         -- Node identities (should only be used (forced) if previously established the nodes are not empty)
-        i, j :: Id
+        i, j :: NodeId
         i = nodeIdentity l
         j = nodeIdentity r
 
         -- Extend domain when we encounter a 'Mu'
         -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
-        extendEnv :: [(Id, Node symbol)] -> IntersectionDom symbol
+        extendEnv :: [(NodeId, Node symbol)] -> IntersectionDom symbol
         extendEnv bindings =
             mkIntersectionDom
-                (IntMap.union (IntMap.fromList bindings) (idFree dom))
+                (IntMap.union (IntMap.fromList (coerce bindings)) (idFree dom))
                 (Set.insert (IntersectId i j) (idRecInt dom))
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
         findFreeVar :: RecNodeId -> Node symbol
-        findFreeVar (RecInt intId) | Just n <- IntMap.lookup intId (idFree dom) = n
+        findFreeVar (RecInt (NodeId intId)) | Just n <- IntMap.lookup intId (idFree dom) = n
         findFreeVar recId = error $ "findFreeVar: unexpected " <> show recId
 
         -- We only insert a 'Mu' node when necessary.
