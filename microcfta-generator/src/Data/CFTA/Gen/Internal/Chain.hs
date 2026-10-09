@@ -114,7 +114,7 @@ chainSupports ChainNil = []
 chainSupports (ChainCons static rest) = staticSupport static : chainSupports rest
 
 -- | The root count of every argument group, in order.
-chainRootCounts :: ArgStatics symbol operation result -> [Maybe Int]
+chainRootCounts :: ArgStatics symbol operation result -> [RootCount]
 chainRootCounts ChainNil = []
 chainRootCounts (ChainCons static rest) = staticRootCount static : chainRootCounts rest
 

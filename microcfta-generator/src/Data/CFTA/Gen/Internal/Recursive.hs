@@ -133,7 +133,7 @@ boundedStatic bound recursive
                 (recursiveInspection recursive)
                 -- A recursive language does not keep the root count of its members.
                 ( commonRootCount
-                    [either (const Nothing) (Just . termRootCount . outcomeTerm) $ select rank | rank <- everyRank totalOutcomes]
+                    [either (const NoCommonCount) (RootCount . termRootCount . outcomeTerm) $ select rank | rank <- everyRank totalOutcomes]
                 )
   where
     select index = case recursiveTerm recursive of

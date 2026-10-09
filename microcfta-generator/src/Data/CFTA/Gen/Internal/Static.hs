@@ -17,7 +17,9 @@ module Data.CFTA.Gen.Internal.Static (
     seqPlan,
     Static (..),
     staticSampling,
+    RootCount (..),
     termRootCount,
+    addRootCounts,
     commonRootCount,
 
     -- * Building languages
@@ -163,12 +165,12 @@ data Static symbol a = Static
     -}
     , staticInspection :: Inspection symbol
     -- ^ Diagnostic structure. Counting and decoding do not force this field.
-    , staticRootCount :: Maybe Int
+    , staticRootCount :: RootCount
     {- ^ The number of user roots that the term of each member has, as
     'termRootCount' counts them, when all members have the same number, and
-    'Nothing' otherwise. Each combinator sets it from its parts, so reading it
-    lists no member. A language that does not know it lists its members on
-    first use.
+    'NoCommonCount' otherwise. Each combinator sets it from its parts, so
+    reading it lists no member. A language that does not know it lists its
+    members on first use.
     -}
     }
 
@@ -216,7 +218,7 @@ pureStatic value =
         )
         False
         (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
-        (Just 0)
+        (RootCount 0)
 
 -- | The language of one finite indexed source.
 indexedStatic :: (Hashable symbol, Typeable symbol) => Indexed a -> Static symbol a
@@ -239,7 +241,7 @@ indexedStaticWithLabels label indexed =
         )
         False
         (Inspection Nothing $ Node [Edge (namedSymbol index) [] | index <- everyRank totalOutcomes])
-        (Just 0)
+        (RootCount 0)
   where
     namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
@@ -268,7 +270,7 @@ termStatic root ranked =
         (mkOutcomeIndex total (Just mass) select valueAt (uniformSampler total valueAt) (Ranked.rankedPlan ranked))
         False
         (plainInspection supportNode)
-        (Just 1)
+        (RootCount 1)
   where
     supportNode = relabel Label root
     total = Ranked.cardinality ranked
@@ -316,7 +318,7 @@ applyStatic functions values =
                 [ Edge (plainSymbol Apply) [inspectionGraph $ staticInspection functions, inspectionGraph $ staticInspection values]
                 ]
         )
-        ((+) <$> staticRootCount functions <*> staticRootCount values)
+        (addRootCounts (staticRootCount functions) (staticRootCount values))
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
@@ -546,7 +548,7 @@ labelStatic symbol static =
         { staticSupport = labelSupport symbol $ staticSupport static
         , staticOutcomes = labelOutcomeTerms symbol $ staticOutcomes static
         , staticInspection = labelInspection symbol $ staticInspection static
-        , staticRootCount = Just 1
+        , staticRootCount = RootCount 1
         }
 
 -- | Relabel the retained term of every outcome that the index selects.
@@ -697,15 +699,32 @@ termRootCount :: Tree.Tree (Label symbol) -> Int
 termRootCount (Tree.Node (Label _) _) = 1
 termRootCount (Tree.Node _ children) = sum $ map termRootCount children
 
+{- | The number of user roots that each member of a language gives its
+constructor, or 'NoCommonCount'. 'NoCommonCount' is for a language whose
+members give different numbers, and for a language that does not know the
+number: a bounded recursive language without a term index, and, in the
+refinement compiler, a recursive or opaque built language. Each reader
+treats the two cases the same.
+-}
+data RootCount
+    = NoCommonCount
+    | RootCount !Int
+    deriving (Eq, Show)
+
+-- | The root count of a product: the sum of the root counts of its two parts.
+addRootCounts :: RootCount -> RootCount -> RootCount
+addRootCounts (RootCount left) (RootCount right) = RootCount $ left + right
+addRootCounts _ _ = NoCommonCount
+
 {- | The root count that every part gives, when the parts agree. A list
 without parts gives one, so that a language without members does not refuse
 a guard that reads its children.
 -}
-commonRootCount :: [Maybe Int] -> Maybe Int
+commonRootCount :: [RootCount] -> RootCount
 commonRootCount counts = case counts of
-    [] -> Just 1
+    [] -> RootCount 1
     count : rest | all (== count) rest -> count
-    _ -> Nothing
+    _ -> NoCommonCount
 
 -- | The value shared by every entry, if any.
 commonValue :: (Eq a) => [Maybe a] -> Maybe a

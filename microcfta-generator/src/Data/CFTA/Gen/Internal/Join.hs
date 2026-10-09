@@ -149,11 +149,11 @@ joinGroupedStatic left right related =
                                 (equalityConstraint $ mkEqConstraints [[path [0, 0], path [1, 0]]])
                             ]
                 -- The private join labels flatten into the roots of the two sides.
-                sideRootCount terms = commonRootCount $ map (Just . termRootCount) terms
+                sideRootCount terms = commonRootCount $ map (RootCount . termRootCount) terms
                 rootCount =
-                    (+)
-                        <$> sideRootCount [outcomeTerm outcome | group <- groups, outcome <- toList $ joinGroupLeft group]
-                        <*> sideRootCount [outcomeTerm outcome | group <- groups, outcome <- toList $ joinGroupRight group]
+                    addRootCounts
+                        (sideRootCount [outcomeTerm outcome | group <- groups, outcome <- toList $ joinGroupLeft group])
+                        (sideRootCount [outcomeTerm outcome | group <- groups, outcome <- toList $ joinGroupRight group])
              in -- Every group came from two non-empty outcome buckets. Keep
                 -- support reduction lazy; the outcome index already proves
                 -- that the joined language is non-empty.
@@ -393,7 +393,7 @@ joinNBucketStatic componentIndex operation arguments =
         False
         (joinInspection componentIndex (staticInspection operation) $ chainInspections arguments)
         -- The private join labels flatten into the roots of the operation and the arguments.
-        (sum <$> sequence (staticRootCount operation : chainRootCounts arguments))
+        (foldr addRootCounts (RootCount 0) (staticRootCount operation : chainRootCounts arguments))
   where
     keyTerms =
         [ Tree.Node (ArgKey componentIndex position) []
