@@ -37,6 +37,8 @@ import Data.Hashable (Hashable)
 import Data.List (sort, (!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
@@ -170,11 +172,11 @@ productTerms indexF indexX termsF termsX =
         WholeTerm (Tree.Node Apply [function, argument]) -> positionsFrom (WholeTerm function) argument
         WholeTerm _ -> []
         SpineView arguments -> spinePositions arguments
-        LabelledView arguments -> spinePositions arguments
+        LabelledView arguments -> spinePositions $ Sequence.fromList arguments
       where
-        spinePositions arguments = case reverse arguments of
-            argument : functionArguments -> positionsFrom (SpineView $ reverse functionArguments) argument
-            [] -> []
+        spinePositions arguments = case arguments of
+            functionArguments :|> argument -> positionsFrom (SpineView functionArguments) argument
+            Empty -> []
 
         positionsFrom functionView argument =
             [ (productPosition indexF indexX functionPosition argumentPosition, functionChecked && argumentChecked)
@@ -198,7 +200,7 @@ choiceTerms indexes terms =
     positions view = sort $ case view of
         WholeTerm (Tree.Node (Choice branch) [child]) -> branchPositions branch $ WholeTerm child
         WholeTerm _ -> []
-        SpineView [term] -> positions $ WholeTerm term
+        SpineView (term :<| Empty) -> positions $ WholeTerm term
         SpineView _ -> []
         LabelledView _ -> concat [branchPositions branch view | branch <- map ChoiceIndex [0 .. length terms - 1]]
     branchPositions branch@(ChoiceIndex index) view = case terms !? index of
@@ -353,7 +355,7 @@ labelRecursive symbol recursive =
         positions view = case view of
             WholeTerm (Tree.Node (Label found) children)
                 | found == symbol -> recursiveTermPositions terms $ LabelledView children
-            SpineView [term] -> positions $ WholeTerm term
+            SpineView (term :<| Empty) -> positions $ WholeTerm term
             LabelledView [term] -> positions $ WholeTerm term
             _ -> []
 

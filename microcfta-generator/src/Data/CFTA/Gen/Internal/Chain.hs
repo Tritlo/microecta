@@ -42,6 +42,7 @@ module Data.CFTA.Gen.Internal.Chain (
 import Data.Kind (Type)
 import Data.List (sort)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality (Node)
@@ -308,7 +309,7 @@ recursiveChainTerms componentIndex operationIndex operationTerms arguments = do
             WholeTerm (Tree.Node JoinN children) -> childrenPositions children
             WholeTerm _ -> []
             LabelledView children -> childrenPositions children
-            SpineView [term] -> positions $ WholeTerm term
+            SpineView (term :<| Empty) -> positions $ WholeTerm term
             SpineView _ -> []
         childrenPositions (Tree.Node CenterKeyed centre : argumentNodes)
             | operation : keys <- centre
