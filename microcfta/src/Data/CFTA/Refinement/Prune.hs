@@ -61,7 +61,13 @@ import Data.CFTA.Refinement.Automaton (
     Transition,
     validate,
  )
-import Data.CFTA.Refinement.Evaluate (evaluateGuardWithShape, substitutionValues)
+import Data.CFTA.Refinement.Evaluate (
+    Observations,
+    Observed (Observed),
+    evaluateGuardWithShape,
+    leafnessOf,
+    substitutionValues,
+ )
 import Data.CFTA.Refinement.Minimize (
     MinimizeError,
     SimilarityError,
@@ -167,8 +173,7 @@ pruneSemantic entailment edge
             liftIO $
                 evaluateGuardWithShape
                     entailment
-                    (lookupResolved resolved)
-                    (lookupLeaf resolved)
+                    (`Map.lookup` resolved)
                     semanticGuard
         case verdict of
             Yes -> check (retained :|> setGuard residualGuard specialized) rest
@@ -180,16 +185,9 @@ pruneSemantic entailment edge
     hasAmbiguousActuals resolved =
         not . Set.null . snd $
             substitutionValues
-                (lookupResolved resolved)
-                (lookupLeaf resolved)
+                (`Map.lookup` resolved)
                 (\_ _ -> Nothing)
                 semanticGuard
-
-    lookupResolved resolved target = do
-        (RefinedSymbol symbol refinement, _) <- Map.lookup target resolved
-        pure (symbol, refinement)
-
-    lookupLeaf resolved target = snd <$> Map.lookup target resolved
 
 {- | Whether a path plan reaches a recursive reference below the children of a
 transition.
@@ -230,41 +228,39 @@ data PathPlan = PathPlan
     }
     deriving (Eq, Ord, Show)
 
--- | One partition value. Symbol observations also record whether the term is a leaf.
-data Observation
+-- | One partition value. Symbol entries also record whether the term is a leaf.
+data SignatureEntry
     = RefinementObservation !Formula
     | SymbolObservation !Symbol !Bool
     deriving (Eq, Ord, Show)
 
--- | Observations at relative positions, and the symbols substitution may read there.
-type Signature = Map.Map Path Observation
-
-type Symbols = Map.Map Path (Symbol, Bool)
+-- | Signature entries at relative positions, and the symbols substitution may read there.
+type Signature = Map.Map Path SignatureEntry
 
 -- | One node whose language is homogeneous at every planned position.
 data Variant = Variant
     { variantNode :: !Automaton
     , variantSignature :: !Signature
-    , variantSymbols :: !Symbols
+    , variantObservations :: !Observations
     }
 
 -- | Every homogeneous child specialization required to evaluate one guard.
-specializations :: Guard -> Transition -> PruneM [(Transition, Symbols)]
+specializations :: Guard -> Transition -> PruneM [(Transition, Observations)]
 specializations guard edge = do
     children <- specializeChildren (planChildren plan) (edgeChildren edge)
     pure
-        [ (mkEdge (edgeSymbol edge) specialized (edgeConstraint edge), rootSymbols `Map.union` childSymbols)
-        | (specialized, _, childSymbols) <- children
+        [ (mkEdge (edgeSymbol edge) specialized (edgeConstraint edge), rootObservations `Map.union` childObservations)
+        | (specialized, _, childObservations) <- children
         ]
   where
     plan = planGuard guard
-    rootSymbols = rootSymbolsOf plan edge
+    rootObservations = rootObservationsOf plan edge
 
--- | The root symbol observation of a transition, if the plan reads the root.
-rootSymbolsOf :: PathPlan -> Transition -> Symbols
-rootSymbolsOf plan edge = case planObservation plan of
+-- | The root observation of a transition, if the plan reads the root.
+rootObservationsOf :: PathPlan -> Transition -> Observations
+rootObservationsOf plan edge = case planObservation plan of
     Nothing -> Map.empty
-    Just _ -> Map.singleton EmptyPath (edgeSymbol edge, null $ edgeChildren edge)
+    Just _ -> Map.singleton EmptyPath $ Observed (edgeSymbol edge) $ leafnessOf $ edgeChildren edge
 
 -- | Partition one node's language by the observations in a path plan.
 specializeNode :: Automaton -> PathPlan -> PruneM [Variant]
@@ -276,8 +272,8 @@ specializeNode node plan = do
             edges <- alternatives node
             candidates <- concat <$> traverse (specializeEdge plan) edges
             let variants =
-                    [ Variant (Node group) signature symbols
-                    | (signature, symbols, group) <- groupVariants candidates
+                    [ Variant (Node group) signature observations
+                    | (signature, observations, group) <- groupVariants candidates
                     ]
             modify' $ \build -> build{splitMemo = Map.insert key variants (splitMemo build)}
             pure variants
@@ -292,24 +288,24 @@ alternatives (Rec (RecInt (NodeId ident))) = do
 alternatives node = pure $ nodeEdges node
 
 -- | Specialize one transition inside a node being partitioned.
-specializeEdge :: PathPlan -> Transition -> PruneM [(Signature, Symbols, Transition)]
+specializeEdge :: PathPlan -> Transition -> PruneM [(Signature, Observations, Transition)]
 specializeEdge plan edge = do
     children <- specializeChildren (planChildren plan) (edgeChildren edge)
     pure
         [ ( rootSignature `Map.union` childSignature
-          , rootSymbols `Map.union` childSymbols
+          , rootObservations `Map.union` childObservations
           , mkEdge (edgeSymbol edge) specialized (edgeConstraint edge)
           )
-        | (specialized, childSignature, childSymbols) <- children
+        | (specialized, childSignature, childObservations) <- children
         ]
   where
     rootSignature = case planObservation plan of
         Nothing -> Map.empty
         Just need -> Map.singleton EmptyPath $ observe need edge
-    rootSymbols = rootSymbolsOf plan edge
+    rootObservations = rootObservationsOf plan edge
 
 -- | Cartesian product of child variants, sharing every unobserved child.
-specializeChildren :: IntMap.IntMap PathPlan -> [Automaton] -> PruneM [([Automaton], Signature, Symbols)]
+specializeChildren :: IntMap.IntMap PathPlan -> [Automaton] -> PruneM [([Automaton], Signature, Observations)]
 specializeChildren plans = go 0
   where
     go _ [] = pure [([], Map.empty, Map.empty)]
@@ -321,10 +317,10 @@ specializeChildren plans = go 0
         pure
             [ ( variantNode variant : suffixNodes
               , prefixMap (ChildIndex index) (variantSignature variant) `Map.union` suffixSignature
-              , prefixMap (ChildIndex index) (variantSymbols variant) `Map.union` suffixSymbols
+              , prefixMap (ChildIndex index) (variantObservations variant) `Map.union` suffixObservations
               )
             | variant <- variants
-            , (suffixNodes, suffixSignature, suffixSymbols) <- suffixes
+            , (suffixNodes, suffixSignature, suffixObservations) <- suffixes
             ]
 
     -- Prefix every relative observation path by one child index.
@@ -332,16 +328,16 @@ specializeChildren plans = go 0
     prefixMap index = Map.mapKeysMonotonic (ConsPath index)
 
 -- | Regroup transition candidates by signature without disturbing first-seen order.
-groupVariants :: [(Signature, Symbols, Transition)] -> [(Signature, Symbols, [Transition])]
+groupVariants :: [(Signature, Observations, Transition)] -> [(Signature, Observations, [Transition])]
 groupVariants candidates =
-    [ (signature, symbols, toList $ grouped Map.! signature)
-    | (signature, symbols) <- nubOrdOn fst [(signature, symbols) | (signature, symbols, _) <- candidates]
+    [ (signature, observations, toList $ grouped Map.! signature)
+    | (signature, observations) <- nubOrdOn fst [(signature, observations) | (signature, observations, _) <- candidates]
     ]
   where
     grouped = Map.fromListWith (flip (<>)) [(signature, Sequence.singleton edge) | (signature, _, edge) <- candidates]
 
--- | Observation used to partition a node's transitions.
-observe :: ObservationNeed -> Transition -> Observation
+-- | The signature entry that partitions a node's transitions.
+observe :: ObservationNeed -> Transition -> SignatureEntry
 observe RefinementNeed edge = let RefinedSymbol _ refinement = edgeSymbol edge in RefinementObservation refinement
 observe SymbolNeed edge = SymbolObservation (edgeSymbol edge) (null $ edgeChildren edge)
 

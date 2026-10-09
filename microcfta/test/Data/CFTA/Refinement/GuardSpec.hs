@@ -12,7 +12,9 @@ import Data.CFTA.Refinement (
     Automaton,
     Entailment (entails),
     Guard (Bottom, Entails, Not, Or, Same, Satisfies, Substitute),
+    Leafness (Mixed),
     Node (Node),
+    Observed (Observed),
     Substitution (Substitution),
     Symbol (RefinedSymbol),
     Verdict (..),
@@ -81,11 +83,11 @@ spec =
             let left = path [0]
                 right = path [1]
                 observe target
-                    | target == left || target == right = Just ("app", true)
+                    | target == left || target == right = Just $ Observed "app" Mixed
                     | otherwise = Nothing
-            evaluateGuardWithShape tableEntailment observe (const Nothing) (Same left left) >>= (`shouldBe` Yes)
-            evaluateGuardWithShape tableEntailment observe (const Nothing) (Same left right) >>= (`shouldBe` Unknown)
-            evaluateGuardWithShape tableEntailment observe (const Nothing) (Same (path [2]) (path [2])) >>= (`shouldBe` No)
+            evaluateGuardWithShape tableEntailment observe (Same left left) >>= (`shouldBe` Yes)
+            evaluateGuardWithShape tableEntailment observe (Same left right) >>= (`shouldBe` Unknown)
+            evaluateGuardWithShape tableEntailment observe (Same (path [2]) (path [2])) >>= (`shouldBe` No)
 
         it "compares renamed variable leaves only inside an explicit substitution scope" $ do
             let term = Tree.Node (RefinedSymbol "pair" true) [Tree.Node (RefinedSymbol "x" true) [], Tree.Node (RefinedSymbol "y" true) []]
