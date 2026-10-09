@@ -26,6 +26,8 @@ import qualified Data.Sequence as Sequence
 import qualified Data.Set as Set
 import Data.Tree (Tree (Node))
 
+import Data.CFTA.Index (ChildIndex (..))
+
 {- | A root-relative location in a tree view.
 
 Each step selects a zero-based transition alternative and then a zero-based
@@ -209,9 +211,9 @@ dedupUnless unambiguous
     | unambiguous = id
     | otherwise = Set.toList . Set.fromList
 
--- | Apply a function to the element at an index, if it exists.
-adjustAt :: Int -> (a -> a) -> [a] -> [a]
-adjustAt i f xs
+-- | Apply a function to the child at an index, if it exists.
+adjustAt :: ChildIndex -> (a -> a) -> [a] -> [a]
+adjustAt (ChildIndex i) f xs
     | i < 0 = xs
     | otherwise = case splitAt i xs of
         (prefix, x : suffix) -> prefix ++ f x : suffix

@@ -21,8 +21,8 @@ import Data.CFTA.Path
 -----------------------------------
 
 instance Arbitrary Path where
-    arbitrary = path <$> listOf (chooseInt (0, 4))
-    shrink = map Path . shrink . unPath
+    arbitrary = path . map ChildIndex <$> listOf (chooseInt (0, 4))
+    shrink target = [path (map ChildIndex indices) | indices <- shrink [index | ChildIndex index <- unPath target]]
 
 instance Arbitrary PathTrie where
     arbitrary = do
@@ -42,10 +42,10 @@ instance Arbitrary PathTrie where
 ------ Constructing test inputs
 -----------------------------------
 
-mkTestPaths1 :: [[Int]] -> [[Path]]
+mkTestPaths1 :: [[ChildIndex]] -> [[Path]]
 mkTestPaths1 = map (map (path . (: [])))
 
-mkTestPathsN :: [[[Int]]] -> [[Path]]
+mkTestPathsN :: [[[ChildIndex]]] -> [[Path]]
 mkTestPathsN = map (map path)
 
 --------

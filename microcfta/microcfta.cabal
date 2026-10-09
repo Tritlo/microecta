@@ -74,6 +74,7 @@ library
   exposed-modules:
     Data.CFTA.Constraint
     Data.CFTA.Equality.Constraint
+    Data.CFTA.Index
     Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned.Cache
     Data.CFTA.Interned.Memo

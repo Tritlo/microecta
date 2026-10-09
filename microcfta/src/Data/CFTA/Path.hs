@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
 {- | Child-index paths into terms and graphs.
@@ -10,32 +11,41 @@ build their constraints over these paths.
 -}
 module Data.CFTA.Path (
     Path (.., EmptyPath, ConsPath),
+    ChildIndex (..),
     unPath,
     path,
     isStrictSubpath,
     Pathable (..),
 ) where
 
+import Data.Coerce (coerce)
 import Data.Hashable (Hashable (..))
 import Data.List ((!?))
 import Data.Maybe (maybeToList)
 import qualified Data.Tree as Tree
 
+import Data.CFTA.Index (ChildIndex (..))
 import Data.CFTA.Internal.Tree (adjustAt)
 
--- | Path into an edge's children, represented as child indexes.
-newtype Path = Path [Int]
-    deriving (Eq, Ord, Show)
+{- | Path into an edge's children, represented as child indexes.
+
+A path compares and hashes as its list of 'Int'. The base library specializes
+the list instances for 'Int' but not for 'ChildIndex', and paths are compared
+in every set and map of paths.
+-}
+newtype Path = Path [ChildIndex]
+    deriving (Show)
+    deriving (Eq, Ord) via [Int]
 
 instance Hashable Path where
-    hashWithSalt salt (Path components) = salt `hashWithSalt` components
+    hashWithSalt salt (Path components) = salt `hashWithSalt` (coerce components :: [Int])
 
 -- | Extract the raw child-index list from a 'Path'.
-unPath :: Path -> [Int]
+unPath :: Path -> [ChildIndex]
 unPath (Path p) = p
 
 -- | Build a 'Path' from child indexes.
-path :: [Int] -> Path
+path :: [ChildIndex] -> Path
 path = Path
 
 {-# COMPLETE EmptyPath, ConsPath #-}
@@ -43,7 +53,7 @@ path = Path
 pattern EmptyPath :: Path
 pattern EmptyPath = Path []
 
-pattern ConsPath :: Int -> Path -> Path
+pattern ConsPath :: ChildIndex -> Path -> Path
 pattern ConsPath p ps <- Path (p : (Path -> ps))
   where
     ConsPath p (Path ps) = Path (p : ps)
@@ -74,7 +84,7 @@ instance Pathable (Tree.Tree symbol) (Tree.Tree symbol) where
     type Emptyable (Tree.Tree symbol) = Maybe (Tree.Tree symbol)
 
     getPath EmptyPath t = Just t
-    getPath (ConsPath p ps) (Tree.Node _ ts) = getPath ps =<< ts !? p
+    getPath (ConsPath (ChildIndex p) ps) (Tree.Node _ ts) = getPath ps =<< ts !? p
 
     getAllAtPath p t = maybeToList $ getPath p t
 

@@ -42,7 +42,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 
 import Data.CFTA.Interned.Memo (memo2)
-import Data.CFTA.Path (Path (..), isStrictSubpath)
+import Data.CFTA.Path (ChildIndex (..), Path (..), isStrictSubpath)
 
 -------------------------------------------------------
 
@@ -55,10 +55,10 @@ import Data.CFTA.Path (Path (..), isStrictSubpath)
 -----------------------------------------------------------------------
 
 -- | Largest child index present in a trie node, if any.
-getMaxNonemptyIndex :: PathTrie -> Maybe Int
+getMaxNonemptyIndex :: PathTrie -> Maybe ChildIndex
 getMaxNonemptyIndex EmptyPathTrie = Nothing
 getMaxNonemptyIndex TerminalPathTrie = Nothing
-getMaxNonemptyIndex (PathTrie children) = fst <$> IntMap.lookupMax children
+getMaxNonemptyIndex (PathTrie children) = ChildIndex . fst <$> IntMap.lookupMax children
 
 ---------------------
 ------- Path tries
@@ -135,7 +135,7 @@ toPathTrie ps@(firstPath : _) =
                 $ IntMap.map (toPathTrie . toList)
                 $ IntMap.fromListWith (flip (<>)) [(headOf p, Sequence.singleton $ tailOf p) | p <- ps]
   where
-    headOf (ConsPath i _) = i
+    headOf (ConsPath (ChildIndex i) _) = i
     headOf EmptyPath = malformed
 
     tailOf (ConsPath _ rest) = rest
@@ -150,13 +150,13 @@ fromPathTrie :: PathTrie -> [Path]
 fromPathTrie EmptyPathTrie = []
 fromPathTrie TerminalPathTrie = [EmptyPath]
 fromPathTrie (PathTrie children) =
-    concatMap (\(i, pt) -> map (ConsPath i) $ fromPathTrie pt) (IntMap.toAscList children)
+    concatMap (\(i, pt) -> map (ConsPath (ChildIndex i)) $ fromPathTrie pt) (IntMap.toAscList children)
 
 -- | Descend through one child index, returning 'EmptyPathTrie' if absent.
-pathTrieDescend :: PathTrie -> Int -> PathTrie
+pathTrieDescend :: PathTrie -> ChildIndex -> PathTrie
 pathTrieDescend EmptyPathTrie _ = EmptyPathTrie
 pathTrieDescend TerminalPathTrie _ = EmptyPathTrie
-pathTrieDescend (PathTrie children) i =
+pathTrieDescend (PathTrie children) (ChildIndex i) =
     IntMap.findWithDefault EmptyPathTrie i children
 
 --------------------------------------------------------------------------
@@ -395,7 +395,7 @@ combineEqConstraintsMemo = memo2 go
 Equality classes with fewer than two remaining paths are dropped immediately:
 they no longer constrain anything after the descent.
 -}
-eqConstraintsDescend :: EqConstraints -> Int -> EqConstraints
+eqConstraintsDescend :: EqConstraints -> ChildIndex -> EqConstraints
 eqConstraintsDescend EqContradiction _ = EqContradiction
 eqConstraintsDescend EmptyConstraints _ = EmptyConstraints
 eqConstraintsDescend (EqConstraints sourceEclasses) i = case mapMaybe (`pathEClassDescendNontrivial` i) sourceEclasses of
