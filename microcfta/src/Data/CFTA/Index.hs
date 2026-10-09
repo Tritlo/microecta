@@ -12,6 +12,7 @@ module Data.CFTA.Index (
     Arity (..),
     childIndexes,
     Depth (..),
+    VarIndex (..),
 ) where
 
 import Data.Hashable (Hashable)
@@ -47,4 +48,13 @@ childIndexes (Arity arity) = map ChildIndex [0 .. arity - 1]
 A leaf has depth 0. The tree automata literature counts a leaf as height 1.
 -}
 newtype Depth = Depth Int
+    deriving newtype (Eq, Ord, Show, Num, Enum)
+
+{- | The index of a variable in the variable list of one problem.
+
+A problem is a symbolic counting problem or a lattice query. Each problem
+numbers its variables from zero. An index of one problem has no meaning in
+another problem.
+-}
+newtype VarIndex = VarIndex Int
     deriving newtype (Eq, Ord, Show, Num, Enum)
