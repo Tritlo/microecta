@@ -4,6 +4,7 @@
 module Data.CFTA.Interned.Type (
     NodeId (..),
     EdgeId (..),
+    MuDepth (..),
     RecNodeId (..),
     Edge (.., Edge),
     UninternedEdge (..),
@@ -67,17 +68,25 @@ identities from one counter.
 newtype NodeId = NodeId Int
     deriving newtype (Eq, Ord, Show, Hashable)
 
+{- | The number of nested 'Mu' nodes in a term.
+
+A term without 'Mu' has 'MuDepth' 0. This is not the 'Data.CFTA.Index.Depth'
+of a term.
+-}
+newtype MuDepth = MuDepth Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num)
+
 -- | Internal identifier for references to recursive Interned automaton nodes.
 data RecNodeId
     = -- | Reference to the 'NodeId' of an interned 'Mu' node
       RecInt !NodeId
     | {- | Reference to an as-yet uninterned 'Mu' node, for which the 'NodeId' is not yet known
 
-      The 'Int' argument is used to distinguish between multiple nested 'Mu' nodes.
+      The 'MuDepth' argument is used to distinguish between multiple nested 'Mu' nodes.
 
       NOTE: This is intentionally not a 'NodeId': it does not refer to the 'NodeId' of any interned node.
       -}
-      RecUnint Int
+      RecUnint MuDepth
     | {- | Placeholder variable for depth calculations
 
       The depth of a term does not depend on the choice of variable. 'createMu'
@@ -248,7 +257,7 @@ data InternedNode symbol = MkInternedNode
     -- ^ The 'NodeId' of the node itself
     , internedNodeEdges :: ![Edge symbol]
     -- ^ All outgoing edges
-    , internedNodeNumNestedMu :: !Int
+    , internedNodeNumNestedMu :: !MuDepth
     -- ^ Maximum Mu nesting depth in the term
     , internedNodeFree :: !(Set RecNodeId)
     -- ^ Free variables in the term
@@ -310,7 +319,7 @@ instance Hashable (Node symbol) where
 @O(1)@ provided that there are no unbounded Mu chains in the term.
 -}
 {-# INLINEABLE numNestedMu #-}
-numNestedMu :: Node symbol -> Int
+numNestedMu :: Node symbol -> MuDepth
 numNestedMu EmptyNode = 0
 numNestedMu (InternedNode node) = internedNodeNumNestedMu node
 numNestedMu (InternedMu mu) = 1 + numNestedMu (internedMuBody mu)
