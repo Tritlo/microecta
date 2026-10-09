@@ -7,6 +7,7 @@ import Data.Either (isLeft)
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
+import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
 import Data.CFTA.Refinement (
     Entailment (entails),
     RefinementRelation (..),
@@ -117,7 +118,8 @@ spec = do
             let big = 2 ^ (300 :: Int) :: Integer
                 ends formula = do
                     found <- points ["x"] formula
-                    pure (pointCount found, pointAt found 0, pointAt found (pointCount found - 1))
+                    let Cardinality count = pointCount found
+                    pure (count, pointAt found 0, pointAt found $ Rank $ count - 1)
             ends (lnot (x .< fromInteger big) .&& x .<= fromInteger (big + 5)) `shouldBe` Right (6, [big], [big + 5])
             ends (fromInteger (negate big) .<= x .&& x .<= fromInteger big) `shouldBe` Right (2 * big + 1, [negate big], [big])
 
@@ -157,7 +159,7 @@ spec = do
     x = variable "x"
     decoded names formula = do
         found <- points names formula
-        pure [pointAt found rank | rank <- [0 .. pointCount found - 1]]
+        pure [pointAt found rank | rank <- everyRank $ pointCount found]
 
 -- | Formulas over x and y in [-3, 3], each with the same test on integers.
 pointCases :: [(Formula, Integer -> Integer -> Bool)]

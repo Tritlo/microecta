@@ -38,7 +38,7 @@ import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
 import qualified Language.Fixpoint.Types as Fixpoint
 
-import Data.CFTA.Index (VarIndex (..))
+import Data.CFTA.Index (Cardinality (..), Rank (..), VarIndex (..))
 import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entailmentWithBindings)
 import Data.CFTA.Symbol (Formula)
 
@@ -61,10 +61,10 @@ data LatticeError
 Level @k@ holds the number of completions of the first @k@ variables, as a
 sum of polynomials over polyhedral pieces.
 -}
-data Points = Points !Int [[Piece]] !Integer
+data Points = Points !Int [[Piece]] !Cardinality
 
 -- | The number of integer points.
-pointCount :: Points -> Integer
+pointCount :: Points -> Cardinality
 pointCount (Points _ _ total) = total
 
 {- | Collect the integer points of a formula over the given variables.
@@ -77,7 +77,7 @@ points names formula = do
     let initial = [Piece region $ polynomialConstant $ fromInteger sign | (region, sign) <- Map.toList terms]
     levels <- sumOut (VarIndex (dimension - 1)) [initial]
     total <- integral $ sum [polynomialValue polynomial | Piece _ polynomial <- concat $ take 1 levels]
-    pure $ Points dimension levels total
+    pure $ Points dimension levels $ Cardinality total
   where
     dimension = length names
     symbols = map Fixpoint.symbol names
@@ -129,8 +129,8 @@ latticeEntailment = entailmentWithBindings $ \_ antecedent consequent ->
 
 The rank must be at least zero and less than 'pointCount'.
 -}
-pointAt :: Points -> Integer -> [Integer]
-pointAt (Points dimension levels _) = go 0 IntMap.empty
+pointAt :: Points -> Rank -> [Integer]
+pointAt (Points dimension levels _) (Rank start) = go 0 IntMap.empty start
   where
     go variable prefix rank
         | variable == VarIndex dimension = IntMap.elems prefix
