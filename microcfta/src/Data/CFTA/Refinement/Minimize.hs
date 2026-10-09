@@ -163,7 +163,12 @@ data MinimizeError
 -- | A transition of the explicit view, and its address as a state and transition index.
 type ViewTransition = FTA.Transition InternedState Symbol Constraint
 
-type Address = (InternedState, TransitionIndex)
+-- | The state of a transition in the explicit view, and the index of the transition in that state.
+data Address = Address
+    { addressNode :: !InternedState
+    , addressIndex :: !TransitionIndex
+    }
+    deriving (Eq, Ord)
 
 {- | Apply a finite deterministic schedule of the paper's M-Trans rule.
 
@@ -205,7 +210,7 @@ minimize automaton (Similarity original related) = do
         current :: Map.Map Address ViewTransition
         current =
             Map.fromList
-                [ ((state, ordinal), transition)
+                [ (Address state ordinal, transition)
                 | (state, transitions) <- Map.toAscList table
                 , (ordinal, transition) <- zip [0 ..] transitions
                 ]
@@ -220,7 +225,7 @@ minimize automaton (Similarity original related) = do
                 Nothing -> Right identifier
                 Just representative -> resolve (Set.insert identifier visited) representative
     resolved <- traverse (\supertype -> (supertype,) <$> resolve Set.empty supertype) (Map.keys dominators)
-    let redirectFor (supertype, representative) = (fst supertype, fst representative)
+    let redirectFor (supertype, representative) = (addressNode supertype, addressNode representative)
         redirects = Map.fromListWith (<>) [(source, [destination]) | pair <- resolved, let (source, destination) = redirectFor pair]
         applyStep (table', steps) pair@(supertype, representative)
             | source == destination && removed == retained = (Map.adjust nub source table', steps)
@@ -245,7 +250,7 @@ minimize automaton (Similarity original related) = do
         hasFiniteDerivation representative =
             any
                 ( \transition ->
-                    transition `elem` Map.findWithDefault [] (fst representative) rewritten && finiteTransition transition
+                    transition `elem` Map.findWithDefault [] (addressNode representative) rewritten && finiteTransition transition
                 )
                 (foldl' (flip copyAlternatives) [current Map.! representative] applied)
         representatives = Set.toAscList $ Set.fromList $ map snd resolved
@@ -263,7 +268,7 @@ minimize automaton (Similarity original related) = do
         -- searches differ by less than 0.01% of instructions. Go back to the
         -- hand-written search if minimization of large tables gets slow.
         dependsOnRemovedTarget (supertype, representative) =
-            case vertexOf $ fst supertype of
+            case vertexOf $ addressNode supertype of
                 Nothing -> False
                 Just target ->
                     any (elem target) $
@@ -284,7 +289,7 @@ minimize automaton (Similarity original related) = do
     alternativesOf = IntMap.fromList [(ident, edges) | (node, edges) <- located automaton, let NodeId ident = nodeIdentity node]
 
     address (TransitionId node edge) = case IntMap.lookup ident alternativesOf >>= elemIndex edge of
-        Just ordinal -> Right (InternedState (nodeIdentity node), TransitionIndex ordinal)
+        Just ordinal -> Right Address{addressNode = InternedState (nodeIdentity node), addressIndex = TransitionIndex ordinal}
         Nothing -> Left StaleSimilarity
       where
         NodeId ident = nodeIdentity node
