@@ -19,7 +19,7 @@ import Test.QuickCheck (
     (===),
  )
 
-import Data.CFTA.Index (Rank (..), Size, everyRank)
+import Data.CFTA.Index (Rank (..), Size, Weight (..), everyRank)
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Ranked.Internal (rankedPlan, share)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
@@ -141,7 +141,7 @@ spec = do
                 source =
                     Tree.WeightedIndexed
                         2
-                        mass
+                        (Weight mass)
                         (\rank -> if rank == 0 then 'a' else 'b')
                         (\ticket -> if ticket == 0 then 0 else 1)
             case Tree.fromWeightedIndexedOnDemand source of
@@ -213,18 +213,18 @@ members description = case description of
 
 build :: Described -> Either Tree.RankedError (Tree.Ranked Value)
 build description = case description of
-    Weighted False entries -> Tree.fromWeighted [(weight, Atom value) | (weight, value) <- entries]
+    Weighted False entries -> Tree.fromWeighted [(Weight weight, Atom value) | (weight, value) <- entries]
     Weighted True entries ->
         Tree.fromWeightedIndexedOnDemand $
             Tree.WeightedIndexed
                 (genericLength entries)
-                (sum $ map fst entries)
+                (Weight $ sum $ map fst entries)
                 (Atom . snd . (entries !!) . fromEnum)
                 (([rank | (rank, (weight, _)) <- zip [0 ..] entries, _ <- [1 .. weight]] !!) . fromInteger)
     Uniform onDemand values ->
         (if onDemand then Tree.fromIndexedOnDemand else Tree.fromIndexed) $
             Tree.Indexed (genericLength values) (Atom . (values !!) . fromEnum)
-    Frequency branches -> Tree.frequency =<< traverse (traverse build) branches
+    Frequency branches -> Tree.frequency =<< traverse (traverse build) [(Weight weight, branch) | (weight, branch) <- branches]
     Oneof branches -> Tree.oneof =<< traverse build branches
     Pair left right -> (\leftRanked rightRanked -> Both <$> leftRanked <*> rightRanked) <$> build left <*> build right
     Mapped inner -> fmap Wrapped <$> build inner

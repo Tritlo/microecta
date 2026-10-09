@@ -50,7 +50,7 @@ module Data.CFTA.Ranked (
     sizeOfRank,
 ) where
 
-import Data.CFTA.Index (Cardinality, Rank, Size)
+import Data.CFTA.Index (Cardinality, Rank, Size, Weight)
 import Data.CFTA.Ranked.Internal (Indexed (..), Ranked, RankedError (..), WeightedIndexed (..))
 import qualified Data.CFTA.Ranked.Internal as Internal
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (..))
@@ -82,11 +82,11 @@ fromWeightedIndexedOnDemand = Internal.fromWeightedIndexedOnDemand
 Weight affects sampling, not cardinality or rank order: each list entry has
 exactly one stable rank.
 -}
-fromWeighted :: [(Integer, a)] -> Either RankedError (Ranked a)
+fromWeighted :: [(Weight, a)] -> Either RankedError (Ranked a)
 fromWeighted = Internal.fromWeighted
 
 -- | Combine non-empty alternatives with positive relative weights.
-frequency :: [(Integer, Ranked a)] -> Either RankedError (Ranked a)
+frequency :: [(Weight, Ranked a)] -> Either RankedError (Ranked a)
 frequency = Internal.frequency
 
 -- | Combine equally weighted non-empty alternatives.

@@ -39,6 +39,8 @@ import Data.CFTA.Index (
     Rank (..),
     RankOffset,
     Size,
+    Weight (..),
+    countWeight,
     everyRank,
     nextOffset,
     offsetRank,
@@ -61,7 +63,7 @@ class (Applicative gen) => GenBackend gen where
     selectInt bound = (\(Rank rank) -> fromInteger rank) <$> selectInteger (Cardinality $ toInteger bound)
 
     -- | Select one backend generator with a positive relative weight.
-    frequencyGen :: [(Integer, gen a)] -> gen a
+    frequencyGen :: [(Weight, gen a)] -> gen a
 
     {- | Select one of the weighted values through its compiled ticket table.
 
@@ -69,7 +71,7 @@ class (Applicative gen) => GenBackend gen where
     outcomes reads the weights instead, so it gives one outcome for each value
     and not one for each ticket.
     -}
-    selectWeighted :: [(Integer, a)] -> (Int, Int -> a) -> gen a
+    selectWeighted :: [(Weight, a)] -> (Int, Int -> a) -> gen a
     selectWeighted _ (bound, decode) = decode <$> selectInt bound
 
     -- | Retry until the generated value satisfies a predicate.
@@ -100,7 +102,7 @@ instance GenBackend Exact where
 
     frequencyGen alternatives =
         Exact
-            [ (fromInteger weight / fromInteger totalWeight * mass, value)
+            [ (toRational weight / toRational totalWeight * mass, value)
             | (weight, Exact outcomes) <- alternatives
             , (mass, value) <- outcomes
             ]
@@ -110,7 +112,7 @@ instance GenBackend Exact where
     -- One outcome for each value: enumerating the tickets would multiply the
     -- outcomes of a product by the ticket count of every draw.
     selectWeighted weighted _ =
-        Exact [(fromInteger weight / fromInteger totalWeight, value) | (weight, value) <- weighted]
+        Exact [(toRational weight / toRational totalWeight, value) | (weight, value) <- weighted]
       where
         totalWeight = sum $ map fst weighted
 
@@ -248,12 +250,8 @@ newtype Choose weight = Choose
     }
 
 -- | Choose in proportion to structural member counts.
-byCount :: Choose Integer
+byCount :: Choose Weight
 byCount = Choose chooseWeighted
-
--- | A member count as a relative weight.
-countWeight :: Cardinality -> Integer
-countWeight (Cardinality count) = count
 
 -- | Choose in proportion to unnormalized probability masses.
 byMass :: Choose Rational
@@ -465,7 +463,7 @@ boundedSampler classes sampling =
         (size, count, offset) : offsetClasses (nextOffset offset count) rest
 
 -- | Avoid a random branch selection when only one branch is live.
-chooseWeighted :: (GenBackend gen) => [(Integer, gen a)] -> gen a
+chooseWeighted :: (GenBackend gen) => [(Weight, gen a)] -> gen a
 chooseWeighted [(_, generated)] = generated
 chooseWeighted alternatives@(_ : _ : _) = frequencyGen alternatives
 chooseWeighted [] =
@@ -491,10 +489,10 @@ chooseMassWeighted alternatives =
 Precondition: every mass is positive. That is what makes the common factor at
 least one, so the final division is well defined.
 -}
-integerMasses :: [(Rational, a)] -> [(Integer, a)]
+integerMasses :: [(Rational, a)] -> [(Weight, a)]
 integerMasses outcomes =
     zip
-        (map (`div` commonFactor) unscaled)
+        (map (Weight . (`div` commonFactor)) unscaled)
         (map snd outcomes)
   where
     unscaled =
@@ -511,7 +509,7 @@ integerMasses outcomes =
 
 Larger ticket spaces keep their existing compositional sampler.
 -}
-compileWeighted :: [(Integer, a)] -> Maybe (Int, Int -> a)
+compileWeighted :: [(Weight, a)] -> Maybe (Int, Int -> a)
 compileWeighted weighted
     | totalWeight > 0
     , totalWeight <= toInteger (maxBound :: Int) =
@@ -535,7 +533,7 @@ compileWeighted weighted
          in Just (bound, lookupTicket)
     | otherwise = Nothing
   where
-    totalWeight = sum $ map fst weighted
+    Weight totalWeight = sum $ map fst weighted
     -- Prepending each singleton keeps grouping linear. Ticket order is
     -- private; every payload still carries its original structural rank.
     grouped =
@@ -544,7 +542,7 @@ compileWeighted weighted
                 (<>)
                 [(weight, [value]) | (weight, value) <- weighted]
 
-    compileGroup lowerBound (weight, values) =
+    compileGroup lowerBound (Weight weight, values) =
         let !ticketWidth = fromInteger weight
             !upperBound = lowerBound + ticketWidth * length values
             !valueTable = listArray (0, length values - 1) values

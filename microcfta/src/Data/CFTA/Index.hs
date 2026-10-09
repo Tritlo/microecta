@@ -28,6 +28,8 @@ module Data.CFTA.Index (
     Size (..),
     ClassRank (..),
     classMemberRank,
+    Weight (..),
+    countWeight,
 ) where
 
 import Data.Hashable (Hashable)
@@ -167,3 +169,16 @@ newtype ClassRank = ClassRank Integer
 classMemberRank :: RankOffset -> ClassRank -> Rank
 classMemberRank (RankOffset offset) (ClassRank classRank) = Rank (offset + classRank)
 {-# INLINE classMemberRank #-}
+
+{- | The relative frequency weight of an alternative or a value.
+
+A sampler selects an alternative in proportion to its weight. A weight does
+not change a rank or a cardinality.
+-}
+newtype Weight = Weight Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum, Real)
+
+-- | The weight of a group with the given number of members, when each member weighs one.
+countWeight :: Cardinality -> Weight
+countWeight (Cardinality count) = Weight count
+{-# INLINE countWeight #-}
