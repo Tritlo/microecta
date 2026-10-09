@@ -1,10 +1,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 
-{- | Indexes and counts of terms and automata.
+{- | Indexes, ranks, and counts of terms, automata, and languages.
 
-Each value is an 'Int'. An index is zero-based. A count, such as an arity,
-starts at zero too. Each kind of index or count has its own newtype, so the
-compiler rejects a value of one kind in the place of another kind.
+Each value is an 'Int' or an 'Integer'. An index or a rank is zero-based. A
+count, such as an arity or a cardinality, starts at zero too. Each kind of
+index or count has its own newtype, so the compiler rejects a value of one
+kind in the place of another kind.
 -}
 module Data.CFTA.Index (
     ChildIndex (..),
@@ -13,6 +14,16 @@ module Data.CFTA.Index (
     childIndexes,
     Depth (..),
     VarIndex (..),
+    Rank (..),
+    Cardinality (..),
+    everyRank,
+    hasRank,
+    pairRank,
+    splitRank,
+    RankOffset (..),
+    nextOffset,
+    offsetRank,
+    rebaseRank,
 ) where
 
 import Data.Hashable (Hashable)
@@ -58,3 +69,67 @@ another problem.
 -}
 newtype VarIndex = VarIndex Int
     deriving newtype (Eq, Ord, Show, Num, Enum)
+
+{- | The zero-based rank of a term or a value in the enumeration order of a
+language.
+
+The ranks of one language are stable. The same language gives the same ranks
+in every process.
+-}
+newtype Rank = Rank Integer
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The number of members of a language, or of a part of a language.
+
+The ranks of a language with cardinality @n@ are @0 .. n - 1@.
+-}
+newtype Cardinality = Cardinality Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum, Real)
+
+-- | The ranks of a language with the given cardinality, from @0@ to @cardinality - 1@.
+everyRank :: Cardinality -> [Rank]
+everyRank (Cardinality cardinality) = map Rank [0 .. cardinality - 1]
+{-# INLINE everyRank #-}
+
+-- | Whether a language with the given cardinality has the rank.
+hasRank :: Cardinality -> Rank -> Bool
+hasRank (Cardinality cardinality) (Rank rank) = rank >= 0 && rank < cardinality
+{-# INLINE hasRank #-}
+
+{- | The rank of a pair in a product language, from the ranks of its two parts.
+
+The rank of the first part is more significant. The radix is the cardinality
+of the second part.
+-}
+pairRank :: Cardinality -> Rank -> Rank -> Rank
+pairRank (Cardinality radix) (Rank first) (Rank second) = Rank (first * radix + second)
+{-# INLINE pairRank #-}
+
+-- | The ranks of the two parts of a pair in a product language. This is the inverse of 'pairRank'.
+splitRank :: Cardinality -> Rank -> (Rank, Rank)
+splitRank (Cardinality radix) (Rank rank) = case rank `quotRem` radix of
+    (first, second) -> (Rank first, Rank second)
+{-# INLINE splitRank #-}
+
+{- | The first rank of a group of members in a larger language.
+
+A group is an alternative of a choice, a size class, or a group of a join.
+The groups of a language follow each other in rank order.
+-}
+newtype RankOffset = RankOffset Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum)
+
+-- | The offset of the next group, after a group with the given offset and cardinality.
+nextOffset :: RankOffset -> Cardinality -> RankOffset
+nextOffset (RankOffset offset) (Cardinality cardinality) = RankOffset (offset + cardinality)
+{-# INLINE nextOffset #-}
+
+-- | The rank of a member in the larger language, from its rank in its group.
+offsetRank :: RankOffset -> Rank -> Rank
+offsetRank (RankOffset offset) (Rank rank) = Rank (offset + rank)
+{-# INLINE offsetRank #-}
+
+-- | The rank of a member in its group, from its rank in the larger language. This is the inverse of 'offsetRank'.
+rebaseRank :: RankOffset -> Rank -> Rank
+rebaseRank (RankOffset offset) (Rank rank) = Rank (rank - offset)
+{-# INLINE rebaseRank #-}
