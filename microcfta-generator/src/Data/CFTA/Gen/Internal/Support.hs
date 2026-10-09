@@ -50,7 +50,7 @@ import Data.CFTA.Equality (
  )
 import qualified Data.CFTA.Equality as Core
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
-import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, GroupIndex, KeyIndex, Label (..))
 import Data.CFTA.Index (ArgumentIndex (..))
 import Data.CFTA.Path (ChildIndex (..), path)
 
@@ -90,8 +90,8 @@ relabel rename root = State.evalState (visit Map.empty root) Map.empty
         pure $ mkEdge (rename $ edgeSymbol edge) children $ edgeConstraint edge
 
 -- | Singleton key node labelling one matched group.
-keyNode :: (Hashable symbol, Typeable symbol) => Int -> Node (Label symbol)
-keyNode index = Node [Edge (Key index) []]
+keyNode :: (Hashable symbol, Typeable symbol) => GroupIndex -> Node (Label symbol)
+keyNode index = Node [Edge (Group index) []]
 
 -- | The node accepting exactly one term.
 singletonNode :: (Hashable symbol, Typeable symbol) => Tree.Tree symbol -> Node symbol
@@ -151,13 +151,13 @@ automaton's own, which is what lets the whole family share one binder.
 -}
 restrictToKey ::
     (Hashable symbol, Typeable symbol) =>
-    Int -> Node (Label symbol) -> Node (Label symbol)
+    KeyIndex -> Node (Label symbol) -> Node (Label symbol)
 restrictToKey = restrictToKeyWith id
 
 -- | Restrict a recursive family with a caller-supplied representation of private labels.
 restrictToKeyWith ::
     (Hashable other, Typeable other) =>
-    (Label symbol -> other) -> Int -> Node other -> Node other
+    (Label symbol -> other) -> KeyIndex -> Node other -> Node other
 restrictToKeyWith inject position family =
     Node
         [ mkEdge
@@ -174,13 +174,13 @@ an edge by its key.
 -}
 familyNode ::
     (Hashable symbol, Typeable symbol) =>
-    [(Int, Node (Label symbol))] -> Node (Label symbol)
+    [(KeyIndex, Node (Label symbol))] -> Node (Label symbol)
 familyNode = familyNodeWith id
 
 -- | Build a recursive family with a caller-supplied representation of private labels.
 familyNodeWith ::
     (Hashable other, Typeable other) =>
-    (Label symbol -> other) -> [(Int, Node other)] -> Node other
+    (Label symbol -> other) -> [(KeyIndex, Node other)] -> Node other
 familyNodeWith inject keyed =
     Node
         [ Edge (inject Family) [singletonNode $ Tree.Node (inject $ Key position) [], body]
