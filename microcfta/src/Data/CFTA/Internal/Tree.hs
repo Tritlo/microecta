@@ -17,8 +17,11 @@ module Data.CFTA.Internal.Tree (
 import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
 import Data.Containers.ListUtils (nubOrd)
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import qualified Data.Set as Set
 import Data.Tree (Tree (Node))
 
@@ -52,23 +55,23 @@ toTreeBy ::
     (edge -> [node]) ->
     node ->
     Tree (Either (StateView node) edge)
-toTreeBy outgoing children root = State.evalState (visit Set.empty [] root) Set.empty
+toTreeBy outgoing children root = State.evalState (visit Set.empty Empty root) Set.empty
   where
-    visit ancestors reversedPath node
-        | Set.member node ancestors = pure $ Node (Left $ Recursive (reverse reversedPath) node) []
+    visit ancestors path node
+        | Set.member node ancestors = pure $ Node (Left $ Recursive (toList path) node) []
         | otherwise = do
             seen <- State.get
             if Set.member node seen
-                then pure $ Node (Left $ Shared (reverse reversedPath) node) []
+                then pure $ Node (Left $ Shared (toList path) node) []
                 else do
                     State.modify' (Set.insert node)
-                    alternatives <- zipWithM (transition (Set.insert node ancestors) reversedPath) [0 ..] $ outgoing node
-                    pure $ Node (Left $ Expanded (reverse reversedPath) node) alternatives
+                    alternatives <- zipWithM (transition (Set.insert node ancestors) path) [0 ..] $ outgoing node
+                    pure $ Node (Left $ Expanded (toList path) node) alternatives
 
-    transition ancestors reversedPath alternative edge =
+    transition ancestors path alternative edge =
         Node (Right edge)
             <$> zipWithM
-                (\child -> visit ancestors ((alternative, child) : reversedPath))
+                (\child -> visit ancestors (path :|> (alternative, child)))
                 [0 ..]
                 (children edge)
 
@@ -164,7 +167,7 @@ termsUpToBy symbolOf childrenOf accept rows bound root
     | bound < 0 || Map.notMember root table = pure []
     | otherwise = do
         leaves <- level (\keys -> [[] | null keys])
-        collect 1 (leaves, leaves, fmap (const []) table) [leaves Map.! root]
+        collect 1 (leaves, leaves, fmap (const []) table) (Sequence.singleton $ leaves Map.! root)
   where
     table = trimRows childrenOf rows root
     dedup = dedupUnless (all (distinctSymbols . map symbolOf) table)
@@ -175,10 +178,10 @@ termsUpToBy symbolOf childrenOf accept rows bound root
             filterM (accept key alternative) [Node (symbolOf alternative) children | children <- combos (childrenOf alternative)]
 
     collect depth (current, atMost, shallower) collected
-        | depth > bound || all null current = pure (concat (reverse collected))
+        | depth > bound || all null current = pure (concat collected)
         | otherwise = do
             deeper <- level (\keys -> if null keys then [] else deepest keys)
-            collect (depth + 1) (deeper, Map.unionWith (++) deeper atMost, atMost) (deeper Map.! root : collected)
+            collect (depth + 1) (deeper, Map.unionWith (++) deeper atMost, atMost) (collected :|> deeper Map.! root)
       where
         deepest [] = []
         deepest (key : keys) =
