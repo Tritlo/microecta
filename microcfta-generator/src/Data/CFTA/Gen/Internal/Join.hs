@@ -414,7 +414,7 @@ joinNBucketStatic componentIndex operation arguments =
         (argumentTerms, argumentInspections, argumentsMass, value) <-
             selectChain (outcomeValue operationOutcome) arguments keyTerms argumentIndex
         let operationTerm =
-                Tree.Node CenterKeyed (keyTerms <> [outcomeTerm operationOutcome])
+                Tree.Node CenterKeyed (outcomeTerm operationOutcome : keyTerms)
         pure $
             Outcome
                 (Tree.Node JoinN (operationTerm : argumentTerms))
@@ -423,11 +423,11 @@ joinNBucketStatic componentIndex operation arguments =
                 ( Tree.Node (plainSymbol JoinN) $
                     Tree.Node
                         (plainSymbol CenterKeyed)
-                        ( zipWith
-                            (\term inspection -> fmap (\symbol -> InspectionSymbol symbol $ inspectionName inspection) term)
-                            keyTerms
-                            (chainInspections arguments)
-                            <> [outcomeInspection operationOutcome]
+                        ( outcomeInspection operationOutcome
+                            : zipWith
+                                (\term inspection -> fmap (\symbol -> InspectionSymbol symbol $ inspectionName inspection) term)
+                                keyTerms
+                                (chainInspections arguments)
                         )
                         : argumentInspections
                 )

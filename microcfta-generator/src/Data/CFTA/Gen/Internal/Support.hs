@@ -120,7 +120,7 @@ joinNodeWith inject componentIndex operationSupport argumentSupports =
             (operationNode : argumentNodes)
             ( equalityConstraint $
                 mkEqConstraints
-                    [ [path [0, ChildIndex position], path [ChildIndex (position + 1), 0]]
+                    [ [path [0, ChildIndex (position + 1)], path [ChildIndex (position + 1), 0]]
                     | position <- [0 .. length argumentSupports - 1]
                     ]
             )
@@ -131,7 +131,7 @@ joinNodeWith inject componentIndex operationSupport argumentSupports =
         | position <- [0 .. length argumentSupports - 1]
         ]
     operationNode =
-        Node [Edge (inject CenterKeyed) (keyNodes <> [operationSupport])]
+        Node [Edge (inject CenterKeyed) (operationSupport : keyNodes)]
     argumentNodes =
         [ Node [Edge (inject ArgKeyed) [argKeyNode, argumentSupport]]
         | (argKeyNode, argumentSupport) <- zip keyNodes argumentSupports
