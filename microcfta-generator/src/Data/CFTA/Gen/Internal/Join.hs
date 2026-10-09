@@ -31,8 +31,9 @@ import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
 import Data.CFTA.Index (
+    ArgumentIndex (..),
     Cardinality,
     Rank (..),
     RankOffset (..),
@@ -363,7 +364,7 @@ offsetJoinGroups = go 0
 -- | Join one operation group with its argument groups in one ECTA edge, with one equality constraint per argument.
 joinNBucketStatic ::
     (Hashable symbol, Typeable symbol) =>
-    Int ->
+    ComponentIndex ->
     Static symbol operation ->
     ArgStatics symbol operation result ->
     Static symbol result
@@ -388,7 +389,7 @@ joinNBucketStatic componentIndex operation arguments =
   where
     keyTerms =
         [ Tree.Node (ArgKey componentIndex position) []
-        | position <- [0 .. chainLength arguments - 1]
+        | position <- map ArgumentIndex [0 .. chainLength arguments - 1]
         ]
     unreduced = joinNode componentIndex (staticSupport operation) (chainSupports arguments)
     -- A bounded member of a recursive family keeps its recursive support.
@@ -460,7 +461,7 @@ since propagating constraints through a recursive node is not sound.
 -}
 recursiveJoin ::
     (Hashable symbol, Typeable symbol) =>
-    Int ->
+    ComponentIndex ->
     KeyedRecursive symbol operation ->
     ArgChain (KeyedRecursive symbol) operation result ->
     KeyedRecursive symbol result

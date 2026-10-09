@@ -50,6 +50,7 @@ import Data.CFTA.Gen.Internal.Join
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Types
+import Data.CFTA.Gen.Label (ComponentIndex)
 import Data.CFTA.Gen.Sig (Sig, sigResult)
 import Data.CFTA.Index (Cardinality, Size, Weight, countWeight)
 import Data.CFTA.Ranked.Internal.Sampler
@@ -205,7 +206,7 @@ apply (Grouped (Right operations)) arguments
         let matchingBuckets =
                 [ (componentIndex, resultKey, operationBucket, mass, argumentBuckets)
                 | (componentIndex, (signature, operationBucket)) <-
-                    zip [0 :: Int ..] $ Map.toAscList operations
+                    zip [0 :: ComponentIndex ..] $ Map.toAscList operations
                 , let resultKey = sigResult signature
                 , Just argumentBuckets <- [lookupArgs signature argumentMaps]
                 , let mass = chainMass argumentBuckets

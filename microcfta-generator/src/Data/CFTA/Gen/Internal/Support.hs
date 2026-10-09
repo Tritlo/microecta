@@ -50,7 +50,8 @@ import Data.CFTA.Equality (
  )
 import qualified Data.CFTA.Equality as Core
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints), mkEqConstraints)
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
+import Data.CFTA.Index (ArgumentIndex (..))
 import Data.CFTA.Path (ChildIndex (..), path)
 
 {- | Whether an edge carries no constraint at all: no path equality and no
@@ -102,14 +103,14 @@ at that position.
 -}
 joinNode ::
     (Hashable symbol, Typeable symbol) =>
-    Int -> Node (Label symbol) -> [Node (Label symbol)] -> Node (Label symbol)
+    ComponentIndex -> Node (Label symbol) -> [Node (Label symbol)] -> Node (Label symbol)
 joinNode = joinNodeWith id
 
 -- | Build a joined support with a caller-supplied representation of private labels.
 joinNodeWith ::
     (Hashable other, Typeable other) =>
     (Label symbol -> other) ->
-    Int ->
+    ComponentIndex ->
     Node other ->
     [Node other] ->
     Node other
@@ -120,15 +121,19 @@ joinNodeWith inject componentIndex operationSupport argumentSupports =
             (operationNode : argumentNodes)
             ( equalityConstraint $
                 mkEqConstraints
-                    [ [path [0, ChildIndex (position + 1)], path [ChildIndex (position + 1), 0]]
-                    | position <- [0 .. length argumentSupports - 1]
+                    [ [path [0, argumentChild position], path [argumentChild position, 0]]
+                    | position <- positions
                     ]
             )
         ]
   where
+    positions = map ArgumentIndex [0 .. length argumentSupports - 1]
+    -- The centre is child 0 of the joined edge, and the operation is child 0
+    -- of the centre. In both edges, argument i is child i + 1.
+    argumentChild (ArgumentIndex position) = ChildIndex (position + 1)
     keyNodes =
         [ singletonNode $ Tree.Node (inject $ ArgKey componentIndex position) []
-        | position <- [0 .. length argumentSupports - 1]
+        | position <- positions
         ]
     operationNode =
         Node [Edge (inject CenterKeyed) (operationSupport : keyNodes)]
