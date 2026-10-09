@@ -6,13 +6,14 @@ joins, keys, and recursive families. 'Label' keeps the two apart in one
 symbol type, so a support cannot collide with a user symbol and the engine
 reserves no names.
 -}
-module Data.CFTA.Gen.Label (Label (..), surface) where
+module Data.CFTA.Gen.Label (Label (..), ChoiceIndex (..), surface) where
 
 import Data.Hashable (Hashable)
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
 import Data.CFTA.Index (Rank)
+import Data.CFTA.Ranked.Internal.Size (ChoiceIndex (..))
 
 -- | A user symbol, or one private label of the generator engine.
 data Label symbol
@@ -23,7 +24,7 @@ data Label symbol
     | -- | One applicative step: the function language and the argument language.
       Apply
     | -- | One alternative of a choice, by position.
-      Choice !Int
+      Choice !ChoiceIndex
     | -- | One member of a finite source, by rank.
       Index !Rank
     | -- | A two-way join: the two keyed sides under one equality constraint.
