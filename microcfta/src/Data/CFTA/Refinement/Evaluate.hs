@@ -18,6 +18,7 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Equality.Constraint (EqConstraints)
+import Data.CFTA.Index (ArgumentIndex (..))
 import Data.CFTA.Path (Path, getPath)
 import qualified Language.Fixpoint.Types as Fixpoint
 
@@ -155,7 +156,7 @@ evaluateGuardWithSame entailment lookupObservation leafAt sameAt guard = go guar
     evaluateWith substitutions (Holds targets formula) =
         case traverse lookupObservation targets of
             Just observations ->
-                let formals = [Fixpoint.symbol (contractTermName index) | index <- [0 .. length targets - 1]]
+                let formals = [Fixpoint.symbol (contractTermName index) | index <- map ArgumentIndex [0 .. length targets - 1]]
                     assumed =
                         Fixpoint.pAnd
                             [ substituteRefinement [(refinementValueSymbol, Fixpoint.EVar formal)] refinement

@@ -12,6 +12,7 @@ module Data.CFTA.Index (
     TransitionIndex (..),
     Arity (..),
     childIndexes,
+    ArgumentIndex (..),
     Depth (..),
     VarIndex (..),
     Rank (..),
@@ -53,6 +54,15 @@ newtype Arity = Arity Int
 -- | The child indexes of a node with the given arity, from @0@ to @arity - 1@.
 childIndexes :: Arity -> [ChildIndex]
 childIndexes (Arity arity) = map ChildIndex [0 .. arity - 1]
+
+{- | The zero-based index of an argument of a guard, a contract, or an n-way
+join.
+
+The arguments of a guard or a contract are the children of a transition, in
+order. The arguments of an n-way join come after its operation.
+-}
+newtype ArgumentIndex = ArgumentIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
 
 {- | The depth of a node in a term, or a bound on that depth.
 

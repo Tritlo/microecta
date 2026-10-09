@@ -28,7 +28,7 @@ module Data.CFTA.Refinement.Guard (
     notGuard,
 ) where
 
-import Data.CFTA.Index (Arity (..))
+import Data.CFTA.Index (ArgumentIndex (..), Arity (..))
 import Data.CFTA.Refinement (
     Automaton,
     AutomatonError (GuardArityMismatch),
@@ -73,7 +73,7 @@ class GuardBuilder guard where
     {- | Build a guard starting at the supplied argument index.
     Most callers should use 'buildGuard'.
     -}
-    buildGuardFrom :: Natural -> guard -> Constraint
+    buildGuardFrom :: ArgumentIndex -> guard -> Constraint
 
     {- | Number of named constructor arguments, when this is a guard function.
 
@@ -91,7 +91,7 @@ instance GuardBuilder Guard where
 
 instance (position ~ Path, GuardBuilder guard) => GuardBuilder (position -> guard) where
     buildGuardFrom index continue =
-        buildGuardFrom (index + 1) (continue $ argument index)
+        buildGuardFrom (index + 1) (continue $ argumentPath index)
 
     guardArgumentCount continue =
         Just $ 1 + fromMaybe 0 (guardArgumentCount $ continue root)
@@ -103,6 +103,10 @@ buildGuard = buildGuardFrom 0
 -- | Select a zero-based constructor argument.
 argument :: Natural -> Path
 argument index = path [fromIntegral index]
+
+-- | The path of an argument of a guard or a contract. Argument @i@ is child @i@.
+argumentPath :: ArgumentIndex -> Path
+argumentPath (ArgumentIndex index) = path [ChildIndex index]
 
 -- | Select a nested position below an existing position.
 descendant :: Path -> [Natural] -> Path
@@ -128,7 +132,7 @@ class ContractBuilder contract where
     contractArity :: contract -> Arity
 
     -- | The formula, with the terms of the children numbered from an index.
-    contractFormulaFrom :: Int -> contract -> Formula
+    contractFormulaFrom :: ArgumentIndex -> contract -> Formula
 
 instance ContractBuilder Formula where
     contractArity _ = 0
@@ -154,14 +158,14 @@ contract nor its negation.
 contract :: (ContractBuilder contract) => contract -> Constraint
 contract builder =
     allOf
-        [ semanticConstraint $ Holds [path [ChildIndex index] | index <- named] (renumbered named conjunct)
+        [ semanticConstraint $ Holds (map argumentPath named) (renumbered named conjunct)
         | conjunct <- conjuncts $ contractFormulaFrom 0 builder
         , conjunct /= Fixpoint.PTrue
         , let named = [index | (index, name) <- terms, name `elem` Fixpoint.syms conjunct]
         ]
   where
     Arity count = contractArity builder
-    terms = [(index, Fixpoint.symbol $ contractTermName index) | index <- [0 .. count - 1]]
+    terms = [(index, Fixpoint.symbol $ contractTermName index) | index <- map ArgumentIndex [0 .. count - 1]]
     conjuncts (Fixpoint.PAnd parts) = concatMap conjuncts parts
     conjuncts formula = [formula]
     -- A quantifier renames its bound name when the renaming uses that name, so no term is captured.
