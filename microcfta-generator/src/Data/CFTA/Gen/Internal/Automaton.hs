@@ -63,7 +63,7 @@ import Data.CFTA.Equality (
  )
 import Data.CFTA.Equality.Constraint (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Index (Arity (..), childIndexes)
-import Data.CFTA.Path (ChildIndex (..), unPath)
+import Data.CFTA.Path (ChildIndex (..), adjustAt, unPath)
 
 import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Internal.Static (Static, termStatic)
@@ -360,7 +360,7 @@ undecodableConstructor rejects automaton =
         let added =
                 Map.fromList
                     [ ( child
-                      , \hole -> (found Map.! state) $ Tree.Node symbol $ take position arguments <> [hole] <> drop (position + 1) arguments
+                      , \hole -> (found Map.! state) $ Tree.Node symbol $ adjustAt position (const hole) arguments
                       )
                     | FTA.Transition symbol children _ <- FTA.transitionsFrom automaton state
                     , Just arguments <- [traverse (`Map.lookup` witnesses) children]
