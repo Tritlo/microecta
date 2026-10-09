@@ -30,12 +30,14 @@ module Data.CFTA.Equality.Constraint (
 import Control.Monad (forM, forM_, when)
 import Control.Monad.ST (ST, runST)
 import Data.Array.ST (STUArray, newListArray, readArray, writeArray)
+import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Lazy as IntMap
 import Data.List (sort, sortBy, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import qualified Data.Sequence as Sequence
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -128,7 +130,10 @@ toPathTrie ps@(firstPath : _) =
         then
             let child = toPathTrie $ map tailOf ps
              in child `seq` PathTrie (IntMap.singleton (headOf firstPath) child)
-        else PathTrie $ IntMap.map toPathTrie $ IntMap.fromListWith (flip (<>)) [(headOf p, [tailOf p]) | p <- ps]
+        else
+            PathTrie
+                $ IntMap.map (toPathTrie . toList)
+                $ IntMap.fromListWith (flip (<>)) [(headOf p, Sequence.singleton $ tailOf p) | p <- ps]
   where
     headOf (ConsPath i _) = i
     headOf EmptyPath = malformed
