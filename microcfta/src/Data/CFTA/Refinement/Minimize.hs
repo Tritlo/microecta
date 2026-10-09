@@ -29,6 +29,7 @@ import Data.Sequence (Seq (..))
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
+import Data.CFTA.Index (TransitionIndex (..))
 import Data.CFTA.Interned (InternedState (..), NodeId (..), fromFTA, nodeIdentity)
 
 import Data.CFTA.Constraint (Constraint)
@@ -159,10 +160,10 @@ data MinimizeError
       InvalidMinimizedAutomaton !AutomatonError
     deriving (Eq, Show)
 
--- | A transition of the explicit view, and its address as a state and ordinal.
+-- | A transition of the explicit view, and its address as a state and transition index.
 type ViewTransition = FTA.Transition InternedState Symbol Constraint
 
-type Address = (InternedState, Int)
+type Address = (InternedState, TransitionIndex)
 
 {- | Apply a finite deterministic schedule of the paper's M-Trans rule.
 
@@ -283,7 +284,7 @@ minimize automaton (Similarity original related) = do
     alternativesOf = IntMap.fromList [(ident, edges) | (node, edges) <- located automaton, let NodeId ident = nodeIdentity node]
 
     address (TransitionId node edge) = case IntMap.lookup ident alternativesOf >>= elemIndex edge of
-        Just ordinal -> Right (InternedState (nodeIdentity node), ordinal)
+        Just ordinal -> Right (InternedState (nodeIdentity node), TransitionIndex ordinal)
         Nothing -> Left StaleSimilarity
       where
         NodeId ident = nodeIdentity node
