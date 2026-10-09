@@ -103,7 +103,7 @@ joinGroupedStatic ::
     (Hashable symbol, Typeable symbol) =>
     Static symbol left ->
     Static symbol right ->
-    [([(Rational, Outcome symbol left)], [(Rational, Outcome symbol right)])] ->
+    [(Seq (Rational, Outcome symbol left), Seq (Rational, Outcome symbol right))] ->
     Either GenError (Static symbol (left, right))
 joinGroupedStatic left right related =
     if null related
@@ -112,10 +112,10 @@ joinGroupedStatic left right related =
             let groups =
                     [ JoinGroup
                         keyIndex
-                        (Sequence.fromList $ map snd leftOutcomes)
-                        (Sequence.fromList $ map snd rightOutcomes)
-                        (Sequence.fromList $ map fst leftOutcomes)
-                        (Sequence.fromList $ map fst rightOutcomes)
+                        (fmap snd leftOutcomes)
+                        (fmap snd rightOutcomes)
+                        (fmap fst leftOutcomes)
+                        (fmap fst rightOutcomes)
                     | (keyIndex, (leftOutcomes, rightOutcomes)) <-
                         zip [0 :: Int ..] related
                     ]
