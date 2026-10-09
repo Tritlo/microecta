@@ -988,7 +988,7 @@ Right related <- similarity sourceSubtyping automaton
 Right reduced <- pure $ minimize automaton related
 ```
 
-`similarityPairs` exposes directed `(subtype, supertype)` pairs as
+`similarityPairs` exposes directed `SimilarityPair subtype supertype` values over
 `TransitionId`s; each names the node and the transition. `similarity` validates
 the automaton first and reports `InvalidSimilarityAutomaton` otherwise. A
 `Similarity` also retains the exact source automaton. `minimize` returns

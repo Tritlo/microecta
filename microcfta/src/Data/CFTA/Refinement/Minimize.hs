@@ -1,5 +1,3 @@
-{-# LANGUAGE TupleSections #-}
-
 {- | The paper's similarity inference and M-Trans minimization.
 
 'similarity' asks a 'Subtyping' oracle to order transitions. 'minimize' then
@@ -12,6 +10,7 @@ module Data.CFTA.Refinement.Minimize (
     Subtyping (..),
     refinementSubtypingOn,
     Similarity,
+    SimilarityPair (..),
     SimilarityError (..),
     similarity,
     similarityPairs,
@@ -82,18 +81,27 @@ refinementSubtypingOn ::
     (Transition -> Maybe key) ->
     Subtyping
 refinementSubtypingOn entailment classify =
-    Subtyping $ \_ subtype supertype ->
-        case (classify subtype, classify supertype) of
-            (Just subtypeClass, Just supertypeClass)
-                | subtypeClass == supertypeClass ->
+    Subtyping $ \_ low high ->
+        case (classify low, classify high) of
+            (Just lowClass, Just highClass)
+                | lowClass == highClass ->
                     entails
                         entailment
-                        (transitionRefinement subtype)
-                        (transitionRefinement supertype)
+                        (transitionRefinement low)
+                        (transitionRefinement high)
             _ -> pure No
 
+{- | A directed similarity pair @subtype ≲ supertype@ of the LTA paper. The
+type parameter is the kind of name that identifies a transition.
+-}
+data SimilarityPair a = SimilarityPair
+    { subtype :: !a
+    , supertype :: !a
+    }
+    deriving (Eq, Ord, Show)
+
 -- | Directed transition pairs and the automaton for which they were inferred.
-data Similarity = Similarity !Automaton ![(TransitionId, TransitionId)]
+data Similarity = Similarity !Automaton ![SimilarityPair TransitionId]
     deriving (Eq, Show)
 
 -- | A similarity query that could not be answered.
@@ -104,7 +112,7 @@ data SimilarityError
       InvalidSimilarityAutomaton !AutomatonError
     deriving (Eq, Show)
 
-{- | Infer directed @(subtype, supertype)@ transition pairs.
+{- | Infer directed 'SimilarityPair' values over transitions.
 
 Every unordered transition pair is considered once. If the first direction
 holds, the second is not queried, so only one direction of a pair is recorded.
@@ -122,22 +130,22 @@ similarity subtyping automaton = case validate automaton of
     go related (((leftId, left), (rightId, right)) : rest) = do
         leftToRight <- isTransitionSubtypeOf subtyping automaton left right
         case leftToRight of
-            Yes -> go (related :|> (leftId, rightId)) rest
+            Yes -> go (related :|> SimilarityPair leftId rightId) rest
             No -> do
                 rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
                 case rightToLeft of
-                    Yes -> go (related :|> (rightId, leftId)) rest
+                    Yes -> go (related :|> SimilarityPair rightId leftId) rest
                     No -> go related rest
                     Unknown -> pure $ Left $ SimilarityUnknown rightId leftId
             Unknown -> do
                 rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
                 case rightToLeft of
-                    Yes -> go (related :|> (rightId, leftId)) rest
+                    Yes -> go (related :|> SimilarityPair rightId leftId) rest
                     No -> pure $ Left $ SimilarityUnknown leftId rightId
                     Unknown -> pure $ Left $ SimilarityUnknown leftId rightId
 
--- | Inspect the inferred @(subtype, supertype)@ transition pairs.
-similarityPairs :: Similarity -> [(TransitionId, TransitionId)]
+-- | Inspect the inferred 'SimilarityPair' values.
+similarityPairs :: Similarity -> [SimilarityPair TransitionId]
 similarityPairs (Similarity _ related) = related
 
 {- | Every transition paired with its address, in node identity order. Within
@@ -162,6 +170,12 @@ data MinimizeError
 
 -- | A transition of the explicit view, and its address as a state and transition index.
 type ViewTransition = FTA.Transition InternedState Symbol Constraint
+
+-- | A supertype transition and the representative that replaces it in the schedule. This is not a similarity pair.
+data Replacement = Replacement
+    { replacedSupertype :: !Address
+    , chosenRepresentative :: !Address
+    }
 
 -- | The state of a transition in the explicit view, and the index of the transition in that state.
 data Address = Address
@@ -204,7 +218,7 @@ minimize :: Automaton -> Similarity -> Either MinimizeError Automaton
 minimize automaton (Similarity original related) = do
     if automaton == original then Right () else Left StaleSimilarity
     view <- first InvalidMinimizedAutomaton $ explicitView automaton
-    addressed <- traverse (\(subtype, supertype) -> (,) <$> address subtype <*> address supertype) related
+    addressed <- traverse (\(SimilarityPair low high) -> SimilarityPair <$> address low <*> address high) related
     let table = FTA.transitionTable view
         initial = FTA.initialState view
         current :: Map.Map Address ViewTransition
@@ -216,7 +230,7 @@ minimize automaton (Similarity original related) = do
                 ]
         names = Map.fromList $ zip (concatMap both addressed) (concatMap both related)
         dominators = foldl' rememberDominator Map.empty addressed
-        rememberDominator known (subtype, supertype) = Map.insertWith keepEarlier supertype subtype known
+        rememberDominator known (SimilarityPair low high) = Map.insertWith keepEarlier high low known
         keepEarlier _ earlier = earlier
         resolve visited identifier
             | Set.member identifier visited =
@@ -224,10 +238,10 @@ minimize automaton (Similarity original related) = do
             | otherwise = case Map.lookup identifier dominators of
                 Nothing -> Right identifier
                 Just representative -> resolve (Set.insert identifier visited) representative
-    resolved <- traverse (\supertype -> (supertype,) <$> resolve Set.empty supertype) (Map.keys dominators)
-    let redirectFor (supertype, representative) = (addressNode supertype, addressNode representative)
+    resolved <- traverse (\replaced -> Replacement replaced <$> resolve Set.empty replaced) (Map.keys dominators)
+    let redirectFor pair = (addressNode $ replacedSupertype pair, addressNode $ chosenRepresentative pair)
         redirects = Map.fromListWith (<>) [(source, [destination]) | pair <- resolved, let (source, destination) = redirectFor pair]
-        applyStep (table', steps) pair@(supertype, representative)
+        applyStep (table', steps) pair
             | source == destination && removed == retained = (Map.adjust nub source table', steps)
             -- A copy reaches every alternative of the destination, and only the
             -- representative is similar to the removed transition.
@@ -240,20 +254,20 @@ minimize automaton (Similarity original related) = do
                 )
           where
             redirect@(source, destination) = redirectFor pair
-            removed = current Map.! supertype
-            retained = current Map.! representative
+            removed = current Map.! replacedSupertype pair
+            retained = current Map.! chosenRepresentative pair
         copyAlternatives (source, destination) transitions =
             nub $ transitions <> map (redirectTransition $ Map.singleton source destination) transitions
         (rewritten, applied) = foldl' applyStep (table, Empty) resolved
         productive = productiveStates rewritten
         finiteTransition = all (`Set.member` productive) . FTA.transitionChildren
-        hasFiniteDerivation representative =
+        hasFiniteDerivation chosen =
             any
                 ( \transition ->
-                    transition `elem` Map.findWithDefault [] (addressNode representative) rewritten && finiteTransition transition
+                    transition `elem` Map.findWithDefault [] (addressNode chosen) rewritten && finiteTransition transition
                 )
-                (foldl' (flip copyAlternatives) [current Map.! representative] applied)
-        representatives = Set.toAscList $ Set.fromList $ map snd resolved
+                (foldl' (flip copyAlternatives) [current Map.! chosen] applied)
+        representatives = Set.toAscList $ Set.fromList $ map chosenRepresentative resolved
         losesFinal = Set.member initial (productiveStates table) && Set.notMember initial productive
         -- A state depends on the states of its redirects and of its transitions' children.
         (dependencies, _, vertexOf) =
@@ -267,14 +281,14 @@ minimize automaton (Similarity original related) = do
         -- stopped at the target. On the benchmark cells (2026-10-09) the two
         -- searches differ by less than 0.01% of instructions. Go back to the
         -- hand-written search if minimization of large tables gets slow.
-        dependsOnRemovedTarget (supertype, representative) =
-            case vertexOf $ addressNode supertype of
+        dependsOnRemovedTarget pair =
+            case vertexOf $ addressNode $ replacedSupertype pair of
                 Nothing -> False
                 Just target ->
                     any (elem target) $
                         Graph.dfs
                             dependencies
-                            [start | child <- FTA.transitionChildren $ current Map.! representative, Just start <- [vertexOf child]]
+                            [start | child <- FTA.transitionChildren $ current Map.! chosenRepresentative pair, Just start <- [vertexOf child]]
     if any dependsOnRemovedTarget resolved || not (all hasFiniteDerivation representatives) || losesFinal
         then Right automaton
         else case FTA.mkFTA initial (Map.toList $ fmap (filter finiteTransition) rewritten) of
@@ -294,7 +308,7 @@ minimize automaton (Similarity original related) = do
       where
         NodeId ident = nodeIdentity node
 
-    both (left, right) = [left, right]
+    both (SimilarityPair low high) = [low, high]
 
     -- States that derive at least one finite term.
     productiveStates :: Map.Map InternedState [ViewTransition] -> Set.Set InternedState

@@ -72,6 +72,7 @@ module Data.CFTA.Refinement (
     Subtyping (..),
     refinementSubtypingOn,
     Similarity,
+    SimilarityPair (..),
     SimilarityError (..),
     similarity,
     similarityPairs,
