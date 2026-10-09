@@ -12,6 +12,7 @@ import Data.CFTA.Refinement (
     Guard (Satisfies),
     MinimizeError (StaleSimilarity),
     Node (Mu, Node),
+    SimilarityPair (SimilarityPair),
     Subtyping (..),
     Symbol (RefinedSymbol),
     Transition,
@@ -53,7 +54,7 @@ spec =
                     Left err -> expectationFailure $ show err
                     Right related -> do
                         similarityPairs related
-                            `shouldBe` [(TransitionId similarAtoms naturalAtom, TransitionId similarAtoms unknownAtom)]
+                            `shouldBe` [SimilarityPair (TransitionId similarAtoms naturalAtom) (TransitionId similarAtoms unknownAtom)]
                         minimize similarAtoms related `shouldBe` Right (Node [naturalAtom])
 
         it "rejects a similarity snapshot when transition contents change at the same addresses" $
