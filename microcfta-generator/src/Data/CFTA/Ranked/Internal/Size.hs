@@ -39,6 +39,7 @@ contract of the package.
 module Data.CFTA.Ranked.Internal.Size (
     SizeCounts,
     SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
+    SizedRank (..),
     probeIndex,
     probeIndexWithMinimum,
     closedProbe,
@@ -123,20 +124,35 @@ usesOccurrence = usedOccurrence
 countAtSize :: SizeIndex a -> Size -> Cardinality
 countAtSize index = valueAtSize (sizeClassCounts index)
 
+{- | A size, and a rank in the size class of that size.
+
+A member of a size-stratified language has one sized rank. The derived order
+compares the sizes first, then the class ranks: this is the size-major order
+of the members. The fields are lazy, so a caller can make the sized ranks of
+many members and read only some of them.
+-}
+data SizedRank = SizedRank
+    { rankSize :: Size
+    -- ^ The size of the member.
+    , classRank :: ClassRank
+    -- ^ The rank of the member in its size class.
+    }
+    deriving (Eq, Ord, Show)
+
 {- | The size class holding one rank, with the rank rebased into it.
 
 Only meaningful for a size-major index. 'Nothing' means the rank is outside
 the language, which can only be discovered for a language with finitely
 many size classes.
 -}
-sizeClassOf :: SizeIndex a -> Rank -> Maybe (Size, ClassRank)
+sizeClassOf :: SizeIndex a -> Rank -> Maybe SizedRank
 sizeClassOf index (Rank rank)
     | rank < 0 = Nothing
     | otherwise = go rank $ sizeClassCounts index
   where
     go _ [] = Nothing
     go position ((size, Cardinality count) : rest)
-        | position < count = Just (size, ClassRank position)
+        | position < count = Just (SizedRank size (ClassRank position))
         | otherwise = go (position - count) rest
 
 {- | The non-empty size classes up to a bound.
@@ -160,7 +176,7 @@ sizeIndex (PlanSelect cardinality' decode) =
         | cardinality' > 0 = Just 1
         | otherwise = Nothing
     -- A leaf has one size class, so a rank in that class is a rank.
-    select 1 (ClassRank classRank) = let rank = Rank classRank in (rank, decode rank)
+    select 1 (ClassRank position) = let rank = Rank position in (rank, decode rank)
     select size _ =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
