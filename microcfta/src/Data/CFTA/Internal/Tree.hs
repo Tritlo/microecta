@@ -18,6 +18,7 @@ import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
 import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable (toList)
+import qualified Data.Graph as Graph
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq (..))
@@ -83,7 +84,7 @@ is the least fixed point over the rows. Alternatives with a removed child are
 removed. The root is absent from the result when it accepts nothing.
 -}
 trimRows :: (Ord key) => (alternative -> [key]) -> [(key, [alternative])] -> key -> Map key [alternative]
-trimRows childrenOf rows root = Map.restrictKeys liveTable (reachable Set.empty [root])
+trimRows childrenOf rows root = Map.restrictKeys liveTable reached
   where
     grow known
         | Set.size more == Set.size known = known
@@ -98,10 +99,11 @@ trimRows childrenOf rows root = Map.restrictKeys liveTable (reachable Set.empty 
             ]
       where
         live = grow Set.empty
-    reachable seen [] = seen
-    reachable seen (key : pending)
-        | Set.member key seen = reachable seen pending
-        | otherwise = reachable (Set.insert key seen) (concatMap childrenOf (Map.findWithDefault [] key liveTable) <> pending)
+    (graph, nodeOf, vertexOf) =
+        Graph.graphFromEdges [((), key, concatMap childrenOf alternatives) | (key, alternatives) <- Map.toList liveTable]
+    reached =
+        Set.fromList
+            [key | start <- toList (vertexOf root), vertex <- Graph.reachable graph start, let ((), key, _) = nodeOf vertex]
 
 {- | Every accepted term of a graph given as rows, ordered by depth.
 
