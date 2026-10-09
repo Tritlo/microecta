@@ -9,7 +9,7 @@ builders that check it against the constructor's children.
 module Data.CFTA.Refinement.Guard (
     transition,
     automaton,
-    Position,
+    Path,
     GuardBuilder (buildGuardFrom, guardArgumentCount),
     buildGuard,
     root,
@@ -37,6 +37,7 @@ import Data.CFTA.Refinement (
     Formula,
     Guard (And, Entails, Holds, Not, Or, Same, Satisfies, Substitute),
     Node (Node),
+    Path (EmptyPath),
     Substitution (Substitution),
     Symbol,
     Transition,
@@ -55,12 +56,9 @@ import Data.Maybe (fromMaybe)
 import qualified Language.Fixpoint.Types as Fixpoint
 import Numeric.Natural (Natural)
 
--- | A position relative to the root of the guarded constructor.
-newtype Position = Position [Natural]
-
 -- | The root/result of the guarded transition.
-root :: Position
-root = Position []
+root :: Path
+root = EmptyPath
 
 -- | A transition with no liquid constraint.
 unconstrained :: Constraint
@@ -91,7 +89,7 @@ instance GuardBuilder Constraint where
 instance GuardBuilder Guard where
     buildGuardFrom _ = semanticConstraint
 
-instance (position ~ Position, GuardBuilder guard) => GuardBuilder (position -> guard) where
+instance (position ~ Path, GuardBuilder guard) => GuardBuilder (position -> guard) where
     buildGuardFrom index continue =
         buildGuardFrom (index + 1) (continue $ argument index)
 
@@ -103,21 +101,21 @@ buildGuard :: (GuardBuilder guard) => guard -> Constraint
 buildGuard = buildGuardFrom 0
 
 -- | Select a zero-based constructor argument.
-argument :: Natural -> Position
-argument index = Position [index]
+argument :: Natural -> Path
+argument index = path [fromIntegral index]
 
 -- | Select a nested position below an existing position.
-descendant :: Position -> [Natural] -> Position
-descendant (Position prefix) suffix = Position (prefix <> suffix)
+descendant :: Path -> [Natural] -> Path
+descendant prefix suffix = prefix <> path (map fromIntegral suffix)
 
 {- | Require the refinement at a position to imply a literal predicate.
 
 For a division node, for example, @denominator `requires` nonZero@ states the
 precondition directly; it does not need a synthetic predicate child.
 -}
-requires :: Position -> Refinement -> Constraint
-requires (Position target) refinement =
-    semanticConstraint $ Satisfies (path $ map fromIntegral target) (refinementFormula refinement)
+requires :: Path -> Refinement -> Constraint
+requires target refinement =
+    semanticConstraint $ Satisfies target (refinementFormula refinement)
 
 {- | A contract: a formula about the children of a constructor.
 
@@ -177,20 +175,12 @@ contract builder =
                 ]
 
 -- | Require the left position's refinement to be a subtype of the right one.
-isSubtypeOf :: Position -> Position -> Constraint
-isSubtypeOf (Position subtype) (Position supertype) =
-    semanticConstraint $
-        Entails
-            (path $ map fromIntegral subtype)
-            (path $ map fromIntegral supertype)
+isSubtypeOf :: Path -> Path -> Constraint
+isSubtypeOf subtype supertype = semanticConstraint $ Entails subtype supertype
 
 -- | Require both positions to contain the same annotated LTA term.
-isSameTermAs :: Position -> Position -> Constraint
-isSameTermAs (Position left) (Position right) =
-    semanticConstraint $
-        Same
-            (path $ map fromIntegral left)
-            (path $ map fromIntegral right)
+isSameTermAs :: Path -> Path -> Constraint
+isSameTermAs left right = semanticConstraint $ Same left right
 
 {- | Check a guard after substituting the actual position's symbol for the
 formal position's symbol throughout the complete guard. This includes the
@@ -198,7 +188,7 @@ constructor symbols and refinement expressions compared by 'isSameTermAs'.
 The evaluator also assumes that symbol satisfies the actual subtree's
 refinement. The substitution does not change returned or generated terms.
 -}
-withActualFor :: Position -> Position -> Constraint -> Constraint
+withActualFor :: Path -> Path -> Constraint -> Constraint
 withActualFor actual formal = withActualsFor [(actual, formal)]
 
 {- | Apply several actual-for-formal substitutions to one complete constraint.
@@ -207,16 +197,11 @@ The substitutions affect predicates and the annotated terms compared by
 'isSameTermAs'. The first non-identity mapping for a repeated formal name takes
 precedence. The substitutions do not change returned or generated terms.
 -}
-withActualsFor :: [(Position, Position)] -> Constraint -> Constraint
+withActualsFor :: [(Path, Path)] -> Constraint -> Constraint
 withActualsFor substitutions constraint =
     semanticConstraint
-        $ Substitute (map substitution substitutions)
+        $ Substitute (map (uncurry Substitution) substitutions)
         $ constraintAsGuard constraint
-  where
-    substitution (Position actual, Position formal) =
-        Substitution
-            (path $ map fromIntegral actual)
-            (path $ map fromIntegral formal)
 
 -- | Conjoin a collection of guard requirements.
 allOf :: [Constraint] -> Constraint
