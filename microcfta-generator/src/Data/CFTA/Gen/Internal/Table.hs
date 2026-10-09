@@ -8,11 +8,14 @@ module Data.CFTA.Gen.Internal.Table (
 ) where
 
 import Control.Monad (zipWithM)
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 
 import Data.Hashable (Hashable)
@@ -84,11 +87,17 @@ tablePosition initial rows = Map.lookup initial . positionsOf
     (indexOf, prefixesOf) = stateTable rows
     -- The candidates by symbol and arity. The candidates of a state share
     -- its transition indexes, so they are built once for each state.
+    -- TODO: The candidates of a key are a Seq that grows in order; lists that
+    -- grow with flip (<>) are the alternative. With the series of commits that
+    -- made them Seqs, rank-of-term on a datatype import (TablePositionProbe,
+    -- 2026-10-09) took 8% to 13% more wall-clock at sizes 64 and 128, beyond a
+    -- noise of 5% to 7%, while it ran 0.08% fewer instructions. The cause is
+    -- not known; this code is one of the few changes on that path.
     candidates =
         Map.fromListWith
             (flip (<>))
             [ ( (FTA.transitionSymbol transition, length $ FTA.transitionChildren transition)
-              , [(state, branch, transition, prefixes, indexes)]
+              , Sequence.singleton (state, branch, transition, prefixes, indexes)
               )
             | state <- Map.keys rows
             , let indexes = map (NonEmpty.last . snd) $ prefixesOf state
@@ -101,7 +110,7 @@ tablePosition initial rows = Map.lookup initial . positionsOf
         Map.fromList
             [ (state, SizedRank size (choicePosition indexes (ChoiceIndex branch) size position))
             | (state, TransitionIndex branch, transition, prefixes, indexes) <-
-                Map.findWithDefault [] (symbol, length children) candidates
+                toList $ Map.findWithDefault Empty (symbol, length children) candidates
             , Just childPositions <- [zipWithM Map.lookup (FTA.transitionChildren transition) childMaps]
             , let SizedRank size position =
                     foldl' addChild (SizedRank 1 0) $ zip3 (NonEmpty.toList prefixes) (FTA.transitionChildren transition) childPositions
