@@ -13,6 +13,8 @@ module Data.CFTA.Gen.Internal.Static (
     -- * Languages
     Outcome (..),
     OutcomeIndex (..),
+    CheckedRank (..),
+    checkedProduct,
     TermView (..),
     mkOutcomeIndex,
     leafRanks,
@@ -111,13 +113,11 @@ data OutcomeIndex symbol a = OutcomeIndex
     { outcomeCardinality :: !Cardinality
     , outcomeUniformMass :: !(Maybe Rational)
     , outcomeSelect :: Rank -> Either GenError (Outcome symbol a)
-    , outcomeRanks :: TermView symbol -> [(Rank, Bool)]
+    , outcomeRanks :: TermView symbol -> [CheckedRank Rank]
     {- ^ The ranks whose term has the given view, in ascending order. The
     inverse of 'outcomeSelect' on terms: one term can have several ranks,
     because a node label removes the choice wrapper of its alternatives. Each
-    rank tells whether the ranking checked every symbol of the term. A rank
-    that is not checked can belong to another term with the same private
-    labels.
+    rank tells whether the ranking checked every symbol of the term.
     -}
     , outcomeValueAt :: Rank -> a
     , outcomeSampler :: Sampler a
@@ -148,12 +148,42 @@ data OutcomeIndex symbol a = OutcomeIndex
     -}
     }
 
+{- | A rank of a term, and whether the ranking checked every symbol of the
+term.
+
+A ranking follows the private labels of the term. It does not always check
+every user symbol. A rank that is not checked can belong to another term
+with the same private labels. The rank is a 'Rank', or a
+'Data.CFTA.Ranked.Internal.Size.SizedRank' for a recursive language. The
+fields are lazy, as in a pair, because a reader can read one field only.
+-}
+data CheckedRank rank = CheckedRank
+    { checkedRank :: rank
+    -- ^ The rank of the term.
+    , everySymbolChecked :: Bool
+    -- ^ Whether the ranking checked every symbol of the term.
+    }
+    deriving (Eq, Ord, Show)
+
+{- | The checked ranks of a product of two parts, from the checked ranks of
+each part. The function combines a rank of the first part with a rank of the
+second part. A rank of the product checks every symbol when the two ranks
+check every symbol. The ranks of the second part vary fastest.
+-}
+checkedProduct :: (a -> b -> c) -> [CheckedRank a] -> [CheckedRank b] -> [CheckedRank c]
+checkedProduct combine firsts seconds =
+    [ CheckedRank (combine first second) (firstChecked && secondChecked)
+    | CheckedRank first firstChecked <- firsts
+    , CheckedRank second secondChecked <- seconds
+    ]
+{-# INLINE checkedProduct #-}
+
 -- | Build an outcome index whose size classes are derived from its plan.
 mkOutcomeIndex ::
     Cardinality ->
     Maybe Rational ->
     (Rank -> Either GenError (Outcome symbol a)) ->
-    (TermView symbol -> [(Rank, Bool)]) ->
+    (TermView symbol -> [CheckedRank Rank]) ->
     (Rank -> a) ->
     Sampler a ->
     Plan a ->
@@ -191,8 +221,8 @@ leafRanks ranksOfTerm view = case view of
 {- | The ranks of a view for a language whose terms are listed in rank order.
 This compares whole terms, so it checks every symbol.
 -}
-enumeratedRanks :: (Eq symbol) => [Tree.Tree (Label symbol)] -> TermView symbol -> [(Rank, Bool)]
-enumeratedRanks terms view = [(rank, True) | (rank, term) <- zip [0 ..] terms, hasView term view]
+enumeratedRanks :: (Eq symbol) => [Tree.Tree (Label symbol)] -> TermView symbol -> [CheckedRank Rank]
+enumeratedRanks terms view = [CheckedRank rank True | (rank, term) <- zip [0 ..] terms, hasView term view]
 
 -- | Whether a term has the view.
 hasView :: (Eq symbol) => Tree.Tree (Label symbol) -> TermView symbol -> Bool
@@ -283,9 +313,9 @@ pureStatic value =
   where
     -- A spine and a node label give pure no arguments.
     pureRanks view = case view of
-        WholeTerm (Tree.Node Pure []) -> [(0, True)]
-        SpineView Empty -> [(0, True)]
-        LabelledView [] -> [(0, True)]
+        WholeTerm (Tree.Node Pure []) -> [CheckedRank 0 True]
+        SpineView Empty -> [CheckedRank 0 True]
+        LabelledView [] -> [CheckedRank 0 True]
         _ -> []
 
 -- | The language of one finite indexed source.
@@ -315,7 +345,7 @@ indexedStaticWithLabels label indexed =
     namedSymbol index = InspectionSymbol (Index index) (label index)
     totalOutcomes = indexedCardinality indexed
     indexRanks term = case term of
-        Tree.Node (Index index) [] | hasRank totalOutcomes index -> [(index, True)]
+        Tree.Node (Index index) [] | hasRank totalOutcomes index -> [CheckedRank index True]
         _ -> []
     select index = do
         checkIndex totalOutcomes index
@@ -346,8 +376,8 @@ holeStatic summary value =
             -- A theory fills the placeholder with a leaf, so any leaf takes rank
             -- zero. Only the placeholder itself is checked.
             ( leafRanks $ \case
-                Tree.Node Placeholder [] -> [(0, True)]
-                Tree.Node _ [] -> [(0, False)]
+                Tree.Node Placeholder [] -> [CheckedRank 0 True]
+                Tree.Node _ [] -> [CheckedRank 0 False]
                 _ -> []
             )
             (const value)
@@ -395,8 +425,8 @@ pointsStatic rewrite rankPoint pointSource functions =
     -- The rewrite keeps the private labels, so the outcome ranks the filled
     -- term. It changes symbols, so the checks of the outcome do not apply.
     ranks view =
-        [ (pairRank (indexedCardinality pointSource) functionRank pointRank, True)
-        | (functionRank, _) <- outcomeRanks (staticOutcomes functions) view
+        [ CheckedRank (pairRank (indexedCardinality pointSource) functionRank pointRank) True
+        | CheckedRank functionRank _ <- outcomeRanks (staticOutcomes functions) view
         , Right outcome <- [outcomeSelect (staticOutcomes functions) functionRank]
         , Just symbols <- [holeSymbols (outcomeTerm outcome) view]
         , Just (pointRank, point) <- [rankPoint symbols]
@@ -446,7 +476,7 @@ termStatic root rankTerm ranked =
     mass = 1 / toRational total
     valueAt = Ranked.rankedValueAt ranked
     -- The term of a member is the accepted user term under 'Label'.
-    termRanks term = maybe [] (either (const []) (\rank -> [(rank, True)]) . rankTerm) $ userTerm term
+    termRanks term = maybe [] (either (const []) (\rank -> [CheckedRank rank True]) . rankTerm) $ userTerm term
     select rank = do
         checkIndex total rank
         let term = valueAt rank
@@ -559,10 +589,10 @@ applyStatic functions values =
             Empty -> []
 
         ranksFrom functionView argument =
-            [ (pairRank valueCardinality functionRank valueRank, functionChecked && valueChecked)
-            | (functionRank, functionChecked) <- outcomeRanks functionOutcomes functionView
-            , (valueRank, valueChecked) <- outcomeRanks valueOutcomes (WholeTerm argument)
-            ]
+            checkedProduct
+                (pairRank valueCardinality)
+                (outcomeRanks functionOutcomes functionView)
+                (outcomeRanks valueOutcomes (WholeTerm argument))
 
 -- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic ::
@@ -661,10 +691,10 @@ frequencyStatic alternatives =
         SpineView _ -> []
         LabelledView _ -> concat [branchRanks branchIndex view | (_, _, branchIndex, _, _) <- rankedBranches]
     branchRanks branchIndex view =
-        [ (offsetRank offset rank, checked)
+        [ CheckedRank (offsetRank offset rank) checked
         | (_, offset, index, _, static) <- rankedBranches
         , index == branchIndex
-        , (rank, checked) <- outcomeRanks (staticOutcomes static) view
+        , CheckedRank rank checked <- outcomeRanks (staticOutcomes static) view
         ]
 
     selectBranch _ [] =
@@ -791,7 +821,9 @@ labelOutcomeTerms matches symbol outcomes =
     labelledRanks term = case term of
         Tree.Node (Label found) children
             | matches found ->
-                [(rank, checked && found == symbol) | (rank, checked) <- outcomeRanks outcomes $ LabelledView children]
+                [ CheckedRank rank (checked && found == symbol)
+                | CheckedRank rank checked <- outcomeRanks outcomes $ LabelledView children
+                ]
         _ -> []
 
 -- | Relabel the retained term of one finite outcome.

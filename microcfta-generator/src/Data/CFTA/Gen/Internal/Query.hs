@@ -158,9 +158,9 @@ labels and checks the symbols where it can. 'termAt' checks each other rank,
 so a term with other user symbols has no rank.
 -}
 ranksOf :: (Eq symbol) => Gen symbol a -> Tree.Tree (Label symbol) -> Either GenError [Rank]
-ranksOf generator term = map fst . filter checked <$> candidates generator
+ranksOf generator term = map checkedRank . filter checked <$> candidates generator
   where
-    checked (rank, symbolsChecked) = symbolsChecked || termAt generator rank == Right term
+    checked (CheckedRank rank symbolsChecked) = symbolsChecked || termAt generator rank == Right term
     candidates (Transparent result) = do
         static <- result
         pure $ outcomeRanks (staticOutcomes static) $ WholeTerm term

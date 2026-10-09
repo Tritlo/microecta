@@ -122,7 +122,7 @@ readAutomaton order root
     -- The term of a member is the accepted user term under 'Label', and the
     -- automaton checks every symbol of it.
     position = automatonTermPosition order root
-    positions term = maybe [] (either (const []) (\found -> [(found, True)]) . position) $ userTerm term
+    positions term = maybe [] (either (const []) (\found -> [CheckedRank found True]) . position) $ userTerm term
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: (Hashable symbol, Typeable symbol) => [a] -> Gen symbol a
