@@ -46,7 +46,7 @@ import Data.CFTA.Interned (
     nodeIdentity,
     substFree,
  )
-import Data.CFTA.Path (ChildIndex (..), unPath)
+import Data.CFTA.Path (ChildIndex (..), Path (ConsPath, EmptyPath))
 
 import Data.CFTA.Constraint (
     Constraint (..),
@@ -186,10 +186,10 @@ pruneSemantic entailment edge
                 semanticGuard
 
     lookupResolved resolved target = do
-        (RefinedSymbol symbol refinement, _) <- Map.lookup (unPath target) resolved
+        (RefinedSymbol symbol refinement, _) <- Map.lookup target resolved
         pure (symbol, refinement)
 
-    lookupLeaf resolved target = snd <$> Map.lookup (unPath target) resolved
+    lookupLeaf resolved target = snd <$> Map.lookup target resolved
 
 {- | Whether a path plan reaches a recursive reference below the children of a
 transition.
@@ -237,9 +237,9 @@ data Observation
     deriving (Eq, Ord, Show)
 
 -- | Observations at relative positions, and the symbols substitution may read there.
-type Signature = Map.Map [ChildIndex] Observation
+type Signature = Map.Map Path Observation
 
-type Symbols = Map.Map [ChildIndex] (Symbol, Bool)
+type Symbols = Map.Map Path (Symbol, Bool)
 
 -- | One node whose language is homogeneous at every planned position.
 data Variant = Variant
@@ -264,7 +264,7 @@ specializations guard edge = do
 rootSymbolsOf :: PathPlan -> Transition -> Symbols
 rootSymbolsOf plan edge = case planObservation plan of
     Nothing -> Map.empty
-    Just _ -> Map.singleton [] (edgeSymbol edge, null $ edgeChildren edge)
+    Just _ -> Map.singleton EmptyPath (edgeSymbol edge, null $ edgeChildren edge)
 
 -- | Partition one node's language by the observations in a path plan.
 specializeNode :: Automaton -> PathPlan -> PruneM [Variant]
@@ -305,7 +305,7 @@ specializeEdge plan edge = do
   where
     rootSignature = case planObservation plan of
         Nothing -> Map.empty
-        Just need -> Map.singleton [] $ observe need edge
+        Just need -> Map.singleton EmptyPath $ observe need edge
     rootSymbols = rootSymbolsOf plan edge
 
 -- | Cartesian product of child variants, sharing every unobserved child.
@@ -328,8 +328,8 @@ specializeChildren plans = go 0
             ]
 
     -- Prefix every relative observation path by one child index.
-    prefixMap :: ChildIndex -> Map.Map [ChildIndex] value -> Map.Map [ChildIndex] value
-    prefixMap index = Map.mapKeysMonotonic (index :)
+    prefixMap :: ChildIndex -> Map.Map Path value -> Map.Map Path value
+    prefixMap index = Map.mapKeysMonotonic (ConsPath index)
 
 -- | Regroup transition candidates by signature without disturbing first-seen order.
 groupVariants :: [(Signature, Symbols, Transition)] -> [(Signature, Symbols, [Transition])]
@@ -350,7 +350,7 @@ planGuard :: Guard -> PathPlan
 planGuard guard = foldl' (flip $ uncurry insertPlan) emptyPlan observations
   where
     observations =
-        [ (unPath target, if Set.member target sensitive then SymbolNeed else RefinementNeed)
+        [ (target, if Set.member target sensitive then SymbolNeed else RefinementNeed)
         | target <- Set.toList $ Set.fromList $ guardPaths guard
         ]
       where
@@ -361,10 +361,10 @@ emptyPlan :: PathPlan
 emptyPlan = PathPlan Nothing IntMap.empty
 
 -- | Insert or strengthen one observed position in a path trie.
-insertPlan :: [ChildIndex] -> ObservationNeed -> PathPlan -> PathPlan
-insertPlan [] need plan =
+insertPlan :: Path -> ObservationNeed -> PathPlan -> PathPlan
+insertPlan EmptyPath need plan =
     plan{planObservation = Just $ maybe need (max need) $ planObservation plan}
-insertPlan (ChildIndex index : rest) need plan =
+insertPlan (ConsPath (ChildIndex index) rest) need plan =
     plan
         { planChildren =
             IntMap.alter
