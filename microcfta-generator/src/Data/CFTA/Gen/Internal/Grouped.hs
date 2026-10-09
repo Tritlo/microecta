@@ -38,6 +38,7 @@ import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import Data.Text (Text)
 import Data.Typeable (Typeable)
 
@@ -420,12 +421,12 @@ relateGroupsM relation resultKey left right =
 -- | Compile one relation over a homogeneous list of grouped arguments.
 relateN ::
     (Ord key, Hashable symbol, Typeable symbol) =>
-    ([key] -> IO (Either relationError Bool)) ->
+    (Seq key -> IO (Either relationError Bool)) ->
     [Grouped symbol key a] ->
-    IO (Either relationError (Grouped symbol [key] [a]))
+    IO (Either relationError (Grouped symbol (Seq key) (Seq a)))
 relateN _ [] = pure $ Right $ Grouped $ Left EmptyGenerator
 relateN relation (first : rest) = do
-    combined <- combine (regroupOn pure $ mapWithKey (\_ value -> [value]) first) rest
+    combined <- combine (regroupOn Sequence.singleton $ mapWithKey (\_ value -> Sequence.singleton value) first) rest
     case combined of
         Left err -> pure $ Left err
         Right grouped -> filterGroupsM relation grouped
@@ -435,14 +436,14 @@ relateN relation (first : rest) = do
         paired <-
             relateGroupsM
                 (\_ _ -> pure $ Right True)
-                (\keys key -> keys <> [key])
+                (:|>)
                 grouped
                 next
         case paired of
             Left err -> pure $ Left err
             Right joined ->
                 combine
-                    (mapWithKey (\_ (values, value) -> values <> [value]) joined)
+                    (mapWithKey (\_ (values, value) -> values :|> value) joined)
                     remaining
 
 -- | Retain complete groups selected by one effectful key predicate.
