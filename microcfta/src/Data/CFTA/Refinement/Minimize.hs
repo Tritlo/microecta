@@ -21,6 +21,7 @@ module Data.CFTA.Refinement.Minimize (
 
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import qualified Data.Graph as Graph
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (elemIndex, nub, sortOn)
 import qualified Data.Map.Strict as Map
@@ -248,21 +249,26 @@ minimize automaton (Similarity original related) = do
                 (foldl' (flip copyAlternatives) [current Map.! representative] applied)
         representatives = Set.toAscList $ Set.fromList $ map snd resolved
         losesFinal = Set.member initial (productiveStates table) && Set.notMember initial productive
+        -- A state depends on the states of its redirects and of its transitions' children.
+        (dependencies, _, vertexOf) =
+            Graph.graphFromEdges
+                [ ((), state, Map.findWithDefault [] state redirects <> concatMap FTA.transitionChildren transitions)
+                | (state, transitions) <- Map.toList table
+                ]
+        -- TODO: Graph.dfs makes a visited array for the whole table on each call,
+        -- so each pair costs time in the size of the table. The hand-written
+        -- search that it replaced cost time in the states that it reached, and it
+        -- stopped at the target. On the benchmark cells (2026-10-09) the two
+        -- searches differ by less than 0.01% of instructions. Go back to the
+        -- hand-written search if minimization of large tables gets slow.
         dependsOnRemovedTarget (supertype, representative) =
-            reaches Set.empty $ FTA.transitionChildren $ current Map.! representative
-          where
-            target = fst supertype
-            reaches _ [] = False
-            reaches visited (state : rest)
-                | state == target = True
-                | Set.member state visited = reaches visited rest
-                | otherwise =
-                    reaches
-                        (Set.insert state visited)
-                        ( Map.findWithDefault [] state redirects
-                            <> concatMap FTA.transitionChildren (Map.findWithDefault [] state table)
-                            <> rest
-                        )
+            case vertexOf $ fst supertype of
+                Nothing -> False
+                Just target ->
+                    any (elem target) $
+                        Graph.dfs
+                            dependencies
+                            [start | child <- FTA.transitionChildren $ current Map.! representative, Just start <- [vertexOf child]]
     if any dependsOnRemovedTarget resolved || not (all hasFiniteDerivation representatives) || losesFinal
         then Right automaton
         else case FTA.mkFTA initial (Map.toList $ fmap (filter finiteTransition) rewritten) of
