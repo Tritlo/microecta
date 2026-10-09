@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 {- | The symbols of a generator's support graph.
 
 The equality engine builds its support over the user's symbols and over
@@ -6,13 +8,13 @@ joins, keys, and recursive families. 'Label' keeps the two apart in one
 symbol type, so a support cannot collide with a user symbol and the engine
 reserves no names.
 -}
-module Data.CFTA.Gen.Label (Label (..), ChoiceIndex (..), surface) where
+module Data.CFTA.Gen.Label (Label (..), ChoiceIndex (..), ComponentIndex (..), surface) where
 
 import Data.Hashable (Hashable)
 import qualified Data.Tree as Tree
 import GHC.Generics (Generic)
 
-import Data.CFTA.Index (Rank)
+import Data.CFTA.Index (ArgumentIndex, Rank)
 import Data.CFTA.Ranked.Internal.Size (ChoiceIndex (..))
 
 -- | A user symbol, or one private label of the generator engine.
@@ -46,10 +48,19 @@ data Label symbol
     | -- | The key of one matched group or of one family member, by position.
       Key !Int
     | -- | The key of one argument position of one joined component.
-      ArgKey !Int !Int
+      ArgKey !ComponentIndex !ArgumentIndex
     deriving (Eq, Ord, Show, Generic)
 
 instance (Hashable symbol) => Hashable (Label symbol)
+
+{- | The zero-based index of a component of an n-way join.
+
+A component is one operation signature of an application, or one accepted
+key pair of a relation. The argument keys of a component carry its index, so
+the keys of two components differ.
+-}
+newtype ComponentIndex = ComponentIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
 
 {- | The user's term under a labelled term.
 

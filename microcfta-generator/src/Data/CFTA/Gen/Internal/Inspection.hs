@@ -25,7 +25,8 @@ import Data.CFTA (StateView (..), ViewPath, ViewStep (..))
 import Data.CFTA.Equality (Edge (Edge), Node (Node), edgeConstraint, edgeSymbol, toTree)
 import Data.CFTA.Equality.Constraint (subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Gen.Internal.Support
-import Data.CFTA.Gen.Label (Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
+import Data.CFTA.Index (ArgumentIndex (..))
 import Data.CFTA.Path (Path, unPath)
 
 {- | An original support label with an optional source or group name.
@@ -97,12 +98,12 @@ labelInspection symbol inspection =
 -- | Join diagnostic groups and name each equality witness from its argument.
 joinInspection ::
     (Hashable symbol, Typeable symbol) =>
-    Int -> Inspection symbol -> [Inspection symbol] -> Inspection symbol
+    ComponentIndex -> Inspection symbol -> [Inspection symbol] -> Inspection symbol
 joinInspection component operation arguments =
     Inspection Nothing $
         joinNodeWith namedSymbol component (inspectionGraph operation) (map inspectionGraph arguments)
   where
-    namedSymbol symbol@(ArgKey _ position) = InspectionSymbol symbol $ inspectionName =<< arguments !? position
+    namedSymbol symbol@(ArgKey _ (ArgumentIndex position)) = InspectionSymbol symbol $ inspectionName =<< arguments !? position
     namedSymbol symbol = plainSymbol symbol
 
 {- | Draw an inspection graph as an indented tree.
