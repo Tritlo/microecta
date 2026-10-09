@@ -18,7 +18,7 @@ import Data.Hashable (Hashable)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
-import Data.Sequence (Seq)
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
@@ -475,7 +475,7 @@ joinNBucketStatic componentIndex operation arguments =
         WholeTerm (Tree.Node JoinN children) -> childrenRanks children
         WholeTerm _ -> []
         LabelledView children -> childrenRanks children
-        SpineView [term] -> joinRanks $ WholeTerm term
+        SpineView (term :<| Empty) -> joinRanks $ WholeTerm term
         SpineView _ -> []
       where
         childrenRanks (Tree.Node CenterKeyed centre : argumentTerms) = case centre of

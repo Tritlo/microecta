@@ -60,7 +60,7 @@ import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import Data.Maybe (fromMaybe, isJust)
-import Data.Sequence (Seq)
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Sequence
 import Data.Text (Text)
 import qualified Data.Tree as Tree
@@ -174,7 +174,7 @@ data TermView symbol
     = -- | The whole term.
       WholeTerm (Tree.Tree (Label symbol))
     | -- | The arguments of an applicative spine on its function side.
-      SpineView [Tree.Tree (Label symbol)]
+      SpineView (Seq (Tree.Tree (Label symbol)))
     | -- | The children under a node label.
       LabelledView [Tree.Tree (Label symbol)]
 
@@ -184,7 +184,7 @@ private label at their root: each view of such a term is the term itself.
 leafRanks :: (Tree.Tree (Label symbol) -> [rank]) -> TermView symbol -> [rank]
 leafRanks ranksOfTerm view = case view of
     WholeTerm term -> ranksOfTerm term
-    SpineView [term] -> ranksOfTerm term
+    SpineView (term :<| Empty) -> ranksOfTerm term
     LabelledView [term] -> ranksOfTerm term
     _ -> []
 
@@ -284,7 +284,7 @@ pureStatic value =
     -- A spine and a node label give pure no arguments.
     pureRanks view = case view of
         WholeTerm (Tree.Node Pure []) -> [(0, True)]
-        SpineView [] -> [(0, True)]
+        SpineView Empty -> [(0, True)]
         LabelledView [] -> [(0, True)]
         _ -> []
 
@@ -404,7 +404,7 @@ pointsStatic rewrite rankPoint pointSource functions =
         ]
     holeSymbols term view = case view of
         WholeTerm filled -> holesIn [term] [filled]
-        SpineView filled -> holesIn (spineChildren term) filled
+        SpineView filled -> holesIn (toList $ spineChildren term) (toList filled)
         LabelledView filled -> holesIn (labelledChildren term) filled
     holesIn terms filled
         | length terms == length filled = concat <$> zipWithM holes terms filled
@@ -552,11 +552,11 @@ applyStatic functions values =
         WholeTerm (Tree.Node Apply [function, argument]) -> ranksFrom (WholeTerm function) argument
         WholeTerm _ -> []
         SpineView arguments -> spineRanks arguments
-        LabelledView arguments -> spineRanks arguments
+        LabelledView arguments -> spineRanks $ Sequence.fromList arguments
       where
-        spineRanks arguments = case reverse arguments of
-            argument : functionArguments -> ranksFrom (SpineView $ reverse functionArguments) argument
-            [] -> []
+        spineRanks arguments = case arguments of
+            functionArguments :|> argument -> ranksFrom (SpineView functionArguments) argument
+            Empty -> []
 
         ranksFrom functionView argument =
             [ (pairRank valueCardinality functionRank valueRank, functionChecked && valueChecked)
@@ -657,7 +657,7 @@ frequencyStatic alternatives =
     choiceRanks view = case view of
         WholeTerm (Tree.Node (Choice branchIndex) [child]) -> branchRanks branchIndex $ WholeTerm child
         WholeTerm _ -> []
-        SpineView [term] -> choiceRanks $ WholeTerm term
+        SpineView (term :<| Empty) -> choiceRanks $ WholeTerm term
         SpineView _ -> []
         LabelledView _ -> concat [branchRanks branchIndex view | (_, _, branchIndex, _, _) <- rankedBranches]
     branchRanks branchIndex view =

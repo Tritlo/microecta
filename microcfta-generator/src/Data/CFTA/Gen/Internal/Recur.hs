@@ -18,6 +18,7 @@ import Data.Either (fromRight)
 import Data.Hashable (Hashable)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import System.IO.Unsafe (unsafePerformIO)
@@ -338,7 +339,7 @@ recurGrouped build
         WholeTerm (Tree.Node AtKey [Tree.Node (Key position) [], Tree.Node Family [Tree.Node (Key position') [], body]])
             | position == positionOf key && position' == position ->
                 maybe [] (`recursiveTermPositions` WholeTerm body) $ Map.lookup key bodyTerms
-        SpineView [term] -> memberPositions key $ WholeTerm term
+        SpineView (term :<| Empty) -> memberPositions key $ WholeTerm term
         LabelledView [term] -> memberPositions key $ WholeTerm term
         _ -> []
     atKeyTerm position body =

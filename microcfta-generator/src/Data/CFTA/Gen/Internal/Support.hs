@@ -30,9 +30,12 @@ module Data.CFTA.Gen.Internal.Support (
 ) where
 
 import qualified Control.Monad.State.Strict as State
+import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import Data.List (compareLength)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
@@ -222,7 +225,7 @@ labelSupportWith original symbol support@(Node edges)
         Node [mkEdge symbol (edgeChildren edge) (edgeConstraint edge)]
     | isPureSupport original support = Node [Edge symbol []]
     | Just arguments <- applicationSupportChildren original support =
-        Node [Edge symbol arguments]
+        Node [Edge symbol (toList arguments)]
     | otherwise = Node [Edge symbol [support]]
 labelSupportWith original symbol support@(Mu _) = labelSupportWith original symbol $ unfoldOuterRec support
 labelSupportWith _ symbol support = Node [Edge symbol [support]]
@@ -235,21 +238,21 @@ rootEdges _ = []
 -- | Recognize the children of one private applicative support spine.
 applicationSupportChildren ::
     (Typeable other) =>
-    (other -> Label symbol) -> Node other -> Maybe [Node other]
+    (other -> Label symbol) -> Node other -> Maybe (Seq (Node other))
 applicationSupportChildren original (Node [edge])
     | Apply <- original (edgeSymbol edge)
     , unconstrainedEdge edge
     , [functions, argument] <- edgeChildren edge =
-        Just $ applicationLeftSupport original functions <> [argument]
+        Just $ applicationLeftSupport original functions :|> argument
 applicationSupportChildren _ _ = Nothing
 
 -- | Flatten the already-applied left portion of a support spine.
 applicationLeftSupport ::
-    (Typeable other) => (other -> Label symbol) -> Node other -> [Node other]
+    (Typeable other) => (other -> Label symbol) -> Node other -> Seq (Node other)
 applicationLeftSupport original support
-    | isPureSupport original support = []
+    | isPureSupport original support = Empty
     | Just arguments <- applicationSupportChildren original support = arguments
-    | otherwise = [support]
+    | otherwise = Sequence.singleton support
 
 -- | Whether a support node is the nullary private applicative identity.
 isPureSupport :: (Typeable other) => (other -> Label symbol) -> Node other -> Bool
@@ -277,7 +280,7 @@ labelTermWith original symbol term@(Tree.Node internal children) =
         Choice _ | [child] <- children -> labelTermWith original symbol child
         Pure -> Tree.Node symbol []
         _
-            | Just arguments <- applicationTermChildren original term -> Tree.Node symbol arguments
+            | Just arguments <- applicationTermChildren original term -> Tree.Node symbol $ toList arguments
             | otherwise -> Tree.Node symbol [term]
 
 {- | The children that 'labelTerm' gives a term under a node label: the
@@ -290,21 +293,21 @@ labelledChildren = Tree.subForest . labelTermWith id Pure
 {- | The arguments that a term gives as the function side of an applicative
 spine: none for @pure@, the arguments of a spine, or the term itself.
 -}
-spineChildren :: Tree.Tree (Label symbol) -> [Tree.Tree (Label symbol)]
+spineChildren :: Tree.Tree (Label symbol) -> Seq (Tree.Tree (Label symbol))
 spineChildren = applicationLeftChildren id
 
 -- | Recognize the children of one private applicative term spine.
-applicationTermChildren :: (other -> Label symbol) -> Tree.Tree other -> Maybe [Tree.Tree other]
+applicationTermChildren :: (other -> Label symbol) -> Tree.Tree other -> Maybe (Seq (Tree.Tree other))
 applicationTermChildren original (Tree.Node internal [functions, argument])
     | Apply <- original internal =
-        Just $ applicationLeftChildren original functions <> [argument]
+        Just $ applicationLeftChildren original functions :|> argument
 applicationTermChildren _ _ = Nothing
 
 -- | Flatten the already-applied left portion of an applicative term spine.
-applicationLeftChildren :: (other -> Label symbol) -> Tree.Tree other -> [Tree.Tree other]
+applicationLeftChildren :: (other -> Label symbol) -> Tree.Tree other -> Seq (Tree.Tree other)
 applicationLeftChildren original term@(Tree.Node internal children)
     | Pure <- original internal
     , null children =
-        []
+        Empty
     | Just arguments <- applicationTermChildren original term = arguments
-    | otherwise = [term]
+    | otherwise = Sequence.singleton term
