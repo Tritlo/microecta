@@ -70,7 +70,7 @@ import Data.CFTA.Index (
     offsetRank,
     pairRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeCounts, SizeIndex (..))
+import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeClass (..), SizeCounts, SizeIndex (..))
 
 {- | A stand-in for a recursive occurrence, used to check that a recursive
 definition is guarded before it is tied.
@@ -139,19 +139,14 @@ sizeClassOf index (Rank rank)
         | position < count = Just (size, ClassRank position)
         | otherwise = go (position - count) rest
 
-{- | The non-empty size classes up to a bound, as size, count, and a decoder
-for one position in that class.
+{- | The non-empty size classes up to a bound.
 
 This is the bridge back to a finite language: a recursive index bounded this
 way becomes an ordinary 'PlanSized' plan whose ranks are size-major.
 -}
-sizeClasses :: Size -> SizeIndex a -> [(Size, Cardinality, ClassRank -> a, Int -> a)]
+sizeClasses :: Size -> SizeIndex a -> [SizeClass a]
 sizeClasses bound index =
-    [ ( size
-      , count
-      , snd . sizeClassSelect index size
-      , sizeClassValueInt index size
-      )
+    [ SizeClass size count (snd . sizeClassSelect index size) (sizeClassValueInt index size)
     | (size, count) <- takeWhile ((<= bound) . fst) (sizeClassCounts index)
     , count > 0
     ]
@@ -221,24 +216,24 @@ sizeIndex (PlanAp radix planF planX) =
 sizeIndex (PlanSized classes) =
     SizeIndex counts select selectInt minimumSize' False False
   where
-    counts = [(size, count) | (size, count, _, _) <- classes, count > 0]
-    minimumSize' = case [size | (size, count, _, _) <- classes, count > 0] of
+    counts = [(size, count) | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0]
+    minimumSize' = case [size | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0] of
         [] -> Nothing
         liveSizes -> Just $ minimum liveSizes
     offsets = offsetClasses 0 classes
     offsetClasses _ [] = []
-    offsetClasses offset ((size, count, decode, decodeInt) : rest) =
-        (size, offset, count, decode, decodeInt) : offsetClasses (nextOffset offset count) rest
+    offsetClasses offset (sizeClass@SizeClass{classCardinality = count} : rest) =
+        (offset, sizeClass) : offsetClasses (nextOffset offset count) rest
 
-    select size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
-        (_, offset, _, decode, _) : _ -> (classMemberRank offset position, decode position)
+    select size position = case [entry | entry@(_, SizeClass{classSize = size'}) <- offsets, size' == size] of
+        (offset, SizeClass{classMember = decode}) : _ -> (classMemberRank offset position, decode position)
         [] ->
             error $
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
                 \no size class of size "
                     <> show size
-    selectInt size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
-        (_, _, _, _, decodeInt) : _ -> decodeInt position
+    selectInt size position = case [entry | entry@(_, SizeClass{classSize = size'}) <- offsets, size' == size] of
+        (_, SizeClass{classMemberInt = decodeInt}) : _ -> decodeInt position
         [] ->
             error $
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
