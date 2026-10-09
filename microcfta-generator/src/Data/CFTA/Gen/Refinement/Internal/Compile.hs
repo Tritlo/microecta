@@ -28,12 +28,14 @@ import Control.Exception (handle)
 import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrd)
 import Data.Either (fromLeft)
+import Data.Foldable (toList)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (isPrefixOf, mapAccumL, sortOn, (!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import Data.Ratio (denominator, numerator)
+import qualified Data.Sequence as Sequence
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (fromString)
@@ -1092,9 +1094,9 @@ splitByObservations requested root
 
 -- | Merge the parts with equal observations, keeping the order of first appearance.
 mergeParts :: [(Observations, Automaton)] -> [(Observations, Automaton)]
-mergeParts parts = [(observations, union $ grouped Map.! observations) | observations <- nubOrd $ map fst parts]
+mergeParts parts = [(observations, union $ toList $ grouped Map.! observations) | observations <- nubOrd $ map fst parts]
   where
-    grouped = Map.fromListWith (flip (<>)) [(observations, [part]) | (observations, part) <- parts]
+    grouped = Map.fromListWith (flip (<>)) [(observations, Sequence.singleton part) | (observations, part) <- parts]
 
 -- | Report a solver query that reached its time limit as 'SolverTimeLimit'.
 reportTimeLimit :: IO (Either GenError a) -> IO (Either GenError a)
