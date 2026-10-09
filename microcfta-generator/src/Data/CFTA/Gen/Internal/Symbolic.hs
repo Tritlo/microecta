@@ -22,7 +22,7 @@ import Data.CFTA.Index (Arity (..), Cardinality (..), Rank (..), VarIndex (..), 
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Interned.Operations (intersect, intersectEdge, nodeEdges)
 import Data.CFTA.Interned.Type (Edge, NodeId (..), edgeChildren, edgeConstraint, edgeSymbol, nodeIdentity, setChildren)
-import Data.CFTA.Path (ChildIndex (..), Path, unPath)
+import Data.CFTA.Path (ChildIndex (..), Path, adjustAt, unPath)
 import qualified Data.CFTA.Ranked.Internal as Ranked
 
 -- | A constructor context whose variables denote whole subtree languages.
@@ -376,10 +376,10 @@ condition [] (symbol, arity) node =
     Node [edge | edge <- nodeEdges node, edgeSymbol edge == symbol, Arity (length (edgeChildren edge)) == arity]
 condition (index : rest) constructor node =
     Node
-        [ setChildren edge $ take index children <> [condition rest constructor child] <> drop (index + 1) children
+        [ setChildren edge $ adjustAt (ChildIndex index) (condition rest constructor) children
         | edge <- nodeEdges node
         , let children = edgeChildren edge
-        , Just child <- [children !? index]
+        , Just _ <- [children !? index]
         ]
 
 {- | Read possible constructors at a path without enumerating subterms, by

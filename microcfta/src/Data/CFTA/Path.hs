@@ -16,6 +16,7 @@ module Data.CFTA.Path (
     path,
     isStrictSubpath,
     Pathable (..),
+    adjustAt,
 ) where
 
 import Data.Coerce (coerce)
