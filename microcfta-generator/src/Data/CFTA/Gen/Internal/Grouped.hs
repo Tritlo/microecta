@@ -80,7 +80,7 @@ groupOn _ (Transparent (Left err)) = Grouped $ Left err
 groupOn key (Transparent (Right static)) =
     Grouped $ do
         outcomes <- enumerateWeighted static
-        traverse (bucketFromOutcomes $ staticAtomic static) $
+        traverse (bucketFromOutcomes (staticAtomic static) . toList) $
             groupOutcomes
                 [ (key $ outcomeValue outcome, (weight, outcome))
                 | (weight, outcome) <- outcomes
@@ -102,13 +102,8 @@ regroupOn regroup (CyclicGrouped result) =
         groups <- result
         pure
             $ Map.map clearRecursiveName
-            $ Map.mapMaybe mergeRecursiveGroups
-            $ Map.foldlWithKey'
-                ( \regrouped oldKey group ->
-                    Map.insertWith (flip (<>)) (regroup oldKey) [group] regrouped
-                )
-                Map.empty
-                groups
+            $ Map.mapMaybe (mergeRecursiveGroups . toList)
+            $ groupOutcomes [(regroup oldKey, group) | (oldKey, group) <- Map.toAscList groups]
   where
     clearRecursiveName group = group{keyedRecursiveLanguage = named}
       where
@@ -116,23 +111,17 @@ regroupOn regroup (CyclicGrouped result) =
         named = recursive{recursiveInspection = (recursiveInspection recursive){inspectionName = Nothing}}
 regroupOn _ (Grouped (Left err)) = Grouped $ Left err
 regroupOn regroup (Grouped (Right buckets)) =
-    Grouped $ fmap (fmap clearName) $ traverse mergeBucketGroup grouped
+    Grouped $ fmap (fmap clearName) $ traverse (mergeBucketGroup . toList) grouped
   where
     clearName bucket = bucket{keyedBucketStatic = named}
       where
         static = keyedBucketStatic bucket
         named = static{staticInspection = (staticInspection static){inspectionName = Nothing}}
     grouped =
-        Map.foldlWithKey'
-            ( \groups oldKey bucket ->
-                Map.insertWith
-                    (flip (<>))
-                    (regroup oldKey)
-                    [(keyedBucketMass bucket, keyedBucketStatic bucket)]
-                    groups
-            )
-            Map.empty
-            buckets
+        groupOutcomes
+            [ (regroup oldKey, (keyedBucketMass bucket, keyedBucketStatic bucket))
+            | (oldKey, bucket) <- Map.toAscList buckets
+            ]
 
 -- | Map group values with access to their retained key.
 mapWithKey :: (key -> a -> b) -> Grouped symbol key a -> Grouped symbol key b
@@ -296,11 +285,7 @@ mergeByKey ::
     (Ord key, Hashable symbol, Typeable symbol) =>
     [(key, KeyedRecursive symbol a)] -> Map.Map key (KeyedRecursive symbol a)
 mergeByKey entries =
-    Map.mapMaybe mergeRecursiveGroups $
-        foldl'
-            (\groups (key, group) -> Map.insertWith (flip (<>)) key [group] groups)
-            Map.empty
-            entries
+    Map.mapMaybe (mergeRecursiveGroups . toList) $ groupOutcomes entries
 
 -- | Choose among grouped generators with positive relative weights, group by group.
 frequencies ::
@@ -320,7 +305,7 @@ frequencies weighted
                         . concatMap Map.toAscList
                         <$> traverse (recursiveGroups . snd) alternatives
                 else Left WeightedRecursiveAlternatives
-    | otherwise = Grouped $ traverse mergeBucketGroup grouped
+    | otherwise = Grouped $ traverse (mergeBucketGroup . toList) grouped
   where
     -- An empty alternative has no member to choose; it is not a failure.
     alternatives = filter (not . emptyAlternative . snd) weighted
@@ -338,27 +323,11 @@ frequencies weighted
         go (_ : rest) = go rest
 
     grouped =
-        foldl'
-            ( \groups (weight, buckets) ->
-                Map.foldlWithKey'
-                    ( \keyGroups key bucket ->
-                        Map.insertWith
-                            (flip (<>))
-                            key
-                            [
-                                ( toRational weight
-                                    / toRational totalWeight
-                                    * keyedBucketMass bucket
-                                , keyedBucketStatic bucket
-                                )
-                            ]
-                            keyGroups
-                    )
-                    groups
-                    buckets
-            )
-            Map.empty
-            [(weight, buckets) | (weight, Grouped (Right buckets)) <- alternatives]
+        groupOutcomes
+            [ (key, (toRational weight / toRational totalWeight * keyedBucketMass bucket, keyedBucketStatic bucket))
+            | (weight, Grouped (Right buckets)) <- alternatives
+            , (key, bucket) <- Map.toAscList buckets
+            ]
       where
         totalWeight = sum $ map fst alternatives
 
