@@ -77,7 +77,7 @@ bucketFromOutcomes retainAtomic weightedOutcomes = do
                 }
             retainAtomic
             (Inspection Nothing $ Node [inspectionEdge $ outcomeInspection outcome | outcome <- outcomes])
-            (commonRootCount $ map (Just . termRootCount . outcomeTerm) outcomes)
+            (commonRootCount $ map (RootCount . termRootCount . outcomeTerm) outcomes)
   where
     outcomes = map snd weightedOutcomes
     -- The weights of the group add up to its number of members.

@@ -38,7 +38,9 @@ import Data.CFTA.Gen.Internal.Grouped (groupKeys)
 import Data.CFTA.Gen.Internal.Static (
     Outcome (outcomeMass),
     OutcomeIndex (outcomeSelect),
+    RootCount (..),
     Static (staticOutcomes, staticRootCount),
+    addRootCounts,
     commonRootCount,
  )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
@@ -114,10 +116,10 @@ alignedSpine generator = case genRecipe generator of
     Lifted _ -> True
     Mapped _ inner -> alignedSpine inner
     Applied functions arguments -> alignedSpine functions && alignedSpine arguments
-    _ -> rootCount generator == Just 1
+    _ -> rootCount generator == RootCount 1
 
 -- | The 'rootCount' of each position of an applicative spine, as 'spineArity' counts the positions.
-spineRootCounts :: Gen symbol a -> [Maybe Int]
+spineRootCounts :: Gen symbol a -> [RootCount]
 spineRootCounts generator = case genRecipe generator of
     Lifted _ -> []
     Mapped _ inner -> spineRootCounts inner
@@ -136,24 +138,24 @@ gives the number that its members give, which 'staticRootCount' keeps: a
 source without symbols, such as 'fromIndexed' and the pools of @freeze@ and
 @samplePool@, gives none, and a join gives one for each side. A language
 without members gives one, so that it does not refuse a guard. The result is
-'Nothing' when two members give different numbers, and for a recursive or
-opaque built language.
+'NoCommonCount' when two members give different numbers, and for a recursive
+or opaque built language, whose number is not known.
 -}
-rootCount :: Gen symbol a -> Maybe Int
+rootCount :: Gen symbol a -> RootCount
 rootCount generator = case genRecipe generator of
-    Lifted _ -> Just 0
+    Lifted _ -> RootCount 0
     Mapped _ inner -> rootCount inner
-    Applied functions arguments -> (+) <$> rootCount functions <*> rootCount arguments
+    Applied functions arguments -> addRootCounts (rootCount functions) (rootCount arguments)
     Chosen alternatives -> commonRootCount $ map (rootCount . snd) alternatives
     Uniform alternatives -> commonRootCount $ map rootCount alternatives
-    Closed{} -> Just 1
-    ClosedBy{} -> Just 1
-    Imported{} -> Just 1
+    Closed{} -> RootCount 1
+    ClosedBy{} -> RootCount 1
+    Imported{} -> RootCount 1
     Built -> case genLanguage generator of
         TransparentLanguage (Right static) -> staticRootCount static
-        TransparentLanguage (Left _) -> Just 1
-        CyclicLanguage (Left _) -> Just 1
-        _ -> Nothing
+        TransparentLanguage (Left _) -> RootCount 1
+        CyclicLanguage (Left _) -> RootCount 1
+        _ -> NoCommonCount
 
 -- | Whether a generator waits for 'compile'.
 deferred :: Gen symbol a -> Bool
@@ -190,8 +192,8 @@ compileGen entailment requested generator
             -- answers the requested paths of that part. Another product observes nothing.
             | not (null requested)
             , counts <- spineRootCounts generator
-            , all (`elem` [Just 0, Just 1]) counts
-            , [position] <- [index | (index, Just 1) <- zip [0 ..] counts] ->
+            , all (`elem` [RootCount 0, RootCount 1]) counts
+            , [position] <- [index | (index, RootCount 1) <- zip [0 ..] counts] ->
                 fmap (regroupOn (!! position))
                     <$> compileSpine entailment [if index == position then requested else [] | index <- [0 .. length counts - 1]] generator
             | otherwise ->
@@ -242,7 +244,7 @@ groupBuilt requested generator
     | deferred generator = Left SourceRequiresCompilation
     | null requested = Right $ keyed noObservations generator
     -- A member without a root has no observation, so all members form one group.
-    | rootCount generator == Just 0 = Right $ keyed noObservations generator
+    | rootCount generator == RootCount 0 = Right $ keyed noObservations generator
     | otherwise = do
         total <- cardinality generator
         members <- traverse member $ everyRank total
@@ -344,9 +346,9 @@ compileNode entailment requested labelling constraint child
     -- term. When 'rootCount' gives no number, the leafness is 'Mixed', which an
     -- observer reads as not known.
     leafness = case rootCount child of
-        Just 0 -> Leaf
-        Just _ -> Inner
-        Nothing -> Mixed
+        RootCount 0 -> Leaf
+        RootCount _ -> Inner
+        NoCommonCount -> Mixed
     observed = nub $ requested <> constraintPaths constraint <> roots
       where
         roots = case labelling of
