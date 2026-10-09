@@ -1,13 +1,16 @@
 {-# LANGUAGE DerivingStrategies #-}
 
-{- | Index types for automata and terms.
+{- | Indexes and counts of terms and automata.
 
-Each index is a zero-based 'Int'. Each kind of index has its own newtype, so
-the compiler rejects an index of one kind in the place of another kind.
+Each value is an 'Int'. An index is zero-based. A count, such as an arity,
+starts at zero too. Each kind of index or count has its own newtype, so the
+compiler rejects a value of one kind in the place of another kind.
 -}
 module Data.CFTA.Index (
     ChildIndex (..),
     TransitionIndex (..),
+    Arity (..),
+    childIndexes,
     Depth (..),
 ) where
 
@@ -27,6 +30,17 @@ In an interned automaton, a transition is an 'Data.CFTA.Interned.Edge'.
 -}
 newtype TransitionIndex = TransitionIndex Int
     deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The number of children of a symbol, a transition, or a term node.
+
+The child indexes of a node with arity @n@ are @0 .. n - 1@.
+-}
+newtype Arity = Arity Int
+    deriving newtype (Eq, Ord, Show, Num, Enum)
+
+-- | The child indexes of a node with the given arity, from @0@ to @arity - 1@.
+childIndexes :: Arity -> [ChildIndex]
+childIndexes (Arity arity) = map ChildIndex [0 .. arity - 1]
 
 {- | The depth of a node in a term, or a bound on that depth.
 

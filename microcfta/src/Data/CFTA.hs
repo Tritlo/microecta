@@ -61,7 +61,7 @@ import qualified Data.Set as Set
 import qualified Data.Tree as Tree
 
 import Data.CFTA.Constraint (Constraint, equalitiesHold, noConstraint)
-import Data.CFTA.Index (Depth (..))
+import Data.CFTA.Index (Arity (..), Depth (..))
 import Data.CFTA.Internal.Tree (
     StateView (..),
     ViewPath,
@@ -113,7 +113,13 @@ data FTAError state symbol
     | -- | A transition refers to a state with no row.
       DanglingState !state
     | -- | The same alphabet symbol occurs at two different arities.
-      InconsistentArity !symbol !Int !Int
+      InconsistentArity
+        -- | The symbol.
+        !symbol
+        -- | The arity found first.
+        !Arity
+        -- | The other arity.
+        !Arity
     deriving (Eq, Show)
 
 {- | Expose the reachable grammar as a finite tree of typed labels.
@@ -162,7 +168,7 @@ mkFTA initial rows = do
       where
         rememberArity arities transition =
             let symbol = transitionSymbol transition
-                arity = length (transitionChildren transition)
+                arity = Arity (length (transitionChildren transition))
              in case Map.lookup symbol arities of
                     Nothing -> Right (Map.insert symbol arity arities)
                     Just expected

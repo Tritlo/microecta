@@ -42,6 +42,7 @@ import qualified Data.Sequence as Sequence
 import Data.Set (Set)
 import qualified Data.Set as Set
 
+import Data.CFTA.Index (Arity (..))
 import Data.CFTA.Interned.Memo (memo2)
 import Data.CFTA.Path (ChildIndex (..), Path (..), isStrictSubpath)
 
@@ -289,12 +290,12 @@ classes must not be contradictory, no path can have a negative index, and
 every path must start at an existing child. A deeper index is checked where
 the path meets the edges of the child.
 -}
-fitsArity :: Int -> EqConstraints -> Bool
+fitsArity :: Arity -> EqConstraints -> Bool
 fitsArity _ EqContradiction = False
-fitsArity arity constraints = all (all fits . unPathEClass) (unsafeGetEclasses constraints)
+fitsArity (Arity count) constraints = all (all fits . unPathEClass) (unsafeGetEclasses constraints)
   where
     fits (Path []) = True
-    fits (Path indices@(ChildIndex first : _)) = first < arity && all (>= 0) indices
+    fits (Path indices@(ChildIndex first : _)) = first < count && all (>= 0) indices
 
 -- | Check whether a constraint set is already contradictory.
 constraintsAreContradictory :: EqConstraints -> Bool
