@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 {- | Interned symbols for automaton alphabets.
 
 A 'Symbol' is a text and a refinement: a Liquid Fixpoint formula about the
@@ -28,16 +30,24 @@ import qualified Language.Fixpoint.Types as Fixpoint
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (Read (..))
 
-import Data.CFTA.Interned.Cache (Cache, Id, freshCacheWith, intern, newIdSupply)
+import Data.CFTA.Interned.Cache (Cache, freshCacheWith, intern, newIdSupply)
 
 -- | A logical refinement understood by Liquid Fixpoint.
 type Formula = Fixpoint.Expr
+
+{- | The identity of an interned symbol.
+
+The interning cache gives each new symbol a fresh identity. Equal symbols have
+one identity, so equality compares identities.
+-}
+newtype SymbolId = SymbolId Int
+    deriving newtype (Eq)
 
 {- | An interned text and refinement, with the ordinary symbol of the text:
 the symbol itself when it is ordinary. The ordinary symbol is found once, when
 it is first read, so that reading it again allocates nothing.
 -}
-data Symbol = InternedSymbol !Id !Int !Text !Formula Symbol
+data Symbol = InternedSymbol !SymbolId !Int !Text !Formula Symbol
 
 {- | An ordinary symbol of a text. As a pattern, it matches every symbol and
 gives its text; the refinement is not part of the match.
@@ -87,7 +97,7 @@ internSymbol text refinement = intern symbols identify (text, refinement)
   where
     identify identity key = symbol
       where
-        symbol = InternedSymbol identity (hash key) text refinement ordinary
+        symbol = InternedSymbol (SymbolId identity) (hash key) text refinement ordinary
         ordinary
             | refinement == Fixpoint.PTrue = symbol
             | otherwise = Symbol text
