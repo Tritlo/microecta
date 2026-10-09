@@ -54,6 +54,7 @@ import Data.CFTA.Index (
  )
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Size (
+    MinimumSize (..),
     SizeIndex (minimumMemberSize, sizeClassCounts, sizeClassSelect),
     countAtSize,
  )
@@ -77,9 +78,9 @@ smallestPlanMember (PlanSelectOnDemand cardinality _) =
 -- A shared subplan gives its smallest member from its size classes, and does
 -- not walk the subplan again. The smallest size class of a finite plan lists
 -- its members in rank order, so position zero has the least rank.
-smallestPlanMember (PlanShared _ _ index _) = do
-    size <- minimumMemberSize index
-    pure (size, valueRank $ sizeClassSelect index size 0)
+smallestPlanMember (PlanShared _ _ index _) = case minimumMemberSize index of
+    MinimumSize size -> Just (size, valueRank $ sizeClassSelect index size 0)
+    NoFiniteMember -> Nothing
 smallestPlanMember (PlanMap _ plan) = smallestPlanMember plan
 smallestPlanMember (PlanChoice branches) = go 0 branches
   where
