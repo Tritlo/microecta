@@ -207,13 +207,28 @@ data EnumerationState symbol = EnumerationState
 {- | The expansions of constrained recursive nodes that a UVar descends from,
 each as its 'recursionKey'.
 -}
-type RecursionAncestry = HashSet.HashSet (NodeId, HashSet.HashSet PathTrie)
+type RecursionAncestry = HashSet.HashSet RecursionKey
 
 {- | A recursive node with the paths suspended on it. Two expansions with one
 key differ only in their UVars.
 -}
-recursionKey :: Node symbol -> Seq SuspendedConstraint -> (NodeId, HashSet.HashSet PathTrie)
-recursionKey n scs = (nodeIdentity n, HashSet.fromList $ map scGetPathTrie $ Foldable.toList scs)
+data RecursionKey = RecursionKey
+    { recursiveNode :: !NodeId
+    , suspendedTries :: !(HashSet.HashSet PathTrie)
+    }
+    deriving (Eq, Show)
+
+-- | Hash the two fields in order, as the hash of a pair does.
+instance Hashable RecursionKey where
+    hashWithSalt salt (RecursionKey node tries) = salt `hashWithSalt` node `hashWithSalt` tries
+
+-- | The key of a recursive node with its suspended constraints.
+recursionKey :: Node symbol -> Seq SuspendedConstraint -> RecursionKey
+recursionKey n scs =
+    RecursionKey
+        { recursiveNode = nodeIdentity n
+        , suspendedTries = HashSet.fromList $ map scGetPathTrie $ Foldable.toList scs
+        }
 
 -- | Initial state whose root UVar contains the node being enumerated.
 initEnumerationState :: Node symbol -> EnumerationState symbol
