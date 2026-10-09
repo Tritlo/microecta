@@ -27,7 +27,7 @@ import qualified Data.Sequence as Sequence
 import qualified Data.Set as Set
 import Data.Tree (Tree (Node))
 
-import Data.CFTA.Index (ChildIndex (..), TransitionIndex (..))
+import Data.CFTA.Index (ChildIndex (..), Depth (..), TransitionIndex (..))
 
 {- | A root-relative location in a tree view.
 
@@ -172,7 +172,7 @@ termsUpToBy ::
     (alternative -> [key]) ->
     (key -> alternative -> Tree symbol -> m Bool) ->
     [(key, [alternative])] ->
-    Int ->
+    Depth ->
     key ->
     m [Tree symbol]
 termsUpToBy symbolOf childrenOf accept rows bound root

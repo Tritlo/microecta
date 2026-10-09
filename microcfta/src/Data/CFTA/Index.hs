@@ -1,13 +1,15 @@
 {-# LANGUAGE DerivingStrategies #-}
 
-{- | Index types for automata and terms.
+{- | Indexes and depths of terms and automata.
 
-Each index is a zero-based 'Int'. Each kind of index has its own newtype, so
-the compiler rejects an index of one kind in the place of another kind.
+Each value is an 'Int'. An index is zero-based, and a leaf has depth 0. Each
+kind of value has its own newtype, so the compiler rejects a value of one kind
+in the place of another kind.
 -}
 module Data.CFTA.Index (
     ChildIndex (..),
     TransitionIndex (..),
+    Depth (..),
 ) where
 
 import Data.Hashable (Hashable)
@@ -26,3 +28,10 @@ In an interned automaton, a transition is an 'Data.CFTA.Interned.Edge'.
 -}
 newtype TransitionIndex = TransitionIndex Int
     deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The depth of a node in a term, or a bound on that depth.
+
+A leaf has depth 0. The tree automata literature counts a leaf as height 1.
+-}
+newtype Depth = Depth Int
+    deriving newtype (Eq, Ord, Show, Num, Enum)
