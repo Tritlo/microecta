@@ -3,6 +3,7 @@
 -- | Interned nodes and edges with a constraint parameter.
 module Data.CFTA.Interned.Type (
     NodeId (..),
+    EdgeId (..),
     RecNodeId (..),
     Edge (.., Edge),
     UninternedEdge (..),
@@ -160,9 +161,17 @@ instance Hashable IntersectId where
 
 -- Edges
 
+{- | The identity of an interned edge.
+
+The interning cache gives each new edge a fresh identity. Identities are
+unique, but they are not dense. A node orders its edges by identity.
+-}
+newtype EdgeId = EdgeId Int
+    deriving newtype (Eq, Ord, Hashable)
+
 -- | One outgoing transition of an interned automaton node.
 data Edge symbol = InternedEdge
-    { edgeId :: !Id
+    { edgeId :: !EdgeId
     , uninternedEdge :: !(UninternedEdge symbol)
     }
 
@@ -521,7 +530,7 @@ edgeIds = unsafePerformIO newIdSupply
 internEdge ::
     forall symbol.
     (Hashable symbol, Typeable symbol) => UninternedEdge symbol -> Edge symbol
-internEdge = intern (selectCache @symbol edgeCaches (freshCacheWith edgeIds)) InternedEdge
+internEdge = intern (selectCache @symbol edgeCaches (freshCacheWith edgeIds)) (InternedEdge . EdgeId)
 
 -- Smart constructors
 

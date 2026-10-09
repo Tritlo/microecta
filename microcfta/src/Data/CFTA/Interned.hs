@@ -10,6 +10,7 @@ module Data.CFTA.Interned (
     Node (EmptyNode, InternedNode, InternedMu, Rec, Node, Mu),
     Edge (InternedEdge, Edge),
     NodeId (..),
+    EdgeId (..),
     RecNodeId (..),
     UninternedEdge (..),
     InternedNode (..),

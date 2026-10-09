@@ -9,7 +9,7 @@ each shard of the key's hash.
 
 Interning is safe from any thread. Lookups read the current shard without
 blocking. Inserts use 'atomicModifyIORef'' and retain an existing entry, then
-re-read the shard and return the winner, so one structure keeps one 'Id'
+re-read the shard and return the winner, so one structure keeps one identity
 however many threads raced for it.
 
 The candidate value is kept lazy during the atomic update. This matters for
@@ -27,7 +27,6 @@ grows with the size of that set and is never released. See the memory section
 of the package README.
 -}
 module Data.CFTA.Interned.Cache (
-    Id,
     IdSupply,
     newIdSupply,
     Table,
@@ -55,10 +54,11 @@ import GHC.IO (IO (IO), unsafeDupablePerformIO)
 import Type.Reflection (SomeTypeRep (..), Typeable, typeRep)
 import Unsafe.Coerce (unsafeCoerce)
 
--- | Identity assigned to each interned value. Identities are unique, not dense.
-type Id = Int
-
 {- | A supply of identities.
+
+An identity is an 'Int'. Each interned type puts it in its own newtype, such
+as 'Data.CFTA.Interned.Type.NodeId', so that the identities of two types do
+not mix.
 
 The supply is one counter that takes atomic fetch-and-add increments, so
 threads draw distinct identities and never retry, as an 'IORef' update can.
@@ -75,7 +75,7 @@ newIdSupply = IO $ \state -> case newByteArray# 8# state of
         state'' -> (# state'', IdSupply (MutableByteArray counter) #)
 
 -- | Draw a fresh identity.
-nextId :: IdSupply -> IO Id
+nextId :: IdSupply -> IO Int
 nextId (IdSupply (MutableByteArray counter)) = IO $ \state -> case fetchAddIntArray# counter 0# 1# state of
     (# state', previous #) -> (# state', I# previous #)
 
@@ -155,7 +155,7 @@ of that build, the refinement modules call copies of 'intern' that are
 specialized to their key types. The difference is that these calls are not
 inlined.
 -}
-intern :: (Hashable key) => Cache key value -> (Id -> key -> value) -> key -> value
+intern :: (Hashable key) => Cache key value -> (Int -> key -> value) -> key -> value
 {-# INLINE intern #-}
 intern cache identify !key = unsafeDupablePerformIO $ do
     existing <- HashMap.lookup hashedKey <$> readIORef (shardOf (content cache) hashedKey)
