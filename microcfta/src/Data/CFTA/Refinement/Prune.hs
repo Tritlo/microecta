@@ -26,6 +26,7 @@ import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 import qualified Data.Set as Set
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
@@ -333,11 +334,11 @@ specializeChildren plans = go 0
 -- | Regroup transition candidates by signature without disturbing first-seen order.
 groupVariants :: [(Signature, Symbols, Transition)] -> [(Signature, Symbols, [Transition])]
 groupVariants candidates =
-    [ (signature, symbols, grouped Map.! signature)
+    [ (signature, symbols, toList $ grouped Map.! signature)
     | (signature, symbols) <- nubOrdOn fst [(signature, symbols) | (signature, symbols, _) <- candidates]
     ]
   where
-    grouped = Map.fromListWith (flip (<>)) [(signature, [edge]) | (signature, _, edge) <- candidates]
+    grouped = Map.fromListWith (flip (<>)) [(signature, Sequence.singleton edge) | (signature, _, edge) <- candidates]
 
 -- | Observation used to partition a node's transitions.
 observe :: ObservationNeed -> Transition -> Observation
