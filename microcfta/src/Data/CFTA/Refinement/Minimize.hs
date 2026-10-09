@@ -20,9 +20,11 @@ module Data.CFTA.Refinement.Minimize (
 ) where
 
 import Data.Bifunctor (first)
+import Data.Foldable (toList)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (elemIndex, nub, sortOn)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
@@ -112,23 +114,23 @@ possible direction and does not treat it as false.
 similarity :: Subtyping -> Automaton -> IO (Either SimilarityError Similarity)
 similarity subtyping automaton = case validate automaton of
     Left err -> pure $ Left $ InvalidSimilarityAutomaton err
-    Right () -> go [] $ unorderedPairs $ locatedTransitions automaton
+    Right () -> go Empty $ unorderedPairs $ locatedTransitions automaton
   where
-    go related [] = pure $ Right $ Similarity automaton $ reverse related
+    go related [] = pure $ Right $ Similarity automaton $ toList related
     go related (((leftId, left), (rightId, right)) : rest) = do
         leftToRight <- isTransitionSubtypeOf subtyping automaton left right
         case leftToRight of
-            Yes -> go ((leftId, rightId) : related) rest
+            Yes -> go (related :|> (leftId, rightId)) rest
             No -> do
                 rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
                 case rightToLeft of
-                    Yes -> go ((rightId, leftId) : related) rest
+                    Yes -> go (related :|> (rightId, leftId)) rest
                     No -> go related rest
                     Unknown -> pure $ Left $ SimilarityUnknown rightId leftId
             Unknown -> do
                 rightToLeft <- isTransitionSubtypeOf subtyping automaton right left
                 case rightToLeft of
-                    Yes -> go ((rightId, leftId) : related) rest
+                    Yes -> go (related :|> (rightId, leftId)) rest
                     No -> pure $ Left $ SimilarityUnknown leftId rightId
                     Unknown -> pure $ Left $ SimilarityUnknown leftId rightId
 
@@ -227,7 +229,7 @@ minimize automaton (Similarity original related) = do
             | retained `notElem` Map.findWithDefault [] destination table' = (table', steps)
             | otherwise =
                 ( Map.adjust (filter (/= removed)) source $ fmap (copyAlternatives redirect) table'
-                , redirect : steps
+                , steps :|> redirect
                 )
           where
             redirect@(source, destination) = redirectFor pair
@@ -235,7 +237,7 @@ minimize automaton (Similarity original related) = do
             retained = current Map.! representative
         copyAlternatives (source, destination) transitions =
             nub $ transitions <> map (redirectTransition $ Map.singleton source destination) transitions
-        (rewritten, applied) = foldl' applyStep (table, []) resolved
+        (rewritten, applied) = foldl' applyStep (table, Empty) resolved
         productive = productiveStates rewritten
         finiteTransition = all (`Set.member` productive) . FTA.transitionChildren
         hasFiniteDerivation representative =
@@ -243,7 +245,7 @@ minimize automaton (Similarity original related) = do
                 ( \transition ->
                     transition `elem` Map.findWithDefault [] (fst representative) rewritten && finiteTransition transition
                 )
-                (foldl' (flip copyAlternatives) [current Map.! representative] $ reverse applied)
+                (foldl' (flip copyAlternatives) [current Map.! representative] applied)
         representatives = Set.toAscList $ Set.fromList $ map snd resolved
         losesFinal = Set.member initial (productiveStates table) && Set.notMember initial productive
         dependsOnRemovedTarget (supertype, representative) =

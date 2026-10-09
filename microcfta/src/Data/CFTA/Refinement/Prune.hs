@@ -20,10 +20,12 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, gets, modify')
 import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrdOn)
+import Data.Foldable (toList)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List ((!?))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import Data.Sequence (Seq (..))
 import qualified Data.Set as Set
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
@@ -154,11 +156,11 @@ pruneSemantic entailment edge
         pure [edge]
     | otherwise = do
         candidates <- specializations semanticGuard edge
-        check [] candidates
+        check Empty candidates
   where
     (semanticGuard, residualGuard) = splitGuard $ constraintGuard $ edgeConstraint edge
 
-    check retained [] = pure $ reverse retained
+    check retained [] = pure $ toList retained
     check retained ((specialized, resolved) : rest) = do
         verdict <-
             liftIO $
@@ -168,7 +170,7 @@ pruneSemantic entailment edge
                     (lookupLeaf resolved)
                     semanticGuard
         case verdict of
-            Yes -> check (setGuard residualGuard specialized : retained) rest
+            Yes -> check (retained :|> setGuard residualGuard specialized) rest
             No -> check retained rest
             Unknown
                 | hasAmbiguousActuals resolved -> pure [edge]
