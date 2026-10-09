@@ -20,7 +20,6 @@ module Data.CFTA.Internal.UnionFind (
 ) where
 
 import Control.Monad.State.Strict (State, execState, get, modify', put, runState)
-import Data.Coerce (coerce)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 
@@ -62,11 +61,16 @@ intToUVar = UVar
 -------- Union-find data structure
 ---------------------------
 
-{- | Persistent union-find forest.
+{- | What the forest stores for one variable.
 
-Roots store negative set sizes. Non-roots store their parent id.
+A 'Parent' points to the next variable towards the root. A 'Root' is the
+representative of its set and holds the size of the set.
 -}
-newtype UnionFind = UnionFind {getUnionFindMap :: IntMap Int}
+data Entry = Parent !UVar | Root !Int
+    deriving (Eq, Ord, Show)
+
+-- | Persistent union-find forest, keyed by the integer id of a variable.
+newtype UnionFind = UnionFind {getUnionFindMap :: IntMap Entry}
     deriving (Eq, Ord, Show)
 
 -- | Empty forest. Variables are inserted lazily by 'find'.
@@ -75,44 +79,48 @@ empty = UnionFind IntMap.empty
 
 -- | Forest containing each supplied variable as a singleton set.
 withInitialValues :: [UVar] -> UnionFind
-withInitialValues uvs = UnionFind $ IntMap.fromList $ map (,-1) $ coerce uvs
+withInitialValues uvs = UnionFind $ IntMap.fromList $ map ((,Root 1) . uvarToInt) uvs
 
 ---------------------------
 -------- Union-find operations
 ---------------------------
 
+-- | Store the entry of a variable.
+setEntry :: UVar -> Entry -> UnionFind -> UnionFind
+setEntry uv e (UnionFind m) = UnionFind (IntMap.insert (uvarToInt uv) e m)
+
 -- | Merge the two variable classes, preferring the larger class as root.
 union :: UVar -> UVar -> UnionFind -> UnionFind
 union uv1 uv2 uf = flip execState uf $ do
-    (uv1Rep, negativeUv1Size) <- findWithNegSize uv1
-    (uv2Rep, negativeUv2Size) <- findWithNegSize uv2
+    (uv1Rep, uv1Size) <- findRoot uv1
+    (uv2Rep, uv2Size) <- findRoot uv2
     if uv1Rep == uv2Rep
         then
             return ()
         else
-            if negativeUv1Size > negativeUv2Size
+            if uv1Size < uv2Size
                 then do
-                    modify' (coerce (IntMap.insert @Int) uv1Rep uv2Rep)
-                    modify' (coerce (IntMap.insert @Int) uv2Rep (negativeUv1Size + negativeUv2Size))
+                    modify' (setEntry uv1Rep (Parent uv2Rep))
+                    modify' (setEntry uv2Rep (Root (uv1Size + uv2Size)))
                 else do
-                    modify' (coerce (IntMap.insert @Int) uv2Rep uv1Rep)
-                    modify' (coerce (IntMap.insert @Int) uv1Rep (negativeUv1Size + negativeUv2Size))
+                    modify' (setEntry uv2Rep (Parent uv1Rep))
+                    modify' (setEntry uv1Rep (Root (uv1Size + uv2Size)))
 
-findWithNegSize :: UVar -> State UnionFind (UVar, Int)
-findWithNegSize uv = do
+-- | Find the representative of a variable and the size of its set.
+findRoot :: UVar -> State UnionFind (UVar, Int)
+findRoot uv = do
     m <- get
-    case coerce (IntMap.lookup @Int) uv m of
-        Nothing -> put (coerce (IntMap.insert @Int) uv (-1 :: Int) m) >> return (uv, -1)
-        Just x
-            | x < 0 -> return (uv, x)
-            | otherwise -> do
-                (rep, size) <- findWithNegSize (UVar x)
-                -- Compress against the state the recursive call left behind,
-                -- not against @m@: the rest of the chain was compressed there,
-                -- and rebuilding from @m@ would discard it.
-                modify' (coerce (IntMap.insert @Int) uv rep)
-                return (rep, size)
+    case IntMap.lookup (uvarToInt uv) (getUnionFindMap m) of
+        Nothing -> put (setEntry uv (Root 1) m) >> return (uv, 1)
+        Just (Root size) -> return (uv, size)
+        Just (Parent p) -> do
+            (rep, size) <- findRoot p
+            -- Compress against the state the recursive call left behind,
+            -- not against @m@: the rest of the chain was compressed there,
+            -- and rebuilding from @m@ would discard it.
+            modify' (setEntry uv (Parent rep))
+            return (rep, size)
 
 -- | Find a variable's representative and return the path-compressed forest.
 find :: UVar -> UnionFind -> (UVar, UnionFind)
-find uv uf = coerce runState (fst <$> findWithNegSize uv) uf
+find uv = runState (fst <$> findRoot uv)
