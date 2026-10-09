@@ -40,7 +40,7 @@ module Data.CFTA.Ranked.Internal (
 import Data.Array (listArray, (!))
 import qualified Data.Bifunctor as Bifunctor
 
-import Data.CFTA.Index (Cardinality (..), Rank (..), Size, hasRank, offsetRank)
+import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), countWeight, hasRank, offsetRank)
 import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
@@ -81,7 +81,7 @@ responsibility; checking them would enumerate the source.
 data WeightedIndexed a = WeightedIndexed
     { weightedIndexedCardinality :: !Cardinality
     -- ^ Number of distinct zero-based replay ranks.
-    , weightedIndexedTotalWeight :: !Integer
+    , weightedIndexedTotalWeight :: !Weight
     -- ^ Number of zero-based sampling tickets across all ranks.
     , weightedIndexedSelect :: Rank -> a
     -- ^ Decode one valid replay rank.
@@ -94,11 +94,11 @@ data RankedError
     = -- | The language has no members.
       EmptyRanked
     | -- | A weighted alternative carried a weight below one.
-      NonPositiveRankedWeight !Integer
+      NonPositiveRankedWeight !Weight
     | {- | The total weight cannot give every rank a positive integer weight.
       The fields contain the cardinality and total weight, respectively.
       -}
-      InsufficientRankedWeight !Cardinality !Integer
+      InsufficientRankedWeight !Cardinality !Weight
     | -- | Ranks start at zero.
       NegativeRankedRank !Rank
     | -- | A rank fell outside a language of the given cardinality.
@@ -185,7 +185,7 @@ fromWeightedIndexedOnDemand
         }
         | weightedIndexedCardinality <= 0 = Left EmptyRanked
         | weightedIndexedTotalWeight <= 0 = Left $ NonPositiveRankedWeight weightedIndexedTotalWeight
-        | Cardinality weightedIndexedTotalWeight < weightedIndexedCardinality =
+        | weightedIndexedTotalWeight < countWeight weightedIndexedCardinality =
             Left $ InsufficientRankedWeight weightedIndexedCardinality weightedIndexedTotalWeight
         | otherwise =
             Right $
@@ -197,7 +197,8 @@ fromWeightedIndexedOnDemand
                     )
       where
         -- The tickets are the ranks of a uniform language with one member for each ticket.
-        tickets = uniformSampler (Cardinality weightedIndexedTotalWeight) (\(Rank ticket) -> weightedIndexedRankAtTicket ticket)
+        Weight ticketCount = weightedIndexedTotalWeight
+        tickets = uniformSampler (Cardinality ticketCount) (\(Rank ticket) -> weightedIndexedRankAtTicket ticket)
 
 {- | Reuse a compiled subplan without expanding it at each parent occurrence.
 
@@ -240,7 +241,7 @@ share ranked
 Weight affects sampling, not cardinality or rank order: each list entry has
 exactly one stable rank.
 -}
-fromWeighted :: [(Integer, a)] -> Either RankedError (Ranked a)
+fromWeighted :: [(Weight, a)] -> Either RankedError (Ranked a)
 fromWeighted [] = Left EmptyRanked
 fromWeighted weighted
     | badWeight : _ <- [weight | (weight, _) <- weighted, weight <= 0] =
@@ -263,7 +264,7 @@ fromWeighted weighted
     selectValue (Rank rank) = table ! fromInteger rank
 
 -- | Combine non-empty alternatives with positive relative weights.
-frequency :: [(Integer, Ranked a)] -> Either RankedError (Ranked a)
+frequency :: [(Weight, Ranked a)] -> Either RankedError (Ranked a)
 frequency [] = Left EmptyRanked
 frequency alternatives
     | badWeight : _ <- [weight | (weight, _) <- alternatives, weight <= 0] =

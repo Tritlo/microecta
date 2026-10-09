@@ -15,7 +15,7 @@ import Data.List (mapAccumL, sortOn)
 import Data.Ord (Down (Down))
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Index (Cardinality (..), Rank (..))
+import Data.CFTA.Index (Cardinality (..), Rank (..), Weight (..))
 import qualified Data.CFTA.Ranked as Tree
 
 {- | QuickCheck as the sampling backend.
@@ -55,7 +55,7 @@ instance Tree.GenBackend QuickCheckBackend where
                         else QC.chooseInteger (0, total - 1)
                 pick selected 0 lastIndex
       where
-        accumulateWeight total (weight, generated) =
+        accumulateWeight total (Weight weight, generated) =
             let upperBound = total + weight
              in (upperBound, (upperBound, generated))
 
