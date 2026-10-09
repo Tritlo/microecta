@@ -1,8 +1,9 @@
 {-# LANGUAGE DeriveFunctor #-}
 
--- | Shared finite tree views of graph nodes and their outgoing alternatives.
+-- | Shared finite tree views of graph nodes and their outgoing transitions.
 module Data.CFTA.Internal.Tree (
     adjustAt,
+    ViewStep (..),
     ViewPath,
     StateView (..),
     toTreeBy,
@@ -26,19 +27,26 @@ import qualified Data.Sequence as Sequence
 import qualified Data.Set as Set
 import Data.Tree (Tree (Node))
 
-import Data.CFTA.Index (ChildIndex (..))
+import Data.CFTA.Index (ChildIndex (..), TransitionIndex (..))
 
 {- | A root-relative location in a tree view.
 
-Each step selects a zero-based transition alternative and then a zero-based
-child of that transition. The root has path @[]@. This location belongs to one
-view; it is not a persistent node identity or a child-only constraint path.
+Each step selects a transition and then a child of that transition. The root
+has path @[]@. This location belongs to one view; it is not a persistent node
+identity or a child-only constraint path.
 -}
-type ViewPath = [(Int, Int)]
+type ViewPath = [ViewStep]
+
+-- | One step of a 'ViewPath': a transition of a node, then a child of that transition.
+data ViewStep = ViewStep
+    { stepTransition :: !TransitionIndex
+    , stepChild :: !ChildIndex
+    }
+    deriving (Eq, Ord, Show)
 
 -- | A node definition or reference with its location in the tree view.
 data StateView node
-    = -- | The node is expanded here, with its outgoing alternatives as children.
+    = -- | The node is expanded here, with its outgoing transitions as children.
       Expanded
         { viewPath :: ViewPath
         -- ^ Location of this occurrence, including recursive and shared references.
@@ -68,13 +76,13 @@ toTreeBy outgoing children root = State.evalState (visit Set.empty Empty root) S
                 then pure $ Node (Left $ Shared (toList path) node) []
                 else do
                     State.modify' (Set.insert node)
-                    alternatives <- zipWithM (transition (Set.insert node ancestors) path) [0 ..] $ outgoing node
-                    pure $ Node (Left $ Expanded (toList path) node) alternatives
+                    transitions <- zipWithM (transition (Set.insert node ancestors) path) [0 ..] $ outgoing node
+                    pure $ Node (Left $ Expanded (toList path) node) transitions
 
-    transition ancestors path alternative edge =
+    transition ancestors path index edge =
         Node (Right edge)
             <$> zipWithM
-                (\child -> visit ancestors (path :|> (alternative, child)))
+                (\child -> visit ancestors (path :|> ViewStep index child))
                 [0 ..]
                 (children edge)
 

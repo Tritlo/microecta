@@ -7,6 +7,7 @@ the compiler rejects an index of one kind in the place of another kind.
 -}
 module Data.CFTA.Index (
     ChildIndex (..),
+    TransitionIndex (..),
 ) where
 
 import Data.Hashable (Hashable)
@@ -16,4 +17,12 @@ import Data.Hashable (Hashable)
 A 'Data.CFTA.Path.Path' is a list of child indexes.
 -}
 newtype ChildIndex = ChildIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The zero-based index of a transition among the transitions of a state or
+node.
+
+In an interned automaton, a transition is an 'Data.CFTA.Interned.Edge'.
+-}
+newtype TransitionIndex = TransitionIndex Int
     deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
