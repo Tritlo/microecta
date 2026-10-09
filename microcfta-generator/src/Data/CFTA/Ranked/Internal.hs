@@ -44,6 +44,7 @@ import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), countWei
 import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
+    SizeClass (..),
     compilePlan,
     planCardinality,
     sharedChoiceBound,
@@ -217,7 +218,7 @@ member directly.
 -}
 share :: Ranked a -> Ranked a
 share ranked
-    | cardinality ranked == 1 = ranked{rankedPlan = PlanSized [(size, 1, const member, const member)]}
+    | cardinality ranked == 1 = ranked{rankedPlan = PlanSized [SizeClass size 1 (const member) (const member)]}
     | otherwise =
         ranked
             { rankedPlan =

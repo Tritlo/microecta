@@ -52,7 +52,7 @@ import Data.CFTA.Index (
     rebaseRank,
     splitRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
+import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex (minimumMemberSize, sizeClassCounts, sizeClassSelect),
     countAtSize,
@@ -98,7 +98,7 @@ smallestPlanMember (PlanAp rightCardinality functions arguments) = do
 smallestPlanMember (PlanSized classes) = go 0 classes
   where
     go _ [] = Nothing
-    go offset ((size, count, _, _) : rest) =
+    go offset (SizeClass{classSize = size, classCardinality = count} : rest) =
         smallerMember
             (if count > 0 then Just (size, offsetRank offset 0) else Nothing)
             (go (nextOffset offset count) rest)
@@ -203,7 +203,7 @@ planMemberSize (PlanSized classes) rank = go 0 classes
         error
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Shrink.planMemberSize: \
             \rank outside the plan"
-    go offset ((size, count, _, _) : rest)
+    go offset (SizeClass{classSize = size, classCardinality = count} : rest)
         | hasRank count $ rebaseRank offset rank = size
         | otherwise = go (nextOffset offset count) rest
 

@@ -14,6 +14,7 @@ contract of the package.
 -}
 module Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
+    SizeClass (..),
     RankDecoder (..),
     SizeCounts,
     SizeIndex (..),
@@ -66,8 +67,8 @@ data Plan a where
     and the radix is the argument cardinality.
     -}
     PlanAp :: !Cardinality -> Plan (b -> a) -> Plan b -> Plan a
-    {- | A language already stratified by member size: ascending sizes, each
-    with its member count and a decoder for one position in that size class.
+    {- | A language already stratified by member size: size classes in
+    ascending size.
 
     'PlanSized' does not check that the sizes ascend. Its producers keep them
     ascending. The bounded recursive language builds the classes with
@@ -77,7 +78,27 @@ data Plan a where
     A bounded size-indexed generator lowers to this plan. The other
     constructors retain their mixed-radix order.
     -}
-    PlanSized :: [(Size, Cardinality, ClassRank -> a, Int -> a)] -> Plan a
+    PlanSized :: [SizeClass a] -> Plan a
+
+{- | One size class of a language: its size, its number of members, and the
+decoders of a member by its rank in the class.
+
+The size is a lazy field. The @share@ of the ranked layer reads the size from
+the size index of its language, and it does not build that index before a
+caller reads the size.
+-}
+data SizeClass a = SizeClass
+    { classSize :: Size
+    -- ^ The size of each member of the class.
+    , classCardinality :: !Cardinality
+    -- ^ The number of members of the class.
+    , classMember :: ClassRank -> a
+    -- ^ The member with a given rank in the class.
+    , classMemberInt :: Int -> a
+    {- ^ The member with a given rank in the class, with machine arithmetic.
+    Called only when the cardinality of the class fits in 'Int'.
+    -}
+    }
 
 {- | A compiled rank decoder, selected by the top-level cardinality.
 
@@ -128,8 +149,7 @@ planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
 planCardinality (PlanAp rightCardinality planF _) =
     planCardinality planF * rightCardinality
-planCardinality (PlanSized classes) =
-    sum [classCount | (_, classCount, _, _) <- classes]
+planCardinality (PlanSized classes) = sum $ map classCardinality classes
 
 {- | Normalize a plan: push maps into leaves and product functions, splice
 nested choices into one level, and collapse singleton choices.
@@ -175,8 +195,8 @@ pushMap transform (PlanAp rightCardinality planF planX) =
         (normalizePlan planX)
 pushMap transform (PlanSized classes) =
     PlanSized
-        [ (size, classCount, transform . decode, transform . decodeInt)
-        | (size, classCount, decode, decodeInt) <- classes
+        [ sizeClass{classMember = transform . decode, classMemberInt = transform . decodeInt}
+        | sizeClass@SizeClass{classMember = decode, classMemberInt = decodeInt} <- classes
         ]
 
 -- | Collapse a singleton choice into its only branch.
@@ -276,7 +296,7 @@ compileRankWith _ (PlanSized classes) =
                     then decodeInt . fromIntegral
                     else decode . ClassRank . toInteger
               )
-            | (_, classCount, decode, decodeInt) <- classes
+            | SizeClass{classCardinality = classCount, classMember = decode, classMemberInt = decodeInt} <- classes
             ]
 compileRankWith child (PlanAp (Cardinality outerRadix) (PlanAp (Cardinality innerRadix) planF planX1) planX2)
     -- One fused decoder per binary application: one closure, one or two

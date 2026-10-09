@@ -46,6 +46,7 @@ import Data.CFTA.Index (
     offsetRank,
     pairRank,
  )
+import Data.CFTA.Ranked.Internal.Decoder (SizeClass (..))
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex,
     countAtSize,
@@ -438,15 +439,12 @@ fixSampleIndex build = sampling
     sampling = build sampling
 
 -- | Sample one bounded size class, then recover its global size-major rank.
-boundedSampler ::
-    [(Size, Cardinality, ClassRank -> a, Int -> a)] ->
-    SampleIndex a ->
-    Sampler a
+boundedSampler :: [SizeClass a] -> SampleIndex a -> Sampler a
 boundedSampler classes sampling =
     Sampler
         ( chooseWeighted
             [ (countWeight count, runValueAtSize sampling size)
-            | (size, count, _, _) <- classes
+            | SizeClass{classSize = size, classCardinality = count} <- classes
             ]
         )
         ( chooseWeighted
@@ -459,7 +457,7 @@ boundedSampler classes sampling =
         )
   where
     offsetClasses _ [] = []
-    offsetClasses offset ((size, count, _, _) : rest) =
+    offsetClasses offset (SizeClass{classSize = size, classCardinality = count} : rest) =
         (size, count, offset) : offsetClasses (nextOffset offset count) rest
 
 -- | Avoid a random branch selection when only one branch is live.
