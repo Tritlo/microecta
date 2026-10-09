@@ -99,6 +99,15 @@ keyNode index = Node [Edge (Group index) []]
 singletonNode :: (Hashable symbol, Typeable symbol) => Tree.Tree symbol -> Node symbol
 singletonNode = Tree.foldTree $ \symbol children -> Node [Edge symbol children]
 
+-- TODO: The operation is the first child of the centre, before the keys, so
+-- that readers match @operation : keys@ and builders cons. Alternatives,
+-- measured on rank-of-term over n-way joins (JoinRankProbe, 2026-10-09)
+-- against the keys before the operation read with 'unsnoc': a Seq view of the
+-- centre, 1.35% fewer instructions; the keys as a Seq throughout, with
+-- Seq.mapWithIndex in joinKeysMatch, 2.2% more; this order, 7.2% fewer. In
+-- wall-clock this order changed join rank-of-term by -21% to +1%, within a
+-- noise of 10% to 24%.
+
 {- | One joined edge: the operation group, one group per argument, and one
 equality constraint per argument tying each argument to the operation's key
 at that position.
