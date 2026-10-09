@@ -62,6 +62,7 @@ import Data.CFTA.Refinement.Automaton (
     validate,
  )
 import Data.CFTA.Refinement.Evaluate (
+    Leafness,
     Observations,
     Observed (Observed),
     evaluateGuardWithShape,
@@ -228,10 +229,13 @@ data PathPlan = PathPlan
     }
     deriving (Eq, Ord, Show)
 
--- | One partition value. Symbol entries also record whether the term is a leaf.
+{- | One partition value. Symbol entries also record whether the term is a
+leaf. One transition is a leaf or it is not, so its leafness is never
+'Data.CFTA.Refinement.Evaluate.Mixed'.
+-}
 data SignatureEntry
     = RefinementObservation !Formula
-    | SymbolObservation !Symbol !Bool
+    | SymbolObservation !Symbol !Leafness
     deriving (Eq, Ord, Show)
 
 -- | Signature entries at relative positions, and the symbols substitution may read there.
@@ -339,7 +343,7 @@ groupVariants candidates =
 -- | The signature entry that partitions a node's transitions.
 observe :: ObservationNeed -> Transition -> SignatureEntry
 observe RefinementNeed edge = let RefinedSymbol _ refinement = edgeSymbol edge in RefinementObservation refinement
-observe SymbolNeed edge = SymbolObservation (edgeSymbol edge) (null $ edgeChildren edge)
+observe SymbolNeed edge = SymbolObservation (edgeSymbol edge) (leafnessOf $ edgeChildren edge)
 
 -- | Construct the observation trie for every position read by a semantic guard.
 planGuard :: Guard -> PathPlan
