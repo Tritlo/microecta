@@ -50,7 +50,7 @@ module Data.CFTA.Ranked (
     sizeOfRank,
 ) where
 
-import Data.CFTA.Index (Cardinality, Rank)
+import Data.CFTA.Index (Cardinality, Rank, Size)
 import Data.CFTA.Ranked.Internal (Indexed (..), Ranked, RankedError (..), WeightedIndexed (..))
 import qualified Data.CFTA.Ranked.Internal as Internal
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (..))
@@ -125,5 +125,5 @@ smallerMembers :: Ranked a -> Rank -> [(Rank, a)]
 smallerMembers = Internal.smallerMembers
 
 -- | Structural size of the member at a valid rank.
-sizeOfRank :: Ranked a -> Rank -> Maybe Integer
+sizeOfRank :: Ranked a -> Rank -> Maybe Size
 sizeOfRank = Internal.sizeOfRank

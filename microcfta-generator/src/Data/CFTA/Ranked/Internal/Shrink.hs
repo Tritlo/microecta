@@ -40,10 +40,11 @@ module Data.CFTA.Ranked.Internal.Shrink (
 ) where
 
 import Data.CFTA.Index (
-    Cardinality,
+    Cardinality (..),
+    ClassRank (..),
     Rank (..),
     RankOffset,
-    everyRank,
+    Size,
     hasRank,
     nextOffset,
     offsetRank,
@@ -68,7 +69,7 @@ smallestPlanRank :: Plan a -> Maybe Rank
 smallestPlanRank = fmap snd . smallestPlanMember
 
 -- | The size and rank of a structurally smallest member; see 'smallestPlanRank'.
-smallestPlanMember :: Plan a -> Maybe (Integer, Rank)
+smallestPlanMember :: Plan a -> Maybe (Size, Rank)
 smallestPlanMember (PlanSelect cardinality _) =
     if cardinality > 0 then Just (1, 0) else Nothing
 smallestPlanMember (PlanSelectOnDemand cardinality _) =
@@ -103,7 +104,7 @@ smallestPlanMember (PlanSized classes) = go 0 classes
             (go (nextOffset offset count) rest)
 
 -- | The smaller of two optional members, preferring the first on a tie.
-smallerMember :: Maybe (Integer, Rank) -> Maybe (Integer, Rank) -> Maybe (Integer, Rank)
+smallerMember :: Maybe (Size, Rank) -> Maybe (Size, Rank) -> Maybe (Size, Rank)
 smallerMember Nothing right = right
 smallerMember left Nothing = left
 smallerMember left@(Just first) right@(Just second)
@@ -180,7 +181,7 @@ holdsRank rank (offset, (branchCardinality, _)) =
 An atom has size one; an application adds the sizes of its operation and
 argument choices.
 -}
-planMemberSize :: Plan a -> Rank -> Integer
+planMemberSize :: Plan a -> Rank -> Size
 planMemberSize (PlanSelect _ _) _ = 1
 planMemberSize (PlanSelectOnDemand _ _) _ = 1
 planMemberSize (PlanShared _ _ _ plan) rank = planMemberSize plan rank
@@ -221,6 +222,5 @@ smallerPlanMembers index plan rank =
     concatMap (classMembers . fst) $ takeWhile ((< planMemberSize plan rank) . fst) (sizeClassCounts index)
   where
     classMembers size =
-        [ sizeClassSelect index size position
-        | Rank position <- everyRank $ countAtSize index size
-        ]
+        let Cardinality count = countAtSize index size
+         in [sizeClassSelect index size classRank | classRank <- map ClassRank [0 .. count - 1]]

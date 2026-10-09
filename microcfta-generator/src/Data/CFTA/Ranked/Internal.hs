@@ -40,7 +40,7 @@ module Data.CFTA.Ranked.Internal (
 import Data.Array (listArray, (!))
 import qualified Data.Bifunctor as Bifunctor
 
-import Data.CFTA.Index (Cardinality (..), Rank (..), hasRank, offsetRank)
+import Data.CFTA.Index (Cardinality (..), Rank (..), Size, hasRank, offsetRank)
 import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
@@ -348,7 +348,7 @@ smallerMembers ranked rank
     | otherwise = smallerPlanMembers (rankedSizeIndex ranked) (rankedPlan ranked) rank
 
 -- | Structural size of the member at a valid rank.
-sizeOfRank :: Ranked a -> Rank -> Maybe Integer
+sizeOfRank :: Ranked a -> Rank -> Maybe Size
 sizeOfRank ranked rank
     | not $ hasRank (cardinality ranked) rank = Nothing
     | otherwise = Just $ planMemberSize (rankedPlan ranked) rank

@@ -23,9 +23,9 @@ size-major rank from the counts.
 The counts are sparse: sizes in ascending order, each with its count. A
 shared automaton can have members of astronomical size and only a few
 distinct sizes, so the work follows the size classes that exist, not the
-range of sizes. Sizes are 'Integer' for the same reason. A count can be zero:
-a product in a recursive definition starts with a zero count at size one, and
-that entry flows into the counts built from it.
+range of sizes. A 'Data.CFTA.Index.Size' holds an 'Integer' for the same
+reason. A count can be zero: a product in a recursive definition starts with a
+zero count at size one, and that entry flows into the counts built from it.
 
 Convolution is productive on infinite operands, which is what makes
 'fixIndex' work: a recursive occurrence contributes to size @s@ only
@@ -61,8 +61,11 @@ module Data.CFTA.Ranked.Internal.Size (
 
 import Data.CFTA.Index (
     Cardinality (..),
+    ClassRank (..),
     Rank (..),
     RankOffset,
+    Size (..),
+    classMemberRank,
     nextOffset,
     offsetRank,
     pairRank,
@@ -84,7 +87,7 @@ probeIndex = probeIndexWithMinimum Nothing
 Grouped recursion uses this to solve the least live size of mutually
 recursive keys without forcing their count knots.
 -}
-probeIndexWithMinimum :: Maybe Integer -> SizeIndex a
+probeIndexWithMinimum :: Maybe Size -> SizeIndex a
 probeIndexWithMinimum minimumSize' =
     SizeIndex
         ( error
@@ -117,7 +120,7 @@ usesOccurrence :: SizeIndex a -> Bool
 usesOccurrence = usedOccurrence
 
 -- | The number of members of one size, zero outside the counted sizes.
-countAtSize :: SizeIndex a -> Integer -> Cardinality
+countAtSize :: SizeIndex a -> Size -> Cardinality
 countAtSize index = valueAtSize (sizeClassCounts index)
 
 {- | The size class holding one rank, with the rank rebased into it.
@@ -126,14 +129,14 @@ Only meaningful for a size-major index. 'Nothing' means the rank is outside
 the language, which can only be discovered for a language with finitely
 many size classes.
 -}
-sizeClassOf :: SizeIndex a -> Rank -> Maybe (Integer, Integer)
+sizeClassOf :: SizeIndex a -> Rank -> Maybe (Size, ClassRank)
 sizeClassOf index (Rank rank)
     | rank < 0 = Nothing
     | otherwise = go rank $ sizeClassCounts index
   where
     go _ [] = Nothing
     go position ((size, Cardinality count) : rest)
-        | position < count = Just (size, position)
+        | position < count = Just (size, ClassRank position)
         | otherwise = go (position - count) rest
 
 {- | The non-empty size classes up to a bound, as size, count, and a decoder
@@ -142,7 +145,7 @@ for one position in that class.
 This is the bridge back to a finite language: a recursive index bounded this
 way becomes an ordinary 'PlanSized' plan whose ranks are size-major.
 -}
-sizeClasses :: Integer -> SizeIndex a -> [(Integer, Cardinality, Integer -> a, Int -> a)]
+sizeClasses :: Size -> SizeIndex a -> [(Size, Cardinality, ClassRank -> a, Int -> a)]
 sizeClasses bound index =
     [ ( size
       , count
@@ -161,8 +164,8 @@ sizeIndex (PlanSelect cardinality' decode) =
     minimumSize'
         | cardinality' > 0 = Just 1
         | otherwise = Nothing
-    -- A leaf has one size class, so a position in that class is a rank.
-    select 1 position = let rank = Rank position in (rank, decode rank)
+    -- A leaf has one size class, so a rank in that class is a rank.
+    select 1 (ClassRank classRank) = let rank = Rank classRank in (rank, decode rank)
     select size _ =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
@@ -228,7 +231,7 @@ sizeIndex (PlanSized classes) =
         (size, offset, count, decode, decodeInt) : offsetClasses (nextOffset offset count) rest
 
     select size position = case [entry | entry@(size', _, _, _, _) <- offsets, size' == size] of
-        (_, offset, _, decode, _) : _ -> (offsetRank offset $ Rank position, decode position)
+        (_, offset, _, decode, _) : _ -> (classMemberRank offset position, decode position)
         [] ->
             error $
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
@@ -370,7 +373,7 @@ that reads them before its own occurrence does not terminate. A build around
 a new record, not an update of the index: an update would evaluate the index,
 and a nested definition in its body can read the flags of this one.
 -}
-withKnotMetadata :: Maybe Integer -> SizeIndex b -> SizeIndex a -> SizeIndex a
+withKnotMetadata :: Maybe Size -> SizeIndex b -> SizeIndex a -> SizeIndex a
 withKnotMetadata minimumSize' closed index =
     SizeIndex
         { sizeClassCounts = sizeClassCounts index
@@ -382,7 +385,7 @@ withKnotMetadata minimumSize' closed index =
         }
 
 -- | The least present value, ignoring absent entries.
-minimumOf :: [Maybe Integer] -> Maybe Integer
+minimumOf :: [Maybe Size] -> Maybe Size
 minimumOf = foldr combine Nothing
   where
     combine Nothing current = current
@@ -390,13 +393,13 @@ minimumOf = foldr combine Nothing
     combine (Just left) (Just right) = Just $ min left right
 
 -- | Each size class with the rank that its first member takes.
-sizeMajorRanks :: SizeCounts -> [(Integer, RankOffset)]
+sizeMajorRanks :: SizeCounts -> [(Size, RankOffset)]
 sizeMajorRanks counts = zip (map fst counts) (scanl nextOffset 0 (map snd counts))
 
 -- | The size-major rank of one position in one size class.
-rankAt :: [(Integer, RankOffset)] -> Integer -> Integer -> Rank
+rankAt :: [(Size, RankOffset)] -> Size -> ClassRank -> Rank
 rankAt ranks size position = case dropWhile ((< size) . fst) ranks of
-    (found, offset) : _ | found == size -> offsetRank offset $ Rank position
+    (found, offset) : _ | found == size -> classMemberRank offset position
     _ ->
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.rankAt: \
@@ -410,21 +413,21 @@ productCounts indexF indexX = mulCounts (sizeClassCounts indexF) (sizeClassCount
 {- | The alternative holding one position of a size class, with the position
 rebased into it.
 -}
-partAt :: Integer -> [(offset, SizeIndex a)] -> Integer -> (offset, SizeIndex a, Integer)
-partAt size = go
+partAt :: Size -> [(offset, SizeIndex a)] -> ClassRank -> (offset, SizeIndex a, ClassRank)
+partAt size parts (ClassRank start) = go parts start
   where
     go [] _ =
         error
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.partAt: \
             \position outside the size class"
     go ((offset, inner) : rest) position
-        | position < count = (offset, inner, position)
+        | position < count = (offset, inner, ClassRank position)
         | otherwise = go rest (position - count)
       where
         Cardinality count = countAtSize inner size
 
 -- | The branch holding one machine-sized position in a size class.
-partAtInt :: Integer -> [SizeIndex a] -> Int -> (SizeIndex a, Int)
+partAtInt :: Size -> [SizeIndex a] -> Int -> (SizeIndex a, Int)
 partAtInt size = go
   where
     go [] _ =
@@ -444,10 +447,10 @@ position of each side.
 productSplit ::
     SizeIndex (a -> b) ->
     SizeIndex a ->
-    Integer ->
-    Integer ->
-    (Integer, Integer, Integer, Integer)
-productSplit indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
+    Size ->
+    ClassRank ->
+    (Size, ClassRank, Size, ClassRank)
+productSplit indexF indexX size (ClassRank start) = go (takeWhile ((< size) . fst) (sizeClassCounts indexF)) start
   where
     go [] _ =
         error
@@ -456,7 +459,7 @@ productSplit indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCoun
     go ((functionSize, Cardinality functionCount) : rest) position
         | position < block =
             let (functionPosition, argumentPosition) = position `quotRem` argumentCount
-             in (functionSize, functionPosition, size - functionSize, argumentPosition)
+             in (functionSize, ClassRank functionPosition, size - functionSize, ClassRank argumentPosition)
         | otherwise = go rest (position - block)
       where
         Cardinality argumentCount = countAtSize indexX (size - functionSize)
@@ -466,9 +469,9 @@ productSplit indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCoun
 productSplitInt ::
     SizeIndex (a -> b) ->
     SizeIndex a ->
-    Integer ->
+    Size ->
     Int ->
-    (Integer, Int, Integer, Int)
+    (Size, Int, Size, Int)
 productSplitInt indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
   where
     go [] _ =
@@ -496,7 +499,7 @@ mulCounts = mulSparse
 {- | Add two sparse series of values by size, merging their sizes. Each series
 lists the sizes with a nonzero value, in ascending order.
 -}
-addSparse :: (Num value) => [(Integer, value)] -> [(Integer, value)] -> [(Integer, value)]
+addSparse :: (Num value) => [(Size, value)] -> [(Size, value)] -> [(Size, value)]
 addSparse [] right = right
 addSparse left [] = left
 addSparse left@((leftSize, leftValue) : leftRest) right@((rightSize, rightValue) : rightRest)
@@ -511,7 +514,7 @@ Productive on infinite operands: the first pair is the smallest sum, and every
 later element needs only finite prefixes of both, so recursive languages can
 be counted lazily.
 -}
-mulSparse :: (Num value) => [(Integer, value)] -> [(Integer, value)] -> [(Integer, value)]
+mulSparse :: (Num value) => [(Size, value)] -> [(Size, value)] -> [(Size, value)]
 mulSparse [] _ = []
 mulSparse _ [] = []
 mulSparse ((leftSize, leftValue) : leftRest) right@((rightSize, rightValue) : rightRest) =
@@ -521,7 +524,7 @@ mulSparse ((leftSize, leftValue) : leftRest) right@((rightSize, rightValue) : ri
             (mulSparse leftRest right)
 
 -- | The value of one size in a sparse series, zero when the size is absent.
-valueAtSize :: (Num value) => [(Integer, value)] -> Integer -> value
+valueAtSize :: (Num value) => [(Size, value)] -> Size -> value
 valueAtSize series size = case dropWhile ((< size) . fst) series of
     (found, value) : _ | found == size -> value
     _ -> 0
