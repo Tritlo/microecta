@@ -41,7 +41,7 @@ spec = do
                              in conjoin $
                                     [ map (Tree.unrank ranked) ranks === [Right value | (_, value, _) <- listed]
                                     , Map.fromListWith (+) [(sample, mass) | (mass, sample) <- runExact $ Tree.lowerWithRank ranked]
-                                        === Map.fromListWith (+) [((rank, value), mass) | (rank, (mass, value, _)) <- zip [0 ..] listed]
+                                        === Map.fromListWith (+) [(Tree.RankedValue rank value, mass) | (rank, (mass, value, _)) <- zip [0 ..] listed]
                                     , Map.fromListWith (+) [(value, mass) | (mass, value) <- runExact $ Tree.lower ranked]
                                         === Map.fromListWith (+) [(value, mass) | (mass, value, _) <- listed]
                                     , map (Tree.sizeOfRank ranked) ranks === [Just size | (_, _, size) <- listed]
@@ -57,8 +57,8 @@ spec = do
                                            ]
                                         <> [ counterexample ("smaller than " <> show rank) $
                                                 let smaller = Tree.smallerMembers ranked rank
-                                                 in sort smaller === [(other, value) | (other, (_, value, size)) <- zip [0 ..] listed, size < sizeAt rank]
-                                                        .&&. map (sizeAt . fst) smaller === sort (map (sizeAt . fst) smaller)
+                                                 in sort smaller === [Tree.RankedValue other value | (other, (_, value, size)) <- zip [0 ..] listed, size < sizeAt rank]
+                                                        .&&. map (sizeAt . Tree.valueRank) smaller === sort (map (sizeAt . Tree.valueRank) smaller)
                                            | rank <- checked
                                            ]
 
@@ -99,7 +99,7 @@ spec = do
                     Tree.cardinality ranked `shouldBe` 3
                     map (Tree.unrank ranked) [0 .. 2] `shouldBe` map Right outcomes
                     runExact (Tree.lowerWithRank ranked)
-                        `shouldBe` [(1 % 6, (rank, outcomes !! fromEnum rank)) | rank <- ticketRanks]
+                        `shouldBe` [(1 % 6, Tree.RankedValue rank (outcomes !! fromEnum rank)) | rank <- ticketRanks]
                     Map.fromListWith (+) [(value, mass) | (mass, value) <- runExact $ Tree.lower ranked]
                         `shouldBe` Map.fromList [((1, 'a'), 1 % 6), ((3, 'b'), 3 % 6), ((2, 'c'), 2 % 6)]
                     Tree.unrank ranked (-1) `shouldBe` Left (Tree.NegativeRankedRank (-1))
@@ -115,9 +115,9 @@ spec = do
                     Tree.cardinality pairs `shouldBe` 4
                     map (Tree.unrank pairs) [0 .. 3]
                         `shouldBe` map Right [('a', 'a'), ('a', 'b'), ('b', 'a'), ('b', 'b')]
-                    [Tree.unrank pairs rank == Right value | (_, (rank, value)) <- sampled]
+                    [Tree.unrank pairs rank == Right value | (_, Tree.RankedValue rank value) <- sampled]
                         `shouldSatisfy` and
-                    Map.fromListWith (+) [(value, mass) | (mass, (_, value)) <- sampled]
+                    Map.fromListWith (+) [(value, mass) | (mass, Tree.RankedValue _ value) <- sampled]
                         `shouldBe` Map.fromList [(('a', 'a'), 1 % 9), (('a', 'b'), 2 % 9), (('b', 'a'), 2 % 9), (('b', 'b'), 4 % 9)]
 
         it "checks source metadata without evaluating callbacks" $ do
@@ -150,7 +150,7 @@ spec = do
                     Tree.cardinality ranked `shouldBe` 2
                     Tree.unrank ranked 1 `shouldBe` Right 'b'
                     take 3 (runExact $ Tree.lowerWithRank ranked)
-                        `shouldBe` [(1 % mass, (0, 'a')), (1 % mass, (1, 'b')), (1 % mass, (1, 'b'))]
+                        `shouldBe` [(1 % mass, Tree.RankedValue 0 'a'), (1 % mass, Tree.RankedValue 1 'b'), (1 % mass, Tree.RankedValue 1 'b')]
 
 -- | A ranked language built from sources, choices, products, and maps.
 data Described

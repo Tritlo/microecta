@@ -71,7 +71,13 @@ import Data.CFTA.Index (
     offsetRank,
     pairRank,
  )
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..), SizeClass (..), SizeCounts, SizeIndex (..))
+import Data.CFTA.Ranked.Internal.Decoder (
+    Plan (..),
+    RankedValue (..),
+    SizeClass (..),
+    SizeCounts,
+    SizeIndex (..),
+ )
 
 {- | A stand-in for a recursive occurrence, used to check that a recursive
 definition is guarded before it is tied.
@@ -162,7 +168,7 @@ way becomes an ordinary 'PlanSized' plan whose ranks are size-major.
 -}
 sizeClasses :: Size -> SizeIndex a -> [SizeClass a]
 sizeClasses bound index =
-    [ SizeClass size count (snd . sizeClassSelect index size) (sizeClassValueInt index size)
+    [ SizeClass size count (rankedValue . sizeClassSelect index size) (sizeClassValueInt index size)
     | (size, count) <- takeWhile ((<= bound) . fst) (sizeClassCounts index)
     , count > 0
     ]
@@ -176,7 +182,7 @@ sizeIndex (PlanSelect cardinality' decode) =
         | cardinality' > 0 = Just 1
         | otherwise = Nothing
     -- A leaf has one size class, so a rank in that class is a rank.
-    select 1 (ClassRank position) = let rank = Rank position in (rank, decode rank)
+    select 1 (ClassRank position) = let rank = Rank position in RankedValue rank (decode rank)
     select size _ =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
@@ -204,8 +210,8 @@ sizeIndex (PlanChoice branches) =
 
     select size position =
         let (offset, inner, rebased) = partAt size entries position
-            (rank, value) = sizeClassSelect inner size rebased
-         in (offsetRank offset rank, value)
+            RankedValue rank value = sizeClassSelect inner size rebased
+         in RankedValue (offsetRank offset rank) value
     selectInt size position =
         let (inner, rebased) = partAtInt size (map snd entries) position
          in sizeClassValueInt inner size rebased
@@ -220,9 +226,9 @@ sizeIndex (PlanAp radix planF planX) =
     select size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
                 productSplit indexF indexX size position
-            (functionRank, function) = sizeClassSelect indexF functionSize functionPosition
-            (argumentRank, argument) = sizeClassSelect indexX argumentSize argumentPosition
-         in (pairRank radix functionRank argumentRank, function argument)
+            RankedValue functionRank function = sizeClassSelect indexF functionSize functionPosition
+            RankedValue argumentRank argument = sizeClassSelect indexX argumentSize argumentPosition
+         in RankedValue (pairRank radix functionRank argumentRank) (function argument)
     selectInt size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
                 productSplitInt indexF indexX size position
@@ -242,7 +248,7 @@ sizeIndex (PlanSized classes) =
         (offset, sizeClass) : offsetClasses (nextOffset offset count) rest
 
     select size position = case [entry | entry@(_, SizeClass{classSize = size'}) <- offsets, size' == size] of
-        (offset, SizeClass{classMember = decode}) : _ -> (classMemberRank offset position, decode position)
+        (offset, SizeClass{classMember = decode}) : _ -> RankedValue (classMemberRank offset position) (decode position)
         [] ->
             error $
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.sizeIndex: \
@@ -261,7 +267,7 @@ constantIndex :: a -> SizeIndex a
 constantIndex value =
     SizeIndex [(1, 1)] select selectInt (Just 1) False False
   where
-    select 1 0 = (0, value)
+    select 1 0 = RankedValue 0 value
     select size position =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.constantIndex: \
@@ -290,8 +296,8 @@ mapIndex transform index =
         (usedOccurrence index)
   where
     select size position =
-        let (rank, value) = sizeClassSelect index size position
-         in (rank, transform value)
+        let RankedValue rank value = sizeClassSelect index size position
+         in RankedValue rank (transform value)
     selectInt size = transform . sizeClassValueInt index size
 
 {- | The product of two indexes, ranked size-major.
@@ -320,9 +326,9 @@ productIndex indexF indexX =
     select size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
                 productSplit indexF indexX size position
-            (_, function) = sizeClassSelect indexF functionSize functionPosition
-            (_, argument) = sizeClassSelect indexX argumentSize argumentPosition
-         in (rankAt ranks size position, function argument)
+            RankedValue _ function = sizeClassSelect indexF functionSize functionPosition
+            RankedValue _ argument = sizeClassSelect indexX argumentSize argumentPosition
+         in RankedValue (rankAt ranks size position) (function argument)
     selectInt size position =
         let (functionSize, functionPosition, argumentSize, argumentPosition) =
                 productSplitInt indexF indexX size position
@@ -351,8 +357,8 @@ choiceIndex branches =
 
     select size position =
         let (_, inner, rebased) = partAt size entries position
-            (_, value) = sizeClassSelect inner size rebased
-         in (rankAt ranks size position, value)
+            RankedValue _ value = sizeClassSelect inner size rebased
+         in RankedValue (rankAt ranks size position) value
     selectInt size position =
         let (inner, rebased) = partAtInt size branches position
          in sizeClassValueInt inner size rebased
