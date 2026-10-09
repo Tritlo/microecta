@@ -8,7 +8,14 @@ joins, keys, and recursive families. 'Label' keeps the two apart in one
 symbol type, so a support cannot collide with a user symbol and the engine
 reserves no names.
 -}
-module Data.CFTA.Gen.Label (Label (..), ChoiceIndex (..), ComponentIndex (..), surface) where
+module Data.CFTA.Gen.Label (
+    Label (..),
+    ChoiceIndex (..),
+    ComponentIndex (..),
+    GroupIndex (..),
+    KeyIndex (..),
+    surface,
+) where
 
 import Data.Hashable (Hashable)
 import qualified Data.Tree as Tree
@@ -45,8 +52,10 @@ data Label symbol
       Family
     | -- | A recursive family restricted to one key.
       AtKey
-    | -- | The key of one matched group or of one family member, by position.
-      Key !Int
+    | -- | The key of one family member, by its index among the keys of the family.
+      Key !KeyIndex
+    | -- | The key of one matched group of a two-way join, by its index.
+      Group !GroupIndex
     | -- | The key of one argument position of one joined component.
       ArgKey !ComponentIndex !ArgumentIndex
     deriving (Eq, Ord, Show, Generic)
@@ -60,6 +69,18 @@ key pair of a relation. The argument keys of a component carry its index, so
 the keys of two components differ.
 -}
 newtype ComponentIndex = ComponentIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The zero-based index of a matched group of a two-way join.
+
+A matched group holds the outcomes of one left key and one right key that
+the join accepts. The groups follow each other in rank order.
+-}
+newtype GroupIndex = GroupIndex Int
+    deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+-- | The zero-based index of a key among the keys of a recursive family, in ascending key order.
+newtype KeyIndex = KeyIndex Int
     deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
 
 {- | The user's term under a labelled term.

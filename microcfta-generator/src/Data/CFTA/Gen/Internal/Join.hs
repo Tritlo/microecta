@@ -31,7 +31,7 @@ import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Recursive
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support
-import Data.CFTA.Gen.Label (ComponentIndex, Label (..))
+import Data.CFTA.Gen.Label (ComponentIndex, GroupIndex (..), Label (..))
 import Data.CFTA.Index (
     ArgumentIndex (..),
     Cardinality,
@@ -50,7 +50,7 @@ import Data.CFTA.Ranked.Internal.Sampler
 
 -- | One compatible key-pair bucket used to count and unrank a conditioned product.
 data JoinGroup symbol left right = JoinGroup
-    { joinGroupIndex :: !Int
+    { joinGroupIndex :: !GroupIndex
     , joinGroupLeft :: !(Seq (Outcome symbol left))
     , joinGroupRight :: !(Seq (Outcome symbol right))
     , joinGroupLeftWeights :: !(Seq Rational)
@@ -112,13 +112,13 @@ joinGroupedStatic left right related =
         else
             let groups =
                     [ JoinGroup
-                        keyIndex
+                        groupIndex
                         (fmap snd leftOutcomes)
                         (fmap snd rightOutcomes)
                         (fmap fst leftOutcomes)
                         (fmap fst rightOutcomes)
-                    | (keyIndex, (leftOutcomes, rightOutcomes)) <-
-                        zip [0 :: Int ..] related
+                    | (groupIndex, (leftOutcomes, rightOutcomes)) <-
+                        zip [0 :: GroupIndex ..] related
                     ]
                 leftNode =
                     Node
@@ -169,7 +169,7 @@ joinGroupedStatic left right related =
             Node
                 [ Edge
                     (plainSymbol symbol)
-                    [ singletonNode $ Tree.Node (plainSymbol $ Key $ joinGroupIndex group) []
+                    [ singletonNode $ Tree.Node (plainSymbol $ Group $ joinGroupIndex group) []
                     , singletonNode outcome
                     ]
                 | group <- groups
@@ -251,7 +251,7 @@ joinOutcomeIndex left right groups = do
     select index = do
         checkIndex totalOutcomes index
         let (group, leftOutcome, rightOutcome) = selectPair index
-            keyTerm = Tree.Node (Key $ joinGroupIndex group) []
+            keyTerm = Tree.Node (Group $ joinGroupIndex group) []
             leftTerm =
                 Tree.Node LeftKeyed [keyTerm, outcomeTerm leftOutcome]
             rightTerm =
