@@ -27,11 +27,13 @@ module Data.CFTA.Interned.Type (
     matchMu,
 ) where
 
+import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import Data.Sequence (Seq (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Type.Reflection (Typeable)
@@ -750,17 +752,17 @@ Forces all elements in the list
 -}
 {-# INLINEABLE sequenceSubstitutionPlans #-}
 sequenceSubstitutionPlans :: [SubstitutionPlan symbol a] -> SubstitutionPlan symbol [a]
-sequenceSubstitutionPlans = SubstitutionPlan . go []
+sequenceSubstitutionPlans = SubstitutionPlan . go Empty
   where
     go ::
-        [Map RecNodeId (Node symbol) -> a] ->
+        Seq (Map RecNodeId (Node symbol) -> a) ->
         [SubstitutionPlan symbol a] ->
         Map RecNodeId (Node symbol) ->
         [a]
-    -- The accumulator is reversed once here rather than on every environment
+    -- The functions are listed once here rather than for every environment
     -- the resulting function is applied to.
-    go acc [] = let fs = reverse acc in \env -> map ($ env) fs
-    go acc (SubstitutionPlan !f : fs) = go (f : acc) fs
+    go acc [] = let fs = toList acc in \env -> map ($ env) fs
+    go acc (SubstitutionPlan !f : fs) = go (acc :|> f) fs
 
 -- | The memo cache of 'substitutionPlan'.
 genericSubstitutionPlanCache :: TypeableMemoCache
