@@ -35,8 +35,10 @@ import GHC.Arr (listArray, unsafeAt)
 
 import Data.CFTA.Index (
     Cardinality (..),
+    ClassRank (..),
     Rank (..),
     RankOffset,
+    Size,
     everyRank,
     nextOffset,
     offsetRank,
@@ -135,17 +137,17 @@ Its rank is a position in that class, not a global rank. The bounded sampler
 adds the preceding size classes to recover the stable size-major rank.
 -}
 newtype SampleIndex a = SampleIndex
-    { samplerAtSize :: Integer -> Sampler a
+    { samplerAtSize :: Size -> Sampler a
     }
 
 -- | Sample one value of the given size class.
-runValueAtSize :: (GenBackend gen) => SampleIndex a -> Integer -> gen a
+runValueAtSize :: (GenBackend gen) => SampleIndex a -> Size -> gen a
 runValueAtSize sampling = runValueSampler . samplerAtSize sampling
 
 {- | Sample one value of the given size class with its rank. The rank is a
 position in that size class.
 -}
-runRankAtSize :: (GenBackend gen) => SampleIndex a -> Integer -> gen (Rank, a)
+runRankAtSize :: (GenBackend gen) => SampleIndex a -> Size -> gen (Rank, a)
 runRankAtSize sampling = runRankSampler . samplerAtSize sampling
 
 {- | Aggregate the exact value distribution of one recursive size class.
@@ -155,7 +157,7 @@ finite choices closed with @atomic@ keep their declared probability. The
 observer may enumerate a sampler's products and is intended for diagnostics,
 not for large language hot paths.
 -}
-exactPmfAtSize :: (Ord a) => SampleIndex a -> Integer -> [(a, Rational)]
+exactPmfAtSize :: (Ord a) => SampleIndex a -> Size -> [(a, Rational)]
 exactPmfAtSize sampling size =
     Map.toAscList
         $ Map.fromListWith (+)
@@ -206,7 +208,7 @@ uniformSampleIndex index =
         -- The ranks of this sampler are the positions in the size class.
         uniformSampler
             (countAtSize index size)
-            (\(Rank position) -> snd $ sizeClassSelect index size position)
+            (\(Rank position) -> snd $ sizeClassSelect index size $ ClassRank position)
 
 -- | Use one finite atomic sampler as the only size-one class.
 atomicSampleIndex :: Sampler a -> SampleIndex a
@@ -263,8 +265,8 @@ data ProductPart = ProductPart
     -- ^ Members of the product contributed by this split.
     , partOffset :: !RankOffset
     -- ^ Position of the split's first member within the size class.
-    , partFunctionSize :: !Integer
-    , partArgumentSize :: !Integer
+    , partFunctionSize :: !Size
+    , partArgumentSize :: !Size
     , partArgumentCount :: !Cardinality
     -- ^ Radix for composing the two positions into one.
     }
@@ -331,10 +333,10 @@ size. They choose among size splits without changing structural rank offsets.
 -}
 productMassSampleIndex ::
     SizeIndex (a -> b) ->
-    (Integer -> Rational) ->
+    (Size -> Rational) ->
     SampleIndex (a -> b) ->
     SizeIndex a ->
-    (Integer -> Rational) ->
+    (Size -> Rational) ->
     SampleIndex a ->
     SampleIndex b
 productMassSampleIndex indexF massF samplingF indexX massX samplingX =
@@ -346,7 +348,7 @@ productMassSampleIndex indexF massF samplingF indexX massX samplingX =
 productSampleParts ::
     SizeIndex (a -> b) ->
     SizeIndex a ->
-    Integer ->
+    Size ->
     [ProductPart]
 productSampleParts indexF indexX size = go 0 $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
   where
@@ -371,7 +373,7 @@ never has to recompute it.
 -}
 choiceSampleIndexBy ::
     Choose weight ->
-    [(SizeIndex a, Cardinality -> Integer -> Maybe weight, SampleIndex a)] ->
+    [(SizeIndex a, Cardinality -> Size -> Maybe weight, SampleIndex a)] ->
     SampleIndex a
 choiceSampleIndexBy choose alternatives =
     SampleIndex $ \size ->
@@ -417,7 +419,7 @@ Structural counts still define rank offsets. The supplied masses choose the
 alternative, so regrouping does not erase a declared atomic distribution.
 -}
 choiceMassSampleIndex ::
-    [(SizeIndex a, Integer -> Rational, SampleIndex a)] ->
+    [(SizeIndex a, Size -> Rational, SampleIndex a)] ->
     SampleIndex a
 choiceMassSampleIndex alternatives =
     choiceSampleIndexBy
@@ -439,7 +441,7 @@ fixSampleIndex build = sampling
 
 -- | Sample one bounded size class, then recover its global size-major rank.
 boundedSampler ::
-    [(Integer, Cardinality, Integer -> a, Int -> a)] ->
+    [(Size, Cardinality, ClassRank -> a, Int -> a)] ->
     SampleIndex a ->
     Sampler a
 boundedSampler classes sampling =

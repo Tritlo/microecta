@@ -19,7 +19,7 @@ import Test.QuickCheck (
     (===),
  )
 
-import Data.CFTA.Index (Rank (..), everyRank)
+import Data.CFTA.Index (Rank (..), Size, everyRank)
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Ranked.Internal (rankedPlan, share)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
@@ -194,7 +194,7 @@ side fastest. A choice selects a branch by its weight, and a product selects
 its sides independently. A source member has size one, and a product adds
 the sizes of its sides.
 -}
-members :: Described -> [(Rational, Value, Integer)]
+members :: Described -> [(Rational, Value, Size)]
 members description = case description of
     Weighted _ entries -> [(weight % sum (map fst entries), Atom value, 1) | (weight, value) <- entries]
     Uniform _ values -> [(1 % genericLength values, Atom value, 1) | value <- values]

@@ -25,7 +25,7 @@ module Data.CFTA.Ranked.Internal.Decoder (
 import qualified Data.Map.Lazy as Map
 import GHC.Arr (listArray, unsafeAt)
 
-import Data.CFTA.Index (Cardinality (..), Rank (..))
+import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size)
 
 {- | Symbolic rank-decoding structure retained beside every outcome index.
 
@@ -77,7 +77,7 @@ data Plan a where
     A bounded size-indexed generator lowers to this plan. The other
     constructors retain their mixed-radix order.
     -}
-    PlanSized :: [(Integer, Cardinality, Integer -> a, Int -> a)] -> Plan a
+    PlanSized :: [(Size, Cardinality, ClassRank -> a, Int -> a)] -> Plan a
 
 {- | A compiled rank decoder, selected by the top-level cardinality.
 
@@ -88,7 +88,7 @@ data RankDecoder a
     | LargeDecoder !Cardinality (Rank -> a)
 
 -- | Members per size: sizes in ascending order, each with its count, which can be zero.
-type SizeCounts = [(Integer, Cardinality)]
+type SizeCounts = [(Size, Cardinality)]
 
 {- | The size classes of one language: how many members each holds, and how
 to select one by its position in the class.
@@ -100,13 +100,13 @@ subplan.
 data SizeIndex a = SizeIndex
     { sizeClassCounts :: SizeCounts
     -- ^ Members per size, for ascending sizes.
-    , sizeClassSelect :: Integer -> Integer -> (Rank, a)
+    , sizeClassSelect :: Size -> ClassRank -> (Rank, a)
     -- ^ Rank and value of one member of one size class.
-    , sizeClassValueInt :: Integer -> Int -> a
+    , sizeClassValueInt :: Size -> Int -> a
     {- ^ Value of one member using machine arithmetic. Called only when the
     requested size class fits in 'Int'.
     -}
-    , minimumMemberSize :: Maybe Integer
+    , minimumMemberSize :: Maybe Size
     -- ^ Smallest live size, or 'Nothing' when no finite member is known.
     , unguardedOccurrence :: Bool
     {- ^ Whether a 'probeIndex' can be reached without passing through a
@@ -274,7 +274,7 @@ compileRankWith _ (PlanSized classes) =
             [ ( classCount
               , if classCount <= Cardinality (toInteger (maxBound :: Int))
                     then decodeInt . fromIntegral
-                    else decode . toInteger
+                    else decode . ClassRank . toInteger
               )
             | (_, classCount, decode, decodeInt) <- classes
             ]
