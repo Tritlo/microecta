@@ -2,8 +2,9 @@
 
 'similarity' asks a 'Subtyping' oracle to order transitions. 'minimize' then
 applies one deterministic schedule of M-Trans on the explicit view of the
-graph, keeps the original automaton whenever a step would lose a finite
-derivation, and interns the result again.
+graph, skips a step that could change the answer of a guard, keeps the
+original automaton whenever a step would lose a finite derivation, and interns
+the result again.
 -}
 module Data.CFTA.Refinement.Minimize (
     TransitionId (..),
@@ -22,16 +23,17 @@ import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import qualified Data.Graph as Graph
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (elemIndex, nub, sortOn)
+import Data.List (elemIndex, nub, sortOn, (!?))
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq (..))
 import qualified Data.Set as Set
 
 import qualified Data.CFTA as FTA
-import Data.CFTA.Index (TransitionIndex (..))
+import Data.CFTA.Index (ChildIndex (..), TransitionIndex (..))
 import Data.CFTA.Interned (InternedState (..), NodeId (..), fromFTA, nodeIdentity)
+import Data.CFTA.Path (Path, unPath)
 
-import Data.CFTA.Constraint (Constraint)
+import Data.CFTA.Constraint (Constraint (..), Guard (..), constraintPaths, guardPaths)
 import Data.CFTA.Refinement.Automaton (
     Automaton,
     AutomatonError (CyclicGuardReference),
@@ -209,6 +211,16 @@ that the language stays equal does not apply. A globally minimal automaton
 would need the exact similarity relation, and the solver can answer
 @Unknown@.
 
+A step changes the terms of the supertype's node in every place where that
+node occurs, so a guard that reads such a place must keep its answer. The
+representative has the stronger refinement when the oracle orders
+refinements, as 'refinementSubtypingOn' does. So the schedule skips a step
+unless each guard reads the node only at the end of a path, in 'Satisfies',
+'Holds', or the antecedent of an 'Entails' that is not negated. A 'Same', the
+consequent of an 'Entails', a negated 'Entails', a substitution, or an
+equality class that reads the node or a term that contains it would change
+its answer.
+
 The original automaton is retained if dependencies become unsafe, a
 representative loses its finite structural derivations, the last finite root
 derivation is lost, or a guard would inspect a recursive node. Unproductive
@@ -248,6 +260,9 @@ minimize automaton (Similarity original related) = do
             | source /= destination && Map.findWithDefault [] destination table /= [retained] = (table', steps)
             | removed `notElem` Map.findWithDefault [] source table' = (table', steps)
             | retained `notElem` Map.findWithDefault [] destination table' = (table', steps)
+            -- The step changes the terms of the source in every context, so
+            -- each guard that reads the source must keep its answer.
+            | not $ keepsGuards table' source = (table', steps)
             | otherwise =
                 ( Map.adjust (filter (/= removed)) source $ fmap (copyAlternatives redirect) table'
                 , steps :|> redirect
@@ -324,6 +339,87 @@ minimize automaton (Similarity original related) = do
         transition{FTA.transitionChildren = map redirect $ FTA.transitionChildren transition}
       where
         redirect state = Map.findWithDefault state state redirects
+
+    -- Whether each guard keeps its answer when the terms of the state change
+    -- to terms of a representative with a stronger refinement. A guard can read
+    -- the state only at the end of a path, and only where 'guardReads' calls
+    -- the read monotone. A structural read must not contain the state.
+    keepsGuards :: Map.Map InternedState [ViewTransition] -> InternedState -> Bool
+    keepsGuards rows state = all (all keeps) $ Map.elems rows
+      where
+        -- The states whose terms can contain a term of the state.
+        containing = grow $ Set.singleton state
+          where
+            grow known =
+                let next = known <> Map.keysSet (Map.filter (any $ any (`Set.member` known) . FTA.transitionChildren) rows)
+                 in if next == known then known else grow next
+        keeps transition = all readable $ Set.toList $ constraintPaths constraint
+          where
+            constraint = FTA.transitionConstraint transition
+            GuardReads{monotoneReads, sensitiveReads, structuralReads} = guardReads $ constraintGuard constraint
+            structural = structuralReads <> constraintPaths constraint{constraintGuard = Top}
+            readable target =
+                let levels = statesAlong transition target
+                    end = if null levels then Set.empty else last levels
+                    subterm = if null levels then Set.fromList (FTA.transitionChildren transition) else end
+                 in Set.notMember state (Set.unions $ drop 1 $ reverse levels)
+                        && ( Set.notMember state end
+                                || ( Set.member target monotoneReads
+                                        && Set.notMember target sensitiveReads
+                                        && Set.notMember target structural
+                                   )
+                           )
+                        && (Set.notMember target structural || Set.disjoint subterm containing)
+        -- The states at each nonempty prefix of a path below a transition.
+        statesAlong transition target = case unPath target of
+            [] -> []
+            ChildIndex index : rest -> scanl descend (Set.fromList $ toList $ FTA.transitionChildren transition !? index) rest
+        descend states (ChildIndex index) =
+            Set.fromList
+                [ child
+                | known <- Set.toList states
+                , edge <- Map.findWithDefault [] known rows
+                , Just child <- [FTA.transitionChildren edge !? index]
+                ]
+
+{- | The paths of a guard by how a stronger refinement of the term at a path
+changes the answer.
+
+'Satisfies' and 'Holds' assume the refinements of their terms, and their
+negations ask the refinements to refute the formula, so a stronger refinement
+keeps both answers: these reads are monotone. The antecedent of a positive
+'Entails' is monotone too. Its consequent is a conclusion, and a negated
+'Entails' negates the answer, so these reads are sensitive. 'Same' compares
+whole terms, and a substitution renames the terms below it, so their reads
+are structural.
+-}
+guardReads :: Guard -> GuardReads
+guardReads = go True
+  where
+    go positive guard = case guard of
+        Satisfies target _ -> mempty{monotoneReads = Set.singleton target}
+        Holds targets _ -> mempty{monotoneReads = Set.fromList targets}
+        Entails antecedent consequent
+            | positive -> mempty{monotoneReads = Set.singleton antecedent, sensitiveReads = Set.singleton consequent}
+            | otherwise -> mempty{sensitiveReads = Set.fromList [antecedent, consequent]}
+        Not nested -> go (not positive) nested
+        And guards -> foldMap (go positive) guards
+        Or guards -> foldMap (go positive) guards
+        _ -> mempty{structuralReads = guardPaths guard}
+
+-- | The paths of a guard by the kind of read, as 'guardReads' gives them.
+data GuardReads = GuardReads
+    { monotoneReads :: Set.Set Path
+    , sensitiveReads :: Set.Set Path
+    , structuralReads :: Set.Set Path
+    }
+
+instance Semigroup GuardReads where
+    GuardReads monotone sensitive structural <> GuardReads monotone' sensitive' structural' =
+        GuardReads (monotone <> monotone') (sensitive <> sensitive') (structural <> structural')
+
+instance Monoid GuardReads where
+    mempty = GuardReads Set.empty Set.empty Set.empty
 
 -- | Every unordered pair of distinct list elements, preserving first-seen order.
 unorderedPairs :: [a] -> [(a, a)]

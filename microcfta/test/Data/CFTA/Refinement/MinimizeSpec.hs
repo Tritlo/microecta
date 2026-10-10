@@ -9,7 +9,7 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatch
 import Data.CFTA.Refinement (
     Automaton,
     Entailment,
-    Guard (Satisfies),
+    Guard (Entails, Not, Same, Satisfies),
     MinimizeError (StaleSimilarity),
     Node (Mu, Node),
     SimilarityPair (SimilarityPair),
@@ -191,6 +191,20 @@ spec =
             withZ3 declarations $ \solver ->
                 checkRetainedBatch solver (atomSubtyping solver) cyclicGuardRepresentative 2
 
+        it "retains a batch whose redirect would make children equal under a disequality" $
+            withZ3 declarations $ \solver ->
+                checkRetainedBatch solver (atomSubtyping solver) disequalChildren 1
+
+        it "retains a batch whose redirect would strengthen the consequent of an entailment" $
+            withZ3 declarations $ \solver ->
+                checkRetainedBatch solver (atomSubtyping solver) entailedChild 2
+
+        it "applies a redirect that a guard reads only through a refinement it assumes" $
+            withZ3 declarations $ \solver ->
+                checkMinimization (atomSubtyping solver) assumedChild $ \reduced -> do
+                    map edgeChildren (nodeEdges reduced) `shouldMatchList` [[naturalNode], [naturalNode]]
+                    denotationAtMost solver 1 reduced >>= (\terms -> fmap length terms `shouldBe` Right 2)
+
 -- | Inspect a successful schedule while reporting inference failures.
 checkMinimization :: Subtyping -> Automaton -> (Automaton -> IO ()) -> IO ()
 checkMinimization subtyping original check = do
@@ -339,6 +353,34 @@ cyclicGuardRepresentative =
     recursiveNatural = Mu $ \self -> Node [Transition "natural" natural [zeroOrLoop self] noConstraint]
     zeroOrLoop self = Node [plain "zero", wrap "loop" [self]]
     natural = refinementFormula (\v -> v .>= 0)
+
+-- | The redirect of the unknown child would make both children natural.
+disequalChildren :: Automaton
+disequalChildren =
+    Node
+        [ Transition "pair" Fixpoint.PTrue [naturalNode, Node [unknownAtom]]
+            $ semanticConstraint
+            $ Not
+            $ Same (path [0]) (path [1])
+        ]
+
+-- | The redirect of the unknown child would make the entailment from the other child fail.
+entailedChild :: Automaton
+entailedChild =
+    Node
+        [ Transition "implied" Fixpoint.PTrue [Node [otherAtom], Node [unknownAtom]]
+            $ semanticConstraint
+            $ Entails (path [0]) (path [1])
+        , wrap "use-natural" [naturalNode]
+        ]
+
+-- | The guard assumes the refinement of the child, so the natural child also satisfies it.
+assumedChild :: Automaton
+assumedChild =
+    Node
+        [ Transition "checked" Fixpoint.PTrue [Node [unknownAtom]] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue
+        , wrap "use-natural" [naturalNode]
+        ]
 
 -- | Three program nodes ordered exact-zero <: natural <: unknown.
 transitiveSimilarAtoms :: Automaton
