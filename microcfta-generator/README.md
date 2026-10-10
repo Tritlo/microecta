@@ -1019,10 +1019,11 @@ redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
         LTAGen.pure (Red l r)
 ```
 
-With three unfoldings, the compiled generator has 25,728,160,405 trees.
-`countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
-1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten. Compilation takes a
-few milliseconds, because each unfolding is compiled once.
+With three unfoldings, the compiled generator has 25,728,160,405 trees. A tree
+with n internal nodes has n + 1 leaves. Each leaf is one source choice, and a
+constructor is none, so `countAtSize` gives the number of trees with n internal
+nodes at size n + 1: 1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten.
+Compilation takes a few milliseconds, because each unfolding is compiled once.
 
 The result of children from `every` stays a term of their values. A sorted list
 takes its head as its result, and each `cons` relates its element to the head

@@ -56,8 +56,9 @@ valid tree = black tree && balanced tree
 main :: IO ()
 main = do
     compiled <- LTAGen.compile $ redBlackTrees 3
-    -- A tree with n internal nodes has 2n + 1 nodes.
-    let counts = [LTAGen.countAtSize compiled (2 * n + 1) | n <- [0 .. 10]]
+    -- A tree with n internal nodes has n + 1 leaves. Each leaf is one source
+    -- choice, and a constructor is none.
+    let counts = [LTAGen.countAtSize compiled (n + 1) | n <- [0 .. 10]]
         expected = map Right [1, 1, 2, 2, 4, 8, 16, 33, 56, 90, 164]
     unless (counts == expected)
         $ fail
