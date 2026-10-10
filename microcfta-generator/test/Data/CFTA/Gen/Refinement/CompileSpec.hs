@@ -212,6 +212,30 @@ spec = do
                     LTAGen.pmf (LTAGen.upToSize 2 compiled) `shouldBe` Right expected
                     sampled (LTAGen.upToSize 2 compiled) `shouldBe` expected
 
+        it "keeps the weights of each size class when the groups of a built source have several sizes" $
+            withZ3 declarations $ \solver -> do
+                -- Each group of a(..) and of wrap(b) has one member of size one
+                -- and one of size two. The weights of the atom are 1:3 at size
+                -- one and 3:1 at size two.
+                let atom weightA weightB =
+                        LTAGen.atomic $
+                            LTAGen.frequency
+                                [(weightA, LTAGen.leaf (0 :: Int) "a" (const true)), (weightB, LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true))]
+                    built =
+                        LTAGen.ungroup
+                            $ LTAGen.keyed ()
+                            $ LTAGen.oneof
+                                [ LTAGen.node "p" $ Left <$> atom 1 3
+                                , LTAGen.node "q" $ fmap Right $ (,) <$> atom 3 1 <*> LTAGen.leaf (7 :: Int) "c" (const true)
+                                ]
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard built
+                    expected = [(Left 0, 1 % 8), (Left 1, 3 % 8), (Right (0, 7), 3 % 8), (Right (1, 7), 1 % 8)]
+                    sampled generator = Map.toAscList $ Map.fromListWith (+) [(value, mass) | (mass, Right value) <- runExact $ LTAGen.lowerVia generator]
+                LTAGen.pmf (LTAGen.upToSize 2 $ outer noConstraint) `shouldBe` Right expected
+                compiled <- compileOrFail solver $ outer $ Satisfies (path [0, 0]) true
+                LTAGen.pmf (LTAGen.upToSize 2 compiled) `shouldBe` Right expected
+                sampled (LTAGen.upToSize 2 compiled) `shouldBe` expected
+
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do
                 let pairs =
