@@ -73,7 +73,11 @@ library
   exposed-modules:
     Data.CFTA.Gen.Error
     Data.CFTA.Gen.Internal.Automaton
+    Data.CFTA.Gen.Internal.Bucket
+    Data.CFTA.Gen.Internal.Chain
     Data.CFTA.Gen.Internal.Inspection
+    Data.CFTA.Gen.Internal.Join
+    Data.CFTA.Gen.Internal.Recursive
     Data.CFTA.Gen.Internal.Static
     Data.CFTA.Gen.Internal.Support
     Data.CFTA.Gen.Internal.Symbolic
