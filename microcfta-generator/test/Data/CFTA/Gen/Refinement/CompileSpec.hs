@@ -6,6 +6,7 @@ module Data.CFTA.Gen.Refinement.CompileSpec (spec) where
 import Control.Exception (evaluate)
 import Control.Monad (forM_, void)
 import Data.List (sort)
+import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
 import qualified Data.Tree as Tree
 import System.Timeout (timeout)
@@ -25,8 +26,29 @@ import Data.CFTA.Refinement (
     nodeCount,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (./=), (.==), (.>), (.>=))
-import Data.CFTA.Refinement.Guard (allOf, anyOf, isSameTermAs, isSubtypeOf, notGuard, requires)
+import Data.CFTA.Refinement.Expression (
+    Refinement,
+    literal,
+    refinementFormula,
+    true,
+    (.&&),
+    (./=),
+    (.<),
+    (.<=),
+    (.==),
+    (.>),
+    (.>=),
+ )
+import Data.CFTA.Refinement.Guard (
+    allOf,
+    anyOf,
+    descendant,
+    isSameTermAs,
+    isSubtypeOf,
+    notGuard,
+    requires,
+    unconstrained,
+ )
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -40,7 +62,7 @@ nonZero :: Refinement
 nonZero v = v ./= 0
 
 spec :: Spec
-spec =
+spec = do
     describe "solver compilation" $ do
         it "preserves source order when observation keys have another order" $
             withZ3 declarations $ \solver -> do
@@ -286,7 +308,7 @@ spec =
                 emptied = LTAGen.fromAutomatonUpToDepth 1 zero `LTAGen.satisfying` (.>= 1)
             compiled <- LTAGen.compileWith latticeEntailment emptied
             checked <- LTAGen.validOutcomes latticeEntailment emptied
-            (LTAGen.cardinality <$> compiled, checked) `shouldBe` (Right (Left LTAGen.EmptyGenerator), Left LTAGen.EmptyGenerator)
+            (LTAGen.cardinality <$> compiled, checked) `shouldBe` (Right (Left LTAGen.EmptyGenerator), Right [])
 
         it "compile a choice of a recursive import and a deferred node" $ do
             -- The deferred node makes compile read the choice, and the import gives a recursive group.
@@ -299,6 +321,117 @@ spec =
                 dead = LTAGen.refinedNode "dead" (const true) Bottom (pure (Tree.Node "x" []))
             compiled <- compileOrFail latticeEntailment $ LTAGen.oneof [LTAGen.fromAutomaton lists, dead]
             map (LTAGen.countAtSize compiled) [1, 2] `shouldBe` [Right 1, Right 1]
+
+    describe "integer leaves" $ do
+        it "add no size for a constructor above a closed group of integer leaves" $ do
+            -- The guard closes the leaf; the node above it has no point to select.
+            let digits = LTAGen.every `LTAGen.satisfying` (\v -> 8 .<= v .&& v .<= 9) :: LTAGen.LTAGen Integer
+                closed = (: []) <$> LTAGen.guarded "p" (\x -> x .>= 8) digits
+            inner <- compileOrFail latticeEntailment closed
+            outer <- compileOrFail latticeEntailment $ LTAGen.node "q" closed
+            map (LTAGen.sizeOfRank outer) [0, 1] `shouldBe` map (LTAGen.sizeOfRank inner) [0, 1]
+
+        it "compile uniformly over integer leaves, weighted by their points" $ do
+            let leaves :: Integer -> Integer -> LTAGen.LTAGen Integer
+                leaves low high = LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+            compiled <- compileOrFail latticeEntailment $ LTAGen.uniformly [leaves 0 1, leaves 10 12]
+            sort (values compiled) `shouldBe` [0, 1, 10, 11, 12]
+            map snd (massesByRank compiled) `shouldBe` replicate 5 (1 % 5)
+
+        it "agree with validOutcomes and weigh their members as pools do" $
+            withZ3 declarations $ \solver ->
+                forM_ integerCases $ \(name, integerCase) -> do
+                    let symbolic = integerCase $ \low high -> LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                        pooled = integerCase $ \low high -> LTAGen.elements [low .. high]
+                    compiled <- compileOrFail solver symbolic
+                    twin <- compileOrFail solver pooled
+                    expected <- LTAGen.validOutcomes solver symbolic
+                    (name, fmap sort expected) `shouldBe` (name, Right $ sort $ values compiled)
+                    (name, massByValue compiled) `shouldBe` (name, massByValue twin)
+
+        it "compile with the lattice entailment as with Z3" $
+            withZ3 declarations $ \solver ->
+                forM_ integerCases $ \(name, integerCase) ->
+                    forM_
+                        [ integerCase $ \low high -> LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                        , integerCase $ \low high -> LTAGen.elements [low .. high]
+                        ]
+                        $ \generator -> do
+                            byZ3 <- compileOrFail solver generator
+                            counted <- LTAGen.compileWith latticeEntailment generator
+                            (name, values <$> counted, massByValue <$> counted)
+                                `shouldBe` (name, Right $ values byZ3, Right $ massByValue byZ3)
+
+        it "keep source order in a bare applicative spine" $
+            withZ3 declarations $ \solver -> do
+                let spine leaf = (,) <$> LTAGen.oneof [leaf, LTAGen.elements [0 :: Integer]] <*> LTAGen.elements "x"
+                compiled <- compileOrFail solver $ spine $ LTAGen.every `LTAGen.satisfying` (\v -> 5 .<= v .&& v .<= 6)
+                values compiled `shouldBe` [(5, 'x'), (6, 'x'), (0, 'x')]
+
+        it "report a guard below a closed leaf and a root function over one" $
+            withZ3 declarations $ \solver -> do
+                let digits = LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 9) :: LTAGen.LTAGen Integer
+                    below = LTAGen.refinedNode "p" (const true) (\n -> descendant n [0] `requires` (.>= 5)) (LTAGen.node "n" digits)
+                    byRoots = LTAGen.refinedNodeByRoots "r" (const $ const true) unconstrained digits
+                belowRead <- LTAGen.compileWith solver below
+                roots <- LTAGen.compileWith solver byRoots
+                either isIntegerLeafRead (const False) belowRead `shouldBe` True
+                either isIntegerLeafRead (const False) roots `shouldBe` True
+
+        it "apply to the root of an import with a recursive root only" $
+            withZ3 declarations $ \solver -> do
+                let lists =
+                        Mu $ \list ->
+                            Node
+                                [ Transition "nil" (refinementFormula (.== 0)) [] noConstraint
+                                , Transition "cons" (refinementFormula (.>= 1)) [list] noConstraint
+                                ]
+                compiled <- compileOrFail solver $ LTAGen.fromAutomaton lists `LTAGen.satisfying` (.>= 1)
+                let symbols = foldMap (\(RefinedSymbol symbol _) -> [symbol])
+                map symbols <$> traverse (LTAGen.unrank compiled) [0 .. 2]
+                    `shouldBe` Right [["cons", "nil"], ["cons", "cons", "nil"], ["cons", "cons", "cons", "nil"]]
+
+        it "keep a measure through a mapped constructor" $
+            withZ3 declarations $ \solver -> do
+                -- The measure is the child's 3, not the mapped value 6.
+                let three = LTAGen.elements [3 :: Integer]
+                    mapped = fmap (* 2) $ LTAGen.measured "m" (const true) id three
+                compiled <- compileOrFail solver $ mapped `LTAGen.satisfying` (.== 3)
+                values compiled `shouldBe` [6]
+  where
+    isIntegerLeafRead err = case err of
+        LTAGen.IntegerLeafRead _ -> True
+        _ -> False
+
+{- | Small generators over integer leaves, given a leaf of the integers between
+two bounds. Each one is compiled with 'LTAGen.every' and with 'LTAGen.elements'.
+-}
+integerCases :: [(String, (Integer -> Integer -> LTAGen.LTAGen Integer) -> LTAGen.LTAGen [Integer])]
+integerCases =
+    [ ("contract", \leaf -> LTAGen.guarded "lt" (\x y -> x .< y) $ (\x y -> [x, y]) <$> leaf 0 4 <*> leaf 0 4)
+    ,
+        ( "choice under a parent"
+        , \leaf -> LTAGen.guarded "p" (\x -> x .>= 8) $ pure <$> LTAGen.oneof [leaf 0 9, LTAGen.elements [100]]
+        )
+    , ("weighted choice", \leaf -> pure <$> LTAGen.frequency [(3, leaf 0 3), (1, LTAGen.elements [100])])
+    ,
+        ( "measure under a condition"
+        , \leaf -> LTAGen.measured "sum" (\_ _ -> true) (+) $ (\a b -> [a, b]) <$> leaf 0 3 <*> leaf 0 3
+        )
+    ,
+        ( "sorted lists"
+        , \leaf -> LTAGen.recurUpTo 2 $ \rest -> LTAGen.oneof [LTAGen.leaf [] "nil" (.== 4), sortedCons (leaf 0 3) rest]
+        )
+    ]
+  where
+    sortedCons element rest = LTAGen.measured "cons" (\x t -> x .<= t) const $ (:) <$> element <*> rest
+
+-- | The exact sampling mass of each value of a small compiled language.
+massByValue :: (Ord a) => LTAGen.LTAGen a -> Map.Map a Rational
+massByValue generator =
+    Map.fromListWith
+        (+)
+        [(value, mass) | (rank, mass) <- massesByRank generator, Right value <- [LTAGen.unrank generator rank]]
 
 -- | Build a product whose candidate count exceeds machine integers at width 64.
 bitForest :: Int -> LTAGen.LTAGen [Int]

@@ -5,10 +5,16 @@
 'LTAGen.validOutcomes' lists every candidate that the recipe describes and
 checks its guards one by one, which is the definition of the language.
 Random generators of integers are compiled and must give the same multiset
-of values. The leaves are pools and bounded integer leaves, and the nodes
-are choices and conditions.
-Both sides decide the queries with 'latticeEntailment'. The description
-alone also gives the values, and 'LTAGen.validOutcomes' must agree with them.
+of values. The leaves are pools, bounded integer leaves, and nodes over a
+choice of pure values; the nodes are choices, conditions, equalities of two
+leaves, and measured constructors whose measure is the sum of their children,
+so a parent guard reads integers. Both sides decide the queries with
+'latticeEntailment'. Every value is exact, so the description alone also
+gives the values, and 'LTAGen.validOutcomes' must agree with them.
+
+A constructor whose guard reads two children by position is compiled with
+children that give a leaf, a node, or no term, and compared with
+'LTAGen.validOutcomes'.
 
 A liquid automaton imported without a depth bound is compiled and compared
 with "Data.CFTA.Simple": a recursive result by its count at each size, the
@@ -21,6 +27,7 @@ import Data.CFTA.Index (Depth (..), Rank (..), everyRank)
 import Data.Either (isRight)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (sort)
+import Data.String (fromString)
 import qualified Data.Tree as Tree
 import Test.Hspec (Spec, describe, it)
 import Test.QuickCheck (
@@ -43,7 +50,14 @@ import Test.QuickCheck (
  )
 
 import Data.CFTA (Transition (Transition), mkFTA)
-import Data.CFTA.Constraint (Guard (..), Substitution (..), contractTermName, noConstraint, semanticConstraint)
+import Data.CFTA.Constraint (
+    Constraint,
+    Guard (..),
+    Substitution (..),
+    contractTermName,
+    noConstraint,
+    semanticConstraint,
+ )
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (values)
 import Data.CFTA.Interned (fromFTA)
@@ -57,8 +71,11 @@ import Data.CFTA.Refinement (
     validate,
  )
 import Data.CFTA.Refinement.Expression (
+    Expr,
+    Formula,
     literal,
     refinementFormula,
+    true,
     variable,
     (.&&),
     (.<),
@@ -66,12 +83,13 @@ import Data.CFTA.Refinement.Expression (
     (.==),
     (.>=),
  )
+import Data.CFTA.Refinement.Guard (Path, isSameTermAs, notGuard)
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import qualified Data.CFTA.Simple as Simple
 
 spec :: Spec
 spec = describe "the refinement compiler against validOutcomes" $ do
-    -- validOutcomes checks every candidate, so the language must stay small.
+    -- Nested recursion can describe a large language, and validOutcomes checks every candidate of it.
     it "gives the values of the candidates that pass every guard"
         $ property
         $ forAllShow
@@ -87,6 +105,11 @@ spec = describe "the refinement compiler against validOutcomes" $ do
                 agreed .&&. case checked of
                     Right expected -> sort expected === sort modelled
                     Left err -> counterexample (show err) $ null modelled
+
+    it "reads the children of a guard by position, as validOutcomes reads them" $
+        property $
+            forAllShow positionalGenerator fst $
+                \(description, generator') -> ioProperty $ agreesWithOracle description generator'
 
     it "gives the terms of an imported liquid automaton that pass every guard"
         $ property
@@ -197,13 +220,14 @@ agreesWithOracle description generator' = do
                     === []
         -- Both sides report the same kind of error.
         (Left err, Left other) -> counterexample (show (err, other)) $ errorName err === errorName other
-        -- validOutcomes reports an empty language as an error.
-        (Right generated, Left LTAGen.EmptyGenerator) -> values generated === []
         -- The symbolic counter cannot count every formula; compile reports it.
         (Left (LTAGen.UncountableIntegers _), Right _) -> property True
         (Left (LTAGen.IntegerLeafRead _), Right _) -> property True
         -- Compile decides a guard from grouped observations, and cannot compare complete subtrees.
         (Left (LTAGen.RelationalSyntacticEqualityUnsupported _), Right _) -> property True
+        -- Compile refuses a guard that reads children by position when a child
+        -- does not give one term, or when an equality reads leaves and non-leaves.
+        (Left LTAGen.ChildNotOneTerm, Right _) -> property True
         _ -> counterexample (show (fmap values compiled, checked)) False
 
 -- | The constructor of an error, without its fields.
@@ -251,7 +275,8 @@ liquidAutomaton = do
             ]
 
 {- | A random generator of integers with a description and its values, nested
-to the given depth. The values follow from the description alone.
+to the given depth. The values follow from the description alone: every value
+is exact, so a guard on a sum is a test of the two summands.
 -}
 generator :: Int -> Gen (String, [Integer], LTAGen.LTAGen Integer)
 generator depth
@@ -278,6 +303,40 @@ generator depth
                     , filter (>= bound) childValues
                     , child `LTAGen.satisfying` (.>= literal bound)
                     )
+            , do
+                (leftName, leftValues, left) <- generator (depth - 1)
+                (rightName, rightValues, right) <- generator (depth - 1)
+                (contractName, contract, holds) <- elements contracts
+                pure
+                    ( "sum " <> contractName <> " (" <> leftName <> ") (" <> rightName <> ")"
+                    , [x + y | x <- leftValues, y <- rightValues, holds x y]
+                    , LTAGen.measured "sum" contract (+) ((+) <$> left <*> right)
+                    )
+            , do
+                -- Equality of two leaves. A pool entry, a leaf of every, and a node over a
+                -- pure value have the same term when they have the same value.
+                (leftName, leftValues, left) <- leaf
+                (rightName, rightValues, right) <- leaf
+                (equalityName, equality, holds) <- elements equalities
+                pure
+                    ( equalityName <> " (" <> leftName <> ") (" <> rightName <> ")"
+                    , [x + y | x <- leftValues, y <- rightValues, holds x y]
+                    , LTAGen.measuredNode "pair" equality (+) ((+) <$> left <*> right)
+                    )
+            , do
+                -- Bounded recursion: a base, or the guarded sum of a step and the recursion. Both can recur.
+                (baseName, baseValues, base) <- generator (depth - 1)
+                (stepName, stepValues, step) <- generator (depth - 1)
+                (contractName, contract, holds) <- elements contracts
+                bound <- chooseInt (0, 2)
+                -- The first unfolding reads the empty generator, and there are bound + 1 unfoldings.
+                let unfold self = baseValues <> [x + y | x <- stepValues, y <- self, holds x y]
+                pure
+                    ( "recurUpTo " <> show bound <> " (oneof [" <> baseName <> ", sum " <> contractName <> " (" <> stepName <> ") self])"
+                    , iterate unfold [] !! (bound + 1)
+                    , LTAGen.recurUpTo (Depth bound) $ \self ->
+                        LTAGen.oneof [base, LTAGen.measured "sum" contract (+) ((+) <$> step <*> self)]
+                    )
             ]
   where
     leaf =
@@ -293,7 +352,68 @@ generator depth
                     , [low .. high]
                     , LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
                     )
+            , do
+                -- A node over a choice of pure values has one position, and its term is a leaf.
+                members <- map toInteger <$> sublistOf [0 .. 3 :: Int]
+                pure
+                    ( "nodes over pure " <> show members
+                    , members
+                    , LTAGen.oneof
+                        [ LTAGen.refinedNode (fromString $ show member) (.== literal member) noConstraint $ LTAGen.oneof [pure member]
+                        | member <- members
+                        ]
+                    )
             ]
+    equalities :: [(String, Path -> Path -> Constraint, Integer -> Integer -> Bool)]
+    equalities =
+        [ ("same", isSameTermAs, (==))
+        , ("not same", \x y -> notGuard (isSameTermAs x y), (/=))
+        ]
+    contracts :: [(String, Expr -> Expr -> Formula, Integer -> Integer -> Bool)]
+    contracts =
+        [ ("true", \_ _ -> true, \_ _ -> True)
+        , ("x < y", (.<), (<))
+        , ("x <= y + 1", \x y -> x .<= y + 1, \x y -> x <= y + 1)
+        , ("x >= 1", \x _ -> x .>= 1, \x _ -> x >= 1)
+        ]
+
+{- | A random constructor over two children, with a guard that reads them by
+position: an equality, its negation, or a contract on one child. A child can
+give a leaf, a node, or no term: a node over a choice of pure values is a
+leaf, and a source without symbols gives its constructor no term. Then the
+positions of the spine and of the term differ. Every refinement is bounded,
+so the lattice decides every contract.
+-}
+positionalGenerator :: Gen (String, LTAGen.LTAGen (Integer, Integer))
+positionalGenerator = do
+    (leftName, left) <- child
+    (rightName, right) <- child
+    (guardName, close) <- elements guards
+    pure (guardName <> " ((,) <$> " <> leftName <> " <*> " <> rightName <> ")", close $ (,) <$> left <*> right)
+  where
+    bounded v = 0 .<= v .&& v .<= 3
+    labelled symbol = LTAGen.refinedNode symbol bounded noConstraint
+    rankValue (Rank rank) = rank
+    child =
+        oneof
+            [ elements
+                [ ("elements [1, 2]", LTAGen.elements [1, 2])
+                , ("leaf 3 a", LTAGen.leaf 3 "a" bounded)
+                , ("node a (elements [1, 2])", labelled "a" $ LTAGen.elements [1, 2])
+                , ("node a (oneof [pure 1, pure 2])", labelled "a" $ LTAGen.oneof [pure 1, pure 2])
+                , ("node a (oneof [pure 1, leaf 2 b])", labelled "a" $ LTAGen.oneof [pure 1, LTAGen.leaf 2 "b" bounded])
+                , ("node a (fromIndexed 2)", labelled "a" $ LTAGen.fromIndexed $ LTAGen.Indexed 2 rankValue)
+                , ("fromIndexed 2", LTAGen.fromIndexed $ LTAGen.Indexed 2 rankValue)
+                , ("freeze 0 2", LTAGen.freeze 0 2 $ elements [1, 2])
+                ]
+            , (,) "samplePool 2" <$> LTAGen.samplePool 2 (elements [1, 2])
+            ]
+    guards =
+        [ ("same", LTAGen.refinedNode "p" (const true) isSameTermAs)
+        , ("not same", LTAGen.refinedNode "p" (const true) $ \x y -> notGuard (isSameTermAs x y))
+        , ("x >= 1", LTAGen.guarded "p" $ \x _ -> x .>= 1)
+        , ("y >= 1", LTAGen.guarded "p" $ \_ y -> y .>= 1)
+        ]
 
 -- | Every rank of a finite generator.
 ranks :: LTAGen.LTAGen a -> [Rank]

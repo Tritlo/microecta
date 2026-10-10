@@ -26,8 +26,8 @@ module Data.CFTA.Gen.Internal.Static (
     pureStatic,
     indexedStatic,
     indexedStaticWithLabels,
-    labelledLeavesStatic,
     pointsStatic,
+    holeStatic,
     termStatic,
     applyStatic,
     frequencyStatic,
@@ -256,36 +256,30 @@ indexedStaticWithLabels label indexed =
                 (indexedSelect indexed index)
                 (Tree.Node (namedSymbol index) [])
 
-{- | A finite source whose members are leaves with user symbols.
+{- | The language of one placeholder leaf with one value.
 
-Each rank decodes to a value and to the symbol of its leaf, on demand. The
-support is one leaf with the given symbol, which stands for every member: the
-source can be too large to list.
+Its term is a private 'Placeholder', which a theory fills when it compiles. The
+support is one leaf with the given symbol, which describes the values that
+can fill the placeholder.
 -}
-labelledLeavesStatic ::
-    (Hashable symbol, Typeable symbol) =>
-    symbol -> (Rank -> symbol) -> Indexed a -> Static symbol a
-labelledLeavesStatic summary symbolAt indexed =
+holeStatic :: (Hashable symbol, Typeable symbol) => symbol -> a -> Static symbol a
+holeStatic summary value =
     Static
         (Node [Edge (Label summary) []])
         ( mkOutcomeIndex
-            totalOutcomes
-            (Just mass)
-            select
-            (indexedSelect indexed)
-            (uniformSampler totalOutcomes $ indexedSelect indexed)
-            (PlanSelectOnDemand totalOutcomes $ indexedSelect indexed)
+            1
+            (Just 1)
+            ( \index -> do
+                checkIndex 1 index
+                pure $ Outcome (Tree.Node Placeholder []) 1 value (Tree.Node (plainSymbol Placeholder) [])
+            )
+            (const value)
+            (uniformSampler 1 $ const value)
+            (PlanSelect 1 $ const value)
         )
         False
         (Inspection Nothing $ Node [Edge (plainSymbol $ Label summary) []])
         (RootCount 1)
-  where
-    totalOutcomes = indexedCardinality indexed
-    mass = 1 / toRational totalOutcomes
-    select index = do
-        checkIndex totalOutcomes index
-        let label = Label $ symbolAt index
-        pure $ Outcome (Tree.Node label []) mass (indexedSelect indexed index) (Tree.Node (plainSymbol label) [])
 
 {- | Apply each outcome, a function of a point, to every point of an indexed
 source.
@@ -757,9 +751,12 @@ compileOutcomes static = do
     outcomes <- enumerateOutcomeIndex $ staticOutcomes static
     normalize [(outcomeMass outcome, outcomeValue outcome) | outcome <- outcomes]
 
--- | The number of user roots of an engine term: the length of 'surface' of the term.
+{- | The number of user roots of an engine term: the length of 'surface' of
+the term, where a placeholder counts as the leaf that fills it.
+-}
 termRootCount :: Tree.Tree (Label symbol) -> Int
 termRootCount (Tree.Node (Label _) _) = 1
+termRootCount (Tree.Node Placeholder []) = 1
 termRootCount (Tree.Node _ children) = sum $ map termRootCount children
 
 {- | The number of user roots that each member of a language gives its

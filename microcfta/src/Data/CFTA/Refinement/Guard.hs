@@ -19,6 +19,8 @@ module Data.CFTA.Refinement.Guard (
     requires,
     ContractBuilder (contractArity, contractFormulaFrom),
     contract,
+    MeasureBuilder (measureArity, measureTermFrom),
+    measureTerm,
     isSubtypeOf,
     isSameTermAs,
     withActualFor,
@@ -142,6 +144,29 @@ instance (term ~ Expr, ContractBuilder contract) => ContractBuilder (term -> con
     contractArity continue = 1 + contractArity (continue (variable (contractTermName 0)))
     contractFormulaFrom index continue =
         contractFormulaFrom (index + 1) (continue (variable (contractTermName index)))
+
+{- | A measure: the integer term of a constructed term, written as a function
+with one term for each child, in order, as in @\\leftHeight _ -> leftHeight + 1@.
+Each term stands for the measure of its child.
+-}
+class MeasureBuilder measure where
+    -- | The number of children that the measure takes.
+    measureArity :: measure -> Arity
+
+    -- | The term, with the child at index @i@ named by 'contractTermName' @i@, from the given index.
+    measureTermFrom :: ArgumentIndex -> measure -> Expr
+
+instance MeasureBuilder Expr where
+    measureArity _ = 0
+    measureTermFrom _ term = term
+
+instance (term ~ Expr, MeasureBuilder measure) => MeasureBuilder (term -> measure) where
+    measureArity continue = 1 + measureArity (continue $ variable $ contractTermName 0)
+    measureTermFrom index continue = measureTermFrom (index + 1) (continue $ variable $ contractTermName index)
+
+-- | The term of a measure, with the child at index @i@ named by 'contractTermName' @i@.
+measureTerm :: (MeasureBuilder measure) => measure -> Expr
+measureTerm = measureTermFrom 0
 
 {- | Require a contract about the children of the constructor.
 

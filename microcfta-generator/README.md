@@ -12,7 +12,7 @@ one generator type, `Gen symbol a`, and one facade per kind of automaton:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: equality-constrained generators, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
-| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, measures with `measured`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
@@ -966,9 +966,8 @@ Faulhaber polynomials, as in Pugh, "Counting solutions to Presburger formulas"
 When it sums a variable out, each bound must have the coefficient one or minus
 one on that variable. A contract can also name a child from `elements`, whose
 refinement fixes one integer. A domain that the counter cannot count gives
-`UncountableIntegers`. Another guard on a child from `every`, a computed
-label, and a guard of an enclosing constructor that reads such a child give
-`IntegerLeafRead`.
+`UncountableIntegers`. A guard that reads below the root of a child from
+`every`, or reads it through an equality, gives `IntegerLeafRead`.
 [`BoundedReads.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/BoundedReads.hs)
 runs this program, and CI runs it with the other examples.
 
@@ -981,6 +980,122 @@ reads a value as its integer, so it compares the value with a `literal`, as in
 what `compile` can count, and how the counter works, and
 [`TypedValues.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/TypedValues.hs)
 relates a color, a brightness byte, and a flag in one contract.
+
+### Measures and bounded recursion
+
+`measured` closes a constructor with a contract and a measure. A measure gives
+each generated term one integer that refinements can read, defined
+constructor by constructor; Liquid Haskell calls such a function a measure.
+The second argument of `measured` is the contract, as for `guarded`, and the
+third is the measure of the new term. Both are functions with one term for
+each child, in order, and each term is the measure of that child, not the
+child's Haskell value. The refinement of each constructed term is then
+`\v -> v .== measure`, so the contract of a parent reads it. A measure does
+not change the generated value. `recurUpTo` unfolds a recursive description a
+bounded number of times, from the empty generator, and `compile` compiles each
+unfolding once.
+
+Where does the integer come from? Every node of a term of a liquid tree
+automaton has one integer, the `v` of its refinement, and the solver reads only
+these integers, never the Haskell value. So the generator builds two things
+side by side: the Haskell value, through `fmap` and `<*>`, and a term of
+refined symbols. For a type with a natural integer, the refinement gives it:
+`elements [1, 2, 3]` refines each member as `v == x`. A tree has no natural
+integer, so the author chooses what `v` means. A leaf gets its integer from its
+refinement, and a constructor from `measured` gets its integer from its
+measure.
+
+These two give red-black trees. The measure of a tree is its black height: a
+leaf has black height zero, a black node adds one, and a red node keeps the
+black height of its subtrees. The grammar keeps red children black, and the
+contracts keep the black heights of the two subtrees equal:
+
+```haskell
+redBlackTrees :: Depth -> LTAGen.LTAGen Tree
+redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
+    let anyRooted = LTAGen.oneof [blackRooted, red blackRooted]
+     in LTAGen.oneof [leaf, black anyRooted]
+  where
+    -- A leaf has black height zero.
+    leaf = LTAGen.leaf Leaf "leaf" (.== 0)
+    black, red :: LTAGen.LTAGen Tree -> LTAGen.LTAGen Tree
+    -- The two subtrees have equal black heights, and a black node adds one.
+    black child =
+        LTAGen.measured
+            "black"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight + 1)
+            (Black <$> child <*> child)
+    -- A red node keeps the black height of its subtrees.
+    red child =
+        LTAGen.measured
+            "red"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight)
+            (Red <$> child <*> child)
+```
+
+Read `black` as follows. The constructor `black` has two children. Its contract
+says that their measures, the black heights `leftHeight` and `rightHeight`, are
+equal. Its measure, the black height of the new tree, is `leftHeight + 1`. The
+leaf has the measure 0 from its refinement `v == 0`. Because the leaf, `black`,
+and `red` agree, the integer of every tree is its black height; nothing checks
+that meaning. Some terms:
+
+| Term | Measures of the children | Contract | Measure |
+| --- | --- | --- | --- |
+| `Leaf` | none | none | 0, from `v == 0` |
+| `Black Leaf Leaf` | 0 and 0 | holds | 0 + 1 = 1 |
+| `Black (Black Leaf Leaf) (Black Leaf Leaf)` | 1 and 1 | holds | 2 |
+| `Black (Black Leaf Leaf) Leaf` | 1 and 0 | fails | not generated |
+
+The measure is also what makes `compile` fast here. It groups the children by
+their measures, decides each contract once for each pair of groups, and counts
+the trees without listing them.
+
+With three unfoldings, the compiled generator has 25,728,160,405 trees.
+`countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
+1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten. Compilation takes a
+few milliseconds, because each unfolding is compiled once.
+
+The measure of children from `every` stays a term of their integers. The
+measure of a sorted list is its head, and each `cons` relates its element to
+the head of the rest:
+
+```haskell
+sortedLists :: LTAGen.LTAGen [Integer]
+sortedLists = LTAGen.recurUpTo 8 $ \rest -> LTAGen.oneof [nil, cons rest]
+  where
+    nil = LTAGen.leaf [] "nil" (.== 1000001)
+    -- The element is at most the head of the rest, and it is the head of the list.
+    cons rest =
+        LTAGen.measured
+            "cons"
+            (\element restHead -> element .<= restHead)
+            (\element _ -> element)
+            $ LTAGen.do
+                x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
+                xs <- rest
+                LTAGen.pure (x : xs)
+```
+
+The head of the empty list is above every element, so every element can come
+before it. `compile` keeps the elements as integer variables through the whole
+list, and counts the points of `0 <= x1 <= ... <= xk <= 1000000` where the
+list ends: C(1000009, 8), about 2.5 × 10^43 lists. Each rank decodes to a
+sorted list, and each term carries the exact integer of each element and the
+exact head of each `cons`.
+
+A child that a measure names must have a measure of its own: a refinement that
+fixes one integer, as `elements` and `leaf` give, an integer from `every`, or a
+constructor built with `measured`. Otherwise `compile` reports
+`InexactMeasure`. A parent reads only the root of a child whose integers stay
+open. `measuredNode` is `measured` with a positional guard, as `refinedNode`
+takes, in place of the contract.
+[`RedBlackTrees.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/RedBlackTrees.hs)
+and
+[`SortedLists.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/SortedLists.hs)
+run these programs, and CI runs them with the other examples.
 
 ### Construction and compilation
 
