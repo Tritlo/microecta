@@ -224,7 +224,7 @@ spec = do
 
         it "keeps relabelled recursive witnesses inside their support" $ do
             let recursive = ECTAGen.recur $ \self ->
-                    ECTAGen.oneof [pure (0 :: Int), pure (+ 1) <*> self]
+                    ECTAGen.oneof [pure (0 :: Int), ECTAGen.pay $ pure (+ 1) <*> self]
             case ECTAGen.support recursive of
                 Left err -> expectationFailure $ show err
                 Right original -> do
@@ -731,6 +731,16 @@ spec = do
             ECTAGen.pmfAtSize opaque (-1)
                 `shouldBe` Left ECTAGen.CannotInspectOpaqueGenerator
 
+        it "merges atomic groups under a constructor at their size" $ do
+            -- Each group of an atomic language is an atom of size one, and the
+            -- node pays one, so the merged group is an atom of size two.
+            let weighted = ECTAGen.atomic $ ECTAGen.frequency [(3, ECTAGen.elements [1, 2]), (1, ECTAGen.elements [3, 4 :: Int])]
+                labelled :: ECTAGen.Grouped Bool Int
+                labelled = ECTAGen.nodeWithKey (const $ fromString "n") $ ECTAGen.groupOn even weighted
+                merged = ECTAGen.regroupOn (const ()) labelled
+            ECTAGen.countsAtSize merged 2 `shouldBe` Right (Map.fromList [((), 4)])
+            ECTAGen.pmfAtSize (ECTAGen.ungroup merged) 2 `shouldBe` Right [(1, 3 % 8), (2, 3 % 8), (3, 1 % 8), (4, 1 % 8)]
+
         it "reports finite retained-key masses conditional on size" $ do
             let family :: ECTAGen.Grouped _ _
                 family =
@@ -738,22 +748,23 @@ spec = do
                         [ (3, ECTAGen.keyed DeclaredUsers $ pure Alice)
                         , (1, ECTAGen.keyed OtherUsers $ pure Bob)
                         ]
-            ECTAGen.massesAtSize family 0 `shouldBe` Right mempty
-            ECTAGen.countsAtSize family 1
+            -- A pure member has size zero.
+            ECTAGen.massesAtSize family (-1) `shouldBe` Right mempty
+            ECTAGen.countsAtSize family 0
                 `shouldBe` Right
                     ( Map.fromList
                         [ (DeclaredUsers, 1)
                         , (OtherUsers, 1)
                         ]
                     )
-            ECTAGen.massesAtSize family 1
+            ECTAGen.massesAtSize family 0
                 `shouldBe` Right
                     ( Map.fromList
                         [ (DeclaredUsers, 3 % 4)
                         , (OtherUsers, 1 % 4)
                         ]
                     )
-            ECTAGen.massesAtSize family 2 `shouldBe` Right mempty
+            ECTAGen.massesAtSize family 1 `shouldBe` Right mempty
 
     describe "ranks of imported automata" $ do
         it "ranks every term of compact, overlapping, nested, and mixed plans" $ do

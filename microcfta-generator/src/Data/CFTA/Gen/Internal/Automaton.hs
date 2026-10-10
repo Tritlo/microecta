@@ -4,8 +4,8 @@ A node's language is the union over its edges, and an edge's language is the
 product of its children under its symbol. That is the same shape the
 generator combinators build, so an automaton becomes a size index by
 translation: @choiceIndex@ per node, @productIndex@ per edge child, and a
-size-one @constantIndex@ for the symbol itself, which makes a member's size
-its number of term nodes.
+@constantIndex@ under a @payIndex@ for the symbol itself, so each node pays
+one and a member's size is its number of term nodes.
 
 Recursion needs no special case. Nodes are interned, so a @Mu@ and the
 occurrences inside its own unfolding share one identity: building one lazy
@@ -285,9 +285,11 @@ compileFiniteAutomaton order root
             pure $ do
                 compiledGroups <- sequence selected
                 let slots = foldl' addGroup (pure Map.empty) (zip groups $ map fst compiledGroups)
+                -- The constructor of the edge pays one, so a term counts its nodes.
                 pure
-                    ( (\values -> Tree.Node (edgeSymbol edge) [values Map.! index | index <- childIndexes (Arity (length children))])
-                        <$> slots
+                    ( Ranked.pay $
+                        (\values -> Tree.Node (edgeSymbol edge) [values Map.! index | index <- childIndexes (Arity (length children))])
+                            <$> slots
                     , rankEdge edge $ zip groups compiledGroups
                     )
       where

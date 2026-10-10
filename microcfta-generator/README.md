@@ -61,8 +61,7 @@ no size classes, so its members report size one, and `smallerMembers` and the
 size-minimal search of `forAll` find no smaller member.
 `fromAutomatonUpToDepth` bounds the automaton by constructor depth first, a
 leaf having depth zero, and `upToSize` bounds any
-generator to the members of at most a given number of source choices, in
-size-major rank order. Use `Data.CFTA.Interned.fromFTA` first when the source
+generator to the members of at most a given size, in size-major rank order. Use `Data.CFTA.Interned.fromFTA` first when the source
 is an explicit-state automaton; the import is total and retains shared states.
 
 `fromDatatype` reads a derived grammar as a generator of its values,
@@ -233,8 +232,8 @@ ordinary and equality generation.
 A leaf has depth zero. The bounded import retains one rank per distinct term
 and samples uniformly over those ranks. Direct child equalities select once
 from the intersection of the child languages. The shared rank plan reuses that
-term at each equal position. Size inspection counts source choices, so repeated
-equal children contribute one selected child. Shrinks remain accepted.
+term at each equal position. A size counts the nodes of a term, but equal
+children count their one selected subterm once. Shrinks remain accepted.
 Nested equality paths and overlapping alternatives use symbolic counts over
 shared automaton states. Equality unifies selected subtrees, and overlapping
 alternatives count each accepted term once. Unranking constructs only the
@@ -449,13 +448,14 @@ finite or small result languages. Retain a reusable classification with
 failure = ECTAGen.atKey FailureReached tracesByOutcome
 
 shortestFailure = ECTAGen.smallest failure
-outcomeCounts = ECTAGen.countsAtSize tracesByOutcome 41
-outcomeProbabilities = ECTAGen.massesAtSize tracesByOutcome 41
+outcomeCounts = ECTAGen.countsAtSize tracesByOutcome 40
+outcomeProbabilities = ECTAGen.massesAtSize tracesByOutcome 40
 samples = ECTAGen.toGen (ECTAGen.ungroup tracesByOutcome)
 ```
 
-`AtSize` means structural source choices, not list length. In this example the
-empty trace contributes one choice, so size 41 represents forty commands.
+`AtSize` means the size of a member, not the length of a list. In this example
+the empty trace is `pure []`, of size zero, and each command is one atom, so
+size 40 represents forty commands.
 
 `Data.CFTA.Gen.Equality.QuickCheck` exposes `toGen`, plus
 `toGenWithRank` when the sampled replay rank is needed. It gives a
@@ -632,18 +632,22 @@ tree = ECTAGen.recur $ \self ->
 ```
 
 The result is the whole language. It has no cardinality. It has size
-classes, counted by FEAT-style convolution, where the size of a member is its
-number of source choices. For the tree above, `countAtSize tree 4` is
-`Right 405`. Ranks are size-major, so `unrank tree 0` is the smallest member
+classes, counted by FEAT-style convolution. For the tree above, `countAtSize
+tree 4` is `Right 405`. Ranks are size-major, so `unrank tree 0` is the smallest member
 and every rank replays as usual. The ECTA support is a `Mu` node: one finite
 automaton for infinitely many terms.
 
-The convolution is FEAT's ([Duregård, Jansson and Wang, *Feat: Functional
-Enumeration of Algebraic Types*, Haskell
-2012](https://doi.org/10.1145/2364506.2364515)), but the size measure is not:
-FEAT charges size wherever the definition says `pay`, while here every source
-choice costs one and nothing else does. "Size-major rank" is this package's own
-term for the resulting order. Counting a family by a size recurrence and
+The convolution and the size measure are FEAT's ([Duregård, Jansson and Wang,
+*Feat: Functional Enumeration of Algebraic Types*, Haskell
+2012](https://doi.org/10.1145/2364506.2364515)): sizes count pays. `pure` has
+size zero, `<*>` adds the sizes of its sides, and `fmap` and the choices keep
+sizes. `pay` adds one to every member. An atom (`elements`, `fromIndexed`,
+`every`, `atomic`) has size one, and a constructor (`node`, `leaf`, `guarded`,
+`measured`) pays one, so the size of a built tree is its number of nodes, as
+for an imported term. The tree above needs no pay: its leaves are atoms of
+size one, so each side of `Branch <$> self <*> self` guards the other.
+"Size-major rank" is this package's own term for the resulting order. [ADR
+2](../docs/adr/0002-sizes-count-pays.md) records the decision. Counting a family by a size recurrence and
 drawing from those counts is the recursive method of Nijenhuis and Wilf,
 *Combinatorial Algorithms*, 2nd ed., 1978, and of [Flajolet, Zimmermann and Van
 Cutsem, *A Calculus for the Random Generation of Labelled Combinatorial
@@ -652,10 +656,12 @@ turning a rank back into a member is unranking, as in [Martínez and Molinero,
 *A generic approach for the unranking of labeled combinatorial classes*, RSA
 19, 2001](https://doi.org/10.1002/rsa.10025).
 
-`pure` is one source choice like any other, so `pure f <*> x` has one more
-choice than `f <$> x`: the two have different sizes and therefore different
-ranks. It also counts as guarding recursion, so `pure f <*> self` is accepted
-where `f <$> self` is `UnguardedRecursion`.
+So the `Functor` and `Applicative` laws hold for sizes: `pure f <*> x` and
+`f <$> x` have the same sizes and the same ranks, and so do `pure id <*> v`
+and `v`. Composition, `pure (.) <*> u <*> v <*> w` and `u <*> (v <*> w)`, gives
+the same members, counts, and distribution at each size. Its ranks inside a
+size class can differ, because a product orders its splits by the size of its
+left side.
 
 `upToSize n` bounds the language back to an ordinary finite generator over
 the members of size at most `n`, and `toGen` and `forAll` apply it from
@@ -669,8 +675,8 @@ therefore replays under any larger bound. `forAll` first tests the whole size
 classes below the failing member. After its cap, it shrinks the components of
 the form bounded at the failing member's size.
 
-`atomic` treats every member of a finite generator as one source choice. This
-sets a domain-sized boundary inside a recursive language. For example, an
+`atomic` treats every member of a finite generator as one atom of size one.
+This sets a domain-sized boundary inside a recursive language. For example, an
 acyclic command FTA can retain its compact support and rank decoder while each
 complete command, rather than each node in its term, contributes one unit to a
 trace's size:
@@ -709,11 +715,18 @@ cannot be built reports its own error, and `recur` does not turn it into a
 recursive language that every finite inspector calls unbounded.
 
 Two rules apply inside the knot. The recursion must be guarded: every
-occurrence of the argument sits under at least one `<*>`. Otherwise the
-language has no smallest member, so `recur` rejects the definition with
-`UnguardedRecursion` and does not hang. The check is per definition, so inside
-a nested `recur` an occurrence of the *outer* language must also sit under an
-application within the inner body. Structural alternatives around a recursive
+occurrence of the argument sits under a `pay` (or a constructor, which pays),
+or in a product whose other side has no member of size zero. Otherwise
+counting a size would read the same size of the language being defined, so
+`recur` rejects the definition with `UnguardedRecursion` and does not hang.
+`recur (\t -> oneof [pure Leaf, Node <$> t <*> t])` is unguarded, because
+`pure Leaf` has size zero; `node "Node"` or `pay` around the second
+alternative guards it. An occurrence must also sit under a product or a
+constructor, which adds a term node: in `oneof [leaf, pay self]` each member is
+one larger, but its term need not change, so one term would have infinitely
+many ranks, and that is `UnguardedRecursion` too. The check is per definition, so inside a nested `recur`
+an occurrence of the *outer* language must also be guarded within the inner
+body. Structural alternatives around a recursive
 occurrence must carry equal weights. `oneof` gives equal weights, and the size
 bound controls how large members get. `frequency` with unequal weights on
 recursive branches is an error. A weighted finite choice may still enter

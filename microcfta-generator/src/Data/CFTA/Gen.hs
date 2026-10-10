@@ -53,6 +53,7 @@ module Data.CFTA.Gen (
     -- * Composing
     NodeLayer,
     node,
+    pay,
     frequency,
     oneof,
     uniformly,

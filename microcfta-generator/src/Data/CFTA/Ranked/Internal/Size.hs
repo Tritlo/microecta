@@ -2,12 +2,14 @@
 
 {- | Size-stratified counting and indexing.
 
-A language's members split into size classes, where size is the number of
-source choices in a member: an atom has size one, and an application adds
-the sizes of its operation and argument choices. A t'SizeIndex' counts every
-class by FEAT-style convolution (a product of size @s@ splits into an
-operation of size @a@ and arguments of size @s - a@) and indexes into one
-directly, returning the member's rank alongside its value.
+A language's members split into size classes. Sizes follow FEAT (Duregård,
+Jansson, and Wang, "Feat: Functional Enumeration of Algebraic Types",
+Haskell 2012): the member of @pure@ has size zero, an atom has size one, a
+product adds the sizes of its operation and argument, a choice keeps the
+sizes of its alternatives, and 'payIndex' adds one. A t'SizeIndex' counts
+every class by convolution (a product of size @s@ splits into an operation
+of size @a@ and arguments of size @s - a@) and indexes into one directly,
+returning the member's rank alongside its value.
 
 Two kinds of index share the type. 'sizeIndex' reads a finite 'Plan' and
 reports that plan's own mixed-radix rank, so counting a class never changes
@@ -26,13 +28,14 @@ The counts are sparse: sizes in ascending order, each with its count. A
 shared automaton can have members of astronomical size and only a few
 distinct sizes, so the work follows the size classes that exist, not the
 range of sizes. A 'Data.CFTA.Index.Size' holds an 'Integer' for the same
-reason. A count can be zero: a product in a recursive definition starts with a
-zero count at size one, and that entry flows into the counts built from it.
+reason. A count can be zero: a product and a pay give their smallest size
+before they count it, and that entry can be zero.
 
 Convolution is productive on infinite operands, which is what makes
-'fixIndex' work: a recursive occurrence contributes to size @s@ only
-through products, and a product needs one choice from each side, so
-counting size @s@ only ever consults sizes below it.
+'fixIndex' work. A recursive occurrence must be guarded: it contributes to
+size @s@ only through a pay, or through a product whose other side has no
+member of size zero. Then counting size @s@ only consults the occurrence at
+sizes below @s@.
 
 This module is an exposed internal module. The generator layers of
 microcfta-generator use it directly. Its exports are not covered by the PVP
@@ -67,6 +70,8 @@ module Data.CFTA.Ranked.Internal.Size (
     mapIndexWithRank,
     productIndex,
     choiceIndex,
+    payIndex,
+    constructorIndex,
     fixIndex,
     withKnotMetadata,
     sizeClasses,
@@ -147,12 +152,15 @@ probeIndexWithMinimum (Occurrence token) minimumSize' =
         SizesDoNotEnd
         (IntSet.singleton token)
         (IntSet.singleton token)
+        (IntSet.singleton token)
 
 {- | Whether a language built around the probe of a token left that
-occurrence unguarded, so that counting it would not terminate.
+occurrence unguarded: counting it would not terminate, or it adds no term
+node, so that one term could have infinitely many ranks.
 -}
 isUnguarded :: Occurrence -> SizeIndex a -> Bool
-isUnguarded (Occurrence token) = IntSet.member token . unguardedOccurrences
+isUnguarded (Occurrence token) index =
+    IntSet.member token (unguardedOccurrences index) || IntSet.member token (termlessOccurrences index)
 
 {- | Whether a language built around the probe of a token reaches that
 occurrence at all. A body that does not is a language in its own right, not
@@ -223,6 +231,8 @@ planPosition plan rank
         -- A leaf has one size class, so a rank is its rank in that class.
         PlanSelect _ _ -> Just (SizedRank 1 leafRank)
         PlanSelectOnDemand _ _ -> Just (SizedRank 1 leafRank)
+        PlanPure _ -> Just (SizedRank 0 leafRank)
+        PlanPay inner -> (\(SizedRank size position) -> SizedRank (size + 1) position) <$> planPosition inner rank
         PlanShared _ _ _ inner -> planPosition inner rank
         PlanMap _ inner -> planPosition inner rank
         PlanChoice branches -> branchPosition Empty 0 branches
@@ -303,7 +313,15 @@ sizeClasses bound index =
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanSelect cardinality' decode) =
-    SizeIndex [(1, cardinality') | cardinality' > 0] select selectInt minimumSize' (LargestSize 1) IntSet.empty IntSet.empty
+    SizeIndex
+        [(1, cardinality') | cardinality' > 0]
+        select
+        selectInt
+        minimumSize'
+        (LargestSize 1)
+        IntSet.empty
+        IntSet.empty
+        IntSet.empty
   where
     minimumSize'
         | cardinality' > 0 = MinimumSize 1
@@ -323,10 +341,12 @@ sizeIndex (PlanSelect cardinality' decode) =
                 <> show size
 sizeIndex (PlanSelectOnDemand cardinality' decode) =
     sizeIndex $ PlanSelect cardinality' decode
+sizeIndex (PlanPure value) = constantIndex value
+sizeIndex (PlanPay plan) = payIndex $ sizeIndex plan
 sizeIndex (PlanShared _ _ index _) = index
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
-    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty
+    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty IntSet.empty
   where
     entries = offsetBranches 0 branches
     offsetBranches _ [] = []
@@ -344,7 +364,7 @@ sizeIndex (PlanChoice branches) =
         let (inner, rebased) = partAtInt size (map snd entries) position
          in sizeClassValueInt inner size rebased
 sizeIndex (PlanAp radix planF planX) =
-    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty
+    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty IntSet.empty
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
@@ -365,7 +385,7 @@ sizeIndex (PlanAp radix planF planX) =
             argument = sizeClassValueInt indexX argumentSize argumentPosition
          in function argument
 sizeIndex (PlanSized classes) =
-    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty
+    SizeIndex counts select selectInt minimumSize' largestSize IntSet.empty IntSet.empty IntSet.empty
   where
     counts = [(size, count) | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0]
     largestSize = LargestSize $ maximum $ 0 : [size | SizeClass{classSize = size, classCardinality = count} <- classes, count > 0]
@@ -392,12 +412,12 @@ sizeIndex (PlanSized classes) =
                 \no size class of size "
                     <> show size
 
--- | The one-member index of a single value, of size one.
+-- | The one-member index of a single value, of size zero.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [(1, 1)] select selectInt (MinimumSize 1) (LargestSize 1) IntSet.empty IntSet.empty
+    SizeIndex [(0, 1)] select selectInt (MinimumSize 0) (LargestSize 0) IntSet.empty IntSet.empty IntSet.empty
   where
-    select 1 0 = RankedValue 0 value
+    select 0 0 = RankedValue 0 value
     select size position =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.constantIndex: \
@@ -405,7 +425,7 @@ constantIndex value =
                 <> show size
                 <> " position "
                 <> show position
-    selectInt 1 0 = value
+    selectInt 0 0 = value
     selectInt size position =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Size.constantIndex: \
@@ -424,6 +444,7 @@ mapIndex transform index =
         (minimumMemberSize index)
         (largestMemberSize index)
         (unguardedOccurrences index)
+        (termlessOccurrences index)
         (usedOccurrences index)
   where
     select size position =
@@ -443,6 +464,7 @@ mapIndexWithRank transform index =
         (minimumMemberSize index)
         (largestMemberSize index)
         (unguardedOccurrences index)
+        (termlessOccurrences index)
         (usedOccurrences index)
   where
     select size position =
@@ -455,22 +477,29 @@ Within a size class, splits come in ascending operation size, and each split
 is ordered operation-major. Either side may be recursive.
 -}
 productIndex :: SizeIndex (a -> b) -> SizeIndex a -> SizeIndex b
--- A product consumes one choice from each side, so counting a size only
--- consults smaller ones: this is what guards a recursive occurrence.
+-- A side with no member of size zero makes every member of the product larger
+-- than the member of the other side, so counting a size consults only smaller
+-- sizes of the other side: such a side guards an occurrence on the other side.
 productIndex indexF indexX =
     SizeIndex
         counts
         select
         selectInt
-        (productMinimum (minimumMemberSize indexF) (minimumMemberSize indexX))
+        smallest
         (productLargest (largestMemberSize indexF) (largestMemberSize indexX))
+        (IntSet.union (unguardedBeside indexX indexF) (unguardedBeside indexF indexX))
         IntSet.empty
         (IntSet.union (usedOccurrences indexF) (usedOccurrences indexX))
   where
-    -- The zero count at size one lets a recursive definition that uses this
-    -- product give its own smallest members before the product is counted:
-    -- every product has size two or more.
-    counts = (1, 0) : productCounts indexF indexX
+    smallest = productMinimum (minimumMemberSize indexF) (minimumMemberSize indexX)
+    -- The counts start with the smallest size of the product, which comes
+    -- from the minimums of the sides, before the convolution is read. So a
+    -- recursive definition that uses this product gives its own smallest
+    -- members before the product is counted.
+    counts = case smallest of
+        NoFiniteMember -> []
+        MinimumSize size -> (size, valueAtSize convolution size) : dropWhile ((<= size) . fst) convolution
+    convolution = productCounts indexF indexX
     ranks = sizeMajorRanks counts
 
     select size position =
@@ -486,6 +515,68 @@ productIndex indexF indexX =
             argument = sizeClassValueInt indexX argumentSize argumentPosition
          in function argument
 
+{- | The occurrences that a side leaves unguarded in a product, beside the
+other side. The other side guards them unless it has a member of size zero.
+-}
+unguardedBeside :: SizeIndex b -> SizeIndex a -> IntSet.IntSet
+unguardedBeside other side = case minimumMemberSize other of
+    MinimumSize 0 -> unguardedOccurrences side
+    _ -> IntSet.empty
+
+{- | The members of an index, each one larger: the @pay@ of FEAT. Ranks and
+values do not change.
+
+A pay guards every occurrence below it. Its counts start with its smallest
+size, one more than the minimum of the inner index, before the inner counts
+are read. So a recursive definition under a pay gives its smallest members
+before the inner language is counted. FEAT starts @pay@ with an empty part of
+size zero instead, but here a zero count of size zero would multiply the
+count of the full size in a product, and reading that count inside its own
+definition does not terminate.
+-}
+payIndex :: SizeIndex a -> SizeIndex a
+payIndex index =
+    SizeIndex
+        ( case minimumMemberSize index of
+            NoFiniteMember -> []
+            MinimumSize smallest ->
+                (smallest + 1, valueAtSize (sizeClassCounts index) smallest)
+                    : [(size + 1, count) | (size, count) <- sizeClassCounts index, size > smallest]
+        )
+        (\size -> sizeClassSelect index (size - 1))
+        (\size -> sizeClassValueInt index (size - 1))
+        ( case minimumMemberSize index of
+            MinimumSize size -> MinimumSize $ size + 1
+            NoFiniteMember -> NoFiniteMember
+        )
+        ( case largestMemberSize index of
+            LargestSize size -> LargestSize $ size + 1
+            SizesDoNotEnd -> SizesDoNotEnd
+        )
+        IntSet.empty
+        (termlessOccurrences index)
+        (usedOccurrences index)
+
+{- | The members of an index under a constructor: each one larger, as
+'payIndex' gives them. A constructor adds a term node, so no occurrence below
+it is termless. The result is a new record, not an update of the index, as in
+'withKnotMetadata'.
+-}
+constructorIndex :: SizeIndex a -> SizeIndex a
+constructorIndex index =
+    SizeIndex
+        { sizeClassCounts = sizeClassCounts paid
+        , sizeClassSelect = sizeClassSelect paid
+        , sizeClassValueInt = sizeClassValueInt paid
+        , minimumMemberSize = minimumMemberSize paid
+        , largestMemberSize = largestMemberSize paid
+        , unguardedOccurrences = unguardedOccurrences paid
+        , termlessOccurrences = IntSet.empty
+        , usedOccurrences = usedOccurrences paid
+        }
+  where
+    paid = payIndex index
+
 {- | Ordered alternatives, ranked size-major.
 
 Within a size class the alternatives keep their order. Any alternative may
@@ -500,6 +591,7 @@ choiceIndex branches =
         (minimumOf $ map minimumMemberSize branches)
         (largestOf $ map largestMemberSize branches)
         (IntSet.unions $ map unguardedOccurrences branches)
+        (IntSet.unions $ map termlessOccurrences branches)
         (IntSet.unions $ map usedOccurrences branches)
   where
     counts = foldr (addCounts . sizeClassCounts) [] branches
@@ -516,8 +608,9 @@ choiceIndex branches =
 
 {- | Tie a recursive index: the body is built from the index being defined.
 
-The recursion must be guarded (every recursive occurrence under at least
-one 'productIndex'), so that counting a size only consults smaller sizes.
+The recursion must be guarded (every recursive occurrence under a
+'payIndex', or beside a side of a 'productIndex' that has no member of size
+zero), so that counting a size only consults smaller sizes.
 Callers check that with a probe first, because an unguarded knot diverges
 rather than failing. The minimum and the flags come from one build around
 'closedProbe', which does not read the knot.
@@ -542,6 +635,7 @@ closedProbe :: MinimumSize -> SizeIndex a
 closedProbe minimumSize' =
     (probeIndexWithMinimum closedOccurrence minimumSize')
         { unguardedOccurrences = IntSet.empty
+        , termlessOccurrences = IntSet.empty
         , usedOccurrences = IntSet.empty
         }
 
@@ -551,12 +645,18 @@ an enclosing recursion, and the flags carry that to the members that read it.
 -}
 closedProbeWithOccurrencesOf :: SizeIndex b -> MinimumSize -> SizeIndex a
 closedProbeWithOccurrencesOf flags minimumSize' =
-    (closedProbe minimumSize'){unguardedOccurrences = unguardedOccurrences flags, usedOccurrences = usedOccurrences flags}
+    (closedProbe minimumSize')
+        { unguardedOccurrences = unguardedOccurrences flags
+        , termlessOccurrences = termlessOccurrences flags
+        , usedOccurrences = usedOccurrences flags
+        }
 
 -- | Whether two indexes reach the same probes, and leave the same ones unguarded.
 sameOccurrences :: SizeIndex a -> SizeIndex b -> Bool
 sameOccurrences left right =
-    unguardedOccurrences left == unguardedOccurrences right && usedOccurrences left == usedOccurrences right
+    unguardedOccurrences left == unguardedOccurrences right
+        && termlessOccurrences left == termlessOccurrences right
+        && usedOccurrences left == usedOccurrences right
 
 {- | Give a tied index a minimum and the occurrence flags of a build that does
 not read the knot, leaving counts and decoding unchanged.
@@ -576,6 +676,7 @@ withKnotMetadata minimumSize' closed index =
         , minimumMemberSize = minimumSize'
         , largestMemberSize = SizesDoNotEnd
         , unguardedOccurrences = unguardedOccurrences closed
+        , termlessOccurrences = termlessOccurrences closed
         , usedOccurrences = usedOccurrences closed
         }
 
@@ -671,7 +772,7 @@ productSplit ::
     Size ->
     ClassRank ->
     (Size, ClassRank, Size, ClassRank)
-productSplit indexF indexX size (ClassRank start) = go (takeWhile ((< size) . fst) (sizeClassCounts indexF)) start
+productSplit indexF indexX size (ClassRank start) = go (takeWhile ((<= size) . fst) (sizeClassCounts indexF)) start
   where
     go [] _ =
         error
@@ -693,7 +794,7 @@ productSplitInt ::
     Size ->
     Int ->
     (Size, Int, Size, Int)
-productSplitInt indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
+productSplitInt indexF indexX size = go $ takeWhile ((<= size) . fst) (sizeClassCounts indexF)
   where
     go [] _ =
         error

@@ -25,7 +25,8 @@ import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support (singletonNode)
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
+import Data.CFTA.Index (Size (..))
+import Data.CFTA.Ranked.Internal.Decoder (MinimumSize (..), Plan (..), SizeIndex (minimumMemberSize))
 import Data.CFTA.Ranked.Internal.Sampler (atomicSampleIndex)
 
 -- | One compact conditional generator and its mass in the whole distribution.
@@ -57,7 +58,7 @@ bucketFromOutcomes retainAtomic weightedOutcomes = do
             weightSampler <-
                 sequenceSampler $
                     (\(weight, outcome) -> outcome{outcomeMass = weight}) <$> weightedOutcomes
-            pure $ Just (atomicSampleIndex weightSampler, Right . weightAt)
+            pure $ Just (atomicSampleIndex 1 weightSampler, Right . weightAt)
     pure
         $ KeyedBucket bucketMass
         $ Static
@@ -109,12 +110,16 @@ mergeBucketGroup alternatives = do
     pure $
         KeyedBucket
             (sum $ map fst alternatives)
-            -- All-atomic alternatives have size-one plans, so their merge is
-            -- still one source choice and stays atomic. A mixed merge is not.
+            -- Atomic alternatives of one size merge to one atom of that size,
+            -- which stays atomic. A mixed merge is not.
             (retainAtomic $ frequencyStatic weightedAlternatives)
   where
     retainAtomic
-        | all (staticAtomic . snd) alternatives = atomicStatic
+        | all (staticAtomic . snd) alternatives
+        , first@(MinimumSize (Size size)) : rest <- map (minimumMemberSize . outcomeSizeIndex . staticOutcomes . snd) alternatives
+        , all (== first) rest =
+            -- An atom has size one, and each pay above it adds one.
+            \merged -> iterate payStatic (atomicStatic merged) !! fromInteger (size - 1)
         | otherwise = id
 
 -- | Merge weighted joined components into normalized result-key groups.

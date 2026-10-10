@@ -206,7 +206,10 @@ smallest generator@(Cyclic _) =
         Right value -> Right $ Just value
 smallest (Opaque _) = Left CannotInspectOpaqueGenerator
 
--- | The number of source choices in the member a rank decodes to.
+{- | The size of the member a rank decodes to: its number of pays, as in FEAT.
+'pure' has size zero, an atom one, a product the sum of its sides, and a
+'pay' or a constructor one more.
+-}
 sizeOfRank :: Gen symbol a -> Rank -> Maybe Size
 sizeOfRank (Cyclic (Right recursive)) rank =
     rankSize <$> sizeClassOf (recursiveIndex recursive) rank
@@ -280,7 +283,7 @@ pmf (Opaque _) = Left CannotInspectOpaqueGenerator
 pmfAtSize :: (Ord a) => Gen symbol a -> Size -> Either GenError [(a, Rational)]
 pmfAtSize (Transparent result) size = do
     static <- result
-    if size < 1
+    if size < 0
         then Right []
         else do
             outcomes <- enumerateOutcomeIndex $ staticOutcomes static

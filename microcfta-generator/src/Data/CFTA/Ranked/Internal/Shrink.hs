@@ -11,8 +11,9 @@ factoring:
   larger than the current one.
 
 * 'smallerPlanMembers' streams every member structurally smaller than a
-  rank's member, in size order, where size ('planMemberSize') is the number
-  of source choices in a member. Size classes are counted and indexed
+  rank's member, in size order, where size ('planMemberSize') counts as
+  FEAT does: @pure@ is zero, an atom one, a product the sum of its sides, and
+  a pay one more. Size classes are counted and indexed
   directly ("Data.CFTA.Ranked.Internal.Size"), not enumerated. The stream
   covers every strictly smaller size. 'Data.CFTA.Gen.QuickCheck.forAllWithLimit'
   puts this stream before the structural candidates, and QuickCheck takes the
@@ -75,6 +76,8 @@ smallestPlanMember (PlanSelect cardinality _) =
     if cardinality > 0 then Just (1, 0) else Nothing
 smallestPlanMember (PlanSelectOnDemand cardinality _) =
     if cardinality > 0 then Just (1, 0) else Nothing
+smallestPlanMember (PlanPure _) = Just (0, 0)
+smallestPlanMember (PlanPay plan) = (\(size, rank) -> (size + 1, rank)) <$> smallestPlanMember plan
 -- A shared subplan gives its smallest member from its size classes, and does
 -- not walk the subplan again. The smallest size class of a finite plan lists
 -- its members in rank order, so position zero has the least rank.
@@ -131,6 +134,8 @@ shrinkPlanRank = go
     go :: Plan b -> Rank -> [Rank]
     go (PlanSelect _ _) index = towardZero index
     go (PlanSelectOnDemand _ _) index = towardZero index
+    go (PlanPure _) _ = []
+    go (PlanPay plan) index = go plan index
     go (PlanShared _ _ _ plan) index = go plan index
     go (PlanMap _ plan) index = go plan index
     go (PlanChoice branches) index =
@@ -177,14 +182,16 @@ holdsRank :: Rank -> (RankOffset, (Cardinality, Plan a)) -> Bool
 holdsRank rank (offset, (branchCardinality, _)) =
     hasRank branchCardinality $ rebaseRank offset rank
 
-{- | The size of the member a rank decodes to: its number of source choices.
+{- | The size of the member a rank decodes to.
 
-An atom has size one; an application adds the sizes of its operation and
-argument choices.
+The member of @pure@ has size zero, an atom has size one, an application adds
+the sizes of its operation and argument, and a pay adds one.
 -}
 planMemberSize :: Plan a -> Rank -> Size
 planMemberSize (PlanSelect _ _) _ = 1
 planMemberSize (PlanSelectOnDemand _ _) _ = 1
+planMemberSize (PlanPure _) _ = 0
+planMemberSize (PlanPay plan) rank = 1 + planMemberSize plan rank
 planMemberSize (PlanShared _ _ _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =

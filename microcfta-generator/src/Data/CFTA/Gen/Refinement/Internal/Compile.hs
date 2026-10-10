@@ -61,7 +61,7 @@ import Data.CFTA.Gen.Internal.Static (
     mapStatic,
     pointsStatic,
  )
-import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
+import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..), payGrouped)
 import Data.CFTA.Gen.Label (ChoiceIndex)
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Index (
@@ -138,6 +138,7 @@ spineArity :: Gen symbol a -> Arity
 spineArity generator = case genRecipe generator of
     Lifted _ -> 0
     Mapped _ inner -> spineArity inner
+    Paid inner -> spineArity inner
     Applied functions arguments -> spineArity functions + spineArity arguments
     _ -> 1
 
@@ -157,6 +158,7 @@ alignedSpine :: Gen symbol a -> Bool
 alignedSpine generator = case genRecipe generator of
     Lifted _ -> True
     Mapped _ inner -> alignedSpine inner
+    Paid inner -> alignedSpine inner
     Applied functions arguments -> alignedSpine functions && alignedSpine arguments
     _ -> rootCount generator == RootCount 1
 
@@ -165,6 +167,7 @@ spineRootCounts :: Gen symbol a -> [RootCount]
 spineRootCounts generator = case genRecipe generator of
     Lifted _ -> []
     Mapped _ inner -> spineRootCounts inner
+    Paid inner -> spineRootCounts inner
     Applied functions arguments -> spineRootCounts functions <> spineRootCounts arguments
     _ -> [rootCount generator]
 
@@ -187,6 +190,7 @@ rootCount :: Gen symbol a -> RootCount
 rootCount generator = case genRecipe generator of
     Lifted _ -> RootCount 0
     Mapped _ inner -> rootCount inner
+    Paid inner -> rootCount inner
     Applied functions arguments -> addRootCounts (rootCount functions) (rootCount arguments)
     Chosen alternatives -> commonRootCount $ map (rootCount . snd) alternatives
     Uniform alternatives -> commonRootCount $ map rootCount alternatives
@@ -287,6 +291,7 @@ compileGenOnce compiler requested generator
         Built -> pure $ groupBuilt requested generator
         Lifted value -> pure $ Right $ keyed noObservations $ pure value
         Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen compiler requested inner
+        Paid inner -> fmap payGrouped <$> compileGen compiler requested inner
         Applied _ _
             -- A product whose one term comes from one part, such as @elements [2] <* pure ()@,
             -- answers the requested paths of that part. Another product observes nothing.
@@ -413,6 +418,7 @@ compileSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (LTAGr
 compileSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure value
     Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine compiler requirements inner
+    Paid inner -> fmap payGrouped <$> compileSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (fromEnum $ spineArity functions) requirements
         compiledFunctions <- compileSpine compiler functionRequirements functions
@@ -507,6 +513,7 @@ containsIntegers compiler generator =
             Contains <$> case genRecipe generator of
                 Integers _ -> pure True
                 Mapped _ inner -> containsIntegers compiler inner
+                Paid inner -> containsIntegers compiler inner
                 Applied functions arguments -> (||) <$> containsIntegers compiler functions <*> containsIntegers compiler arguments
                 Chosen alternatives -> or <$> traverse (containsIntegers compiler . snd) alternatives
                 Uniform alternatives -> or <$> traverse (containsIntegers compiler) alternatives
@@ -564,6 +571,7 @@ compileOpen compiler requested generator =
                     else case genRecipe generator of
                         Integers constraint -> pure $ integerGroup constraint
                         Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpen compiler requested inner
+                        Paid inner -> fmap payGrouped <$> compileOpen compiler requested inner
                         Applied _ _ ->
                             fmap joinPositioned <$> compileOpenSpine compiler (replicate (fromEnum $ spineArity generator) Set.empty) generator
                         Chosen alternatives -> do
@@ -724,6 +732,7 @@ compileOpenSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (L
 compileOpenSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure $ const value
     Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpenSpine compiler requirements inner
+    Paid inner -> fmap payGrouped <$> compileOpenSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (fromEnum $ spineArity functions) requirements
             applyReader keys (function, argument) =
@@ -880,7 +889,7 @@ compileOpenNode compiler requested labelling constraint child
                         then Just (OpenKey observations total formula (Just $ pointCount found), kept, Nothing)
                         else
                             -- Children without open variables have no point to select, so
-                            -- the constructor adds no source choice; closeOpen applies them.
+                            -- the constructor selects none; closeOpen applies them.
                             Just (closedKey observations, kept, if total == 0 then Nothing else Just found)
 
 {- | Settle each tuple of child groups: drop it, leave its variables open under
@@ -1131,6 +1140,7 @@ candidatesOf entailment generator = case genRecipe generator of
     Built -> pure $ builtCandidates generator
     Lifted value -> pure $ Right [(value, [])]
     Mapped transform inner -> fmap (map (first transform)) <$> candidatesOf entailment inner
+    Paid inner -> candidatesOf entailment inner
     Applied functions arguments -> do
         functionCandidates <- candidatesOf entailment functions
         argumentCandidates <- candidatesOf entailment arguments

@@ -325,13 +325,15 @@ spec = do
             map (LTAGen.countAtSize compiled) [1, 2] `shouldBe` [Right 1, Right 1]
 
     describe "integer leaves" $ do
-        it "add no size for a constructor above a closed group of integer leaves" $ do
-            -- The guard closes the leaf; the node above it has no point to select.
+        it "pay one for a constructor above a closed group of integer leaves" $ do
+            -- The guard closes the leaf, so the node above it has no point to
+            -- select, and it pays one as every constructor does.
             let digits = LTAGen.every `LTAGen.satisfying` (\v -> 8 .<= v .&& v .<= 9) :: LTAGen.LTAGen Integer
                 closed = (: []) <$> LTAGen.guarded "p" (\x -> x .>= 8) digits
             inner <- compileOrFail latticeEntailment closed
             outer <- compileOrFail latticeEntailment $ LTAGen.node "q" closed
-            map (LTAGen.sizeOfRank outer) [0, 1] `shouldBe` map (LTAGen.sizeOfRank inner) [0, 1]
+            map (LTAGen.sizeOfRank outer) [0, 1] `shouldBe` map (fmap (+ 1) . LTAGen.sizeOfRank inner) [0, 1]
+            map (LTAGen.sizeOfRank inner) [0, 1] `shouldBe` [Just 2, Just 2]
 
         it "compile uniformly over integer leaves, weighted by their points" $ do
             let leaves :: Integer -> Integer -> LTAGen.LTAGen Integer

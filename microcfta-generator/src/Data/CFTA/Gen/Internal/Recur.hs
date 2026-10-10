@@ -57,7 +57,7 @@ import Data.CFTA.Ranked.Internal.Size (
     withKnotMetadata,
  )
 
--- | Treat every member of a finite generator as one atomic source choice.
+-- | Treat every member of a finite generator as one atom of size one.
 atomic :: Gen symbol a -> Gen symbol a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
@@ -331,9 +331,16 @@ recurGrouped build
                   )
                 | key <- keys
                 ]
+    -- The term index of a key has the sizes of the language of the key, so it
+    -- takes the minimum of the key as the index of the key does: a product
+    -- reads the minimums of its sides before it counts.
     memberTerms key =
         RecursiveTerms
-            (mapIndex (atKeyTerm $ positionOf key) $ maybe (choiceIndex []) recursiveTermIndex $ Map.lookup key bodyTerms)
+            ( withKnotMetadata (minimumAt key) (Map.findWithDefault (choiceIndex []) key closedIndexes)
+                $ mapIndex (atKeyTerm $ positionOf key)
+                $ maybe (choiceIndex []) recursiveTermIndex
+                $ Map.lookup key bodyTerms
+            )
             (memberPositions key)
     memberPositions key view = case view of
         WholeTerm (Tree.Node AtKey [Tree.Node (Key position) [], Tree.Node Family [Tree.Node (Key position') [], body]])

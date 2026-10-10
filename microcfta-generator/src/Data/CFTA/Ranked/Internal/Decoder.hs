@@ -46,8 +46,14 @@ ranked layer, the combinators of "Data.CFTA.Gen.Internal.Static", the buckets,
 the joins, the argument chains, and the bounded recursive language.
 -}
 data Plan a where
-    -- | A leaf: a finite source decoded by index.
+    -- | A leaf: a finite source decoded by index. Each member is an atom of size one.
     PlanSelect :: !Cardinality -> (Rank -> a) -> Plan a
+    -- | The one member of @pure@, of size zero.
+    PlanPure :: a -> Plan a
+    {- | The members of the plan, each one larger: the @pay@ of FEAT. It
+    changes sizes only, so the decoder does not see it.
+    -}
+    PlanPay :: Plan a -> Plan a
     {- | A leaf whose decoder must remain on demand even when it is small.
 
     Automaton enumerators use this so compiling a rank plan never constructs
@@ -140,8 +146,15 @@ data SizeIndex a = SizeIndex
     -}
     , unguardedOccurrences :: IntSet
     {- ^ The recursions whose probe can be reached without passing through a
-    product. Counting such an index would consult its own size, so a
-    recursive definition shaped this way has no smallest member. Each
+    pay, or a product whose other side has no member of size zero. Counting
+    such an index would consult its own size, so a recursive definition
+    shaped this way has no smallest member. Each element is the 'Int' of an
+    occurrence token.
+    -}
+    , termlessOccurrences :: IntSet
+    {- ^ The recursions whose probe can be reached through choices, maps, and
+    pays only, without a product or a constructor. Such a recursion adds no
+    term node, so infinitely many of its members could have one term. Each
     element is the 'Int' of an occurrence token.
     -}
     , usedOccurrences :: IntSet
@@ -201,6 +214,8 @@ offsetRankedValue offset (RankedValue rank value) = RankedValue (offsetRank offs
 planCardinality :: Plan a -> Cardinality
 planCardinality (PlanSelect cardinality' _) = cardinality'
 planCardinality (PlanSelectOnDemand cardinality' _) = cardinality'
+planCardinality (PlanPure _) = 1
+planCardinality (PlanPay plan) = planCardinality plan
 planCardinality (PlanShared cardinality' _ _ _) = cardinality'
 planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
@@ -209,7 +224,9 @@ planCardinality (PlanAp rightCardinality planF _) =
 planCardinality (PlanSized classes) = sum $ map classCardinality classes
 
 {- | Normalize a plan: push maps into leaves and product functions, splice
-nested choices into one level, and collapse singleton choices.
+nested choices into one level, and collapse singleton choices. A pure member
+becomes a leaf of one member, and a @pay@ goes away, because sizes do not
+change a rank.
 
 Splicing preserves rank order because nested branch offsets concatenate in
 the same order as the flattened cumulative offsets.
@@ -225,6 +242,8 @@ normalizePlan (PlanChoice branches) =
             other -> [(branchCardinality, other)]
 normalizePlan (PlanAp rightCardinality planF planX) =
     PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
+normalizePlan (PlanPure value) = PlanSelect 1 $ const value
+normalizePlan (PlanPay plan) = normalizePlan plan
 normalizePlan plan@(PlanSelect _ _) = plan
 normalizePlan plan@(PlanSelectOnDemand _ _) = plan
 normalizePlan plan@(PlanShared{}) = plan
@@ -237,6 +256,8 @@ pushMap transform (PlanSelect cardinality' decode) =
     PlanSelect cardinality' (transform . decode)
 pushMap transform (PlanSelectOnDemand cardinality' decode) =
     PlanSelectOnDemand cardinality' (transform . decode)
+pushMap transform (PlanPure value) = PlanSelect 1 $ const $ transform value
+pushMap transform (PlanPay plan) = pushMap transform plan
 pushMap transform plan@(PlanShared{}) = PlanMap transform plan
 pushMap transform (PlanChoice branches) =
     rebuildChoice $ concatMap flattenBranch branches
@@ -334,6 +355,8 @@ compileRankWith _ (PlanSelect cardinality'@(Cardinality count) decode)
          in \index -> unsafeAt table (fromIntegral index)
     | otherwise = decode . Rank . toInteger
 compileRankWith _ (PlanSelectOnDemand _ decode) = decode . Rank . toInteger
+compileRankWith _ plan@(PlanPure _) = unnormalized plan
+compileRankWith _ plan@(PlanPay _) = unnormalized plan
 compileRankWith _ (PlanShared _ (SmallDecoder _ decode) _ _) = decode . fromIntegral
 compileRankWith _ (PlanShared _ (LargeDecoder _ decode) _ _) = decode . Rank . toInteger
 compileRankWith child (PlanMap transform plan) =
@@ -403,6 +426,21 @@ compileRankWith child (PlanAp (Cardinality rightCardinality) planF planX)
                     (functionIndex, argumentIndex) ->
                         let !argument = decodeX argumentIndex
                          in decodeF functionIndex argument
+
+{- | The decoder of a plan that 'normalizePlan' did not normalize: an error.
+
+A normalized plan has no pure member and no pay. A case of 'compileRankWith'
+that gave such a plan to the child compiler would let GHC give the compiler
+one more argument, and then every decoded rank would build its decoder again:
+the benchmark cells ran six times as many instructions. A call of this
+function that GHC does not inline keeps the arity.
+-}
+unnormalized :: Plan a -> rank -> a
+unnormalized _ =
+    error
+        "microcfta-generator bug in Data.CFTA.Ranked.Internal.Decoder.compileRankWith: \
+        \a plan that normalizePlan did not normalize"
+{-# NOINLINE unnormalized #-}
 
 -- | Decode an 'Integer' rank using 'Int' internally when this subplan fits.
 compileLocalRank :: Plan a -> Integer -> a

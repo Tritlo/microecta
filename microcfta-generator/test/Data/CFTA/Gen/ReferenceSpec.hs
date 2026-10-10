@@ -45,6 +45,7 @@ description depth grouped budget
         QC.frequency
             [ (2, leaf)
             , (2, Node <$> QC.elements (map Text.pack ["a", "b"]) <*> inner)
+            , (1, Pay <$> inner)
             , (1, Tag <$> QC.chooseInt (0, 2) <*> inner)
             , (4, Pair <$> half <*> half)
             , (3, Frequency <$> alternatives)
@@ -73,14 +74,17 @@ description depth grouped budget
     -- members, and a join reads each of them, so a bound has fewer.
     bounded = QC.frequency [(6, description 0 0 (budget - 1)), (1, inner)] `QC.suchThat` ((< 3) . recursionDepth)
     alternatives = weighted (description depth grouped) budget
-    -- A recursion with a base case and an occurrence under a product.
+    -- A recursion with a base case and an occurrence under a product, which
+    -- guards it when the other side has no member of size zero, and mostly
+    -- under a pay too.
     productive = do
         base <- description (depth + 1) grouped (budget `div` 3)
         other <- description (depth + 1) grouped (budget `div` 3)
         weight <- QC.frequency [(8, pure 1), (1, pure 2)]
         occurrenceLeft <- QC.arbitrary
+        paid <- QC.frequency [(3, pure True), (1, pure False)]
         let product' = if occurrenceLeft then Pair (Var 0) other else Pair other (Var 0)
-        pure $ Recur $ Frequency [(1, base), (weight, product')]
+        pure $ Recur $ Frequency [(1, base), (weight, if paid then Pay product' else product')]
     -- Three nested recursions. The finite members of the innermost one all go
     -- through a product of the middle occurrence and the outer occurrence, so
     -- the innermost recursion is empty unless the middle occurrence has a
@@ -94,14 +98,14 @@ description depth grouped budget
                 [ do
                     middleBase <- description 2 grouped (budget `div` 3)
                     other <- description 3 grouped (budget `div` 3)
-                    let innermost = Recur $ Frequency [(1, across (Var 1) (Var 2)), (1, Pair (Var 0) other)]
+                    let innermost = Recur $ Frequency [(1, across (Var 1) (Var 2)), (1, Pay $ Pair (Var 0) other)]
                     pure $ Recur $ Frequency [(1, middleBase), (1, innermost)]
                 , do
                     key <- QC.chooseInt (0, 2)
                     middleBase <- description 1 (grouped + 1) (budget `div` 3)
                     other <- description 2 (grouped + 1) (budget `div` 3)
                     let innermost =
-                            Recur $ Frequency [(1, across (AtKey key (GVar 0)) (Var 1)), (1, Pair (Var 0) other)]
+                            Recur $ Frequency [(1, across (AtKey key (GVar 0)) (Var 1)), (1, Pay $ Pair (Var 0) other)]
                     pure $ AtKey key $ RecurGrouped $ Keyed key $ Frequency [(1, middleBase), (1, innermost)]
                 ]
         pure $ Recur $ Frequency [(1, outerBase), (1, middle)]
@@ -147,7 +151,8 @@ family depth grouped budget
     productive = do
         base <- Keyed <$> key <*> description depth (grouped + 1) (budget `div` 3)
         count <- QC.chooseInt (1, 3)
-        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> operation
+        -- A paid operation guards the family, as a node would.
+        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> (Pay <$> operation)
         pure $ RecurGrouped $ Frequencies [(1, base), (1, Apply1 steps (GVar 0))]
 
 -- | Weighted alternatives, mostly with equal weights: unequal weights around a recursive alternative are an error.
@@ -168,6 +173,7 @@ recursionDepth = \case
     Pure _ -> 0
     Elements _ -> 0
     Node _ inner -> recursionDepth inner
+    Pay inner -> recursionDepth inner
     Tag _ inner -> recursionDepth inner
     Pair left right -> max (recursionDepth left) (recursionDepth right)
     Frequency alternatives -> maximum $ 0 : map (recursionDepth . snd) alternatives
@@ -199,6 +205,7 @@ shrinkDesc = \case
     Pure n -> [Pure 0 | n /= 0]
     Elements ns -> map Elements $ QC.shrinkList (const []) ns
     Node symbol inner -> inner : map (Node symbol) (shrinkDesc inner)
+    Pay inner -> inner : map Pay (shrinkDesc inner)
     Tag n inner -> inner : map (Tag n) (shrinkDesc inner)
     Pair left right ->
         [left, right]
@@ -419,7 +426,7 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     ]
                         <> [ counterexample ("size " <> show size) $
                                 Gen.countAtSize generator (Size size) === Right (Cardinality $ modelCount model' size)
-                           | size <- [1 .. sizeBound]
+                           | size <- [0 .. sizeBound]
                            ]
 
     it "decodes each rank to the member and the size of the model" $ QC.property $ agreement $ \generator lang ->
@@ -450,14 +457,14 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     ]
                         <> [ counterexample ("size " <> show size) $
                                 Gen.pmfAtSize generator (Size size) === Right (conditional size finite)
-                           | size <- [1 .. sizeBound]
+                           | size <- [0 .. sizeBound]
                            ]
         Right model'@Model{modelFinite = Nothing} ->
             QC.conjoin $
                 (Gen.pmf generator === Left UnboundedGenerator)
                     : [ counterexample ("size " <> show size) $
                             Gen.pmfAtSize generator (Size size) === Right (aggregate $ modelClass model' size)
-                      | size <- [1 .. sizeBound]
+                      | size <- [0 .. sizeBound]
                       , modelCount model' size <= listBound
                       ]
         _ -> QC.property True
@@ -530,14 +537,14 @@ familyAgreement (ClosedFamily desc) =
     expectedCounts size = do
         groups <- familyGroups family'
         pure $
-            if size < 1
+            if size < 0
                 then Map.empty
                 else Map.filter (> 0) $ fmap (\group -> Cardinality $ modelCount (groupModel group) size) groups
     expectedMasses size = do
         groups <- familyGroups family'
         let positive = Map.filter (> 0) $ fmap (massAt size) groups
             total = sum positive
-        pure $ if size < 1 || total <= 0 then Map.empty else fmap (/ total) positive
+        pure $ if size < 0 || total <= 0 then Map.empty else fmap (/ total) positive
     massAt size group
         | familyRecursive family' = groupMassAt group size
         | otherwise =

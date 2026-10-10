@@ -175,9 +175,10 @@ spec = do
                 nested :: Int -> FTAGen.Gen String [Bool]
                 nested 0 = FTAGen.leaf [] "nil"
                 nested depth = FTAGen.oneof [FTAGen.leaf [] "nil", FTAGen.node "cons" ((:) <$> coin <*> nested (depth - 1))]
+                -- [False, False, True] has size seven: three cons nodes, three coins, and nil.
                 recursive :: FTAGen.Gen String [Bool]
                 recursive =
-                    FTAGen.upToSize 5 $
+                    FTAGen.upToSize 7 $
                         FTAGen.recur $
                             \self -> FTAGen.oneof [FTAGen.leaf [] "nil", FTAGen.node "cons" ((:) <$> coin <*> self)]
                 shrunk lists withSmaller =
@@ -199,13 +200,17 @@ spec = do
             let trees :: FTAGen.Gen String DerivedTree
                 trees = FTAGen.recur $ \self -> FTAGen.oneof [Leaf <$> FTAGen.elements [False, True], Fork <$> self <*> self]
                 forest = FTAGen.recur $ \rest -> FTAGen.oneof [pure [], (:) <$> trees <*> rest]
+                -- The constructors Call and (:) pay, which guards the recursions.
                 calls :: FTAGen.Gen String Call
                 calls =
                     FTAGen.recur $ \self ->
-                        FTAGen.oneof [pure NoCall, Call <$> FTAGen.recur (\rest -> FTAGen.oneof [pure [], (:) <$> self <*> rest])]
+                        FTAGen.oneof
+                            [ pure NoCall
+                            , FTAGen.pay $ Call <$> FTAGen.recur (\rest -> FTAGen.oneof [pure [], FTAGen.pay $ (:) <$> self <*> rest])
+                            ]
                 counts = (FTAGen.countAtSize forest 1, map (FTAGen.countAtSize calls) [1 .. 4])
             counted <- timeout 10000000 $ counts <$ evaluate (length $ show counts)
-            counted `shouldBe` Just (Right 1, [Right 2, Right 2, Right 6, Right 22])
+            counted `shouldBe` Just (Right 2, [Right 1, Right 1, Right 2, Right 4])
 
         it "keeps a nested recursion whose finite members all use the outer occurrence" $ do
             let calls :: FTAGen.Gen String Call
@@ -213,16 +218,17 @@ spec = do
                     FTAGen.recur $ \self ->
                         FTAGen.oneof
                             [ pure NoCall
-                            , pure Call <*> FTAGen.recur (\rest -> FTAGen.oneof [pure (: []) <*> self, (:) <$> self <*> rest])
+                            , FTAGen.pay $
+                                pure Call <*> FTAGen.recur (\rest -> FTAGen.oneof [pure (: []) <*> self, FTAGen.pay $ (:) <$> self <*> rest])
                             ]
             FTAGen.isRecursive calls `shouldBe` True
-            map (FTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
+            map (FTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 2, Right 5, Right 14]
 
         it "keeps the outer occurrence through a recursion whose finite members all use the middle occurrence" $ do
             -- The outer recursion reaches its own occurrence only through the
             -- inner recursion. The inner recursion has finite members only
             -- through a product of the middle occurrence and the outer one.
-            let pair a b = (+) <$> a <*> b
+            let pair a b = FTAGen.pay $ (+) <$> a <*> b
                 inner m o = FTAGen.recur $ \n -> FTAGen.oneof [pair m o, pair n n]
                 middle o = FTAGen.recur $ \m -> FTAGen.oneof [pure 1, inner m o]
                 outer :: FTAGen.FTAGen String Int
@@ -237,10 +243,11 @@ spec = do
                             , FTAGen.atKey () $ FTAGen.recurGrouped $ \m ->
                                 FTAGen.keyed () $ FTAGen.oneof [pure 1, inner (FTAGen.atKey () m) o]
                             ]
-            -- In each language, O = 0 | M, M = 1 | N, and N = M * O | N * N.
-            map (FTAGen.countAtSize outer) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            -- In each language, O = 0 | M, M = 1 | N, and N = M * O | N * N,
+            -- where each product pays one.
+            map (FTAGen.countAtSize outer) [0 .. 3] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
             traverse (FTAGen.unrank outer) [0 .. 3] `shouldBe` Right [0, 1, 1, 2]
-            map (FTAGen.countAtSize grouped) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            map (FTAGen.countAtSize grouped) [0 .. 3] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
             -- A bound around the middle recursion reaches the outer occurrence.
             FTAGen.cardinality bounded `shouldBe` Left FTAGen.BoundedRecursiveOccurrence
 
@@ -289,7 +296,7 @@ spec = do
             completed <- timeout 10000000 $ do
                 drawn <- QC.generate (FTAGen.toGen generator)
                 evaluate $
-                    FTAGen.minimumSize generator == Right (Just 1)
+                    FTAGen.minimumSize generator == Right (Just 0)
                         && FTAGen.smallest generator == Right (Just (path "a"))
                         && take 1 (FTAGen.shrinkRank generator lastRank) == [0]
                         && fmap (\language -> take 1 (Ranked.shrinkRank language lastRank)) ranked == Right [0]
@@ -495,14 +502,15 @@ spec = do
                     , (1, [Automaton.Transition "a" [] noConstraint, Automaton.Transition "wrap" [0] noConstraint])
                     , (2, [Automaton.Transition "pair" [1, 1] noConstraint])
                     ]
+                -- Each node of an imported term pays one, so each node of the reference pays.
                 reference = do
-                    leaves <- Ranked.oneof [pure $ Tree.Node "x" [], pure $ Tree.Node "y" []]
+                    leaves <- Ranked.oneof [Ranked.pay $ pure $ Tree.Node "x" [], Ranked.pay $ pure $ Tree.Node "y" []]
                     alternatives <-
                         Ranked.oneof
-                            [ pure $ Tree.Node "a" []
-                            , pure (\child -> Tree.Node "wrap" [child]) <*> leaves
+                            [ Ranked.pay $ pure $ Tree.Node "a" []
+                            , Ranked.pay $ pure (\child -> Tree.Node "wrap" [child]) <*> leaves
                             ]
-                    pure $ pure (\left right -> Tree.Node "pair" [left, right]) <*> alternatives <*> alternatives
+                    pure $ Ranked.pay $ pure (\left right -> Tree.Node "pair" [left, right]) <*> alternatives <*> alternatives
             case Automaton.mkFTA (2 :: Int) rows of
                 Left err -> expectationFailure $ show err
                 Right automaton -> case reference of

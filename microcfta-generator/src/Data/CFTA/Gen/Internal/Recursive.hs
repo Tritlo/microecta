@@ -16,6 +16,7 @@ module Data.CFTA.Gen.Internal.Recursive (
     recursivePositions,
     boundedStatic,
     labelRecursive,
+    payRecursive,
     mapRecursive,
 
     -- * Keyed recursive families
@@ -31,6 +32,7 @@ module Data.CFTA.Gen.Internal.Recursive (
     keyedRecursiveMassAtSize,
     emptyMassIndex,
     productMassIndex,
+    payMassIndex,
 ) where
 
 import Data.Hashable (Hashable)
@@ -50,17 +52,19 @@ import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm)
 import Data.CFTA.Gen.Label (ChoiceIndex (..), Label (..))
 import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size, everyRank)
-import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
+import Data.CFTA.Ranked.Internal.Decoder (MinimumSize (..), Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
-    SizeIndex (sizeClassCounts, sizeClassSelect),
+    SizeIndex (minimumMemberSize, sizeClassCounts, sizeClassSelect),
     SizedRank (..),
     addSparse,
     choiceIndex,
     choicePosition,
+    constructorIndex,
     mapIndex,
     mapIndexWithRank,
     mulSparse,
+    payIndex,
     planPosition,
     productIndex,
     productPosition,
@@ -336,17 +340,24 @@ boundedStatic bound recursive
             | index < count = decode $ ClassRank index
             | otherwise = go rest (Rank $ index - count)
 
--- | Close one recursive child layer with a user-facing node label.
+{- | Close one recursive child layer with a user-facing node label. The label
+is a constructor, so it pays: every member is one larger.
+-}
 labelRecursive ::
     (Hashable symbol, Typeable symbol) =>
     symbol -> Recursive symbol a -> Recursive symbol a
 labelRecursive symbol recursive =
-    recursive
-        { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
-        , recursiveTerm = labelTerms <$> recursiveTerm recursive
-        , recursiveInspection = labelInspection symbol $ recursiveInspection recursive
-        }
+    -- The index also clears the termless occurrences: the label adds a term node.
+    paid{recursiveIndex = constructorIndex $ recursiveIndex recursive}
   where
+    paid =
+        payRecursive
+            recursive
+                { recursiveSupport = labelSupport symbol $ recursiveSupport recursive
+                , recursiveTerm = labelTerms <$> recursiveTerm recursive
+                , recursiveInspection = labelInspection symbol $ recursiveInspection recursive
+                }
+
     -- The label replaces the private root of each term, so the inner
     -- language reads the children under it. A term with another label has
     -- no rank here, so a choice of labels reads each term in one alternative.
@@ -358,6 +369,26 @@ labelRecursive symbol recursive =
             SpineView (term :<| Empty) -> positions $ WholeTerm term
             LabelledView [term] -> positions $ WholeTerm term
             _ -> []
+
+{- | The members of a recursive language, each one larger: the @pay@ of FEAT.
+The terms, the values, and the positions in a size class do not change.
+-}
+payRecursive :: Recursive symbol a -> Recursive symbol a
+payRecursive recursive =
+    recursive
+        { recursiveIndex = payIndex $ recursiveIndex recursive
+        , recursiveSampling = paySampleIndex $ recursiveSampling recursive
+        , recursiveTerm = payTerms <$> recursiveTerm recursive
+        }
+  where
+    payTerms terms =
+        RecursiveTerms
+            (payIndex $ recursiveTermIndex terms)
+            ( \view ->
+                [ CheckedRank (SizedRank (size + 1) position) checked
+                | CheckedRank (SizedRank size position) checked <- recursiveTermPositions terms view
+                ]
+            )
 
 {- | One recursive language conditioned on a retained key.
 
@@ -425,9 +456,11 @@ keyedRecursiveFromBuckets buckets = fmap fromBucket buckets
         static = keyedBucketStatic bucket
         recursive = recursiveFromStatic static
         bucketCount = outcomeCardinality $ staticOutcomes static
+        -- The members of an atomic bucket have one size: one, or more under a pay.
         masses
-            | staticAtomic static =
-                atomicMassIndex $ toRational totalCount * keyedBucketMass bucket
+            | staticAtomic static
+            , MinimumSize size <- minimumMemberSize $ recursiveIndex recursive =
+                atomicMassIndex size $ toRational totalCount * keyedBucketMass bucket
             | otherwise = countMassIndex $ recursiveIndex recursive
         massWeighted =
             staticAtomic static
@@ -485,17 +518,35 @@ countMassIndex :: SizeIndex a -> MassIndex
 countMassIndex index =
     MassIndex [(size, toRational count) | (size, count) <- sizeClassCounts index]
 
--- | One finite atom's complete mass at size one.
-atomicMassIndex :: Rational -> MassIndex
-atomicMassIndex mass = MassIndex [(1, mass) | mass > 0]
+-- | One finite atom's complete mass at its size.
+atomicMassIndex :: Size -> Rational -> MassIndex
+atomicMassIndex size mass = MassIndex [(size, mass) | mass > 0]
 
 -- | Add alternative masses by size.
 sumMassIndexes :: [MassIndex] -> MassIndex
 sumMassIndexes indexes = MassIndex $ foldr (\(MassIndex masses) -> addSparse masses) [] indexes
 
 {- | Convolve two mass series: the sizes of a pair add, and the masses
-multiply. The zero mass at size one lets a recursive knot of masses give its
-smallest sizes before the product is computed, as for the size counts.
+multiply. The masses start with the smallest size of the product, the sum of
+the minimum sizes of its sides, before the convolution is read, as the size
+counts of a product do. So a recursive knot of masses gives its smallest sizes
+before the product is computed.
 -}
-productMassIndex :: MassIndex -> MassIndex -> MassIndex
-productMassIndex (MassIndex left) (MassIndex right) = MassIndex $ (1, 0) : mulSparse left right
+productMassIndex :: MinimumSize -> MassIndex -> MassIndex -> MassIndex
+productMassIndex smallest (MassIndex left) (MassIndex right) =
+    MassIndex $ case smallest of
+        NoFiniteMember -> []
+        MinimumSize size -> (size, valueAtSize convolution size) : dropWhile ((<= size) . fst) convolution
+  where
+    convolution = mulSparse left right
+
+{- | The masses of a pay: each size is one larger. Given the minimum size of
+the inner language, the masses start with its smallest size before the inner
+masses are read, as the counts of a pay do.
+-}
+payMassIndex :: MinimumSize -> MassIndex -> MassIndex
+payMassIndex smallest (MassIndex masses) =
+    MassIndex $ case smallest of
+        NoFiniteMember -> []
+        MinimumSize size ->
+            (size + 1, valueAtSize masses size) : [(size' + 1, mass) | (size', mass) <- masses, size' > size]

@@ -41,6 +41,7 @@ module Data.CFTA.Gen.Internal.Static (
     atomicStatic,
     labelStatic,
     labelStaticMatching,
+    payStatic,
 
     -- * Sampling and lowering
     sequenceSampler,
@@ -75,6 +76,7 @@ import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, l
 import Data.CFTA.Gen.Label (ChoiceIndex, Label (..))
 import Data.CFTA.Index (
     Cardinality (..),
+    ClassRank (..),
     Rank (..),
     RankOffset (..),
     Weight,
@@ -92,12 +94,13 @@ import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     RankedValue (RankedValue, rankedValue),
+    SizeClass (..),
     compilePlan,
     offsetRankedValue,
     sharedChoiceBound,
  )
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (MinimumSize (..), SizeIndex (minimumMemberSize), payIndex, sizeIndex)
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome symbol a = Outcome
@@ -275,7 +278,7 @@ weight. The weight of an atomic choice comes from its exact outcome masses.
 staticSampling :: Static symbol a -> (SampleIndex a, Maybe (Rank -> Either GenError Rational))
 staticSampling static
     | staticAtomic static =
-        ( atomicSampleIndex $ outcomeSampler outcomes
+        ( atomicSampleIndex atomSize $ outcomeSampler outcomes
         , case outcomeUniformMass outcomes of
             Nothing -> Just atomWeight
             Just _ -> Nothing
@@ -284,7 +287,11 @@ staticSampling static
     | otherwise = (uniformSampleIndex $ outcomeSizeIndex outcomes, Nothing)
   where
     outcomes = staticOutcomes static
-    -- Every member of an atom has size one, so its mass inside its size class
+    -- Every member of an atom has one size: one, or more under a pay.
+    atomSize = case minimumMemberSize $ outcomeSizeIndex outcomes of
+        MinimumSize size -> size
+        NoFiniteMember -> 1
+    -- Every member of an atom has one size, so its mass inside its size class
     -- is its mass.
     atomWeight rank =
         (* toRational (outcomeCardinality outcomes)) . outcomeMass
@@ -305,7 +312,7 @@ pureStatic value =
             pureRanks
             (const value)
             (uniformSampler 1 $ const value)
-            (PlanSelect 1 $ const value)
+            (PlanPure value)
         )
         False
         (Inspection Nothing $ Node [Edge (plainSymbol Pure) []])
@@ -414,7 +421,7 @@ pointsStatic rewrite rankPoint pointSource functions =
         , staticInspection = staticInspection functions
         }
   where
-    applied = applyStatic functions $ indexedStatic pointSource
+    applied = applyStatic functions $ pointChoice pointSource
     select index = do
         outcome <- outcomeSelect (staticOutcomes applied) index
         let point = indexedSelect pointSource $ snd $ splitRank (indexedCardinality pointSource) index
@@ -441,6 +448,24 @@ pointsStatic rewrite rankPoint pointSource functions =
         | otherwise = Nothing
     holes (Tree.Node Placeholder []) (Tree.Node (Label symbol) []) = Just [symbol]
     holes (Tree.Node _ children) (Tree.Node _ filled) = holesIn children filled
+
+{- | The choice of one point of an indexed source, of size zero. The point
+gives the values of placeholder leaves, and each leaf pays for itself, so the
+choice adds no size. The ranks and the decoder are those of 'indexedStatic'.
+-}
+pointChoice :: (Hashable symbol, Typeable symbol) => Indexed p -> Static symbol p
+pointChoice source =
+    static{staticOutcomes = (staticOutcomes static){outcomePlan = plan, outcomeSizeIndex = sizeIndex plan}}
+  where
+    static = indexedStatic source
+    plan =
+        PlanSized
+            [ SizeClass
+                0
+                (indexedCardinality source)
+                (\(ClassRank position) -> indexedSelect source $ Rank position)
+                (indexedSelect source . Rank . toInteger)
+            ]
 
 {- | Retain a shared ranked term compiler and its exact equality support.
 
@@ -783,7 +808,8 @@ label.
 The generator engine uses private symbols while a child product is still open.
 Closing it removes that scaffolding from the root term: applicative spines
 become direct children, grouped joins retain their equality constraints, and
-choice wrappers distribute the new label over their alternatives.
+choice wrappers distribute the new label over their alternatives. The label is
+a constructor, so it pays: every member is one larger.
 -}
 labelStatic ::
     (Hashable symbol, Typeable symbol) =>
@@ -801,9 +827,26 @@ labelStaticMatching ::
 labelStaticMatching matches symbol static =
     static
         { staticSupport = labelSupport symbol $ staticSupport static
-        , staticOutcomes = labelOutcomeTerms matches symbol $ staticOutcomes static
+        , staticOutcomes = payOutcomes $ labelOutcomeTerms matches symbol $ staticOutcomes static
         , staticInspection = labelInspection symbol $ staticInspection static
         , staticRootCount = RootCount 1
+        }
+
+{- | The members of a finite language, each one larger: the @pay@ of FEAT.
+The terms, the ranks, and the values do not change.
+-}
+payStatic :: Static symbol a -> Static symbol a
+payStatic static = static{staticOutcomes = payOutcomes $ staticOutcomes static}
+
+{- | The members of an outcome index, each one larger, as 'payStatic' gives
+them. The ranks, the values, and the decoder do not change.
+-}
+payOutcomes :: OutcomeIndex symbol a -> OutcomeIndex symbol a
+payOutcomes outcomes =
+    outcomes
+        { outcomePlan = PlanPay $ outcomePlan outcomes
+        , outcomeSizeIndex = payIndex $ outcomeSizeIndex outcomes
+        , outcomeSizeSampling = Bifunctor.first paySampleIndex <$> outcomeSizeSampling outcomes
         }
 
 -- | Relabel the retained term of every outcome that the index selects.

@@ -33,6 +33,8 @@ module Data.CFTA.Gen.Internal.Types (
     Args (..),
     NodeLayer (..),
     node,
+    pay,
+    payGrouped,
     nodeWithKey,
 
     -- * Lowering
@@ -69,7 +71,7 @@ import Data.CFTA.Gen.Label (Label (..))
 import Data.CFTA.Index (Cardinality (..), Depth, Rank (..), Weight)
 import Data.CFTA.Ranked.Internal.Decoder (RankDecoder (..), RankedValue (..))
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (productIndex)
+import Data.CFTA.Ranked.Internal.Size (MinimumSize, SizeIndex (minimumMemberSize), productIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
 {- | A generator: the language it denotes and how it was built.
@@ -130,6 +132,8 @@ data Recipe symbol a where
     Mapped :: (a -> b) -> Gen symbol a -> Recipe symbol b
     Applied :: Gen symbol (a -> b) -> Gen symbol a -> Recipe symbol b
     Closed :: symbol -> Constraint -> Gen symbol a -> Recipe symbol a
+    -- | A @pay@: the members of the generator, each one larger.
+    Paid :: Gen symbol a -> Recipe symbol a
     -- | A constructor whose symbol is computed from the root symbols of its children, or an error.
     ClosedBy :: ([symbol] -> Either GenError symbol) -> Constraint -> Gen symbol a -> Recipe symbol a
     Chosen :: [(Weight, Gen symbol a)] -> Recipe symbol a
@@ -207,9 +211,30 @@ class NodeLayer symbol layer | layer -> symbol where
     -- | Replace an open layer's private root with a domain constructor.
     closeNode :: symbol -> layer a -> layer a
 
--- | Close an applicative child description with one domain constructor.
+{- | Close an applicative child description with one domain constructor.
+
+The constructor pays, as in 'pay': every member is one larger.
+-}
 node :: (NodeLayer symbol layer) => symbol -> layer a -> layer a
 node = closeNode
+
+{- | Add one to the size of every member: the @pay@ of FEAT (Duregård, Jansson,
+and Wang, "Feat: Functional Enumeration of Algebraic Types", Haskell
+Symposium 2012).
+
+Sizes count pays. 'pure' has size zero, '<*>' adds the sizes of its sides, and
+'fmap' and the choices keep sizes. An atom ('elements', 'fromIndexed') has
+size one, and a constructor ('node', 'leaf') pays one. So the 'Functor' and
+'Applicative' laws hold for sizes. A recursion must reach its occurrence
+through a pay, or through a product whose other side has no member of size
+zero. A pay changes no term, rank, or value.
+-}
+pay :: Gen symbol a -> Gen symbol a
+pay generator =
+    withRecipe (Paid generator) $ case generator of
+        Transparent result -> Transparent $ fmap payStatic result
+        Cyclic result -> Cyclic $ fmap payRecursive result
+        Opaque generated -> Opaque generated
 
 instance (Hashable symbol, Typeable symbol) => NodeLayer symbol (Gen symbol) where
     closeNode symbol generator =
@@ -240,7 +265,25 @@ nodeWithKey symbolOf (CyclicGrouped result) =
         group
             { keyedRecursiveLanguage =
                 labelRecursive (symbolOf key) $ keyedRecursiveLanguage group
+            , keyedRecursiveMasses = payMassIndex (groupMinimum group) $ keyedRecursiveMasses group
             }
+
+-- | 'pay' for every group of a grouped generator: every member is one larger.
+payGrouped :: Grouped symbol key a -> Grouped symbol key a
+payGrouped (Grouped result) =
+    Grouped $ fmap (fmap $ \bucket -> bucket{keyedBucketStatic = payStatic $ keyedBucketStatic bucket}) result
+payGrouped (CyclicGrouped result) =
+    CyclicGrouped $ fmap (fmap payGroup) result
+  where
+    payGroup group =
+        group
+            { keyedRecursiveLanguage = payRecursive $ keyedRecursiveLanguage group
+            , keyedRecursiveMasses = payMassIndex (groupMinimum group) $ keyedRecursiveMasses group
+            }
+
+-- | The minimum size of the language of one recursive group.
+groupMinimum :: KeyedRecursive symbol a -> MinimumSize
+groupMinimum = minimumMemberSize . recursiveIndex . keyedRecursiveLanguage
 
 instance Functor (Grouped symbol key) where
     fmap transform (Grouped result) =

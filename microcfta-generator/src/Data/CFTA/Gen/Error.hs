@@ -65,8 +65,11 @@ data GenError
       twice.
       -}
       AmbiguousAutomaton
-    | {- | A recursive definition reaches itself without passing through an
-      application, so it has no smallest member and no size to count.
+    | {- | A recursive definition reaches itself without passing through a
+      pay or a product whose other side has no member of size zero, so
+      counting a size reads that same size. Or it reaches itself without
+      passing through a product or a constructor, so its members add no term
+      node and one term could have infinitely many ranks.
       -}
       UnguardedRecursion
     | {- | @upToSize@ or @atomic@ was applied inside a recursive body to a
@@ -254,12 +257,14 @@ explain AmbiguousAutomaton =
         ]
 explain UnguardedRecursion =
     guidance
-        [ "The recursive language reaches itself without passing through an"
-        , "application, so its members never get smaller and no size class can"
-        , "be counted."
-        , "Fix: put every occurrence of the argument under <*>, as in"
-        , "Branch <$> self <*> self, or under apply in a grouped family. An"
-        , "alternative that is the argument itself, such as oneof [leaf, self],"
+        [ "The recursive language reaches itself without passing through a"
+        , "constructor or a product that makes its members larger, so its size"
+        , "classes cannot be counted, or its terms do not grow."
+        , "Fix: put every occurrence of the argument under node, as in"
+        , "node \"branch\" (Branch <$> self <*> self), or under a product whose"
+        , "other side has no member of size zero, such as Cons <$> elements xs"
+        , "<*> self, or under pay around a product. An alternative that is the"
+        , "argument itself, such as oneof [leaf, self] or oneof [leaf, pay self],"
         , "is the shape to look for."
         ]
 explain BoundedRecursiveOccurrence =
