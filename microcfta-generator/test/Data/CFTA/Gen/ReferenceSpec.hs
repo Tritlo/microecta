@@ -45,6 +45,7 @@ description depth grouped budget
         QC.frequency
             [ (2, leaf)
             , (2, Node <$> QC.elements (map Text.pack ["a", "b"]) <*> inner)
+            , (1, Pay <$> inner)
             , (1, Tag <$> QC.chooseInt (0, 2) <*> inner)
             , (4, Pair <$> half <*> half)
             , (3, Frequency <$> alternatives)
@@ -73,14 +74,17 @@ description depth grouped budget
     -- members, and a join reads each of them, so a bound has fewer.
     bounded = QC.frequency [(6, description 0 0 (budget - 1)), (1, inner)] `QC.suchThat` ((< 3) . recursionDepth)
     alternatives = weighted (description depth grouped) budget
-    -- A recursion with a base case and an occurrence under a product.
+    -- A recursion with a base case and an occurrence under a product, which
+    -- guards it when the other side has no member of size zero, and mostly
+    -- under a pay too.
     productive = do
         base <- description (depth + 1) grouped (budget `div` 3)
         other <- description (depth + 1) grouped (budget `div` 3)
         weight <- QC.frequency [(8, pure 1), (1, pure 2)]
         occurrenceLeft <- QC.arbitrary
+        paid <- QC.frequency [(3, pure True), (1, pure False)]
         let product' = if occurrenceLeft then Pair (Var 0) other else Pair other (Var 0)
-        pure $ Recur $ Frequency [(1, base), (weight, product')]
+        pure $ Recur $ Frequency [(1, base), (weight, if paid then Pay product' else product')]
     -- Three nested recursions. The finite members of the innermost one all go
     -- through a product of the middle occurrence and the outer occurrence, so
     -- the innermost recursion is empty unless the middle occurrence has a
@@ -94,14 +98,14 @@ description depth grouped budget
                 [ do
                     middleBase <- description 2 grouped (budget `div` 3)
                     other <- description 3 grouped (budget `div` 3)
-                    let innermost = Recur $ Frequency [(1, across (Var 1) (Var 2)), (1, Pair (Var 0) other)]
+                    let innermost = Recur $ Frequency [(1, across (Var 1) (Var 2)), (1, Pay $ Pair (Var 0) other)]
                     pure $ Recur $ Frequency [(1, middleBase), (1, innermost)]
                 , do
                     key <- QC.chooseInt (0, 2)
                     middleBase <- description 1 (grouped + 1) (budget `div` 3)
                     other <- description 2 (grouped + 1) (budget `div` 3)
                     let innermost =
-                            Recur $ Frequency [(1, across (AtKey key (GVar 0)) (Var 1)), (1, Pair (Var 0) other)]
+                            Recur $ Frequency [(1, across (AtKey key (GVar 0)) (Var 1)), (1, Pay $ Pair (Var 0) other)]
                     pure $ AtKey key $ RecurGrouped $ Keyed key $ Frequency [(1, middleBase), (1, innermost)]
                 ]
         pure $ Recur $ Frequency [(1, outerBase), (1, middle)]
@@ -115,6 +119,7 @@ family depth grouped budget
             [ (3, leaf)
             , (2, Regroup <$> QC.chooseInt (1, 3) <*> inner)
             , (1, MapWithKey <$> inner)
+            , (1, GNode <$> QC.elements (map Text.pack ["a", "b"]) <*> inner)
             , (2, Frequencies <$> weighted (family depth grouped) budget)
             , (3, Apply1 <$> operations ((,,) <$> key <*> key) <*> inner)
             , (2, Apply2 <$> operations ((,,,) <$> key <*> key <*> key) <*> half <*> half)
@@ -143,12 +148,15 @@ family depth grouped budget
             , (2, description 0 0 (budget `div` 4))
             , (1, description depth grouped (budget `div` 4))
             ]
-    -- A grouped recursion with a keyed base case and an application to the family.
+    -- A grouped recursion with a keyed base case and an application to the
+    -- family. Paid operations or a node around the application guard it.
     productive = do
         base <- Keyed <$> key <*> description depth (grouped + 1) (budget `div` 3)
         count <- QC.chooseInt (1, 3)
-        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> operation
-        pure $ RecurGrouped $ Frequencies [(1, base), (1, Apply1 steps (GVar 0))]
+        noded <- QC.arbitrary
+        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> (if noded then operation else Pay <$> operation)
+        let step = Apply1 steps (GVar 0)
+        pure $ RecurGrouped $ Frequencies [(1, base), (1, if noded then GNode (Text.pack "n") step else step)]
 
 -- | Weighted alternatives, mostly with equal weights: unequal weights around a recursive alternative are an error.
 weighted :: (Int -> QC.Gen a) -> Int -> QC.Gen [(Integer, a)]
@@ -168,6 +176,7 @@ recursionDepth = \case
     Pure _ -> 0
     Elements _ -> 0
     Node _ inner -> recursionDepth inner
+    Pay inner -> recursionDepth inner
     Tag _ inner -> recursionDepth inner
     Pair left right -> max (recursionDepth left) (recursionDepth right)
     Frequency alternatives -> maximum $ 0 : map (recursionDepth . snd) alternatives
@@ -186,6 +195,7 @@ recursionDepth = \case
         GroupOn _ inner -> recursionDepth inner
         Regroup _ family' -> familyDepth family'
         MapWithKey family' -> familyDepth family'
+        GNode _ family' -> familyDepth family'
         Frequencies alternatives -> maximum $ 0 : map (familyDepth . snd) alternatives
         Apply1 operations argument -> maximum $ familyDepth argument : [recursionDepth operation | (_, _, operation) <- operations]
         Apply2 operations first second ->
@@ -199,6 +209,7 @@ shrinkDesc = \case
     Pure n -> [Pure 0 | n /= 0]
     Elements ns -> map Elements $ QC.shrinkList (const []) ns
     Node symbol inner -> inner : map (Node symbol) (shrinkDesc inner)
+    Pay inner -> inner : map Pay (shrinkDesc inner)
     Tag n inner -> inner : map (Tag n) (shrinkDesc inner)
     Pair left right ->
         [left, right]
@@ -233,6 +244,7 @@ shrinkFamily = \case
     GroupOn n inner -> [Keyed 0 inner] <> map (GroupOn n) (shrinkDesc inner)
     Regroup n family' -> family' : map (Regroup n) (shrinkFamily family')
     MapWithKey family' -> family' : map MapWithKey (shrinkFamily family')
+    GNode symbol family' -> family' : map (GNode symbol) (shrinkFamily family')
     Frequencies alternatives ->
         map snd alternatives
             <> map Frequencies (QC.shrinkList (shrinkWeighted shrinkFamily) alternatives)
@@ -419,7 +431,7 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     ]
                         <> [ counterexample ("size " <> show size) $
                                 Gen.countAtSize generator (Size size) === Right (Cardinality $ modelCount model' size)
-                           | size <- [1 .. sizeBound]
+                           | size <- [0 .. sizeBound]
                            ]
 
     it "decodes each rank to the member and the size of the model" $ QC.property $ agreement $ \generator lang ->
@@ -450,14 +462,14 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     ]
                         <> [ counterexample ("size " <> show size) $
                                 Gen.pmfAtSize generator (Size size) === Right (conditional size finite)
-                           | size <- [1 .. sizeBound]
+                           | size <- [0 .. sizeBound]
                            ]
         Right model'@Model{modelFinite = Nothing} ->
             QC.conjoin $
                 (Gen.pmf generator === Left UnboundedGenerator)
                     : [ counterexample ("size " <> show size) $
                             Gen.pmfAtSize generator (Size size) === Right (aggregate $ modelClass model' size)
-                      | size <- [1 .. sizeBound]
+                      | size <- [0 .. sizeBound]
                       , modelCount model' size <= listBound
                       ]
         _ -> QC.property True
@@ -505,6 +517,26 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
 
     it "imports every term of an automaton once" $ QC.property importAgreement
 
+    describe "the Functor and Applicative laws" $ do
+        it "identity: pure id <*> v is v, rank by rank" $ QC.property $ \(Small v) ->
+            sameRanks (pure id <*> build v) (build v)
+        it "fmap f v is pure f <*> v, rank by rank" $ QC.property $ \(Small v) ->
+            sameRanks (Tagged 3 <$> build v) (pure (Tagged 3) <*> build v)
+        it "homomorphism: pure f <*> pure x is pure (f x), rank by rank" $ QC.property $ \n ->
+            sameRanks (pure (Tagged 1) <*> pure (Atom n)) (pure $ Tagged 1 $ Atom n)
+        it "interchange: u <*> pure y is pure ($ y) <*> u, rank by rank" $ QC.property $ \(Small a) n ->
+            let u = Paired <$> build a
+             in sameRanks (u <*> pure (Atom n)) (pure ($ Atom n) <*> u)
+        it "composition: pure (.) <*> u <*> v <*> w is u <*> (v <*> w), size by size" $ QC.property $ \(Small a) (Small b) (Small c) ->
+            let u = Paired <$> build a
+                v = Paired <$> build b
+                w = build c
+                left = pure (.) <*> u <*> v <*> w
+                right = u <*> (v <*> w)
+             in sameSizes left right
+                    -- A finite product ranks in mixed radix, which is associative.
+                    .&&. (if Gen.isRecursive left then QC.property True else sameRanks left right)
+
 -- | The grouped observers of one described family agree with its model.
 familyAgreement :: ClosedFamily -> Property
 familyAgreement (ClosedFamily desc) =
@@ -530,19 +562,57 @@ familyAgreement (ClosedFamily desc) =
     expectedCounts size = do
         groups <- familyGroups family'
         pure $
-            if size < 1
+            if size < 0
                 then Map.empty
                 else Map.filter (> 0) $ fmap (\group -> Cardinality $ modelCount (groupModel group) size) groups
     expectedMasses size = do
         groups <- familyGroups family'
         let positive = Map.filter (> 0) $ fmap (massAt size) groups
             total = sum positive
-        pure $ if size < 1 || total <= 0 then Map.empty else fmap (/ total) positive
+        pure $ if size < 0 || total <= 0 then Map.empty else fmap (/ total) positive
     massAt size group
         | familyRecursive family' = groupMassAt group size
         | otherwise =
             groupMass group
                 * sum [memberMass member | member <- maybe [] snd $ modelFinite $ groupModel group, memberSize member == size]
+
+-- | A closed random description of about eight constructors, for the laws.
+newtype Small = Small Desc
+    deriving (Show)
+
+instance QC.Arbitrary Small where
+    arbitrary = Small <$> QC.sized (\budget -> description 0 0 $ min 8 budget)
+    shrink (Small desc) = [Small smaller | smaller <- shrinkDesc desc, closed smaller]
+
+-- | Two generators with the same members at the same ranks, of the same sizes.
+sameRanks :: Gen.Gen Text.Text Value -> Gen.Gen Text.Text Value -> Property
+sameRanks left right =
+    QC.within 5000000
+        $ QC.conjoin
+        $ [ Gen.isRecursive left === Gen.isRecursive right
+          , Gen.cardinality left === Gen.cardinality right
+          ]
+            <> [ counterexample ("size " <> show size) $ Gen.countAtSize left (Size size) === Gen.countAtSize right (Size size)
+               | size <- [0 .. sizeBound]
+               ]
+            <> [ counterexample ("rank " <> show rank) $
+                    (Gen.unrank left rank, Gen.sizeOfRank left rank) === (Gen.unrank right rank, Gen.sizeOfRank right rank)
+               | rank <- take rankBound [0 ..]
+               ]
+
+-- | Two generators with the same counts and the same distribution at each size.
+sameSizes :: Gen.Gen Text.Text Value -> Gen.Gen Text.Text Value -> Property
+sameSizes left right =
+    QC.within 5000000 $
+        QC.conjoin
+            [ counterexample ("size " <> show size) $
+                Gen.countAtSize left (Size size) === Gen.countAtSize right (Size size)
+                    .&&. ( if either (const True) (<= Cardinality listBound) (Gen.countAtSize left (Size size))
+                            then Gen.pmfAtSize left (Size size) === Gen.pmfAtSize right (Size size)
+                            else QC.property True
+                         )
+            | size <- [0 .. sizeBound]
+            ]
 
 -- | The first member of least size.
 smallestMember :: [Member Value] -> Member Value

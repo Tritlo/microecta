@@ -45,6 +45,7 @@ module Data.CFTA.Ranked (
     fromWeighted,
     frequency,
     oneof,
+    pay,
     cardinality,
     unrank,
     lower,
@@ -63,6 +64,14 @@ import Data.CFTA.Ranked.Internal.Sampler (GenBackend (..))
 -- | Build a ranked language from an indexed source.
 fromIndexed :: Indexed a -> Either RankedError (Ranked a)
 fromIndexed = Internal.fromIndexed
+
+{- | Add one to the size of every member: the @pay@ of FEAT (Duregård, Jansson,
+and Wang, Haskell Symposium 2012). Sizes count pays: 'pure' has size zero, an
+indexed source has size one, and '<*>' adds the sizes of its sides. Ranks and
+values do not change.
+-}
+pay :: Ranked a -> Ranked a
+pay = Internal.pay
 
 {- | Build a ranked language whose members are decoded only when selected.
 
@@ -117,7 +126,7 @@ lowerWithRank = Internal.lowerWithRank
 {- | Structural shrink candidates for one rank.
 
 Each candidate is a strictly smaller valid rank of the same language whose
-member is no larger than the current member, measured in source choices.
+member is no larger than the current member, measured in size.
 Earlier alternatives come first at their smallest member, then each product
 component shrinks on its own. Use 'smallerMembers' for every member of
 strictly smaller size.

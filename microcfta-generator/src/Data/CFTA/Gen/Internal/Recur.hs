@@ -57,7 +57,7 @@ import Data.CFTA.Ranked.Internal.Size (
     withKnotMetadata,
  )
 
--- | Treat every member of a finite generator as one atomic source choice.
+-- | Treat every member of a finite generator as one atom of size one.
 atomic :: Gen symbol a -> Gen symbol a
 atomic (Transparent result) = Transparent $ atomicStatic <$> result
 atomic (Cyclic result) =
@@ -73,7 +73,11 @@ atomic (Cyclic result) =
                 SizesDoNotEnd -> Left UnboundedGenerator
 atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
--- | Build a recursive generator from its own language.
+{- | Build a recursive generator from its own language.
+
+Each occurrence of the argument must be guarded, as the Haddock of 'pay'
+says. Otherwise the result is 'UnguardedRecursion'.
+-}
 recur ::
     (Hashable symbol, Typeable symbol) =>
     (Gen symbol a -> Gen symbol a) -> Gen symbol a
@@ -331,9 +335,16 @@ recurGrouped build
                   )
                 | key <- keys
                 ]
+    -- The term index of a key has the sizes of the language of the key, so it
+    -- takes the minimum of the key as the index of the key does: a product
+    -- reads the minimums of its sides before it counts.
     memberTerms key =
         RecursiveTerms
-            (mapIndex (atKeyTerm $ positionOf key) $ maybe (choiceIndex []) recursiveTermIndex $ Map.lookup key bodyTerms)
+            ( withKnotMetadata (minimumAt key) (Map.findWithDefault (choiceIndex []) key closedIndexes)
+                $ mapIndex (atKeyTerm $ positionOf key)
+                $ maybe (choiceIndex []) recursiveTermIndex
+                $ Map.lookup key bodyTerms
+            )
             (memberPositions key)
     memberPositions key view = case view of
         WholeTerm (Tree.Node AtKey [Tree.Node (Key position) [], Tree.Node Family [Tree.Node (Key position') [], body]])

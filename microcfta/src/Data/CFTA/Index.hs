@@ -151,8 +151,9 @@ rebaseRank (RankOffset offset) (Rank rank) = Rank (rank - offset)
 
 {- | The size of a term, or the size of the members of one size class.
 
-The size of a generated member is its number of source choices. The size of
-an accepted term of an automaton is its number of nodes. An atom has size one.
+The size of a generated member is its number of pays, as in FEAT: a constant
+has size zero, an atom has size one, and a constructor adds one. The size of
+an accepted term of an automaton is its number of nodes.
 -}
 newtype Size = Size Integer
     deriving newtype (Eq, Ord, Show, Num, Enum)

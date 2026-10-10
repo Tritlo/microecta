@@ -56,7 +56,7 @@ import Data.CFTA.Gen.Sig (Sig (..))
 import Data.CFTA.Index (ArgumentIndex (..), Cardinality, Rank, pairRank, splitRank)
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..))
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, mapIndex, productIndex, productPosition)
+import Data.CFTA.Ranked.Internal.Size (SizeIndex (minimumMemberSize), mapIndex, productIndex, productPosition)
 
 {- | Group maps of every argument family, threaded through the operation type.
 
@@ -365,16 +365,22 @@ recursiveChainIndex index (ChainCons recursive rest) =
         (productIndex index $ recursiveIndex $ keyedRecursiveLanguage recursive)
         rest
 
--- | Multiply group masses through an applicative chain.
+{- | Multiply group masses through an applicative chain. The index of the
+operation gives the smallest size of each product.
+-}
 recursiveChainMass ::
+    SizeIndex operation ->
     MassIndex ->
     ArgChain (KeyedRecursive symbol) operation result ->
     MassIndex
-recursiveChainMass mass ChainNil = mass
-recursiveChainMass mass (ChainCons recursive rest) =
+recursiveChainMass _ mass ChainNil = mass
+recursiveChainMass index mass (ChainCons recursive rest) =
     recursiveChainMass
-        (productMassIndex mass $ keyedRecursiveMasses recursive)
+        nextIndex
+        (productMassIndex (minimumMemberSize nextIndex) mass $ keyedRecursiveMasses recursive)
         rest
+  where
+    nextIndex = productIndex index $ recursiveIndex $ keyedRecursiveLanguage recursive
 
 -- | Consume recursive argument samplers in the same product order as ranks.
 recursiveChainSampling ::
@@ -389,7 +395,7 @@ recursiveChainSampling index mass sampling (ChainCons recursive rest) =
   where
     recursive' = keyedRecursiveLanguage recursive
     nextIndex = productIndex index $ recursiveIndex recursive'
-    nextMass = productMassIndex mass $ keyedRecursiveMasses recursive
+    nextMass = productMassIndex (minimumMemberSize nextIndex) mass $ keyedRecursiveMasses recursive
     nextSampling =
         productMassSampleIndex
             index

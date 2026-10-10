@@ -61,7 +61,7 @@ import Data.CFTA.Gen.Internal.Static (
     mapStatic,
     pointsStatic,
  )
-import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
+import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..), payGrouped)
 import Data.CFTA.Gen.Label (ChoiceIndex)
 import Data.CFTA.Gen.Refinement.Internal.Witness
 import Data.CFTA.Index (
@@ -69,6 +69,7 @@ import Data.CFTA.Index (
     Cardinality (..),
     Depth (..),
     Rank (..),
+    Size (..),
     VarIndex (..),
     Weight (..),
     childIndexes,
@@ -138,6 +139,7 @@ spineArity :: Gen symbol a -> Arity
 spineArity generator = case genRecipe generator of
     Lifted _ -> 0
     Mapped _ inner -> spineArity inner
+    Paid inner -> spineArity inner
     Applied functions arguments -> spineArity functions + spineArity arguments
     _ -> 1
 
@@ -157,6 +159,7 @@ alignedSpine :: Gen symbol a -> Bool
 alignedSpine generator = case genRecipe generator of
     Lifted _ -> True
     Mapped _ inner -> alignedSpine inner
+    Paid inner -> alignedSpine inner
     Applied functions arguments -> alignedSpine functions && alignedSpine arguments
     _ -> rootCount generator == RootCount 1
 
@@ -165,6 +168,7 @@ spineRootCounts :: Gen symbol a -> [RootCount]
 spineRootCounts generator = case genRecipe generator of
     Lifted _ -> []
     Mapped _ inner -> spineRootCounts inner
+    Paid inner -> spineRootCounts inner
     Applied functions arguments -> spineRootCounts functions <> spineRootCounts arguments
     _ -> [rootCount generator]
 
@@ -187,6 +191,7 @@ rootCount :: Gen symbol a -> RootCount
 rootCount generator = case genRecipe generator of
     Lifted _ -> RootCount 0
     Mapped _ inner -> rootCount inner
+    Paid inner -> rootCount inner
     Applied functions arguments -> addRootCounts (rootCount functions) (rootCount arguments)
     Chosen alternatives -> commonRootCount $ map (rootCount . snd) alternatives
     Uniform alternatives -> commonRootCount $ map rootCount alternatives
@@ -287,6 +292,7 @@ compileGenOnce compiler requested generator
         Built -> pure $ groupBuilt requested generator
         Lifted value -> pure $ Right $ keyed noObservations $ pure value
         Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileGen compiler requested inner
+        Paid inner -> fmap payGrouped <$> compileGen compiler requested inner
         Applied _ _
             -- A product whose one term comes from one part, such as @elements [2] <* pure ()@,
             -- answers the requested paths of that part. Another product observes nothing.
@@ -358,7 +364,9 @@ emptyGroups grouped = case sizes grouped of
 Without observations the language is one group, and so is a language whose
 members have no root, such as 'fromIndexed'. With observations every member
 is read back with its term; a member's term is the user's part of the
-engine's labelled term.
+engine's labelled term. A member read back keeps its size, which can differ
+from the number of nodes of its term: a pay adds no node, and an atom of
+several nodes has size one.
 -}
 groupBuilt :: Set Path -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator
@@ -370,16 +378,23 @@ groupBuilt requested generator
     | otherwise = do
         total <- cardinality generator
         members <- traverse member $ everyRank total
-        let scale = foldr (\(mass, _, _) -> lcm (denominator mass)) 1 members
+        let scale = foldr (\(mass, _, _, _) -> lcm (denominator mass)) 1 members
         pure
             $ reposition keyObservations
             $ frequencies
-                [ (Weight $ numerator (mass * fromInteger scale), keyed (ObservationKey rank $ observe forest) (rebuild forest value))
-                | (rank, (mass, value, forest)) <- zip [0 ..] members
+                [ ( Weight $ numerator (mass * fromInteger scale)
+                  , keyed (ObservationKey rank $ observe forest) (rebuildAt size forest value)
+                  )
+                | (rank, (mass, value, forest, size)) <- zip [0 ..] members
                 ]
   where
     -- Each member keeps its own mass, so an 'atomic' choice keeps its distribution.
-    member rank = (,,) <$> massAt rank <*> unrank generator rank <*> (surface <$> termAt generator rank)
+    member rank =
+        (,,,)
+            <$> massAt rank
+            <*> unrank generator rank
+            <*> (surface <$> termAt generator rank)
+            <*> maybe (Left EmptyGenerator) Right (sizeOfRank generator rank)
     massAt rank = case genLanguage generator of
         TransparentLanguage result -> do
             static <- result
@@ -389,6 +404,10 @@ groupBuilt requested generator
     observe _ = Map.empty
     rebuild [Tree.Node label children] value = node label $ withChildren children value
     rebuild forest value = withChildren forest value
+    -- An atom keeps the term of the member and has size one, and each pay
+    -- above it adds one. A member of size zero has no node.
+    rebuildAt (Size 0) forest value = rebuild forest value
+    rebuildAt (Size size) forest value = iterate pay (atomic $ rebuild forest value) !! fromInteger (size - 1)
 
     -- The label at one path of a term, and whether it is a leaf.
     labelAt :: Path -> Tree.Tree Symbol -> Maybe Observed
@@ -413,6 +432,7 @@ compileSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (LTAGr
 compileSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure value
     Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine compiler requirements inner
+    Paid inner -> fmap payGrouped <$> compileSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (fromEnum $ spineArity functions) requirements
         compiledFunctions <- compileSpine compiler functionRequirements functions
@@ -507,6 +527,7 @@ containsIntegers compiler generator =
             Contains <$> case genRecipe generator of
                 Integers _ -> pure True
                 Mapped _ inner -> containsIntegers compiler inner
+                Paid inner -> containsIntegers compiler inner
                 Applied functions arguments -> (||) <$> containsIntegers compiler functions <*> containsIntegers compiler arguments
                 Chosen alternatives -> or <$> traverse (containsIntegers compiler . snd) alternatives
                 Uniform alternatives -> or <$> traverse (containsIntegers compiler) alternatives
@@ -564,6 +585,7 @@ compileOpen compiler requested generator =
                     else case genRecipe generator of
                         Integers constraint -> pure $ integerGroup constraint
                         Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpen compiler requested inner
+                        Paid inner -> fmap payGrouped <$> compileOpen compiler requested inner
                         Applied _ _ ->
                             fmap joinPositioned <$> compileOpenSpine compiler (replicate (fromEnum $ spineArity generator) Set.empty) generator
                         Chosen alternatives -> do
@@ -724,6 +746,7 @@ compileOpenSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (L
 compileOpenSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure $ const value
     Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpenSpine compiler requirements inner
+    Paid inner -> fmap payGrouped <$> compileOpenSpine compiler requirements inner
     Applied functions arguments -> do
         let (functionRequirements, argumentRequirements) = splitAt (fromEnum $ spineArity functions) requirements
             applyReader keys (function, argument) =
@@ -880,7 +903,7 @@ compileOpenNode compiler requested labelling constraint child
                         then Just (OpenKey observations total formula (Just $ pointCount found), kept, Nothing)
                         else
                             -- Children without open variables have no point to select, so
-                            -- the constructor adds no source choice; closeOpen applies them.
+                            -- the constructor selects none; closeOpen applies them.
                             Just (closedKey observations, kept, if total == 0 then Nothing else Just found)
 
 {- | Settle each tuple of child groups: drop it, leave its variables open under
@@ -1131,6 +1154,7 @@ candidatesOf entailment generator = case genRecipe generator of
     Built -> pure $ builtCandidates generator
     Lifted value -> pure $ Right [(value, [])]
     Mapped transform inner -> fmap (map (first transform)) <$> candidatesOf entailment inner
+    Paid inner -> candidatesOf entailment inner
     Applied functions arguments -> do
         functionCandidates <- candidatesOf entailment functions
         argumentCandidates <- candidatesOf entailment arguments

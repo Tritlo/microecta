@@ -475,7 +475,7 @@ sizes (Grouped result) =
 countsAtSize :: Grouped symbol key a -> Size -> Either GenError (Map.Map key Cardinality)
 countsAtSize (CyclicGrouped result) size = do
     groups <- result
-    if size < 1
+    if size < 0
         then pure Map.empty
         else
             pure
@@ -489,7 +489,7 @@ countsAtSize (CyclicGrouped result) size = do
                     groups
 countsAtSize (Grouped result) size = do
     buckets <- result
-    if size < 1
+    if size < 0
         then pure Map.empty
         else
             pure
@@ -512,7 +512,7 @@ it does not.
 massesAtSize :: Grouped symbol key a -> Size -> Either GenError (Map.Map key Rational)
 massesAtSize (CyclicGrouped result) size = do
     groups <- result
-    if size < 1
+    if size < 0
         then pure Map.empty
         else do
             let positive = Map.filter (> 0) $ fmap (`keyedRecursiveMassAtSize` size) groups
@@ -523,7 +523,7 @@ massesAtSize (CyclicGrouped result) size = do
                     else fmap (/ total) positive
 massesAtSize (Grouped result) size = do
     buckets <- result
-    if size < 1
+    if size < 0
         then pure Map.empty
         else do
             masses <- traverse bucketMassAtSize buckets

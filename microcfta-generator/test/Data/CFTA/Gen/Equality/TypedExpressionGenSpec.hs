@@ -323,10 +323,13 @@ spec =
                 _ -> expectationFailure "expected the property to fail"
 
         it "counts the recursive family by structural size" $ do
+            -- A literal has size one. An application pays one for its node and
+            -- one for its operation: not of a literal has size three, and a
+            -- binary application of two literals size four.
             let flat = ECTAGen.ungroup recursiveExpressions
             traverse (ECTAGen.countAtSize flat) [1 .. 4]
                 `shouldBe` Right
-                    [4, 2, 26, 58]
+                    [4, 0, 2, 24]
             traverse
                 ( \result ->
                     traverse
@@ -334,7 +337,7 @@ spec =
                         [1 .. 4]
                 )
                 allTypes
-                `shouldBe` Right [[2, 0, 8, 8], [2, 2, 18, 50]]
+                `shouldBe` Right [[2, 0, 0, 8], [2, 0, 2, 16]]
 
         it "generates exactly the first four finite size classes" $ do
             let bounded = ECTAGen.upToSize 4 $ ECTAGen.ungroup recursiveExpressions
@@ -342,7 +345,7 @@ spec =
                     Right total ->
                         traverse (ECTAGen.unrank generator) $ everyRank total
                     Left err -> Left err
-            ECTAGen.cardinality bounded `shouldBe` Right 90
+            ECTAGen.cardinality bounded `shouldBe` Right 30
             members bounded `shouldSatisfy` either (const False) (all isWellTyped)
 
         it "retains one recursive automaton whose cycle carries the constraints" $

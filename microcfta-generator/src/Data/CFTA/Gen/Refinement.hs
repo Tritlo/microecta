@@ -288,7 +288,7 @@ Use it where a child is drawn:
 
 The condition applies to the root of each term, the constructor that the
 generator ends in. A pool, a leaf, a node, an import, a choice of these, and
-a mapped generator have such a root. An import with a recursive root is
+a mapped or paid generator have such a root. An import with a recursive root is
 unfolded once, so the condition does not apply to the recursive occurrences.
 On 'every', the condition narrows the values. Another generator gives
 'ConditionNeedsConstructor'. The condition can name only @v@ and ambient
@@ -306,6 +306,7 @@ satisfying generator condition = case generator of
         Chosen alternatives -> Flat.frequency [(weight, alternative `satisfying` condition) | (weight, alternative) <- alternatives]
         Uniform alternatives -> Flat.uniformly [alternative `satisfying` condition | alternative <- alternatives]
         Mapped transform inner -> transform <$> (inner `satisfying` condition)
+        Paid inner -> pay $ inner `satisfying` condition
         Imported bound order graph -> case unfoldRoot $ maybe graph (`boundDepth` graph) bound of
             EmptyNode -> generator
             Node transitions ->

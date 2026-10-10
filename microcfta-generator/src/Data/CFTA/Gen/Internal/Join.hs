@@ -536,6 +536,7 @@ recursiveJoin componentIndex operation arguments =
     joinedIndex = recursiveChainIndex operationIndex arguments
     joinedMasses =
         recursiveChainMass
+            operationIndex
             (keyedRecursiveMasses operation)
             arguments
     joinedSampling =

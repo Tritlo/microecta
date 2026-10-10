@@ -249,8 +249,18 @@ spec = do
             ECTAGen.countAtSize (mapped :: ECTAGen Tree) 1
                 `shouldBe` Left UnguardedRecursion
 
+        it "rejects a recursion whose pays add no term node" $ do
+            -- Each member is one larger, but its term is the term of the
+            -- smaller member under choice wrappers, which a constructor removes.
+            let paid :: ECTAGen.ECTAGen Tree
+                paid = ECTAGen.recur $ \self -> ECTAGen.oneof [Leaf <$> ECTAGen.elements [0], ECTAGen.pay self]
+                counted :: ECTAGen.ECTAGen Tree
+                counted = ECTAGen.recur $ \self -> ECTAGen.oneof [Leaf <$> ECTAGen.elements [0], ECTAGen.node "s" self]
+            ECTAGen.countAtSize paid 1 `shouldBe` Left UnguardedRecursion
+            map (ECTAGen.countAtSize counted) [1 .. 3] `shouldBe` [Right 1, Right 1, Right 1]
+
         it "reports a guarded recursion with no base as empty" $ do
-            let empty = ECTAGen.recur $ \self -> pure id <*> self
+            let empty = ECTAGen.recur $ \self -> ECTAGen.pay $ pure id <*> self
             smallestResult <- timeout 60000000 $ evaluateFully $ ECTAGen.smallest (empty :: ECTAGen Tree)
             unrankResult <- timeout 60000000 $ evaluateFully $ ECTAGen.unrank (empty :: ECTAGen Tree) 0
             smallestResult `shouldBe` Just (Right Nothing)
@@ -270,20 +280,27 @@ spec = do
                     ECTAGen.keyed () $
                         ECTAGen.oneof
                             [ pure NoCall
-                            , pure Call
-                                <*> ECTAGen.recur (\rest -> ECTAGen.oneof [pure (: []) <*> ECTAGen.atKey () self, (:) <$> ECTAGen.atKey () self <*> rest])
+                            , ECTAGen.pay $
+                                pure Call
+                                    <*> ECTAGen.recur
+                                        ( \rest ->
+                                            ECTAGen.oneof [pure (: []) <*> ECTAGen.atKey () self, ECTAGen.pay $ (:) <$> ECTAGen.atKey () self <*> rest]
+                                        )
                             ]
                 calls = ECTAGen.ungroup family
             ECTAGen.isRecursive calls `shouldBe` True
-            map (ECTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
+            map (ECTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 2, Right 5, Right 14]
 
         it "finds a key that the body reaches only through a nested recursion over another key" $ do
-            -- Every member of key 1 reads key 0, so a pass around empty groups finds no member.
+            -- Every member of key 1 reads key 0, so a pass around empty groups
+            -- finds no member. A pay guards the read of the family.
             let family :: ECTAGen.Grouped Int Int
                 family = ECTAGen.recurGrouped $ \self ->
                     ECTAGen.oneofGrouped
                         [ ECTAGen.keyed 0 (pure 0)
-                        , ECTAGen.keyed 1 $ ECTAGen.recur $ \n -> ECTAGen.oneof [(+) <$> ECTAGen.atKey 0 self <*> pure 1, (+) <$> n <*> n]
+                        , ECTAGen.keyed 1 $
+                            ECTAGen.recur $ \n ->
+                                ECTAGen.oneof [ECTAGen.pay $ (+) <$> ECTAGen.atKey 0 self <*> pure 1, ECTAGen.pay $ (+) <$> n <*> n]
                         ]
             ECTAGen.smallest (ECTAGen.atKey 1 family) `shouldBe` Right (Just 1)
 
@@ -630,17 +647,18 @@ spec = do
                             , ECTAGen.apply operations (self :& ANil)
                             ]
                 traces = ECTAGen.ungroup family
-            ECTAGen.countsAtSize family 2
+            -- An operation has size one, and the initial empty trace size zero.
+            ECTAGen.countsAtSize family 1
                 `shouldBe` Right
                     (Map.fromList [(SawHeads, 1), (SawTails, 1)])
-            ECTAGen.massesAtSize family 2
+            ECTAGen.massesAtSize family 1
                 `shouldBe` Right
                     (Map.fromList [(SawHeads, 9 % 10), (SawTails, 1 % 10)])
-            (sum <$> ECTAGen.countsAtSize family 2)
-                `shouldBe` ECTAGen.countAtSize traces 2
-            (sum <$> ECTAGen.massesAtSize family 2)
+            (sum <$> ECTAGen.countsAtSize family 1)
+                `shouldBe` ECTAGen.countAtSize traces 1
+            (sum <$> ECTAGen.massesAtSize family 1)
                 `shouldBe` Right 1
-            ECTAGen.pmfAtSize traces 2
+            ECTAGen.pmfAtSize traces 1
                 `shouldBe` Right [([False], 1 % 10), ([True], 9 % 10)]
             ECTAGen.smallest (ECTAGen.atKey SawHeads family)
                 `shouldBe` Right (Just [True])

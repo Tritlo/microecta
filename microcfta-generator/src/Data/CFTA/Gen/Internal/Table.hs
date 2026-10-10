@@ -35,6 +35,7 @@ import Data.CFTA.Ranked.Internal.Size (
     closedProbe,
     constantIndex,
     mapIndex,
+    payIndex,
     productIndex,
     productPosition,
     withKnotMetadata,
@@ -142,7 +143,7 @@ stateTable rows = (indexOf, prefixesOf)
         childPrefixes transition =
             NonEmpty.scanl
                 consumeChild
-                (constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
+                (payIndex $ constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
                 (map indexOf $ FTA.transitionChildren transition)
     -- Sampling reads this index. It is built directly, not as the last child
     -- prefix, because an index from the prefix list made each sample slower
@@ -160,7 +161,7 @@ stateTable rows = (indexOf, prefixesOf)
             mapIndex ($ []) $
                 foldl'
                     consumeChild
-                    (constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
+                    (payIndex $ constantIndex $ Tree.Node $ FTA.transitionSymbol transition)
                     (map indexOf $ FTA.transitionChildren transition)
     indexOf state
         | Map.member state minima = Map.findWithDefault emptyIndex state indexTable

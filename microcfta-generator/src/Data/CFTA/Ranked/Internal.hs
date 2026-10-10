@@ -24,6 +24,7 @@ module Data.CFTA.Ranked.Internal (
     fromIndexedOnDemand,
     fromWeightedIndexedOnDemand,
     share,
+    pay,
     fromWeighted,
     frequency,
     oneof,
@@ -63,7 +64,7 @@ import Data.CFTA.Ranked.Internal.Shrink (
     smallerPlanMembers,
     withOffsets,
  )
-import Data.CFTA.Ranked.Internal.Size (MinimumSize (..), SizeIndex (minimumMemberSize), sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (MinimumSize (..), SizeIndex (minimumMemberSize), payIndex, sizeIndex)
 
 -- | A finite source addressed by a stable zero-based rank.
 data Indexed a = Indexed
@@ -130,7 +131,7 @@ instance Functor Ranked where
 instance Applicative Ranked where
     pure value =
         makeRanked
-            (PlanSelect 1 $ const value)
+            (PlanPure value)
             (uniformSampler 1 $ const value)
 
     functions <*> arguments =
@@ -238,6 +239,16 @@ share ranked
                 "microcfta-generator bug in Data.CFTA.Ranked.Internal.share: \
                 \a language with one member has no size"
 
+{- | The members of a ranked language, each one larger: the @pay@ of FEAT. The
+ranks, the values, and the sampler do not change.
+-}
+pay :: Ranked a -> Ranked a
+pay ranked =
+    ranked
+        { rankedPlan = PlanPay $ rankedPlan ranked
+        , rankedSizeIndex = payIndex $ rankedSizeIndex ranked
+        }
+
 {- | Build a ranked language whose members have positive relative weights.
 
 Weight affects sampling, not cardinality or rank order: each list entry has
@@ -331,7 +342,7 @@ lowerWithRank = runRankSampler . rankedSampler
 {- | Structural shrink candidates for one rank.
 
 Each candidate is a strictly smaller valid rank of the same language whose
-member is no larger than the current member, measured in source choices.
+member is no larger than the current member, measured in size.
 Earlier alternatives come first at their smallest member, then each product
 component shrinks on its own. Use 'smallerMembers' for every member of
 strictly smaller size.

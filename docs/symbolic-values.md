@@ -87,10 +87,10 @@ list.
 
 Ranks follow the lexicographic order of the symbolic leaves, from left to
 right. Rank 0 of `pixels` is `(Green, 0, True)`. A shrink goes to an earlier
-rank, so it makes the first leaves smaller first. In the structural size of a
-member, each `every` leaf is one source choice, and the constructor that
-closes a group of leaves adds one more source choice for the point that it
-selects.
+rank, so it makes the first leaves smaller first. In the size of a member,
+each `every` leaf is one atom of size one, and a constructor pays one, as
+every constructor does. The choice of the point that fills the leaves adds no
+size.
 
 ## What compile can count
 

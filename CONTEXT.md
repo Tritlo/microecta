@@ -67,9 +67,10 @@ Wilf, and Feat (ranking).
   order. **Unrank** is its inverse (Nijenhuis and Wilf). Not the CLRS rank
   of a union-find tree.
 - **Cardinality**: the number of members of a language (Feat).
-- **Size**: the number of source choices of a generated member, or the
-  number of nodes of an accepted term. A **size class** holds the members of
-  one size.
+- **Size**: the number of pays of a generated member, as in FEAT: `pure` has
+  size zero, an atom one, a product the sum of its sides, and a pay, such as
+  a constructor, one more. For an accepted term, the number of its nodes. A
+  **size class** holds the members of one size.
 - **Class rank**: the rank of a member inside its size class. A **sized
   rank** is a size with a class rank.
 - **Rank offset**: the first rank of a group of members in a larger

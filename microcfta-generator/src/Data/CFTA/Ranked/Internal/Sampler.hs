@@ -20,6 +20,7 @@ module Data.CFTA.Ranked.Internal.Sampler (
     integerMasses,
     mapSampleIndex,
     mapSampler,
+    paySampleIndex,
     productMassSampleIndex,
     productSampleIndex,
     productSampler,
@@ -210,16 +211,20 @@ uniformSampleIndex index =
             (countAtSize index size)
             (\(Rank position) -> rankedValue $ sizeClassSelect index size $ ClassRank position)
 
--- | Use one finite atomic sampler as the only size-one class.
-atomicSampleIndex :: Sampler a -> SampleIndex a
-atomicSampleIndex sampler =
-    SampleIndex $ \size -> if size == 1 then sampler else wrongSize size
+-- | Use one finite atomic sampler as the only size class, of the given size.
+atomicSampleIndex :: Size -> Sampler a -> SampleIndex a
+atomicSampleIndex atomSize sampler =
+    SampleIndex $ \size -> if size == atomSize then sampler else wrongSize size
   where
     wrongSize size =
         error $
             "microcfta-generator bug in Data.CFTA.Ranked.Internal.Sampler.atomicSampleIndex: "
                 <> "an atom has no members of size "
                 <> show size
+
+-- | The samplers of a pay: each size class is the class one smaller of the inner language.
+paySampleIndex :: SampleIndex a -> SampleIndex a
+paySampleIndex sampling = SampleIndex $ \size -> samplerAtSize sampling (size - 1)
 
 -- | A placeholder for an empty recursive language. It is never sampled.
 emptySampleIndex :: SampleIndex a
@@ -344,7 +349,7 @@ productSampleParts ::
     SizeIndex a ->
     Size ->
     [ProductPart]
-productSampleParts indexF indexX size = go 0 $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
+productSampleParts indexF indexX size = go 0 $ takeWhile ((<= size) . fst) (sizeClassCounts indexF)
   where
     go _ [] = []
     go offset ((functionSize, functionCount) : rest)

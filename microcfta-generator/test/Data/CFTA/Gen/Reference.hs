@@ -8,10 +8,14 @@ the engine generator through the public API. 'model' gives a naive model that
 lists the members of the language. The model states the rules of the engine
 directly:
 
-* Size. A member of @pure@, of @elements@, of an @atomic@ language, or of a
-  group from @groupOn@ has size one. A product adds the sizes of its sides,
-  and an application adds the size of the operation and of every argument. A
-  node label and a map keep the size.
+* Size. Sizes count pays, as in FEAT. A member of @pure@ has size zero. A
+  member of @elements@, of an @atomic@ language, or of a group from @groupOn@
+  has size one. A product adds the sizes of its sides, and an application adds
+  the size of the operation and of every argument. A node label and @pay@ add
+  one. A map and a choice keep the size.
+* Guards. A recursion reaches its occurrence through a pay, or through a
+  product whose other side has no member of size zero, and through a product
+  or a node, which adds a term node. Otherwise the occurrence is unguarded.
 * Finite ranks. A finite language ranks in mixed radix. A choice puts the
   ranks of its alternatives one after the other. A product orders by the rank
   of its left side first. An application orders by the operation, then by the
@@ -89,6 +93,8 @@ data Desc
       Elements [Int]
     | -- | @node symbol@
       Node Text Desc
+    | -- | @pay@
+      Pay Desc
     | -- | @fmap (Tagged n)@
       Tag Int Desc
     | -- | @Paired \<$\> left \<*\> right@
@@ -125,6 +131,8 @@ data GDesc
       Regroup Int GDesc
     | -- | @mapWithKey Tagged@
       MapWithKey GDesc
+    | -- | @node symbol@ on every group
+      GNode Text GDesc
     | -- | @frequencies@
       Frequencies [(Integer, GDesc)]
     | {- | @apply@ with one argument family. Each operation has an argument key,
@@ -166,6 +174,7 @@ closedIn flat grouped = \case
     Pure _ -> True
     Elements _ -> True
     Node _ inner -> go inner
+    Pay inner -> go inner
     Tag _ inner -> go inner
     Pair left right -> go left && go right
     Frequency alternatives -> all (go . snd) alternatives
@@ -187,6 +196,7 @@ closedGroupedIn flat grouped = \case
     GroupOn _ inner -> closedIn flat grouped inner
     Regroup _ family -> go family
     MapWithKey family -> go family
+    GNode _ family -> go family
     Frequencies alternatives -> all (go . snd) alternatives
     Apply1 operations argument ->
         all (\(_, _, operation) -> closedIn flat grouped operation) operations && go argument
@@ -214,6 +224,7 @@ buildIn env families = \case
     Pure n -> pure $ Atom n
     Elements ns -> Gen.elements $ map Atom ns
     Node symbol inner -> Gen.node symbol $ go inner
+    Pay inner -> Gen.pay $ go inner
     Tag n inner -> Tagged n <$> go inner
     Pair left right -> Paired <$> go left <*> go right
     Frequency alternatives -> Gen.frequency [(Weight weight, go alternative) | (weight, alternative) <- alternatives]
@@ -239,6 +250,7 @@ buildGroupedIn env families = \case
     GroupOn n inner -> Gen.groupOn (groupKey n) $ flat inner
     Regroup n family -> Gen.regroupOn (`mod` max 1 n) $ go family
     MapWithKey family -> Gen.mapWithKey Tagged $ go family
+    GNode symbol family -> Gen.node symbol $ go family
     Frequencies alternatives -> Gen.frequencies [(Weight weight, go alternative) | (weight, alternative) <- alternatives]
     Apply1 operations argument ->
         Gen.apply
@@ -355,7 +367,11 @@ data Model a = Model
     , modelReaches :: IntSet
     -- ^ The tokens of the enclosing recursions whose occurrence the language reaches.
     , modelUnguarded :: IntSet
-    -- ^ The tokens whose occurrence the language reaches with no product between.
+    {- ^ The tokens whose occurrence the language reaches with no pay and no
+    product whose other side has no member of size zero between.
+    -}
+    , modelTermless :: IntSet
+    -- ^ The tokens whose occurrence the language reaches with no product and no node between.
     }
     deriving (Functor)
 
@@ -420,14 +436,15 @@ members bound lang = case langModel lang of
     Left _ -> []
     Right model' -> case modelFinite model' of
         Just (_, finite) -> [(memberValue member, memberSize member) | member <- finite]
-        Nothing -> [(value, size) | size <- [1 .. bound], (value, _) <- modelClass model' size]
+        Nothing -> [(value, size) | size <- [0 .. bound], (value, _) <- modelClass model' size]
 
 interpret :: Env -> Desc -> Lang Value
 interpret env@(Env flat _) = \case
-    Pure n -> finiteLang $ atomModel False [(Atom n, 1)]
+    Pure n -> finiteLang $ leafModel 0 False [(Atom n, 1)]
     Elements [] -> Lang False $ Left EmptyGenerator
     Elements ns -> finiteLang $ atomModel False [(Atom n, 1 / fromIntegral (length ns)) | n <- ns]
-    Node _ inner -> go inner
+    Node _ inner -> nodeLang $ go inner
+    Pay inner -> payLang $ go inner
     Tag n inner -> Tagged n <$> go inner
     Pair left right -> pairLang Paired (go left) (go right)
     Frequency alternatives -> frequencyLang [(weight, go alternative) | (weight, alternative) <- alternatives]
@@ -452,6 +469,7 @@ interpret env@(Env flat _) = \case
             , modelLargest = Nothing
             , modelReaches = IntSet.singleton $ occurrenceToken occurrence
             , modelUnguarded = IntSet.singleton $ occurrenceToken occurrence
+            , modelTermless = IntSet.singleton $ occurrenceToken occurrence
             }
 
 finiteLang :: Model a -> Lang a
@@ -461,19 +479,62 @@ finiteLang = Lang False . Right
 language keeps its distribution in its size class.
 -}
 atomModel :: Bool -> [(a, Rational)] -> Model a
-atomModel atomic weighted =
+atomModel = leafModel 1
+
+-- | A finite language of members of one size, each with its mass.
+leafModel :: Integer -> Bool -> [(a, Rational)] -> Model a
+leafModel leafSize atomic weighted =
     Model
-        { modelFinite = Just (total, [Member value 1 mass (fromInteger total * mass) | (value, mass) <- weighted])
+        { modelFinite = Just (total, [Member value leafSize mass (fromInteger total * mass) | (value, mass) <- weighted])
         , modelAtomic = atomic
-        , modelCount = \size -> if size == 1 then total else 0
-        , modelClass = \size -> if size == 1 then weighted else []
-        , modelMinimum = Just 1
-        , modelLargest = Just 1
+        , modelCount = \size -> if size == leafSize then total else 0
+        , modelClass = \size -> if size == leafSize then weighted else []
+        , modelMinimum = Just leafSize
+        , modelLargest = Just leafSize
         , modelReaches = IntSet.empty
         , modelUnguarded = IntSet.empty
+        , modelTermless = IntSet.empty
         }
   where
     total = toInteger $ length weighted
+
+{- | A node: a pay, and a term node, so no occurrence below it is unguarded or
+termless.
+-}
+nodeLang :: Lang a -> Lang a
+nodeLang (Lang recursive result) = Lang recursive $ nodeModel <$> result
+
+-- | 'nodeLang' for every group of a family. The mass at each size of a group moves up by one.
+nodeFamily :: Family key a -> Family key a
+nodeFamily (Family recursive groups) = Family recursive $ fmap nodeGroup <$> groups
+  where
+    nodeGroup group =
+        group
+            { groupModel = nodeModel $ groupModel group
+            , groupMassAt = \size -> if size < 1 then 0 else groupMassAt group (size - 1)
+            }
+
+-- | The model of 'nodeLang'.
+nodeModel :: Model a -> Model a
+nodeModel model' = (payModel model'){modelTermless = IntSet.empty}
+
+{- | A pay: every member is one larger, and no occurrence below it is
+unguarded.
+-}
+payLang :: Lang a -> Lang a
+payLang (Lang recursive result) = Lang recursive $ payModel <$> result
+
+-- | The model of 'payLang'.
+payModel :: Model a -> Model a
+payModel model' =
+    model'
+        { modelFinite = fmap (map $ \member -> member{memberSize = memberSize member + 1}) <$> modelFinite model'
+        , modelCount = \size -> if size < 1 then 0 else modelCount model' (size - 1)
+        , modelClass = \size -> if size < 1 then [] else modelClass model' (size - 1)
+        , modelMinimum = (+ 1) <$> modelMinimum model'
+        , modelLargest = (+ 1) <$> modelLargest model'
+        , modelUnguarded = IntSet.empty
+        }
 
 -- | The member count of a model as a weight for a choice in a size class.
 byCount :: Model a -> Integer -> Rational
@@ -512,11 +573,11 @@ pairModel combine leftWeight left rightWeight right =
                   ]
                 )
         , modelAtomic = False
-        , modelCount = \size -> sum [modelCount left leftSize * modelCount right (size - leftSize) | leftSize <- [1 .. size - 1]]
+        , modelCount = \size -> sum [modelCount left leftSize * modelCount right (size - leftSize) | leftSize <- splitSizes size]
         , modelClass = \size ->
             let splits =
                     [ (leftWeight leftSize * rightWeight (size - leftSize), leftSize)
-                    | leftSize <- [1 .. size - 1]
+                    | leftSize <- splitSizes size
                     , modelCount left leftSize * modelCount right (size - leftSize) > 0
                     ]
                 total = sum $ map fst splits
@@ -528,8 +589,21 @@ pairModel combine leftWeight left rightWeight right =
         , modelMinimum = (+) <$> modelMinimum left <*> modelMinimum right
         , modelLargest = (+) <$> modelLargest left <*> modelLargest right
         , modelReaches = IntSet.union (modelReaches left) (modelReaches right)
-        , modelUnguarded = IntSet.empty
+        , -- A side guards the occurrences of the other side unless it has a member of size zero.
+          modelUnguarded = IntSet.union (besideZero right $ modelUnguarded left) (besideZero left $ modelUnguarded right)
+        , modelTermless = IntSet.empty
         }
+  where
+    besideZero other unguarded = if modelMinimum other == Just 0 then unguarded else IntSet.empty
+    splitSizes = productSplits (modelMinimum left) (modelMinimum right)
+
+{- | The sizes of the left side of the splits of a product of one size, from
+the minimum sizes of its sides. The bounds keep a recursive occurrence that a
+side guards from being read at the size of the product.
+-}
+productSplits :: Maybe Integer -> Maybe Integer -> Integer -> [Integer]
+productSplits (Just leftMinimum) (Just rightMinimum) size = [leftMinimum .. size - rightMinimum]
+productSplits _ _ _ = []
 
 frequencyLang :: [(Integer, Lang a)] -> Lang a
 frequencyLang weighted
@@ -598,6 +672,7 @@ joinLang relation key left right = case (left, right) of
                     , modelLargest = Just 2
                     , modelReaches = IntSet.empty
                     , modelUnguarded = IntSet.empty
+                    , modelTermless = IntSet.empty
                     }
       where
         byKey model' = Map.fromListWith (flip (<>)) [(key $ memberValue member, [member]) | member <- maybe [] snd $ modelFinite model']
@@ -643,6 +718,7 @@ choiceModel alternatives =
         , modelLargest = maximum <$> traverse (\(_, _, model') -> modelLargest model') alternatives
         , modelReaches = IntSet.unions [modelReaches model' | (_, _, model') <- alternatives]
         , modelUnguarded = IntSet.unions [modelUnguarded model' | (_, _, model') <- alternatives]
+        , modelTermless = IntSet.unions [modelTermless model' | (_, _, model') <- alternatives]
         }
 
 minimumOf :: [Maybe Integer] -> Maybe Integer
@@ -664,17 +740,17 @@ uniformlyLang langs
 atomicLang :: Lang a -> Lang a
 atomicLang = \case
     Lang _ (Left err) -> Lang False $ Left err
-    Lang False (Right model') -> finiteLang $ atomicModel model'
+    Lang False (Right model') -> finiteLang $ atomicModel 1 model'
     Lang True (Right model')
         | not $ IntSet.null $ modelReaches model' -> Lang False $ Left BoundedRecursiveOccurrence
         -- A recursive language that holds no tied recursion has sizes that end.
         | Just largest <- modelLargest model' -> atomicLang $ boundLang largest $ Lang True $ Right model'
         | otherwise -> Lang False $ Left UnboundedGenerator
 
--- | Close a finite language as one atomic choice.
-atomicModel :: Model a -> Model a
-atomicModel model' = case modelFinite model' of
-    Just (_, finite) -> atomModel True [(memberValue member, memberMass member) | member <- finite]
+-- | Close a finite language as one atomic choice of the given size.
+atomicModel :: Integer -> Model a -> Model a
+atomicModel atomSize model' = case modelFinite model' of
+    Just (_, finite) -> leafModel atomSize True [(memberValue member, memberMass member) | member <- finite]
     Nothing -> error "Data.CFTA.Gen.Reference.atomicModel: a finite language without members"
 
 boundLang :: Integer -> Lang a -> Lang a
@@ -701,9 +777,10 @@ boundLang bound (Lang recursive (Right model'))
                 , modelLargest = Just $ last sizes
                 , modelReaches = IntSet.empty
                 , modelUnguarded = IntSet.empty
+                , modelTermless = IntSet.empty
                 }
   where
-    sizes = [size | size <- [1 .. bound], modelCount model' size > 0]
+    sizes = [size | size <- [0 .. bound], modelCount model' size > 0]
     total = sum $ map (modelCount model') sizes
 
 {- | A recursion, as the engine builds it. A probe with an assumed minimum
@@ -717,7 +794,8 @@ recurLang env@(Env flat grouped) body = case langModel probed of
     Left err -> Lang False $ Left err
     Right probedModel
         | not $ IntSet.member token $ modelReaches probedModel -> probed
-        | IntSet.member token $ modelUnguarded probedModel -> Lang True $ Left UnguardedRecursion
+        | IntSet.member token $ IntSet.union (modelUnguarded probedModel) (modelTermless probedModel) ->
+            Lang True $ Left UnguardedRecursion
         | Nothing <- modelMinimum probedModel -> Lang True $ Left EmptyGenerator
         | otherwise -> Lang True $ Right $ tied $ modelMinimum probedModel
   where
@@ -748,13 +826,14 @@ closeToken token model' =
         , modelLargest = Nothing
         , modelReaches = IntSet.delete token $ modelReaches model'
         , modelUnguarded = IntSet.delete token $ modelUnguarded model'
+        , modelTermless = IntSet.delete token $ modelTermless model'
         }
 
--- | Remember a function of the positive sizes, with the given answer below one.
+-- | Remember a function of the sizes from zero, with the given answer below zero.
 memo :: b -> (Integer -> b) -> Integer -> b
-memo below function = \size -> if size < 1 then below else table !! fromInteger (size - 1)
+memo below function = \size -> if size < 0 then below else table !! fromInteger size
   where
-    table = map function [1 ..]
+    table = map function [0 ..]
 
 probeError :: a
 probeError = error "Data.CFTA.Gen.Reference: a probe counts nothing"
@@ -765,6 +844,7 @@ interpretGrouped env@(Env _ grouped) = \case
     GroupOn n inner -> groupOnFamily (groupKey n) $ flatten inner
     Regroup n family -> regroupFamily (`mod` max 1 n) $ go family
     MapWithKey family -> mapWithKeyFamily Tagged $ go family
+    GNode _ family -> nodeFamily $ go family
     Frequencies alternatives -> frequenciesFamily [(weight, go alternative) | (weight, alternative) <- alternatives]
     Apply1 operations argument ->
         applyFamily
@@ -845,7 +925,9 @@ regroupFamily regroup (Family recursive groups) =
             then Right $ fmap mergeRecursive together
             else traverse (mergeFinite . map (\group -> (groupMass group, groupModel group))) together
 
--- | Merge finite groups: one choice weighted by their masses, atomic when all of them are.
+{- | Merge finite groups: one choice weighted by their masses. Atomic groups of
+one size merge to one atom of that size.
+-}
 mergeFinite :: [(Rational, Model a)] -> Either GenError (Group a)
 mergeFinite [(mass, model')] | mass > 0 = Right $ Group model' mass noMassBySize
 mergeFinite alternatives
@@ -858,7 +940,10 @@ mergeFinite alternatives
                 noMassBySize
   where
     retainAtomic
-        | all (modelAtomic . snd) alternatives = atomicModel
+        | all (modelAtomic . snd) alternatives
+        , Just atomSize : rest <- map (modelMinimum . snd) alternatives
+        , all (== Just atomSize) rest =
+            atomicModel atomSize
         | otherwise = id
 
 -- | Merge recursive groups: one choice that selects by mass in a size class.
@@ -909,7 +994,7 @@ recursiveGroups (Family True groups) = groups
 recursiveGroups (Family False groups) = fromBuckets <$> groups
 
 {- | Finite groups as recursive ones. The mass of an ordinary group is its
-member count at each size. An atomic group has its members at size one, and
+member count at each size. An atomic group has its members at one size, and
 its mass there is its key mass times the number of members of the family.
 -}
 fromBuckets :: Map.Map key (Group a) -> Map.Map key (Group a)
@@ -920,8 +1005,9 @@ fromBuckets buckets = fmap fromBucket buckets
       where
         model' = (groupModel group){modelFinite = Nothing}
         atomMass = fromInteger totalCount * groupMass group
+        -- The members of an atomic group have one size: one, or more under a pay.
         massAt
-            | modelAtomic model' = \size -> if size == 1 then atomMass else 0
+            | modelAtomic model' = \size -> if Just size == modelMinimum model' then atomMass else 0
             | otherwise = byCount model'
 
 {- | Apply a finite operation family to argument families. The operations and
@@ -978,7 +1064,12 @@ joinRecursive operation arguments = ($ []) <$> foldl consume operation arguments
                 (groupModel argument)
             )
             0
-            (\size -> sum [groupMassAt partial leftSize * groupMassAt argument (size - leftSize) | leftSize <- [1 .. size - 1]])
+            ( \size ->
+                sum
+                    [ groupMassAt partial leftSize * groupMassAt argument (size - leftSize)
+                    | leftSize <- productSplits (modelMinimum $ groupModel partial) (modelMinimum $ groupModel argument) size
+                    ]
+            )
 
 -- | Merge finite components by result key, in their order, and normalize the masses.
 mergeComponents :: (Ord key) => [(key, Rational, Model a)] -> Either GenError (Map.Map key (Group a))
@@ -1006,9 +1097,9 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
     token = nextToken env
     withFamily family = interpretGrouped (Env flat (family : grouped)) body
     placeholders groupAt = Map.fromList [(key, groupAt key) | key <- Map.keys keyMinimums]
-    placeholder minimum' flags = flaggedPlaceholder minimum' (flags, flags)
-    flaggedPlaceholder minimum' (reaches, unguarded) count classAt massAt =
-        Group (Model Nothing False count classAt minimum' Nothing reaches unguarded) 0 massAt
+    placeholder minimum' flags = flaggedPlaceholder minimum' (flags, flags, flags)
+    flaggedPlaceholder minimum' (reaches, unguarded, termless) count classAt massAt =
+        Group (Model Nothing False count classAt minimum' Nothing reaches unguarded termless) 0 massAt
 
     probe minimum' = placeholder minimum' (IntSet.singleton token) probeError probeError probeError
     probeWith minimumAt = withFamily $ placeholders $ probe . minimumAt
@@ -1031,7 +1122,7 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
 
     result = do
         probedGroups <- familyGroups probed
-        when (any (IntSet.member token . modelUnguarded . groupModel) probedGroups) $ Left UnguardedRecursion
+        when (any (IntSet.member token . guardFlags . groupModel) probedGroups) $ Left UnguardedRecursion
         when (Map.null minimumSizes) $ Left EmptyGenerator
         pure $ Map.filterWithKey (\key _ -> Map.member key minimumSizes) tiedGroups
 
@@ -1041,7 +1132,7 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
     tiedPlaceholders = placeholders $ \key ->
         flaggedPlaceholder
             (Map.lookup key minimumSizes)
-            (Map.findWithDefault (IntSet.empty, IntSet.empty) key keyFlags)
+            (Map.findWithDefault (IntSet.empty, IntSet.empty, IntSet.empty) key keyFlags)
             (tiedAt key 0 $ modelCount . groupModel)
             (tiedAt key [] $ modelClass . groupModel)
             (tiedAt key 0 groupMassAt)
@@ -1062,10 +1153,15 @@ recurGroupedFamily env@(Env flat grouped) body = case familyGroups probed of
                                 \key ->
                                     flaggedPlaceholder
                                         (Map.lookup key minimumSizes)
-                                        (Map.findWithDefault (IntSet.empty, IntSet.empty) key previous)
+                                        (Map.findWithDefault (IntSet.empty, IntSet.empty, IntSet.empty) key previous)
                                         probeError
                                         probeError
                                         probeError
-        flagsOf model' = (IntSet.delete token $ modelReaches model', IntSet.delete token $ modelUnguarded model')
+        flagsOf model' =
+            ( IntSet.delete token $ modelReaches model'
+            , IntSet.delete token $ modelUnguarded model'
+            , IntSet.delete token $ modelTermless model'
+            )
+    guardFlags model' = IntSet.union (modelUnguarded model') (modelTermless model')
     tiedAt :: Int -> b -> (Group Value -> Integer -> b) -> Integer -> b
     tiedAt key below field = maybe (const below) (memo below . field) $ Map.lookup key tiedGroups

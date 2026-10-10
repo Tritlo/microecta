@@ -18,6 +18,14 @@ tree automata of `microcfta`, with QuickCheck integration.
   structural `shrinkRank`, and `smallerMembers`. A generator keeps every
   construction failure as one `GenError` with `explain`, and `orFail` fails
   with that text.
+- Sizes count pays, as in FEAT: `pure` has size zero, an atom one, `<*>` adds
+  the sizes of its sides, and `pay`, which `Data.CFTA.Gen` and
+  `Data.CFTA.Ranked` export, adds one. A constructor pays one, so a built tree
+  and an imported term both count their nodes. The `Functor` and
+  `Applicative` laws hold for sizes. A recursion reaches its occurrence through
+  a pay, or through a product whose other side has no member of size zero,
+  and through a product or a constructor. See
+  `docs/adr/0002-sizes-count-pays.md`.
 - `Data.CFTA.Gen.QuickCheck`: `toGen`, `toGenWithRank`, `forAll` with
   size-minimal counterexamples, `sized`, and the frozen pools `samplePool`
   and `freeze`. `Data.CFTA.Gen.Do`: qualified applicative do-notation for
