@@ -31,10 +31,11 @@ module Data.CFTA.Gen.Internal.Automaton (
     automatonTermPosition,
     finiteAutomaton,
     declarationOrder,
+    datatypeDecoder,
     undecodableConstructor,
 ) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, (<=<))
 import qualified Control.Monad.State.Strict as State
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (
@@ -42,12 +43,13 @@ import Data.CFTA.Constraint (
     indicators,
     residual,
  )
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable, hash)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sort, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, isNothing, listToMaybe)
 import qualified Data.Set as Set
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Tree as Tree
@@ -75,10 +77,11 @@ import Data.CFTA.Gen.Internal.Static (Static, termStatic)
 import Data.CFTA.Gen.Internal.Support (unconstrainedEdge)
 import Data.CFTA.Gen.Internal.Symbolic (symbolicRanked)
 import qualified Data.CFTA.Gen.Internal.Table as Ordinary
-import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA)
+import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeDecode, datatypeFTA)
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Size (SizeIndex, SizedRank)
 import Data.CFTA.Refinement (AutomatonError (OpenAutomaton))
+import Data.CFTA.Symbol (Symbol)
 
 {- | Count and index the terms an automaton accepts, by size.
 
@@ -392,6 +395,30 @@ declarationOrder datatype = \label -> (Map.findWithDefault 0 label positions, la
             | row <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
             , (position, transition) <- zip [0 ..] row
             ]
+
+{- | Decode a term of an imported datatype grammar, whose symbols are the
+labels of its constructors, as a value.
+
+A constructor is found by the hash of its symbol, which the symbol computed
+once, and then by the identity of the symbol, so a lookup compares no label
+text. 'Data.CFTA.Generic.decodeLabelledTerm' finds it by the label text, and
+the labels of one type share a long prefix: on a probe that samples a
+datatype with integer literals, comparing them was a quarter of the
+instructions. The table is built once for each application to a datatype.
+-}
+datatypeDecoder :: TypedFTA annotation a -> Tree.Tree Symbol -> Maybe a
+datatypeDecoder datatype = datatypeDecode datatype <=< traverse constructorOf
+  where
+    table =
+        IntMap.fromListWith
+            (<>)
+            [ (hash symbol, [(symbol, constructor)])
+            | row <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
+            , transition <- row
+            , let constructor = FTA.transitionSymbol transition
+                  symbol = fromString $ constructorLabel constructor
+            ]
+    constructorOf symbol = lookup symbol =<< IntMap.lookup (hash symbol) table
 
 {- | Find a constructor that is in a term the codec rejects.
 
