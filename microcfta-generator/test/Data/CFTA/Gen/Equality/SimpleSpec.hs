@@ -7,10 +7,15 @@ cycles and equality constraints, as in the core package's check. A generator
 imported up to a depth has exactly the terms of the simple definition up to
 that depth, and every rank gives its term back. A recursive import has, at
 each size, the terms of the simple definition with that many nodes.
+
+The simple definition also gives the distribution. An import gives each term
+one rank, so its sampler draws each term with the same probability: one over
+the number of terms, or, at one size, one over the number of terms of that
+size.
 -}
 module Data.CFTA.Gen.Equality.SimpleSpec (spec) where
 
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, unless)
 import Data.CFTA.Index (Cardinality, Depth (..), everyRank)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
@@ -24,6 +29,7 @@ import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (Constraint, equalityConstraint, noConstraint)
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import qualified Data.CFTA.Gen.Equality as ECTAGen
+import Data.CFTA.Gen.Equality.TestSupport (decodesEveryRankExactly)
 import Data.CFTA.Interned (fromFTA, numNestedMu, toFTA)
 import Data.CFTA.Path (path)
 import qualified Data.CFTA.Simple as Simple
@@ -42,6 +48,8 @@ spec = describe "generation from equality automata against Data.CFTA.Simple" $ d
                     (depth, sort [term | rank <- ranks, Right term <- [ECTAGen.unrank generator rank]]) `shouldBe` (depth, expected)
                     (depth, [rank | rank <- ranks, (ECTAGen.rankOf generator =<< ECTAGen.termAt generator rank) /= Right rank])
                         `shouldBe` (depth, [])
+                    (depth, ECTAGen.pmf generator) `shouldBe` (depth, uniform expected)
+                    unless (null expected) $ decodesEveryRankExactly generator
 
     it "imports an automaton without constraints as its terms, by size when it is cyclic" $
         -- A recursive import cannot count an edge with constraints: its count is an intersection.
@@ -56,13 +64,17 @@ spec = describe "generation from equality automata against Data.CFTA.Simple" $ d
                     then -- An acyclic automaton gives one rank per distinct term.
                         sort [term | rank <- ranks, Right term <- [ECTAGen.unrank generator rank]] `shouldBe` sort (FTA.terms explicit)
                     else -- A cyclic one is counted by size, the number of nodes, and must be unambiguous.
-                        forM_ [1 .. 3] $ \size ->
+                        forM_ [1 .. 3] $ \size -> do
+                            let ofSize = [term | term <- simpleTerms 2 explicit, toEnum (length (Tree.flatten term)) == size]
+                                isAmbiguous = either (error . show) ambiguous (toFTA node)
                             (size, ECTAGen.countAtSize generator size)
                                 `shouldBe` ( size
-                                           , if either (error . show) ambiguous (toFTA node)
+                                           , if isAmbiguous
                                                 then Left ECTAGen.AmbiguousAutomaton
-                                                else Right (toEnum (length [term | term <- simpleTerms 2 explicit, toEnum (length (Tree.flatten term)) == size]))
+                                                else Right (toEnum (length ofSize))
                                            )
+                            unless (isAmbiguous || null ofSize) $
+                                (size, ECTAGen.pmfAtSize generator size) `shouldBe` (size, uniform ofSize)
 
 -- | A random explicit automaton: at most three states, one arity per symbol, and equality constraints.
 automaton :: Gen (FTA Int Symbol Constraint)
@@ -109,6 +121,13 @@ ambiguous explicit =
         let common = FTA.trim $ Simple.intersect (from left) (from right)
          in not $ null $ FTA.transitionsFrom common $ FTA.initialState common
     from state = either (error . show) id $ mkFTA state [(other, FTA.transitionsFrom explicit other) | other <- FTA.states explicit]
+
+{- | The distribution that gives each of the distinct terms the same
+probability. An empty language is an error of its own.
+-}
+uniform :: [a] -> Either ECTAGen.GenError [(a, Rational)]
+uniform [] = Left ECTAGen.EmptyGenerator
+uniform members = Right [(member, 1 / toRational (length members)) | member <- members]
 
 -- | The cardinality of a language with the given terms. An empty language is an error of its own.
 counted :: [a] -> Either ECTAGen.GenError Cardinality
