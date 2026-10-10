@@ -59,7 +59,6 @@ import Data.Bifunctor (first)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.String (fromString)
-import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 
 import qualified Data.CFTA as FTA
@@ -75,12 +74,12 @@ import Data.CFTA.Gen hiding (
     rankOfValue,
  )
 import qualified Data.CFTA.Gen as Gen
-import Data.CFTA.Gen.Internal.Automaton (declarationOrder, undecodableConstructor)
+import Data.CFTA.Gen.Internal.Automaton (datatypeDecoder, declarationOrder, undecodableConstructor)
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Types (Gen (..), Language (..), Recipe (..), withRecipe, pattern Transparent)
 import Data.CFTA.Gen.Refinement.Internal.Compile (spineArity, validOutcomes)
 import qualified Data.CFTA.Gen.Refinement.Internal.Compile as Compile
-import Data.CFTA.Generic (TypedFTA, constructorLabel, constructorName, datatypeDecode, datatypeFTA, decodeLabelledTerm)
+import Data.CFTA.Generic (TypedFTA, constructorLabel, constructorName, datatypeDecode, datatypeFTA)
 import Data.CFTA.Index (ArgumentIndex (..), Depth)
 import Data.CFTA.Refinement (
     Automaton,
@@ -597,8 +596,9 @@ fromDatatypeUpToDepth depth datatype =
                 (refinementFormula refinement)
                 (map (nodes Map.!) (FTA.transitionChildren transition))
                 constraint
+    decodeValue = datatypeDecoder datatype
     decode term =
-        case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) $ eraseRefinements term) of
+        case decodeValue $ eraseRefinements term of
             Just value -> value
             Nothing ->
                 error

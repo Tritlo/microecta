@@ -129,14 +129,13 @@ module Data.CFTA.Gen (
 import Data.Hashable (Hashable)
 import Data.String (fromString)
 import Data.Text (Text)
-import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
 import qualified Data.CFTA as FTA
 import Data.CFTA.Constraint (Constraint)
 import Data.CFTA.Gen.Error
-import Data.CFTA.Gen.Internal.Automaton (declarationOrder, undecodableConstructor)
+import Data.CFTA.Gen.Internal.Automaton (datatypeDecoder, declarationOrder, undecodableConstructor)
 import Data.CFTA.Gen.Internal.Flat hiding (fromAutomaton, fromAutomatonUpToDepth)
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Grouped
@@ -153,7 +152,6 @@ import Data.CFTA.Generic (
     constructorName,
     datatypeDecode,
     datatypeFTA,
-    decodeLabelledTerm,
  )
 import Data.CFTA.Index (Depth, Rank)
 import Data.CFTA.Interned (Node)
@@ -264,7 +262,8 @@ importDatatype datatype readAutomaton =
             | otherwise -> decode <$> readAutomaton (\(Symbol name) -> order name) (Common.fromFTA graph)
   where
     order = declarationOrder datatype
-    decode term = case decodeLabelledTerm datatype (fmap (\(Symbol label) -> Text.unpack label) term) of
+    decodeValue = datatypeDecoder datatype
+    decode term = case decodeValue term of
         Just value -> value
         Nothing ->
             error
