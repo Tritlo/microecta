@@ -5,21 +5,27 @@
 module Data.CFTASpec (spec) where
 
 import Control.Monad (forM_)
+import Data.Functor.Identity (runIdentity)
 import Data.Monoid (Sum (..))
 import Data.Proxy (Proxy (Proxy))
 import qualified Data.Tree as Tree
 import Data.Typeable (typeRep)
 import GHC.Generics (Generic)
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldNotBe, shouldSatisfy)
 
 import Data.CFTA (Transition (Transition), statesAt)
 import qualified Data.CFTA as Automaton
 import Data.CFTA.Constraint (Guard (..), equalitiesHold, equalityConstraint, noConstraint, residual, semanticConstraint)
+import qualified Data.CFTA.Enumeration as Enumeration
 import Data.CFTA.Equality.Constraint (mkEqConstraints)
 import qualified Data.CFTA.Generic as Datatype
+import Data.CFTA.Index (Depth (..))
 import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
+import Data.CFTA.Interned.Type (MuDepth (..))
 import Data.CFTA.Path (getPath, path)
+import Data.CFTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
     deriving (Eq, Ord, Show)
@@ -123,6 +129,20 @@ spec = do
                 `shouldBe` [False, True, False]
             Common.intersect choices choices `shouldBe` choices
 
+        it "imports a recursive explicit automaton as a Mu node" $ do
+            case Automaton.mkFTA "nat" [("nat", [Transition "z" [] noConstraint, Transition "s" ["nat"] noConstraint])] of
+                Left err -> expectationFailure $ show err
+                Right nat -> do
+                    let imported = Common.fromFTA nat :: Common.Node String
+                    imported `shouldBe` Common.createMu (\self -> Common.Node [Common.Edge "z" [], Common.Edge "s" [self]])
+                    Common.numNestedMu (Common.fromFTA (Automaton.boundDepth 2 nat) :: Common.Node String) `shouldBe` 0
+                    forM_ [0 .. 3] $ \depth -> do
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth nat)
+                        Enumeration.plainTermsAtMost depth imported
+                            `shouldBe` Automaton.terms (Automaton.boundDepth depth nat)
+                    take 3 (Enumeration.plainTermsAtMost (Depth maxBound) imported) `shouldBe` take 3 (Enumeration.plainTerms imported)
+
         it "substitutes the variable of each Mu by itself as the identity" $ do
             let nested =
                     Common.createMu $ \outer ->
@@ -138,6 +158,92 @@ spec = do
                 forM_ (mus node) $ \mu -> do
                     let self = Common.RecInt (Common.internedMuId mu)
                     Common.substFree self (Common.Rec self) (Common.internedMuBody mu) `shouldBe` Common.internedMuBody mu
+
+        it "imports mutually recursive states with nested binders" $ do
+            let rows =
+                    [ ("a", [Transition "leaf" [] noConstraint, Transition "f" ["b"] noConstraint])
+                    , ("b", [Transition "g" ["a", "b"] noConstraint, Transition "h" ["a"] noConstraint])
+                    ]
+            case Automaton.mkFTA "a" rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    Common.freeVars imported `shouldBe` mempty
+                    forM_ [0 .. 4] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
+
+        it "binds each state of a strongly connected component at most once on a path" $
+            forM_ [1 .. 4] $ \size -> do
+                -- Every state has a leaf and an edge to every state.
+                let rows =
+                        [ ( state
+                          , Transition "leaf" [] noConstraint : [Transition ("to" <> show next) [next] noConstraint | next <- [0 .. size - 1]]
+                          )
+                        | state <- [0 .. size - 1 :: Int]
+                        ]
+                case Automaton.mkFTA 0 rows of
+                    Left err -> expectationFailure $ show err
+                    Right graph -> do
+                        let imported = Common.fromFTA graph :: Common.Node String
+                        Common.numNestedMu imported `shouldBe` MuDepth size
+                        -- One binder, with one body, for each sequence of distinct
+                        -- states from the root: the sum of (size - 1)! / (size - d)!.
+                        Common.nodeCount imported `shouldBe` [1, 2, 5, 16] !! (size - 1)
+                        forM_ [0 .. 2] $ \depth ->
+                            Enumeration.terms (Common.boundDepth depth imported)
+                                `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
+
+        it "imports a long cycle with one binder" $ do
+            -- Each state has its own leaf and an edge to the next state. Only the
+            -- first state needs a binder: every other state is on a cycle only
+            -- through the first state.
+            let size = 32 :: Int
+                rows =
+                    [ ( state
+                      ,
+                          [ Transition ("leaf" <> show state) [] noConstraint
+                          , Transition "next" [(state + 1) `mod` size] noConstraint
+                          ]
+                      )
+                    | state <- [0 .. size - 1]
+                    ]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    finished <- timeout 10000000 $ Common.nodeCount imported `shouldBe` size
+                    finished `shouldBe` Just ()
+                    Common.numNestedMu imported `shouldBe` 1
+                    forM_ [0 .. 3] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
+
+        it "imports and unfolds a two-way chain in time polynomial in its length" $ do
+            -- Each state has its own leaf and edges to both neighbours, so each
+            -- state gets a binder inside the binder of the state before it.
+            -- Building or unfolding each binder again for each application of
+            -- its body took time exponential in the length.
+            let size = 40 :: Int
+                rows =
+                    [ ( state
+                      , Transition ("leaf" <> show state) [] noConstraint
+                            : [Transition "next" [state + 1] noConstraint | state < size - 1]
+                                <> [Transition "prev" [state - 1] noConstraint | state > 0]
+                      )
+                    | state <- [0 .. size - 1]
+                    ]
+            case Automaton.mkFTA 0 rows of
+                Left err -> expectationFailure $ show err
+                Right graph -> do
+                    let imported = Common.fromFTA graph :: Common.Node String
+                    finished <- timeout 10000000 $ do
+                        Common.nodeCount imported `shouldBe` size
+                        Common.nodeCount (Common.unfoldOuterRec imported) `shouldBe` 2 * size
+                    finished `shouldBe` Just ()
+                    forM_ [0 .. 3] $ \depth ->
+                        Enumeration.terms (Common.boundDepth depth imported)
+                            `shouldMatchList` Automaton.terms (Automaton.boundDepth depth graph)
 
         it "preserves recursive intersections and the explicit graph view" $ do
             let naturals = Common.createMu $ \rec ->
@@ -196,6 +302,16 @@ spec = do
             Common.toFTA open `shouldBe` Left Common.OpenNode
             Common.toTree open `shouldBe` Left Common.OpenNode
 
+        it "unfolds a recursive node a bounded number of times and refolds it" $ do
+            let naturals = Common.createMu $ \rec ->
+                    Common.Node [Common.Edge "zero" [], Common.Edge "succ" [rec]] :: Common.Node String
+                terms = take 4 $ iterate (\term -> Tree.Node "succ" [term]) (Tree.Node "zero" [])
+                bounded = Common.unfoldBounded 2 naturals
+            map (acceptPlain bounded) terms `shouldBe` [True, True, False, False]
+            Common.refold (Common.unfoldOuterRec naturals) `shouldBe` naturals
+            take 3 (Enumeration.plainTerms naturals) `shouldBe` take 3 terms
+            Enumeration.plainTerms bounded `shouldBe` take 2 terms
+
         it "imports an acyclic explicit graph and exposes it again unchanged" $ do
             let rows =
                     [ (0 :: Int, [Transition "pair" [1, 1] noConstraint, Transition "leaf" [] noConstraint])
@@ -248,6 +364,46 @@ spec = do
                 redundant = Common.Node [Common.Edge "f" [leaf], Common.Edge "f" [both]]
             Common.edgeCount (Common.withoutRedundantEdges redundant) `shouldBe` 3
             acceptPlain (Common.withoutRedundantEdges redundant) (Tree.Node "f" [Tree.Node "a" []]) `shouldBe` True
+
+        it "removes a subsumed alternative of a recursive node and keeps its language" $ do
+            let leaf = Common.Node [Common.Edge "a" []] :: Common.Node String
+                -- The last pair accepts a subset of the terms of the first pair.
+                subsumed = Common.createMu $ \self ->
+                    Common.Node [Common.Edge "a" [], Common.Edge "pair" [self, self], Common.Edge "pair" [self, leaf]]
+                -- The two pairs share only some terms, so both stay.
+                overlapping = Common.createMu $ \self ->
+                    Common.Node [Common.Edge "a" [], Common.Edge "pair" [leaf, self], Common.Edge "pair" [self, leaf]]
+                reduced = Common.withoutRedundantEdges subsumed
+            reduced `shouldBe` Common.createMu (\self -> Common.Node [Common.Edge "a" [], Common.Edge "pair" [self, self]])
+            Common.withoutRedundantEdges overlapping `shouldBe` overlapping
+            forM_ [0 .. 4] $ \depth ->
+                Enumeration.terms (Common.boundDepth depth reduced)
+                    `shouldMatchList` Enumeration.terms (Common.boundDepth depth subsumed)
+
+    describe "templates" $
+        it "restricts an automaton and an interned graph to the matching terms" $
+            case Automaton.mkFTA
+                Expression
+                [(Expression, [Transition "zero" [] noConstraint, Transition "add" [Expression, Expression] noConstraint])] of
+                Left err -> expectationFailure $ show err
+                Right expressions -> do
+                    let template = TemplateNode "add" [TemplateNode "zero" [], Hole]
+                        bounded = Automaton.boundDepth 2 expressions
+                        expected = filter (matchesTemplate template) (Automaton.terms bounded)
+                    length expected `shouldBe` 2
+                    Automaton.terms (restrictFTA template bounded) `shouldMatchList` expected
+                    Enumeration.plainTerms (restrict template (Common.fromFTA bounded)) `shouldBe` expected
+                    -- The check constrains every "add" node, and the root "zero" passes it.
+                    let accept _ transition term = pure (Automaton.transitionSymbol transition /= "add" || matchesTemplate template term)
+                        zero = Tree.Node "zero" []
+                        add left right = Tree.Node "add" [left, right]
+                    runIdentity (Automaton.termsUpToM accept 2 expressions)
+                        `shouldMatchList` [zero, add zero zero, add zero (add zero zero)]
+                    runIdentity (Automaton.termsUpToM (\_ _ _ -> pure True) 2 expressions) `shouldBe` Automaton.terms bounded
+                    -- The same check decides membership one term at a time.
+                    map (runIdentity . Automaton.acceptsM accept expressions) [zero, add zero zero, add (add zero zero) zero]
+                        `shouldBe` [True, True, False]
+                    runIdentity (Automaton.acceptsM accept expressions (Tree.Node "mul" [zero, zero])) `shouldBe` False
 
     describe "explicit-state recognition" $
         it "rejects a transition whose guard is Bottom, as the interned view does" $ do
