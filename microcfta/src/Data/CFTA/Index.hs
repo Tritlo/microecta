@@ -25,6 +25,11 @@ module Data.CFTA.Index (
     nextOffset,
     offsetRank,
     rebaseRank,
+    Size (..),
+    ClassRank (..),
+    classMemberRank,
+    Weight (..),
+    countWeight,
 ) where
 
 import Data.Hashable (Hashable)
@@ -143,3 +148,37 @@ offsetRank (RankOffset offset) (Rank rank) = Rank (offset + rank)
 rebaseRank :: RankOffset -> Rank -> Rank
 rebaseRank (RankOffset offset) (Rank rank) = Rank (rank - offset)
 {-# INLINE rebaseRank #-}
+
+{- | The size of a term, or the size of the members of one size class.
+
+The size of a generated member is its number of source choices. The size of
+an accepted term of an automaton is its number of nodes. An atom has size one.
+-}
+newtype Size = Size Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum)
+
+{- | The zero-based rank of a member inside its size class.
+
+The members of a size class with @n@ members have the class ranks
+@0 .. n - 1@.
+-}
+newtype ClassRank = ClassRank Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum)
+
+-- | The rank of a member, from the first rank of its size class and its rank in the class.
+classMemberRank :: RankOffset -> ClassRank -> Rank
+classMemberRank (RankOffset offset) (ClassRank classRank) = Rank (offset + classRank)
+{-# INLINE classMemberRank #-}
+
+{- | The relative frequency weight of an alternative or a value.
+
+A sampler selects an alternative in proportion to its weight. A weight does
+not change a rank or a cardinality.
+-}
+newtype Weight = Weight Integer
+    deriving newtype (Eq, Ord, Show, Num, Enum, Real)
+
+-- | The weight of a group with the given number of members, when each member weighs one.
+countWeight :: Cardinality -> Weight
+countWeight (Cardinality count) = Weight count
+{-# INLINE countWeight #-}
