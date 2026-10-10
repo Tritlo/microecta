@@ -152,3 +152,15 @@ Every symbolic type reduces to integers, so one counter serves all of them, and
 a contract can relate values of different types in one formula. The ADR lists
 what does not fit: real numbers have no count and no rank, bit-vector
 wraparound is not modelled, and a `Bool` child is an integer in a contract.
+
+## Future directions
+
+GHC's type checker could be a decider. The engine decides through an
+`Entailment`, so any decision procedure can stand behind it. Through the GHC
+API, an `Entailment` could ask the type checker of GHC instead of Z3. The type
+checker decides type equality and class constraints, and type-checker plugins
+such as `ghc-typelits-natnormalise` decide type-level arithmetic. A guard could
+also give a candidate term to the type checker, so that a generator gives only
+Haskell expressions that are well typed. The cost is a dependency: the GHC API
+is the `ghc` package, which ties the library to one GHC version. Counting does
+not change: the lattice counter counts, and the type checker only decides.
