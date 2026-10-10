@@ -300,30 +300,22 @@ getUVarValue uv = do
     values <- gets _uvarValues
     return $ Sequence.index values idx
 
-{- | The fragment the root UVar holds, or the root hole itself.
+{- | Replace the value of a UVar.
 
-An automaton that is a bare 'Mu' is never expanded, because an unconstrained
-'Mu' is where enumeration stops. Its root stays a hole, exactly as a nested one
-does.
+Unlike 'getUVarValue', this writes the UVar itself, not its representative.
+'assimilateUvarVal' needs this to eliminate a UVar that was a representative
+before a union.
 -}
-rootTermFrag :: EnumerateM symbol (TermFragment symbol)
-rootTermFrag = do
-    value <- getUVarValue root
-    return $ case value of
-        UVarEnumerated fragment -> fragment
-        _ -> TermFragmentUVar root
-  where
-    root = intToUVar 0
+setUVarValue :: UVar -> UVarValue symbol -> EnumerateM symbol ()
+setUVarValue uv val =
+    modify' $ \s -> s{_uvarValues = Sequence.update (uvarToInt uv) val (_uvarValues s)}
 
-setUVarValue :: Int -> UVarValue symbol -> EnumerateM symbol ()
-setUVarValue idx val =
-    modify' $ \s -> s{_uvarValues = Sequence.update idx val (_uvarValues s)}
-
+-- | Apply a function to the value of a UVar. Like 'setUVarValue', it writes the UVar itself.
 modifyUVarValue ::
-    Int -> (UVarValue symbol -> UVarValue symbol) -> EnumerateM symbol ()
-modifyUVarValue idx f = do
+    UVar -> (UVarValue symbol -> UVarValue symbol) -> EnumerateM symbol ()
+modifyUVarValue uv f = do
     values <- gets _uvarValues
-    setUVarValue idx (f (Sequence.index values idx))
+    setUVarValue uv (f (Sequence.index values (uvarToInt uv)))
 
 ---------------------
 -------- Creating UVar's
@@ -352,8 +344,8 @@ assimilateUvarVal uvTarg uvSrc
             _ -> do
                 let v = intersectUVarValue srcVal targVal
                 guard $ not $ hasEmptyContents v
-                setUVarValue (uvarToInt uvTarg) v
-                setUVarValue (uvarToInt uvSrc) UVarEliminated
+                setUVarValue uvTarg v
+                setUVarValue uvSrc UVarEliminated
                 modify' $ \s -> case IntMap.lookup (uvarToInt uvSrc) (_recursionAncestry s) of
                     Nothing -> s
                     Just ancestry -> s{_recursionAncestry = IntMap.insertWith HashSet.union (uvarToInt uvTarg) ancestry (_recursionAncestry s)}
@@ -365,7 +357,7 @@ mergeNodeIntoUVarVal ::
 mergeNodeIntoUVarVal uv n scs = do
     uv' <- getUVarRepresentative uv
     let idx = uvarToInt uv'
-    modifyUVarValue idx (intersectUVarValue (UVarUnenumerated (Just n) scs))
+    modifyUVarValue uv' (intersectUVarValue (UVarUnenumerated (Just n) scs))
     inheritAncestry idx
     newValues <- gets _uvarValues
     guard $ not $ hasEmptyContents $ Sequence.index newValues idx
@@ -562,7 +554,7 @@ enumerateOutUVar uv =
             _ -> enumerateNode scs n
 
         modify' $ \s -> s{_expansionAncestry = HashSet.empty}
-        setUVarValue (uvarToInt uv') (UVarEnumerated t)
+        setUVarValue uv' (UVarEnumerated t)
         return t
 
 -- | Expand the root UVar until it represents a complete term.
@@ -623,7 +615,7 @@ enumerateFully' ost order oracle = do
                                     -- The expansion of this node with these paths led to it
                                     -- again, so each further expansion repeats the last one.
                                     -- Enumeration stops here, as at an unconstrained 'Mu'.
-                                    setUVarValue (uvarToInt uv') (UVarUnenumerated (Just n) Sequence.Empty)
+                                    setUVarValue uv' (UVarUnenumerated (Just n) Sequence.Empty)
                                     enumerateFully' ost order oracle
                                 else expand n
                         _ -> expand n
@@ -631,6 +623,21 @@ enumerateFully' ost order oracle = do
 ---------------------
 -------- Expanding an enumerated term fragment into a term
 ---------------------
+
+{- | The fragment the root UVar holds, or the root hole itself.
+
+An automaton that is a bare 'Mu' is never expanded, because an unconstrained
+'Mu' is where enumeration stops. Its root stays a hole, exactly as a nested one
+does.
+-}
+rootTermFrag :: EnumerateM symbol (TermFragment symbol)
+rootTermFrag = do
+    value <- getUVarValue root
+    return $ case value of
+        UVarEnumerated fragment -> fragment
+        _ -> TermFragmentUVar root
+  where
+    root = intToUVar 0
 
 {- | Expand a fragment even if it still contains unenumerated UVars.
 
