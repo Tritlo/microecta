@@ -1,0 +1,437 @@
+cabal-version: 3.0
+name: microcfta-generator
+version: 0.1.0.0
+synopsis: Generators, ranking, and QuickCheck integration for constrained tree automata
+description:
+  Ranked enumeration, random generation, shrinking, and QuickCheck
+  integration for the automata of microcfta: ordinary, equality-constrained,
+  and refinement-constrained.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microcfta-generator#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Testing
+author: Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microcfta-generator
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wno-pattern-namespace-specifier
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    PatternGuards
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.CFTA.Gen
+    Data.CFTA.Gen.Do
+    Data.CFTA.Gen.Equality
+    Data.CFTA.Gen.Equality.QuickCheck
+    Data.CFTA.Gen.Error
+    Data.CFTA.Gen.Internal.Automaton
+    Data.CFTA.Gen.Internal.Bucket
+    Data.CFTA.Gen.Internal.Chain
+    Data.CFTA.Gen.Internal.Flat
+    Data.CFTA.Gen.Internal.Grouped
+    Data.CFTA.Gen.Internal.Inspection
+    Data.CFTA.Gen.Internal.Join
+    Data.CFTA.Gen.Internal.Query
+    Data.CFTA.Gen.Internal.Recur
+    Data.CFTA.Gen.Internal.Recursive
+    Data.CFTA.Gen.Internal.Static
+    Data.CFTA.Gen.Internal.Support
+    Data.CFTA.Gen.Internal.Symbolic
+    Data.CFTA.Gen.Internal.Table
+    Data.CFTA.Gen.Internal.Types
+    Data.CFTA.Gen.Label
+    Data.CFTA.Gen.QuickCheck
+    Data.CFTA.Gen.Refinement
+    Data.CFTA.Gen.Refinement.QuickCheck
+    Data.CFTA.Gen.Sig
+    Data.CFTA.Ranked
+    Data.CFTA.Ranked.Internal
+    Data.CFTA.Ranked.Internal.Decoder
+    Data.CFTA.Ranked.Internal.Sampler
+    Data.CFTA.Ranked.Internal.Shrink
+    Data.CFTA.Ranked.Internal.Size
+    Data.CFTA.Ranked.QuickCheck
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.Internal.Compile
+    Data.CFTA.Gen.Refinement.Internal.Witness
+
+  build-depends:
+    array >=0.5 && <0.6,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    microcfta >=0.1.0.0 && <0.2,
+    mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
+executable cfta-pairs
+  import: warnings
+  main-is: FinitePairs.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-finite-languages
+  import: warnings
+  main-is: FiniteLanguages.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-draw-typed-expressions
+  import: warnings
+  main-is: DrawTypedExpressions.hs
+  hs-source-dirs:
+    common
+    examples
+
+  default-language: Haskell2010
+  other-modules:
+    Data.CFTA.Gen.TypedExpressionLanguage
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
+executable cfta-liquid-pairs
+  import: warnings
+  main-is: LiquidPairs.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  default-extensions: OverloadedStrings
+  build-depends:
+    base >=4.22 && <4.23,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-safe-division
+  import: warnings
+  main-is: SafeDivision.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-bounded-reads
+  import: warnings
+  main-is: BoundedReads.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-red-black-trees
+  import: warnings
+  main-is: RedBlackTrees.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-sorted-lists
+  import: warnings
+  main-is: SortedLists.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-typed-values
+  import: warnings
+  main-is: TypedValues.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+executable cfta-automaton-interop
+  import: warnings
+  main-is: AutomatonInterop.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+test-suite gen-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: GenTests.hs
+  hs-source-dirs:
+    common
+    test
+
+  default-extensions: PartialTypeSignatures
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -Wno-partial-type-signatures
+
+  other-modules:
+    Data.CFTA.Gen.Equality.DatatypeGenSpec
+    Data.CFTA.Gen.Equality.GenSpec
+    Data.CFTA.Gen.Equality.IFCExpressionGenSpec
+    Data.CFTA.Gen.Equality.IFCExpressionLanguage
+    Data.CFTA.Gen.Equality.RankDecodingSpec
+    Data.CFTA.Gen.Equality.RecursiveGenSpec
+    Data.CFTA.Gen.Equality.SimpleSpec
+    Data.CFTA.Gen.Equality.TestSupport
+    Data.CFTA.Gen.Equality.TypedExpressionGenSpec
+    Data.CFTA.Gen.Reference
+    Data.CFTA.Gen.ReferenceSpec
+    Data.CFTA.Gen.TypedExpressionLanguage
+    Data.CFTA.Gen.UntypedExpressionLanguage
+    Data.CFTA.GenSpec
+    Data.CFTA.RankedSpec
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    hspec >=2.11 && <2.12,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
+test-suite refinement-tests
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: RefinementSpec.hs
+  hs-source-dirs:
+    common
+    test
+
+  ghc-options: -rtsopts
+  default-language: Haskell2010
+  default-extensions:
+    ApplicativeDo
+    NamedFieldPuns
+    OverloadedStrings
+    PatternSynonyms
+    QualifiedDo
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.BoundedGeneratorSpec
+    Data.CFTA.Gen.Refinement.CompileSpec
+    Data.CFTA.Gen.Refinement.DependentApplicationSpec
+    Data.CFTA.Gen.Refinement.ExampleSupport
+    Data.CFTA.Gen.Refinement.OracleSpec
+    Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
+    Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
+    Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
+    Data.CFTA.Gen.Refinement.SafeBufferLanguage
+    Data.CFTA.Gen.Refinement.SafeBufferSpec
+    Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
+    Data.CFTA.Gen.Refinement.SizedVectorLanguage
+    Data.CFTA.Gen.Refinement.SizedVectorSpec
+    Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
+    Data.CFTA.Gen.Refinement.StateMachineTraceSpec
+    Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
+    Data.CFTA.Gen.Refinement.TestSupport
+    Data.CFTA.Gen.Refinement.TypedExpressionLanguage
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    directory >=1.3 && <1.4,
+    hspec >=2.11 && <2.12,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
+benchmark untyped-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: UntypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.UntypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+
+benchmark typed-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.TypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+    text >=2.1 && <2.2,
+
+benchmark state-machine-trace-speed
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: StateMachineTraceSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  default-language: Haskell2010
+  default-extensions: NamedFieldPuns
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.ExampleSupport
+    Data.CFTA.Gen.Refinement.StateMachineTraceLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+
+benchmark typed-expression-constraint-cost
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionConstraintCost.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  default-language: Haskell2010
+  default-extensions: NamedFieldPuns
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage
+    Data.CFTA.Gen.TypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+    text >=2.1 && <2.2,

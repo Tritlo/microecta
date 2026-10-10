@@ -1,0 +1,133 @@
+# Changelog
+
+## 0.1.0.0 - Unreleased
+
+Initial release. `microcfta` consolidates an ordinary tree automaton engine,
+equality-constrained tree automata, and liquid tree automata into one package
+with one representation. The equality layer descends from `microecta`, which
+remains a separate ECTA-only package.
+
+- `Data.CFTA` and `Data.CFTA.Interned`: the explicit-state and interned
+  automata. The interned automaton has one `Constraint` on every edge, and
+  the explicit-state automaton has an annotation parameter. Ordinary automata use `noConstraint`.
+  Recognition, depth bounds, product intersection, union, templates, paths,
+  datatype derivation with `HasFTA`, constructor annotation by name with
+  `annotateConstructors`, and level-by-level enumeration with
+  `terms` and `termsUpToM` are in these modules.
+- `Data.CFTA.Equality`: equality-constrained automata as
+  `Node symbol` with `equalityConstraint` edges, with reduction, membership, template
+  restriction, and enumeration with unification variables. An automaton with
+  no equality constraint and no recursion is enumerated by the shared
+  enumerator.
+- `Data.CFTA.Refinement`: liquid tree automata as
+  `Node Symbol`, built with the interned constructors;
+  the module re-exports `Data.CFTA.Interned`. It has the paper's Boolean guard
+  language, actual-for-formal position substitution, transition-level semantic
+  pruning, similarity, minimization, recursive nodes under the acyclic-guard
+  restriction checked by `validate`, a bounded reference denotation on the
+  shared enumerator, and the Z3 entailment in
+  `Data.CFTA.Refinement.LiquidFixpoint`, which declares every free name as an
+  integer. `Data.CFTA.Refinement.Guard` builds transitions from guards that
+  name the constructor arguments, `contract` states a formula about the
+  children's values, and `measureTerm` reads the measure of a constructed
+  term from the measures of its children.
+- `Data.CFTA.Refinement.Expression`: the refinement logic. A refinement is a
+  Haskell function of the value, as in `\v -> v ./= 0`. Terms take integer
+  literals and arithmetic through `Num`; the comparisons are `.==`, `./=`,
+  `.<`, `.<=`, `.>`, and `.>=`, and the connectives are `.&&`, `.||`, and
+  `lnot`. `Formula` is the closed formula that the engine stores, and
+  `refinementFormula` gives the formula of a refinement about the value
+  variable, the reserved name `valueName` of `Data.CFTA.Symbol`. `Literal`
+  gives the integer that stands for each value of a type, the value of each
+  integer, and the range of a bounded type. It has instances for integral
+  types, `Bool`, `Char`, `Ordering`, and `()`, and for enumerations through
+  `Enumerated`. `literal` writes a value as a term. `substitute` replaces named values by terms,
+  `definingTerm` reads the term of a formula `v .== t`, and `freeNames` lists
+  the names of a formula.
+- `Data.CFTA.Refinement.Lattice`: the exact number of integer points of a
+  linear formula over bounded variables, the point at each rank in
+  lexicographic order, and the rank of each point, without enumeration. The formula becomes a signed sum
+  of conjunctions, and the variables are summed out with Faulhaber
+  polynomials. `onlyPoint` reads the one integer that a formula admits.
+  `latticeEntailment` is an `Entailment` without a solver: it counts the
+  integer points that satisfy the antecedent and falsify the consequent, and
+  answers `Unknown` for a formula it cannot count.
+- `Data.CFTA.Enumeration`: one enumerator for every theory. `terms` solves
+  path equalities by unification and stops at recursion, `plainTerms` lists an
+  automaton without constraints lazily by depth, and `runs` returns each
+  accepting run with the residual constraints it must satisfy. The pruning
+  oracles are `termsPrune` and `termsPruneWith`.
+- `Data.CFTA.Simple`: the automata defined as simply as possible, on the
+  explicit-state automata of `Data.CFTA`. Membership recurses on the term,
+  the terms up to a depth are every accepted tree of the underlying graph,
+  and union, intersection, and the depth bound are the textbook
+  constructions. The tests check the interned automata, enumeration, the
+  reductions, and the liquid automata against it.
+- Enumeration removes duplicate terms with a hash set, so `terms` and
+  `termsUpToM` of `Data.CFTA` need `Hashable symbol`. With an optimized
+  `hashable`, this takes less than half the time of an ordered set on the
+  ambiguous enumeration benchmarks.
+- `Data.CFTA.Symbol`: one interned `Symbol` type for every layer. A symbol is a
+  text and a refinement, which is `PTrue` for an ordinary symbol.
+  `RefinedSymbol` builds and matches a refined symbol, and `symbolText`,
+  `symbolRefinement`, `unrefined`, and `eraseRefinements` read and edit it.
+- Each equality class caches its hash, and path tries hash without a list
+  conversion, so interning an edge no longer rehashes its constraint's trie.
+  Class completion in `mkEqConstraints` is an in-package union-find, which
+  removes the `equivalence` dependency. Over the core benchmark suite this
+  cut allocation by 46% and instructions by 41%. The unfolding of each
+  recursive node is shared, so repeated listings of a `Mu` do not rebuild it.
+  The intersection memo hashes its recursive environment once, the common
+  `Symbol`/`EqConstraints` instantiation has its own memo tables, and the
+  equality reduction restricts and edits every required path of an edge in
+  one traversal, which cut a further 15% of instructions and 17% of
+  allocation on that suite.
+- The refinement layer's `denotationAtMost` runs on the shared enumerator: a
+  positive `Same` guard is a path equality solved by unification, so an
+  equality-guarded pair costs milliseconds instead of a quadratic candidate
+  filter, and an unconstrained bounded automaton is listed without interning.
+- `Data.CFTA.Interned.fromFTA` imports a recursive graph as `Mu` nodes, and
+  `boundDepth` bounds an interned graph by tree depth;
+  `Data.CFTA.Enumeration.plainTermsAtMost` lists a graph up to a depth without
+  building the bounded graph. The reduction in
+  `Data.CFTA.Equality.Operations` narrows children by the `equalities` of any
+  constraint.
+- LTA pruning narrows equal positions to their intersection through that
+  reduction, specializes nodes bottom up and shares each result by node
+  identity, and prunes a recursive node to a fixed point. Minimization runs
+  the paper's M-Trans on the explicit view and interns the result. There is no
+  separate state type, syntax module, or lowering to an equality automaton:
+  residual positive equalities stay on the transition as its `equalities`.
+- One vocabulary across the layers: membership is `accepts` (`acceptsWith`
+  on the interned engine takes the constraint interpreter), the equality
+  theory's constraints are in `Data.CFTA.Equality.Constraint` beside the
+  equality facade, the bounded denotation reports a `DenotationError`, and
+  both theory facades re-export the engine, the paths, the enumerator, and
+  the templates.
+- `Data.CFTA.Constraint`: one `Constraint` data type for every kind of
+  automaton: path equalities (`constraintEqualities`) and a `Guard`
+  (`constraintGuard`). `noConstraint`, `equalityConstraint`, and
+  `semanticConstraint` build one, and `conjoinConstraints` conjoins two. A
+  guard (`Satisfies`, `Holds`) adds a constraint that a solver decides.
+  `PlainFTA` is an `FTA state symbol Constraint` whose transitions carry
+  `noConstraint`.
+
+### Differences from microecta 0.1.0.0
+
+- The type of an ECTA is `Node symbol`; there is no separate
+  ECTA node type. `edgeEcs` is `edgeConstraint`, a `Constraint`, and the FTA views return
+  `FTAViewError`.
+- Concrete terms are `Data.Tree.Tree` from `containers`, and partial or
+  truncated enumeration uses `PartialSymbol symbol` rather than inventing
+  symbols in the caller's alphabet.
+- The hash-consing and memo tables are immutable maps updated atomically, so
+  building automata from several threads is safe. Edge joins are keyed on the
+  symbol itself rather than on its hash.
+- `terms` truncates at recursion and lists an unconstrained node through
+  the shared enumerator, so each such term appears once.
+- `reduceEqConstraints` repeats its pass over an edge's classes until the
+  children stop changing, so its result is a fixpoint. One pass could leave
+  children that a second call narrowed further.
+- The term-search application layer is not part of the library.
+- The `Pretty` class and the path-trie `Ord` instance are gone; `show` the
+  constraint, or compare equality classes by their path lists.

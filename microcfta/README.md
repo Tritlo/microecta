@@ -1,0 +1,1282 @@
+# microcfta
+
+Constrained finite tree automata for Haskell. One interned, hash-consed graph
+`Node symbol` describes a set of trees, and a checked explicit-state view
+`FTA state symbol annotation` names its states. Every edge carries one
+`Constraint`, which is a set of path equalities and a Boolean guard. The
+constraint selects how much a transition can say:
+
+| Constraint | Built with | The transition says | Layer |
+| --- | --- | --- | --- |
+| none | `noConstraint` | These constructor shapes exist. | `Data.CFTA`, `Data.CFTA.Interned` |
+| path equality | `equalityConstraint` | These child positions hold the same term. | `Data.CFTA.Equality` |
+| refinement | `semanticConstraint` | This position's refinement implies that predicate. | `Data.CFTA.Refinement` |
+
+The ordinary layer is a finite tree automaton (FTA). The equality layer is the
+equality-constrained tree automaton (ECTA) of Koppel, Guo, de Vries,
+Solar-Lezama and Polikarpova, [*Searching Entangled Program Spaces*, Proc.
+ACM Program. Lang. 6(ICFP), 2022](https://doi.org/10.1145/3547622); its
+engine descends from the
+[`microecta`](https://hackage.haskell.org/package/microecta) package, which
+remains a separate, ECTA-only line. The refinement layer is the liquid tree
+automaton (LTA) of Mishra and Jagannathan, with Liquid Fixpoint refinements and
+Z3 entailment. Concrete terms are `Data.Tree.Tree` from `containers`.
+
+- Derive `HasFTA` for your datatype to get a grammar, constructor metadata, and
+  codecs between Haskell values and constructor trees.
+- Restrict a language: choose finite literal domains, bound tree depth,
+  intersect grammars, and restrict to a template.
+- Interned nodes share equal subgraphs across construction and operations.
+- Add constraints only where you need them. The plain level-by-level
+  enumerator lists an automaton with no constraints. Reduction propagates
+  equality constraints, and enumeration solves them by unification. Pruning
+  with a solver discharges refinement guards.
+
+## Operations at a glance
+
+The ordinary layer constructs and transforms grammars, and checks supplied
+values. `terms` lists the accepted terms by depth. Language cardinality, random
+sampling, replay, and shrinking belong to the separate `microcfta-generator`
+package.
+
+The table uses these module aliases:
+
+```haskell
+import qualified Data.CFTA as FTA
+import qualified Data.CFTA.Enumeration as Enumeration
+import qualified Data.CFTA.Generic as Generic
+import qualified Data.CFTA.Interned as Common
+import qualified Data.CFTA.Template as Template
+```
+
+| Operation | API | Result |
+| --- | --- | --- |
+| Derive a grammar from a datatype | `Generic.deriveFTA`, `Generic.deriveFTAWith` | A grammar with constructor metadata and typed codecs. |
+| Build a grammar with named states | `FTA.mkFTA` | A checked explicit-state graph. |
+| Build a grammar from supplied trees | `FTA.fromTerms` | A grammar that accepts those trees. |
+| Encode or decode one value | `Generic.encodeTerm`, `Generic.datatypeDecode` | A constructor tree or a typed value. This does not enumerate the grammar. |
+| Check membership | `FTA.accepts`, `Common.acceptsWith` | Whether a supplied tree belongs. The interned API takes a constraint interpreter. |
+| List accepted terms | `FTA.terms`, `Enumeration.terms`, `Enumeration.plainTerms`, `Enumeration.plainTermsAtMost` | Every term, by depth. `terms` solves constraints and stops at recursion; `FTA.terms` and `plainTerms` ignore constraints and give an infinite list for a recursive grammar; `plainTermsAtMost` stops at a depth. |
+| Restrict to a pattern | `Template.restrictFTA`, `Template.restrict` | A grammar for the terms that match a `Template`. |
+| List terms a check accepts | `FTA.termsUpToM` | The terms up to a depth, each checked once by a monadic predicate that sees its transition. |
+| Bound tree depth | `FTA.boundDepth` | Another grammar, restricted to trees within the bound. |
+| Intersect languages | `FTA.intersect`, `FTA.intersectWith`, `Common.intersect` | A grammar for the common trees. Annotations require the interpretation described below. |
+| Inspect states, transitions, and cycles | `FTA.states`, `FTA.transitionsFrom`, `FTA.cyclicStates` | Graph structure, not accepted values. |
+| Change symbols or annotations | `FTA.mapSymbols`, `FTA.annotate`, `FTA.mapConstraints`, `FTA.dropConstraints` | A transformed graph. Removing annotations does not solve constraints. |
+| Build a shared or recursive grammar | `Common.Node`, `Common.Edge`, `Common.Mu` | An interned graph that reuses equal subgraphs. |
+| Take a union of languages | `Common.union` | An interned grammar that accepts trees from any input. |
+| Count graph nodes and edges | `Common.nodeCount`, `Common.edgeCount` | Graph size, not the number of accepted trees. |
+| Convert between graph representations | `Common.toFTA`, `Common.fromFTA` | An explicit-state or interned graph. A recursive state imports as a `Mu`. |
+| Visualize a grammar | `FTA.toTree`, `Common.toTree` | A finite tree of typed state and transition labels. Map the labels to strings for `drawTree`. |
+
+`FTA` and `Common` are the two representations in this package. `FTA` retains
+explicit state names. `Common` uses interned nodes and edges to share structure.
+Conversion between them does not produce the accepted values.
+
+For example, `FTA.terms (FTA.boundDepth 3 grammar)` lists the values of a
+bounded grammar. `microcfta-generator` compiles a grammar into replay ranks
+for sampling; different accepting runs can produce the same value if the
+grammar is ambiguous.
+
+## Start with a datatype
+
+Suppose an expression is a literal or the sum of two expressions. Derive
+`HasFTA` with `DeriveAnyClass`, alongside the usual `Generic` instance:
+
+```haskell
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeApplications #-}
+
+module Main (main) where
+
+import GHC.Generics (Generic)
+
+import qualified Data.CFTA as FTA
+import Data.CFTA.Generic (HasFTA, datatypeDecode, datatypeFTA, deriveFTAWith, domain, encodeTerm)
+
+-- | Arithmetic expressions with integer literals.
+data Expr = Lit Int | Add Expr Expr
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (HasFTA)
+
+-- | Derive a grammar, recognize values, and restrict their depth.
+main :: IO ()
+main = case deriveFTAWith @Expr (domain @Int [0, 1]) of
+    Left err -> fail (show err)
+    Right datatype -> do
+        let grammar = datatypeFTA datatype
+            value = Add (Lit 0) (Lit 1)
+            shallow = FTA.boundDepth 2 grammar
+
+        print (length (FTA.states grammar))
+        print (FTA.accepts grammar (encodeTerm value))
+        print (FTA.accepts grammar (encodeTerm (Lit 7)))
+        print (datatypeDecode datatype (encodeTerm value) == Just value)
+        print (FTA.accepts shallow (encodeTerm value))
+        print (FTA.accepts shallow (encodeTerm (Add value (Lit 0))))
+```
+
+Add `microcfta` to your component's `build-depends`. To try the example in this
+checkout, save it as `Main.hs` at the workspace root and run:
+
+```sh
+cabal build microcfta
+cabal exec -- ghc -package microcfta -e main Main.hs
+```
+
+The output is:
+
+```text
+2
+True
+False
+True
+True
+False
+```
+
+The grammar has two states: one for `Expr` and one for `Int`. `Lit` connects
+an expression to a literal. `Add` connects it to two more expressions. These
+recursive transitions describe expressions of any depth with literals `0`
+and `1`.
+
+`encodeTerm` converts a value to a constructor tree. `FTA.accepts` checks that
+tree against the grammar. The grammar rejects `Lit 7` because `7` is outside
+the configured domain. `datatypeDecode` converts a constructor tree back to
+the typed value.
+
+`boundDepth 2` produces a finite language from the recursive grammar. Depth
+counts edges from the root: an integer literal is at depth zero, `Lit 0` has
+depth one, and `Add (Lit 0) (Lit 1)` has depth two. The nested `Add` in the last
+check has depth three, so the bounded grammar rejects it.
+
+### Choose domains and retain metadata
+
+Use `deriveFTA @YourType` when no primitive field needs a domain. `Bool`,
+lists, `Maybe`, `Either`, unit, and tuples have built-in `HasFTA` instances.
+Derive `HasFTA` for each user datatype in a mutually recursive family.
+
+`Int`, `Integer`, `Char`, and `Text` are atomic: they require explicit finite
+domains. Combine domains with `(<>)`; for example,
+`domain @Int [0, 1] <> domain @Char ['a', 'b']`. A missing domain produces
+`Left (MissingDomain ...)`. Make another `Show` and `Read` type atomic with
+`deriving via (Atomic Double) instance HasFTA Double`, or write an instance
+with `describeType = atomic` and your own codecs.
+
+The derived graph retains constructor names, field types, and record selector
+names. `fieldNamed` locates a record field. `annotateDatatype` adds constructor
+annotations while retaining the grammar and its codecs. `annotateConstructors`
+annotates constructors by name, gives the other constructors a default, and
+rejects a name that no constructor has. A constraint layer can interpret those
+annotations without rebuilding the datatype description.
+
+The codecs describe the whole datatype. They do not enforce literal domains
+or interpret annotations. Use recognition against the grammar to check those
+domains. Derivation supports regular algebraic datatypes. A type argument may
+grow along a path when the growth stops, for example from `T Int` to
+`T (Maybe Int)` and no further. When one type constructor grows its argument
+more often than the growth limit along one path, derivation gives
+`NonRegularRecursion` with the limit and the first growth step. A nested
+datatype, whose argument grows without end, always reaches the limit. The limit
+is `defaultGrowthLimit` (eight); `deriveFTAWithGrowthLimit` sets another.
+Function fields have no built-in instance. GADTs and existential fields cannot
+use the default `Generic` derivation.
+
+## Build languages with shared structure
+
+You can construct a language directly when no Haskell datatype describes it.
+Here is a binary tree whose leaves can each be `"zero"` or `"one"`:
+
+```haskell
+import qualified Data.CFTA.Interned as Common
+
+choices :: Common.Node String
+choices = Common.Node [Common.Edge "zero" [], Common.Edge "one" []]
+
+pair :: Common.Node String -> Common.Node String
+pair child = Common.Node [Common.Edge "pair" [child, child]]
+
+language :: Common.Node String
+language = iterate pair choices !! 5
+
+sharedNodeCount :: Int
+sharedNodeCount = Common.nodeCount language -- 6
+```
+
+Each accepted tree has 32 independently chosen leaves. The language contains
+4,294,967,296 trees, but its graph has six shared nodes. Constructing the graph
+does not construct those trees. Reusing `child` shares its language; it does
+not require the two selected child trees to be equal.
+
+`Common.union` combines alternatives. `Common.intersect` retains trees that
+both inputs accept. `Common.acceptsWith (\_ _ -> True)` recognizes
+ordinary terms. `Common.toFTA` exposes each reachable node as one explicit
+state for inspection or for the explicit-state operations.
+
+`Common.Mu` describes recursive languages. Each recursive cycle must pass
+through a constructor edge; `Mu id` is not supported. `Common.toFTA` rejects
+an open recursive root.
+
+## Use named states when you need them
+
+The explicit-state interface is useful when a grammar comes from a file or
+state names are part of your application:
+
+```haskell
+import qualified Data.Tree as Tree
+import Data.CFTA (FTAError, PlainFTA, Transition (Transition), accepts, mkFTA)
+import Data.CFTA.Constraint (noConstraint)
+
+naturals :: Either (FTAError Int String) (PlainFTA Int String)
+naturals =
+  mkFTA 0 [(0, [Transition "zero" [] noConstraint, Transition "successor" [0] noConstraint])]
+
+oneAccepted :: Either (FTAError Int String) Bool
+oneAccepted = fmap (`accepts` Tree.Node "successor" [Tree.Node "zero" []]) naturals
+
+-- Right True
+```
+
+An automaton checks symbol arities and child-state references at construction.
+Cycles are valid. `PlainFTA state symbol` is `FTA state symbol Constraint`. Its transitions carry
+`noConstraint`.
+
+`Data.CFTA.intersect` constructs reachable product states and pairs the
+input annotations. Apply `dropConstraints` to the result of two plain FTAs before
+calling `accepts`. Use `intersectWith` when you need a different annotation
+combination. `dropConstraints` removes annotations; it does not solve constraints.
+
+## Visualize a grammar
+
+`FTA.toTree` returns a finite tree with typed labels:
+
+```haskell
+toTree ::
+    (Ord state) =>
+    FTA state symbol constraint ->
+    Tree (Either (StateView state) (Transition state symbol constraint))
+```
+
+`Left` contains a state definition or reference. `Right` contains the original
+transition, including its symbol, children, and annotation. Use `fmap` to choose
+the strings for `drawTree`. For the recursive `naturals` grammar above:
+
+```haskell
+import Data.List (intercalate)
+import Data.Tree (drawTree)
+import qualified Data.CFTA as FTA
+
+-- | Show state names, reference markers, and occurrence locations.
+renderNode :: FTA.StateView Int -> String
+renderNode view = prefix ++ "q" ++ show (FTA.viewNode view) ++ " @" ++ renderPath (FTA.viewPath view)
+  where
+    prefix = case view of
+        FTA.Expanded{} -> ""
+        FTA.Recursive{} -> "mu "
+        FTA.Shared{} -> "ref "
+
+-- | Render zero-based transition and child indexes from the root.
+renderPath :: FTA.ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | FTA.ViewStep alternative child <- steps]
+
+-- | Draw the natural-number grammar with plain constructor labels.
+drawNaturals :: IO ()
+drawNaturals = do
+    grammar <- either (fail . show) pure naturals
+    putStr $ drawTree $ fmap (either renderNode FTA.transitionSymbol) $ FTA.toTree grammar
+```
+
+```text
+q0 @root
+|
++- zero
+|
+`- successor
+   |
+   `- mu q0 @1:0
+```
+
+Each expanded state contains its transition alternatives. `Recursive` refers
+to a state on the current path. `Shared` refers to a state expanded earlier.
+Each state is expanded once. The example displays these references as
+`mu` and `ref`, and omits the plain grammar's `()` annotation. These display
+choices belong to the caller; `toTree` retains the original labels.
+
+`viewNode` contains the original state. `viewPath :: ViewPath` locates this
+occurrence in the finite graph view. `ViewPath` is `[ViewStep]`; each
+`ViewStep` holds a `stepTransition :: TransitionIndex` and a `stepChild ::
+ChildIndex`. They select a zero-based transition and then its zero-based child.
+The root is `[]`, displayed as `@root`. For example, `@0:1/2:0` follows child 1
+of transition 0, then child 0 of transition 2. Recursive and shared references
+have their own occurrence paths but retain the state of their definition.
+
+This is a graph-view location, not a persistent state identity or a child-only
+equality path. `map snd` extracts the child-only route for one occurrence. The
+finite view does not list every route through a shared or recursive graph.
+Paths are built when `toTree` is requested; normal generation does not build
+them.
+
+`Common.toTree` provides the same view for interned graphs. Its state labels
+contain `Common.Node symbol`; its transition labels contain `Common.Edge symbol`. It returns `Either (Common.FTAViewError symbol)`
+around the tree because it rejects an open recursive root. It traverses the
+graph directly and does not validate symbol arities. Neither view enumerates
+the accepted values. Add `containers` to your component's `build-depends` when
+you import `Data.Tree` directly.
+
+## Equality constraints
+
+The main entry point is `Data.CFTA.Equality`.
+
+```haskell
+import Data.CFTA.Constraint (equalityConstraint)
+import Data.CFTA.Equality
+import Data.CFTA.Symbol (Symbol)
+import qualified Data.Tree as Tree
+```
+
+An equality-constrained automaton is a `Node symbol`, which is a set of
+outgoing `Edge symbol`s. An edge has a symbol, child nodes, and a `Constraint`.
+`equalityConstraint` makes a constraint from equality classes over paths into
+those children. `Symbol` is the supplied interned alphabet: a text and a refinement, where an
+ordinary symbol has the refinement `PTrue`. Its `IsString`
+instance keeps the usual `OverloadedStrings` syntax. The `Node`, `Edge`, and
+`Mu` patterns are the ones every kind of automaton shares. The edge
+constraints make the automaton an ECTA.
+
+```haskell
+intType :: Node Symbol
+intType = Node [Edge "Int" []]
+
+maybeIntType :: Node Symbol
+maybeIntType = Node [Edge "Maybe" [intType]]
+
+sameChildren :: Edge Symbol
+sameChildren =
+  mkEdge
+    "Pair"
+    [intType, intType]
+    (equalityConstraint (mkEqConstraints [[path [0], path [1]]]))
+```
+
+The alphabet can instead be an ordinary datatype. Edge construction needs
+`Hashable` and `Typeable` for type-safe hash-consing; building a node from
+existing edges needs only `Typeable`, and inspecting an existing node needs
+neither. Operations that rebuild edges, such as intersection and reduction,
+therefore carry both constraints. `termsWith` takes the value to use when
+recursion is truncated, so the datatype does not need an `IsString` instance:
+
+```haskell
+import Data.Hashable (Hashable)
+import GHC.Generics (Generic)
+
+data NatSymbol = Zero | Succ | Recursion
+  deriving (Eq, Generic, Show)
+
+instance Hashable NatSymbol
+
+zeroOrOne :: Node NatSymbol
+zeroOrOne = Node [Edge Zero [], Edge Succ [Node [Edge Zero []]]]
+
+terms :: [Tree.Tree NatSymbol]
+terms = termsWith Recursion zeroOrOne
+```
+
+Useful operations:
+
+- `union` combines alternatives.
+- `intersect` keeps terms accepted by both automata.
+- `reducePartially` propagates equality constraints and removes the
+  alternatives those constraints locally rule out. It does not decide
+  emptiness: a fully reduced automaton can still accept nothing. A class
+  whose path reaches into a recursive node with constraints stays unreduced;
+  enumeration and `accepts` still check it.
+- `withoutRedundantEdges` removes alternatives implied by other alternatives.
+  In a recursive automaton, it compares the alternatives of a node without
+  free recursive variables, and of a closed recursive node through its
+  unfolding. A node that refers to an enclosing recursive node keeps all of
+  its alternatives.
+- `accepts` checks concrete term membership in any `Node symbol`. It checks
+  the path equalities of each edge constraint. A term satisfies an equality
+  class only when every path of the class exists in it. `accepts` does not
+  decide a residual guard.
+- `matchesTemplate` checks a concrete term against an explicit `Template`.
+- `termsMatching` restricts a node to the accepted terms matching a template,
+  while preserving its equality constraints.
+- `terms` and `termsPrune` enumerate accepted terms. Both stop at
+  an unconstrained `Mu`, which appears as the marker term `Mu`; unfold with
+  `unfoldBounded` first to see past the recursion.
+
+`terms` lists each term once even when several runs accept it; `runs` lists
+one entry per accepting run together with the obligations that run must
+satisfy. A constraint whose paths descend into a truncated `Mu` is dropped
+rather than checked, so a term containing the `Mu` marker is not evidence that
+the language below it is non-empty.
+
+Templates do not overload ordinary symbols. `Hole` matches a complete
+subtree, `TemplateNode` and `AnyNode` require exact arity, and
+`TemplatePrefix` and `AnyPrefix` constrain only the leading children:
+
+```haskell
+unaryF = TemplateNode "f" [Hole] :: Template Symbol
+anyF = TemplatePrefix "f" [] :: Template Symbol
+```
+
+### Visualize an equality automaton
+
+`toTree` retains the original nodes and edges in typed labels:
+
+```haskell
+toTree ::
+    (Hashable symbol, Typeable symbol) =>
+    Node symbol ->
+    Either (FTAViewError symbol)
+        (Tree (Either (StateView (Node symbol)) (Edge symbol)))
+```
+
+`Left` contains an expanded node or a recursive or shared reference. `Right`
+contains an original edge, including its equality constraints. Map the labels
+to strings with `fmap (either renderNode renderEdge)` before using `drawTree`.
+The renderer can choose domain names because node labels retain the nodes:
+
+```haskell
+module Main (main) where
+
+import Data.List (intercalate)
+import Data.Tree (drawTree)
+
+import qualified Data.CFTA.Equality as ECTA
+import Data.CFTA.Constraint (Constraint (constraintEqualities), equalityConstraint)
+import Data.CFTA.Equality (mkEqConstraints, path, subsumptionOrderedEclasses, unPath, unPathEClass)
+
+-- | The one literal state in this example.
+leaf :: ECTA.Node String
+leaf = ECTA.Node [ECTA.Edge "Int" []]
+
+-- | Equal pairs and recursive wrappers share the same expression state.
+graph :: ECTA.Node String
+graph = ECTA.createMu $ \self ->
+    ECTA.Node
+        [ ECTA.mkEdge "Pair" [leaf, leaf] (equalityConstraint (mkEqConstraints [[path [0], path [1]]]))
+        , ECTA.Edge "Again" [self]
+        ]
+
+-- | Use application-specific names for the original nodes.
+renderNode :: ECTA.StateView (ECTA.Node String) -> String
+renderNode view = case fmap (\node -> name node <> " @" <> renderViewPath (ECTA.viewPath view)) view of
+    ECTA.Expanded _ label -> label
+    ECTA.Recursive _ label -> "mu " <> label
+    ECTA.Shared _ label -> "ref " <> label
+  where
+    name node
+        | node == leaf = "literal"
+        | otherwise = "expression"
+
+-- | Identify the transition and child at each step from the view root.
+renderViewPath :: ECTA.ViewPath -> String
+renderViewPath [] = "root"
+renderViewPath steps = intercalate "/" [show alternative <> ":" <> show child | ECTA.ViewStep alternative child <- steps]
+
+-- | Keep equality paths while omitting empty constraints.
+renderEdge :: ECTA.Edge String -> String
+renderEdge edge = ECTA.edgeSymbol edge <> constraints
+  where
+    constraints = case subsumptionOrderedEclasses $ constraintEqualities $ ECTA.edgeConstraint edge of
+        Nothing -> " [false]"
+        Just [] -> ""
+        Just classes -> " [" <> intercalate ", " (map renderClass classes) <> "]"
+    renderClass = intercalate " = " . map renderPath . unPathEClass
+    renderPath target = case unPath target of
+        [] -> "root"
+        indexes -> intercalate "." $ map show indexes
+
+-- | Choose labels after constructing the typed graph view.
+main :: IO ()
+main = do
+    tree <- either (fail . show) pure $ ECTA.toTree graph
+    putStr $ drawTree $ fmap (either renderNode renderEdge) tree
+```
+
+This program prints:
+
+```text
+expression @root
+|
++- Pair [0 = 1]
+|  |
+|  +- literal @0:0
+|  |  |
+|  |  `- Int
+|  |
+|  `- ref literal @0:1
+|
+`- Again
+   |
+   `- mu expression @1:0
+```
+
+`Expanded`, `Recursive`, and `Shared` identify node definitions and references.
+The example chooses the names `expression` and `literal`, and prints equality
+paths instead of their internal trie representation. The renderer preserves
+contradictions as `[false]` and omits only empty equality constraints.
+
+`viewNode` retains the original node. `viewPath :: ViewPath` locates each
+occurrence, including recursive and shared references. `ViewPath` is
+`[ViewStep]`; each `ViewStep` holds a `stepTransition :: TransitionIndex` and a
+`stepChild :: ChildIndex`. They select a zero-based edge and then its zero-based
+child. The root is `[]`, displayed as `@root`. For example, `@0:1/2:0` follows
+child 1 of edge 0, then child 0 of edge 2.
+References have their own occurrence paths and retain the node of their
+definition.
+
+These paths locate occurrences in one graph view. They are not persistent
+node identities or the child-only `Path` used by equality constraints.
+`map snd` extracts the child-only route for one occurrence. The finite view
+does not list every route through a shared or recursive graph. Paths are built
+only when `toTree` is requested; normal generation does not build them.
+
+The view traverses the interned graph directly. Unlike `toFTA`, it does not
+require a ranked alphabet. An open recursive variable returns `Left OpenNode`.
+It does not enumerate terms or solve constraints. Add `containers` to your
+component's `build-depends` when you import `Data.Tree` directly.
+
+For the actual typed-expression generator, see
+[`DrawTypedExpressions.hs`](../microcfta-generator/examples/DrawTypedExpressions.hs).
+Run `cabal run cfta-draw-typed-expressions` from the workspace root. It draws
+finite and recursive diagnostic graphs with local state names, occurrence
+locations, source names, function signatures, and type-group witnesses.
+The generator retains these names through `namedElements` and `nameGroups`.
+`Gen.inspect` returns this diagnostic graph; `Gen.support` retains the original
+semantic support. Each diagnostic symbol also retains its original symbol.
+See [generator inspection](../microcfta-generator/README.md#inspect-a-generator)
+for the API and its limits. The [ASCII reading guide](../microcfta-generator/README.md#read-the-ascii-tree)
+walks through `@1:0/0:1`, shared references, and equality paths.
+
+### Pruning API
+
+`termsPrune` lets a caller drop branches of the enumeration before they
+are explored. It calls an oracle twice around every UVar it expands, passing
+the caller's own state, the UVar, and either:
+
+- `Right node`, before that ECTA node is expanded
+- `Left fragment`, after a `TermFragment` has been produced
+
+A bare unconstrained `Mu` stops enumeration without being expanded and
+therefore produces neither callback.
+
+Return `True` to discard the current nondeterministic branch, or `False` to
+keep enumerating with updated state.
+
+The caller decides which terms to reject. The library supplies the callbacks
+and `expandPartialTermFrag` to read a partial term. Its `PartialSymbol` alphabet
+keeps concrete symbols, unexpanded `UVarHole`s, and `TruncatedRecursion`
+distinct; no placeholder can collide with a real symbol. `Tree.Tree` is a functor,
+so a caller that deliberately wants one concrete alphabet can materialize a
+partial term with `fmap resolvePartial`.
+
+```haskell
+-- Drop any branch whose partial term already contains a forbidden symbol.
+prunedTerms :: [Symbol] -> Node Symbol -> [Tree.Tree Symbol]
+prunedTerms forbidden =
+  termsPrune () $ \() _ event ->
+    case event of
+      Right _ -> pure (False, ())
+      Left fragment -> do
+        partial <- expandPartialTermFrag fragment
+        pure (any (`occursIn` partial) forbidden, ())
+  where
+    occursIn s (Tree.Node (ConcreteSymbol s') ts) =
+      s == s' || any (occursIn s) ts
+    occursIn s (Tree.Node _ ts) = any (occursIn s) ts
+```
+
+A `Right node` decision covers a whole UVar, so it removes every term under
+that hole at once. The fact that `termsMatching template node` is non-empty
+only proves that some terms match; it does not justify dropping the whole
+node. Use `Left fragment` when the choice has to be made per branch.
+
+The oracle's state is threaded down each nondeterministic branch separately,
+which is what makes deferred checks work. When a check cannot be settled
+because the fragment still holds an unexpanded hole, park it in that state
+under the hole's `getUVarRepresentative`, and settle it when the oracle is
+called with `Left fragment` for that UVar. That call always happens before the
+branch completes.
+
+`termsPruneWith` takes the truncated-recursion symbol explicitly, as
+`termsWith` does, so an alphabet without an `IsString` instance can prune
+too. It also chooses which hole the enumerator expands next, so a parked check
+can be settled before the enumerator lists the branch that the check rejects:
+
+```haskell
+-- Expand a hole some parked check is waiting on, if one is available.
+resolveParkedFirst :: ExpansionOrder (IntMap [Tree.Tree Symbol])
+resolveParkedFirst parked candidates =
+  listToMaybe [uv | uv <- candidates, uvarToInt uv `IntMap.member` parked]
+
+-- The recursion symbol comes first, so a datatype alphabet can prune too.
+prunedNats oracle =
+  termsPruneWith Recursion IntMap.empty resolveParkedFirst oracle
+```
+
+This changes the order only. It cannot make a hole expandable early, and a
+UVar that is not among the candidates is ignored. An oracle is monotone when a
+branch that can be rejected stays rejectable. For such an oracle, the order
+changes how much work the enumeration does, and the terms stay the same.
+
+A partial term reports an unexpanded hole as `UVarHole`, and a recursive node
+at which enumeration stopped as `TruncatedRecursion`. A recursive node whose
+equality constraints are still pending is a hole, not truncated recursion,
+because it may still be expanded.
+
+For repeated reduction, downstream code usually wants:
+
+```haskell
+reduceFully :: Node Symbol -> Node Symbol
+reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
+```
+
+The test and benchmark support module `Data.CFTA.TermSearch`
+defines that helper.
+
+## Refinements
+
+`Data.CFTA.Refinement` is the liquid tree automata layer. An LTA is an
+interned graph, `Node Symbol`, built with the same
+`Node`, `Edge`, `mkEdge`, and `Mu` as an ordinary or an equality-constrained
+automaton. The module re-exports `Data.CFTA.Interned`, so one import gives
+the constructors, the views, and the LTA operations. It uses the equality
+layer for the path equalities of a guard.
+Concrete annotated terms use `Data.Tree.Tree Symbol`. Construct a node
+with `Tree.Node (RefinedSymbol symbol refinement) children`. A `Symbol` is an
+interned text and a refinement; an ordinary symbol has the refinement `PTrue`.
+`symbolText` and `symbolRefinement` read the two parts. The tree label and child list use the
+standard lazy `Data.Tree` representation. `eraseRefinements` maps each label
+to its ordinary symbol.
+
+A transition is an edge whose symbol is a refined `Symbol`, a ranked constructor
+with its Liquid Fixpoint refinement, and whose constraint is the paper's
+Boolean constraint language over child positions. The pattern
+`Transition symbol refinement children constraint` builds and matches one.
+Syntactic `Same` and semantic `Entails` are LTA atoms. Guards support
+substitution, negation, conjunction, and disjunction. Refinement implication
+is discharged through the small `Entailment` boundary;
+`Data.CFTA.Refinement.LiquidFixpoint.withZ3` supplies the reusable Z3
+implementation. It declares every free name as an integer unless the caller
+gives the name another sort. Each query has a time limit of ten seconds
+(`defaultTimeLimit`). A query that reaches it raises `TimeLimitReached`, so a
+timeout is not taken for an undecided query; `withZ3Timeout` sets another limit.
+
+A refinement is a Haskell function of the refined value, as in
+`\v -> v .>= 0`. `Data.CFTA.Refinement.Expression` supplies the terms, which
+take integer literals and arithmetic, the comparisons `.==`, `./=`, `.<`,
+`.<=`, `.>`, and `.>=`, and the connectives `.&&`, `.||`, and `lnot`. The
+`Transition` and `RefinedSymbol` patterns hold the formula of a refinement,
+stated about the value variable `valueName` from `Data.CFTA.Symbol`;
+`refinementFormula` gives it. The name has the reserved prefix `__microcfta_`,
+so a name that the caller makes with `variable` does not collide with it.
+
+An LTA uses the same `Constraint` type as every other automaton, so `union`, `intersect`, `boundDepth`, and the enumerator work on an LTA
+without conversion. Construction does not call the solver and does not
+validate. `validate` checks that the graph is closed, that each ranked symbol
+keeps one arity, and that no guard inspects a position whose node is
+recursive. The operations that need these properties call it and report an
+`AutomatonError`. Recognition, pruning, and semantic intersection remain
+operations of this layer.
+
+Position substitutions apply simultaneously within each scope and avoid bound
+variable capture in refinement expressions. Actual refinements remain facts
+about the surrounding environment. A substitution does not rename those facts.
+Equal complete actual terms share one value identity for semantic entailment.
+Different actual terms with the same constructor name receive fresh solver
+values with the sort declared for that name, or an integer when the name has
+no declaration.
+
+Bare `Same` compares the original annotated subtrees, as in ECTA. Inside a
+`Substitute` scope it compares renamed views of those trees. Each scope replaces
+formal constructor symbols and free names in refinement annotations with the
+corresponding actual symbols. The first non-identity mapping for a repeated
+formal name takes precedence. Nested scopes apply from inner to outer. Tree
+shape and generated output terms stay unchanged; substitution does not splice
+an actual subtree into a formal leaf. This is the library's specified
+interpretation of the paper's general substitution syntax.
+
+For equally refined leaves `x` and `y`, `Same(left,right)` rejects `pair(x,y)`.
+The guard `[x/y].Same(left,right)` accepts it because both compared views contain
+`x`. Refinement annotations still participate in exact syntactic comparison.
+Use `withActualFor` or `withActualsFor` to scope the complete constraint,
+including any cached positive equalities. Scoped equality remains an LTA guard;
+it cannot be lowered directly to ordinary ECTA path equality.
+
+`Entailment decide` retains the simple query interface. A query that needs fresh
+declarations returns `Unknown` through that interface. `entailmentWithBindings`
+accepts a callback that receives `(freshName, declaredName)` pairs. The Z3 adapter
+declares each fresh value with the sort of `declaredName`. Generator query caches
+include these bindings.
+
+The complete pair `(constructor, refinement)` is one ranked-alphabet symbol,
+not metadata outside the automaton. This can represent the paper literally: in
+Figure 12 each formula is a nullary symbol such as
+`RefinedSymbol "predicate" phi`, and the `f` transition relates its two formula
+children. The generator DSL also offers a compressed convention in which a
+program constructor carries its result refinement directly. That convention is
+a surface encoding, not the definition of LTA.
+
+The paper's arbitrary final-state set is the `union` of the accepting nodes.
+The empty union is `EmptyNode`, whose denotation is empty. This preserves
+Figure 6's denotation without a fresh state or epsilon transitions.
+
+The literal Figure 12 shape is therefore ordinary Haskell data:
+
+```haskell
+figure12 =
+  Node
+    [ Transition "f" true [predicate, predicate]
+        (semanticConstraint (Entails (path [0]) (path [1])))
+    ]
+  where
+    predicate =
+      Node
+        [ Transition "predicate" phi1 [] noConstraint
+        , Transition "predicate" phi2 [] noConstraint
+        , Transition "predicate" phi3 [] noConstraint
+        ]
+```
+
+Here the three `(predicate, phi)` pairs are three distinct nullary alphabet
+symbols. They are not a Haskell pool hidden behind `relate`.
+
+A handwritten LTA has the shape of a handwritten interned FTA. A named guard
+replaces the raw constraint, and `Data.CFTA.Refinement.Guard` checks it
+against the children:
+
+```haskell
+import Data.CFTA.Refinement (Automaton, AutomatonError)
+import Data.CFTA.Refinement.Expression (Refinement, (.>=))
+import Data.CFTA.Refinement.Guard (automaton, requires, transition, unconstrained)
+
+numbers :: Either AutomatonError Automaton
+numbers = do
+  number <- automaton [transition "zero" nonNegative [] unconstrained]
+  automaton
+    [ transition "sqrt" nonNegative [number]
+        (\argument -> argument `requires` nonNegative)
+    ]
+  where
+    nonNegative :: Refinement
+    nonNegative v = v .>= 0
+```
+
+The lambda receives symbolic child positions in transition order. Useful guard
+phrases are:
+
+- ``candidate `requires` refinement`` for an ordinary precondition;
+- `contract (\x y -> ...)` for a formula about the children's values; each
+  conjunct is checked separately, and the refinement of each child that it
+  names holds for that child's term;
+- ``actual `isSubtypeOf` expected`` for semantic subtyping;
+- ``actual `isSameTermAs` expected`` for ECTA-style structural equality;
+- `withActualFor actual formal guard` for dependent result types; the actual
+  symbol is assumed to satisfy the refinement carried by its whole subtree;
+- `allOf`, `anyOf`, and `notGuard` for Boolean composition, including `Same`.
+  The negation of a condition or a contract holds only when the refinements
+  refute its formula, so a term that the refinements do not decide satisfies
+  neither the contract nor its negation.
+
+`Satisfies position predicate` is a conservative convenience extension for the
+common paper pattern `position Entails literalPredicate`. It avoids adding an
+otherwise uninteresting predicate child to every surface DSL node; the literal
+Figure 12 encoding can continue to use `Entails` between two tree positions.
+
+Raw paths and guard constructors remain available for generated automata. A
+named `transition` retains its construction error until `automaton` checks the
+node. Wrap a raw `Transition` in `Right` to include it in the same list.
+
+`denotationAtMost` is the small, materializing implementation of Figure 6. It
+bounds the graph with `boundDepth`, so it works for cyclic LTAs under an
+explicit tree-height bound, and it is the semantics oracle against which
+optimized pruning and generation can be checked.
+
+### Visualize a refined automaton
+
+`toTree` converts the reachable graph to a finite tree with typed labels:
+
+```haskell
+toTree ::
+    Automaton ->
+    Either (FTAViewError Symbol) (Tree (Either (StateView Automaton) Transition))
+```
+
+`Left` contains a node definition or reference. `Right` contains the complete
+transition, including its refinement and constraint. An open graph gives
+`OpenNode`. Map these labels to strings before using `drawTree` from
+`containers`. This example defines its own renderer and uses Liquid Fixpoint's
+`showpp` for refinement formulas:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Data.CFTA.Refinement
+import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (.>=))
+import Data.List (intercalate)
+import qualified Data.Text as Text
+import Data.Tree (drawTree)
+import Language.Fixpoint.Types (showpp)
+
+-- | A square root whose argument must have a nonnegative refinement.
+graph :: Automaton
+graph =
+    Node
+        [ Transition
+            "sqrt"
+            true
+            [Node [Transition "zero" (refinementFormula nonNegative) [] noConstraint]]
+            (semanticConstraint (Satisfies (path [0]) (refinementFormula nonNegative)))
+        ]
+  where
+    nonNegative :: Refinement
+    nonNegative v = v .>= 0
+
+-- | Show reference markers and occurrence locations.
+renderNode :: StateView Automaton -> String
+renderNode view = prefix ++ "node @" ++ renderPath (viewPath view)
+  where
+    prefix = case view of
+        Expanded{} -> ""
+        Recursive{} -> "mu "
+        Shared{} -> "ref "
+
+-- | Render zero-based transition and child indexes from the root.
+renderPath :: ViewPath -> String
+renderPath [] = "root"
+renderPath steps = intercalate "/" [show alternative ++ ":" ++ show child | ViewStep alternative child <- steps]
+
+-- | Render symbols, nontrivial refinements, and complete constraints.
+renderTransition :: Transition -> String
+renderTransition transition =
+    Text.unpack name ++ refinementLabel ++ guardLabel
+  where
+    Symbol name = transitionSymbol transition
+    refinement = transitionRefinement transition
+    refinementLabel
+        | refinement == true = ""
+        | otherwise = " {" ++ showpp refinement ++ "}"
+    guardLabel = case constraintAsGuard (edgeConstraint transition) of
+        Top -> ""
+        Satisfies position predicate ->
+            " [refinement("
+                ++ intercalate "." (map show (unPath position))
+                ++ ") entails "
+                ++ showpp predicate
+                ++ "]"
+        guard -> " [" ++ show guard ++ "]"
+
+-- | Draw the graph with the chosen node and transition labels.
+main :: IO ()
+main = do
+    tree <- either (fail . show) pure (toTree graph)
+    putStr $ drawTree $ fmap (either renderNode renderTransition) tree
+```
+
+Add `microcfta`, `containers`, `text`, and `liquid-fixpoint` to the component's
+`build-depends`. To run the example in this checkout, save it as `Main.hs` at
+the workspace root:
+
+```sh
+cabal build microcfta
+cabal exec -- ghc -package microcfta -package liquid-fixpoint -e main Main.hs
+```
+
+This program prints:
+
+```text
+node @root
+|
+`- sqrt [refinement(0) entails __microcfta_value >= 0]
+   |
+   `- node @0:0
+      |
+      `- zero {__microcfta_value >= 0}
+```
+
+`renderNode` and `renderTransition` are caller code. Change them to use domain
+names or a different constraint notation. The example omits only `true`
+refinements and `Top` guards. `constraintAsGuard` recovers the complete
+constraint, including cached equalities. Guards other than `Satisfies` use a
+`Show` fallback, so the renderer retains every obligation.
+
+`Recursive` ends a cycle; `Shared` refers to a node expanded earlier. The
+example displays these as `mu node` and `ref node`. `viewNode` retains the
+original node, while `viewPath` locates each occurrence, including references.
+`ViewPath` is `[ViewStep]`; each `ViewStep` holds a `stepTransition ::
+TransitionIndex` and a `stepChild :: ChildIndex`. They select a zero-based
+transition and its zero-based child. The root is `[]`, displayed as `@root`.
+`@0:1/2:0` follows child 1 of transition 0, then child 0 of transition 2.
+
+View paths are graph-view locations, not node identities. They
+include transition indexes and differ from the child-only paths in guards
+and equality constraints. `map snd` gives the child-only route for one
+occurrence; the finite view does not list every route through a shared graph.
+`toTree` builds these paths on demand. Normal generation does not build them.
+This view does not enumerate terms or call a solver.
+
+### Cycles and pruning
+
+Cycles are legal. A guard may not inspect a position whose node is recursive,
+matching the paper's restriction that keeps solver obligations finite;
+`validate` reports such a guard as `CyclicGuardReference`.
+`semanticIntersection` exposes Equation 4 directly: it retains the antecedent
+transition only when that refinement entails the consequent. It is
+directional, not a symmetric logical meet.
+
+`prune solver automaton` implements both rules behind the paper's pruning pass
+and returns another LTA. It validates the automaton first. Nodes are pruned
+bottom up, and a node shared by several transitions is pruned once. For
+`P-Syn-Eq`, each transition narrows the positions its equalities relate to
+their intersection, through the same reduction the equality layer uses. For
+`P-Sem-Ent`, it partitions the nodes at the observed positions by refinement;
+actual/formal positions are partitioned by both refinement and value-naming
+symbol. It retains precisely the combinations whose entailment succeeds,
+replaces that semantic guard with `Top`, and drops a transition whose child
+became empty. Nested positions produce shared node splits; complete accepted
+terms are never constructed. A recursive node is pruned to a fixed point,
+because a guard inside its body may observe through the node itself.
+
+Pruning preserves missing observations until it evaluates the complete Boolean
+guard. A missing path in an optional branch does not discard a candidate.
+Semantic guards that need equality of complete compound actuals can remain on
+the LTA: sparse root observations cannot always determine whether two actuals
+share a value. In that case pruning retains the original transition and guard.
+`accepts` and `denotationAtMost` continue to evaluate the complete terms. When
+the solver cannot decide a guard whose actuals are known, pruning stops with
+`PruneUnknown` and the transition.
+
+Residual positive equalities stay on a transition as its `equalities`. The
+enumerator solves them by unification, and the generator counts them
+symbolically. A negated, disjunctive, or still-semantic constraint stays as a
+guard that complete terms are checked against; equality between independently
+selected arbitrary subtrees is not in general a regular tree language.
+
+### Similarity and minimization
+
+`similarity` and `minimize` are core automaton operations corresponding to the
+paper's S-Trans/S-Eq and M-Trans/M-LTA rules. A `Subtyping` callback receives
+the current LTA and compares the type sub-automata associated with two program
+transitions. This supports source languages that represent an expression's type
+as a distinguished child node, as the paper does:
+
+```haskell
+let sourceSubtyping = Subtyping $ \current left right ->
+      compareTypeStates current left right
+Right related <- similarity sourceSubtyping automaton
+Right reduced <- pure $ minimize automaton related
+```
+
+`reduce solver sourceSubtyping automaton` runs the complete static reduction
+phase in the paper's order: `prune`, `similarity`, then `minimize`.
+
+For an encoding that stores the complete result-type refinement on the program
+transition, `refinementSubtypingOn` supplies a compact adapter. Its
+projection represents the non-liquid type shape and can exclude structural
+transitions:
+
+```haskell
+let sourceSubtyping = refinementSubtypingOn solver $ \transition ->
+      typeClass (transitionSymbol transition)
+Right related <- similarity sourceSubtyping automaton
+Right reduced <- pure $ minimize automaton related
+```
+
+`similarityPairs` exposes directed `SimilarityPair subtype supertype` values over
+`TransitionId`s; each names the node and the transition. `similarity` validates
+the automaton first and reports `InvalidSimilarityAutomaton` otherwise. A
+`Similarity` also retains the exact source automaton. `minimize` returns
+`StaleSimilarity` if the automaton is a different node, including when the
+relation is empty.
+
+Minimization applies a finite schedule of the paper's M-Trans rule on the
+explicit view of the graph, then interns the result, so the returned automaton
+is again a node. It resolves transitive representatives, then considers each
+selected original supertype once in node order. Each step retains existing
+incoming transitions and adds copies that replace the supertype's node with the
+representative's node in the children. Repeated occurrences of that node change
+together. Later steps can copy transitions added by earlier steps. The step
+removes only the selected original supertype transition and deduplicates equal
+transitions. A shared target node retains unrelated alternatives. One target can
+have multiple representatives, and root transitions can participate. A step
+between two nodes applies only when the representative is the only alternative
+of its node, because a copy reaches every alternative of that node and the
+similarity relates only the representative. Other steps between two nodes are
+skipped. When the similarity relates only equal transitions, every term of the
+result is a term of the input.
+
+Equivalent types keep the first transition in node order. When incomparable
+subtypes can replace one supertype, the first inferred dominator selects its
+representative. The root stays the root. This schedule does not promise a
+globally minimal automaton or an unchanged term language.
+
+The complete batch falls back to the original automaton if proposed redirects
+make a representative depend on its removed target, a representative loses all
+finite structural derivations, the last finite structural root derivation is
+lost, or a copied guard would inspect a recursive node. Successful batches remove
+transitions with structurally unproductive children. These checks use graph
+productivity; they do not prove that arbitrary transition guards are satisfiable.
+
+## Module guide
+
+| Module | Use it for |
+| --- | --- |
+| `Data.CFTA.Generic` | Datatype derivation, finite domains, metadata, and typed codecs. |
+| `Data.CFTA` | Checked explicit-state graphs, recognition, depth bounds, product intersection, and enumeration. |
+| `Data.CFTA.Interned` | Shared nodes and edges, recursive languages, union, intersection, and views. |
+| `Data.CFTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
+| `Data.CFTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
+| `Data.CFTA.Symbol` | Interned symbols (a text and a refinement) that compare and hash by identity, `RefinedSymbol`, and `eraseRefinements`. |
+| `Data.CFTA.Constraint` | The `Constraint` type: equalities and a guard, conjunction, `noConstraint`, known contradictions, and views of the constraint. |
+| `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
+| `Data.CFTA.Equality.Constraint` | Equality constraints over paths and their tries. |
+| `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
+| `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
+| `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. |
+| `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, contracts over the children's values, and `transition` and `automaton`, which check a named guard against the children. |
+| `Data.CFTA.Refinement.Expression` | The refinement logic: terms with integer arithmetic, comparisons, connectives, and refinements as functions of the value. |
+| `Data.CFTA.Refinement.Lattice` | Exact counting and lexicographic ranking of the integer points of a linear formula, without enumeration, and `latticeEntailment`, which decides bounded linear integer implications without a solver. |
+| `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
+| `Data.CFTA.Simple` | The automata defined as simply as possible, on explicit-state automata: membership by recursion on the term, the terms up to a depth by filtering every tree, and the textbook union, product, and depth bound. It is slow, and the tests check the other modules against it. |
+| `Data.Tree` from `containers` | Concrete constructor trees. |
+
+The interned engine has a symbol type. Every edge carries a `Constraint`,
+which supplies conjunction and known contradictions; `acceptsWith` takes the
+concrete-term interpreter. The three layers share the graph implementation and
+differ only in how they interpret the constraint.
+
+## Memory and cache lifetime
+
+The explicit-state graphs in `Data.CFTA`, including the datatype tutorial
+above, are ordinary Haskell values. The garbage collector can reclaim them
+when no references remain.
+
+The interned API uses process-global node, edge, and operation memo tables.
+These tables hold strong references and do not evict entries. Reusing a graph
+can reuse its cached entries, but constructing distinct graphs can retain
+memory for the lifetime of the process. Completing generation or enumeration
+does not clear these tables.
+
+There is no safe public reset operation. Interned equality and hashing use
+canonical identities. Removing a live node from its table can give a later
+copy of the same structure a different identity. Account for this retention
+when using the interned API in a long-running process.
+
+The tables are global because a pure API cannot give a table from one call to
+the next. The module documentation of `Data.CFTA.Interned.Cache` and
+`Data.CFTA.Interned.Memo` gives the reasons and the alternatives.
+
+## Performance notes
+
+The core keeps the hash-consing, memoization, union-find, recursive-node, and
+path-constraint machinery of ECTA.
+
+Building ECTAs is safe from any thread. The hash-consing and memoization
+tables are immutable maps in `IORef`s: reads never block, and atomic updates
+retain the winning interned value, so one structure keeps one identity however
+many threads raced for it. Each hash-consing table is split into 256 such
+maps by the high bits of the key's hash, so each map is a shallow tree and
+writers to different maps do not retry each other's updates. Node
+identities come from one atomic counter, and edge identities from another, so
+a single thread draws them in the order that it interns values. Nodes order their edges by identity, so in a single-threaded
+program enumeration and sampling do not depend on scheduling. When several
+threads intern at the same time, their identities interleave, and edge order
+can change from run to run. The generator ranks an imported automaton by
+arity and symbol, so its ranks do not depend on edge order. The default allocation area makes parallel garbage
+collection limit the speedup; with `+RTS -A64m`, eight capabilities built different
+automata about four times as fast as one. Threads that build the same
+structures at the same time wait for each other's unfinished values, and in a
+probe such work got no faster beyond four capabilities.
+
+`microecta` 0.1.0.0 has mutable, unsynchronized tables. In a probe on four
+capabilities, building one node from several threads there gave two different
+identities in 16 runs out of 20. The two values are structurally equal and
+compare unequal, so `Eq`, `Ord`, `Set` membership, memoization, and
+`intersect` give wrong results without an error. A parallel test runner makes
+this easy to hit: `tasty` runs independent tests concurrently when the test
+binary is linked with `-threaded` and run with `+RTS -N`, and `hspec` does
+under `parallel`, although the code under test looks sequential. With this
+package, the same probe reports no disagreement in 25 runs.
+
+Recursive-node shapes are computed before entering the interning cache and
+stored in the uninterned description. Hashing and equality reuse that shape,
+while the candidate value remains lazy during the atomic update; forcing it
+there could build and intern further nodes.
+
+The `intern` package has kept its caches the same way for years: immutable
+maps in `IORef`s, updated atomically and sharded 1024 ways.
+
+### Memory
+
+Those tables never evict. Retained memory is proportional to the number of
+distinct nodes, edges and symbols the process has ever constructed, and to
+the memoized operations run over them. It is not proportional to the amount of
+work done: repeating operations on values that already exist retains nothing
+further.
+
+Measured on the maintainer machine, holding the shape of the work fixed and
+scaling only the count:
+
+| workload | 4k iterations | 16k | 64k |
+| --- | --- | --- | --- |
+| intersect + reduce over a fixed symbol set | 0.1 MB | 0.1 MB | 0.1 MB |
+| building fresh nodes, no memoized operations | 1.9 MB | 6.2 MB | 27.2 MB |
+| both: fresh nodes, intersect + reduce | 5.3 MB | 30.5 MB | 105.8 MB |
+
+The last two rows are about one and a half times what the mutable tables of
+`microecta` 0.1.0.0 retain. A HAMT node has more overhead per entry than a
+slot in a flat mutable table. In exchange, the tables are thread safe, and the
+core benchmark takes 0.30s and allocates 2,161 MB, against 0.77s and 4,765 MB
+with `microecta` 0.1.0.0. Adding only the stored shape to the old cache gives
+0.69s and 4,317 MB, so most of the gain comes from the immutable maps. The
+tables are read far more often than written, and a pure lookup in a HAMT is
+faster than an IO-boxed probe into a cuckoo table.
+
+Aim for the first row. The other rows grow without bound, and nothing can
+release them: a long-running process that keeps building distinct ECTAs
+grows until it runs out of memory. Hash-consing gives O(1) equality and the
+memoized graph algorithms at this cost, so the interned API does not suit a
+long-lived service that constructs unboundedly many unrelated automata. Batch
+work in a process that exits, or keep the set of distinct nodes bounded.
+
+#### Why there is no `clearCaches`
+
+Two ways to release memory were measured, and neither is in the library.
+
+Emptying the memo tables while keeping the intern cache is safe, because
+every memoized function here is pure: dropping entries costs recomputation
+only. It recovers almost nothing. Most of what those tables hold is interned
+nodes, which the intern cache retains anyway, and the registry needed to find
+the tables is itself unbounded. Clearing every 1000 iterations
+of the third workload above moved live bytes by about 3%.
+
+Emptying the intern cache is not safe. Identity comes from it: two
+structurally equal nodes interned either side of a clear get different identities
+and compare unequal, silently. It would only be sound when no `Node`, `Edge` or
+`Symbol` from before the clear is still reachable, which nothing can check.
+
+The standard remedy for that retention is a cache that holds its entries
+weakly, so unreferenced nodes are collected and their table entries go with
+them. [Filliâtre and Conchon, *Type-Safe Modular Hash-Consing*
+(2006)](https://usr.lmf.cnrs.fr/~jcf/publis/hash-consing2.pdf) build
+that on OCaml's weak arrays. In Haskell the mechanism is weak pointers and
+finalisers, from [Peyton Jones, Marlow and Elliott, *Stretching the Storage
+Manager: Weak Pointers and Stable Names in Haskell*, IFL
+1999](https://doi.org/10.1007/10722298_3).
+
+Haskell's one shipped attempt at a weak intern table was
+[`intern`](https://hackage.haskell.org/package/intern) 0.6, and 0.8 reverted it
+four days later: removing an entry from a finaliser races with a comparison
+already in flight over that entry. No maintained Haskell library ships weak
+hash-consing today. This package does not do it, and neither does the `intern`
+package, whose cache is strong and monotonic. Weak
+caches need a design change, so this release does not have them.
+
+`PathTrie` is sparse, with a compact single-child fast path, so the library
+and the benchmark build at `-O2` inside a 512M compiler heap. A dense trie
+exhausted the memory of small development machines at `-O2`. CI enforces the
+budget, so a regression fails in CI and not in a downstream build. The cap is
+not in the library's `ghc-options`, where it would cap GHC for every package
+that depends on this one.
+
+### Limits
+
+These limits were measured by scaling one dimension at a time until it stopped
+being practical, on the maintainer machine with a 20-second budget per point.
+Two operations have a practical limit.
+
+Enumerating an unfolded recursive automaton: for a three-edge recursive type,
+`terms (unfoldBounded k t)` gives 677 terms at `k = 5` in a millisecond,
+458,330 at `k = 6` in a second, and does not finish `k = 7` in twenty seconds.
+The language grows faster than exponentially in the unfolding depth. To work
+with a large language without listing it, use `countAtSize` and `unrank` from
+`microcfta-generator`.
+
+Equality constraints whose paths nest: congruence saturation in
+`mkEqConstraints` is quadratic per round and iterates to a fixpoint, so classes
+that pair paths that are prefixes of one another cost several times more for
+each added level. Class completion itself is a small union-find; the
+congruence step is the quadratic part.
+
+The cost comes from nesting. A thousand independent classes over depth-two
+paths, the shape that term search and `apply` produce, take 0.04s, and both
+use depth two with a handful of classes. Constraints built by hand that nest
+more than about ten levels deep become impractical.
+
+Everything else measured flat over the range tried: intersecting two recursive
+types up to ten branches each, intersecting two 12,800-edge finite nodes,
+2,560 disjoint constraint classes, reducing a 64-link constrained chain, and
+counting or unranking a bounded recursive generator.
+
+Run the core benchmark suite with:
+
+```sh
+cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='1 +RTS -s -M512M -RTS'
+```
+
+The benchmark harness is deliberately dependency-light and prints CSV:
+
+```text
+benchmark,cpu_seconds,repeats,checksum
+```
+
+The suite covers the current high-risk core paths:
+
+- path lookup in term-search-shaped nodes
+- equality-constraint construction and descent
+- finite and recursive intersection
+- recursive-path reduction
+- filtered term-search reduction and enumeration
+
+The current optimized local snapshot, using GHC 9.14.1, multiplier `1`, and
+`+RTS -s -M512M -RTS`, is about 0.43 GB allocated, 5.9 MB maximum residency,
+and roughly 0.17s elapsed on the maintainer machine. Treat that as a
+regression guard, not a portable absolute number.
+
+Use a larger first argument for longer runs:
+
+```sh
+cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3 +RTS -s -M512M -RTS'
+```
+
+## Dependencies
+
+The library depends on `array`, `base`, `containers`, `hashable`,
+`liquid-fixpoint`, `mtl`, `text`, `transformers`, and `unordered-containers`.
+Only the refinement layer needs a solver: put `z3` on `PATH` before using
+`Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint` is a heavy build
+dependency, and it is included so that the three layers are in one package.
+
+## Development
+
+Build and test from the workspace root. The test suite needs `z3` on `PATH`;
+enter `nix-shell` to get it:
+
+```sh
+cabal build microcfta
+cabal test microcfta:unit-tests
+```
+
+`-j1` keeps an optimized build of the core inside a small machine's memory.
+To reproduce the compile-time memory budget CI enforces:
+
+```sh
+cabal build lib:microcfta --enable-optimization=2 \
+  --ghc-options='+RTS -K512M -M512M -RTS'
+```
+
+The examples in `Data.CFTA.Equality` are executable. Run them with
+[`doctest`](https://hackage.haskell.org/package/doctest):
+
+```sh
+cabal install doctest
+cabal repl --with-repl=doctest lib:microcfta
+```

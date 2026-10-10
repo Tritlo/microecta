@@ -1,0 +1,16 @@
+# Hints the workspace ignores on purpose.
+#
+# Eta reduction is left alone because the engine's memoized functions are
+# written eta-expanded so their memo tables are allocated once per module,
+# not once per partial application. The lambda and <$> hints fight the
+# qualified-do style used by the generator examples.
+- ignore: {name: "Eta reduce"}
+- ignore: {name: "Avoid lambda"}
+- ignore: {name: "Use <$>"}
+# A refinement may use an explicit value binder, as in \v -> v ./= 0, or a
+# section such as (./= 0).
+- ignore: {name: "Avoid lambda using `infix`"}
+- ignore: {name: "Redundant bracket"}
+
+# This constructor delays recursive substitution work until after memoization.
+- ignore: {name: "Use newtype instead of data", within: "Data.CFTA.Interned.Type.SubstitutionPlan"}

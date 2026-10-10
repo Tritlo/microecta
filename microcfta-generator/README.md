@@ -1,0 +1,1777 @@
+# microcfta-generator
+
+Ranked generation, random sampling, replay, and shrinking for the automata of
+[`microcfta`](../microcfta/README.md), with QuickCheck integration. There is
+one generator type, `Gen symbol a`, and one facade per kind of automaton:
+
+| Module | Purpose |
+| --- | --- |
+| `Data.CFTA.Gen` | The generator: sources, constructors, choices, joins, recursion, imported automata and datatypes, exact inspection, replay, and shrinking, for every kind of automaton. |
+| `Data.CFTA.Gen.QuickCheck` | Sampling and properties over a generator, and frozen pools. |
+| `Data.CFTA.Gen.Do` | Qualified applicative do-notation, re-exported by the three `QuickCheck` facades; `FTAGen.do`, `ECTAGen.do`, and `LTAGen.do` are this module under the facade's alias. |
+| `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
+| `Data.CFTA.Gen.Equality` | `ECTAGen`: equality-constrained generators, and imports ranked by symbol text. |
+| `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, measures with `measured`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
+| `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
+| `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
+
+An ordinary generator is `FTAGen symbol a`, that is `Gen symbol a`. The
+equality facade fixes the symbol in `ECTAGen a`, the refinement facade in
+`LTAGen a`; both re-export `Data.CFTA.Gen`, so `node`, `oneof`, `cardinality`,
+`unrank`, and `forAll` are the same functions for every kind of automaton. See
+[`docs/automata-syntax.md`](../docs/automata-syntax.md) for the side-by-side
+forms. The core package does not depend on this package or on QuickCheck.
+
+## Ordinary generators
+
+Run the complete example from the workspace root:
+
+```sh
+nix-shell --run 'cabal run cfta-pairs'
+```
+
+[`examples/FinitePairs.hs`](examples/FinitePairs.hs) derives the pair datatype
+with the finite `Int` domain `[0, 1]`. It checks all replay ranks and samples
+the accepted pairs with QuickCheck. It also constructs the same language as an
+interned `Common.Node String`, imports it with `fromAutomaton`, and checks
+the imported generator.
+
+`FTAGen.node "pair"` closes an applicative child block with one constructor.
+Each binding supplies one direct child. A binding whose generator is itself a
+product, such as `f <$> a <*> b`, supplies one child for each of its parts;
+close it with its own `node` to make it one child. Enable `ApplicativeDo` and
+`QualifiedDo`, and finish the block with `FTAGen.pure`. Child generators must be
+independent. `leaf value symbol` is a constructor without children, and
+`oneof` and `frequency` choose between generators. They skip an empty
+alternative and do not report an error. A weight of `frequency` is a
+`Data.CFTA.Index.Weight`, and an integer literal is a weight.
+
+`fromAutomaton` reads an interned automaton as a generator of the terms it
+accepts. An acyclic automaton gives a finite generator with one rank per
+distinct term: where alternatives overlap or an equality reaches below
+direct children, the count is symbolic. Ranks order the constructors at each
+node by arity, then by the symbol's `Ord`, so nullary constructors come first
+and the ranks do not depend on the order in which the automaton was built. A
+cyclic automaton gives a recursive generator counted by size, the number of
+term nodes, and uses the same order within each size; it must be
+unambiguous, because its count sums over accepting runs. A symbolic count has
+no size classes, so its members report size one, and `smallerMembers` and the
+size-minimal search of `forAll` find no smaller member.
+`fromAutomatonUpToDepth` bounds the automaton by constructor depth first, a
+leaf having depth zero, and `upToSize` bounds any
+generator to the members of at most a given number of source choices, in
+size-major rank order. Use `Data.CFTA.Interned.fromFTA` first when the source
+is an explicit-state automaton; the import is total and retains shared states.
+
+`fromDatatype` reads a derived grammar as a generator of its values,
+recursive when the datatype is, and `fromDatatypeUpToDepth` bounds it by
+constructor depth. The value and its constructor term share one rank, and
+the codec runs only when a selected value is demanded. Ranks order the
+constructors of a type by arity, then in declaration order, and atomic
+literals in domain order. The generator decodes one term per constructor when
+it is built, so an atomic type whose `Show` text `Read` does not accept gives
+`UndecodableConstructor` at once. Depth counts
+constructors, including primitive fields: a `Leaf Bool` term has depth one
+and two tree nodes.
+
+`Data.CFTA.Ranked` is independent of automaton representation. `Indexed`
+describes a finite rank domain, and `fromIndexed` is the generator over it.
+Counting and replay do not require enumerating the entire source.
+
+### Generate a language up to a depth bound
+
+This complete example derives a grammar with `microcfta`, then generates every
+expression with literals `0` and `1` up to constructor-tree depth 3:
+
+```haskell
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeApplications #-}
+
+module Main (main) where
+
+import GHC.Generics (Generic)
+
+import qualified Data.CFTA.Gen as FTAGen
+import Data.CFTA.Generic (HasFTA, deriveFTAWith, domain)
+
+-- | Arithmetic expressions with integer literals.
+data Expr = Lit Int | Add Expr Expr
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (HasFTA)
+
+-- | Print every expression in a depth-bounded language.
+main :: IO ()
+main = do
+    datatype <- either (fail . show) pure $ deriveFTAWith @Expr (domain @Int [0, 1])
+    let language = FTAGen.fromDatatypeUpToDepth 3 datatype
+    expressions <- FTAGen.orFail $ FTAGen.values language
+    mapM_ print expressions
+```
+
+Add both `microcfta` and `microcfta-generator` to your component's
+`build-depends`. In this checkout, save the program as `Main.hs` at the
+workspace root and run:
+
+```sh
+cabal build microcfta-generator
+cabal exec -- ghc -package microcfta -package microcfta-generator -e main Main.hs
+```
+
+The output is:
+
+```text
+Lit 0
+Lit 1
+Add (Lit 0) (Lit 0)
+Add (Lit 0) (Lit 1)
+Add (Lit 0) (Add (Lit 0) (Lit 0))
+Add (Lit 0) (Add (Lit 0) (Lit 1))
+Add (Lit 0) (Add (Lit 1) (Lit 0))
+Add (Lit 0) (Add (Lit 1) (Lit 1))
+Add (Lit 1) (Lit 0)
+Add (Lit 1) (Lit 1)
+Add (Lit 1) (Add (Lit 0) (Lit 0))
+Add (Lit 1) (Add (Lit 0) (Lit 1))
+Add (Lit 1) (Add (Lit 1) (Lit 0))
+Add (Lit 1) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 0) (Lit 0)) (Lit 0)
+Add (Add (Lit 0) (Lit 0)) (Lit 1)
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 0) (Lit 0)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 0) (Lit 1)) (Lit 0)
+Add (Add (Lit 0) (Lit 1)) (Lit 1)
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 0) (Lit 1)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 1) (Lit 0)) (Lit 0)
+Add (Add (Lit 1) (Lit 0)) (Lit 1)
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 1) (Lit 0)) (Add (Lit 1) (Lit 1))
+Add (Add (Lit 1) (Lit 1)) (Lit 0)
+Add (Add (Lit 1) (Lit 1)) (Lit 1)
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 0))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 0) (Lit 1))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 0))
+Add (Add (Lit 1) (Lit 1)) (Add (Lit 1) (Lit 1))
+```
+
+`fromDatatypeUpToDepth` compiles the bounded grammar and retains the decoder
+for `Expr`. `cardinality` gives the number of replay ranks. `unrank` constructs
+the member at a zero-based rank, and `values` lists every member in rank order.
+The example prints all 38 expressions. `orFail` stops the program with the
+`explain` text when the language cannot be listed.
+
+As in the `microcfta` README, the bound includes the `Int` child of `Lit`.
+`Lit 0` has depth one. An `Add` of two literals has depth two. At depth three,
+either child of the outer `Add` can itself be an `Add`.
+
+Change `fromDatatypeUpToDepth 3` to `fromDatatypeUpToDepth 4` to generate a
+larger language:
+
+| Maximum depth | Number of expressions |
+| --- | ---: |
+| 2 | 6 |
+| 3 | 38 |
+| 4 | 1,446 |
+
+An expression at the next depth is one of the two literals or an `Add` of an
+ordered pair of expressions from the previous depth, so `n` expressions give
+`2 + n * n`. The rank decoder constructs the
+selected values from the compiled grammar.
+
+The QuickCheck adapter adds random sampling and shrinking. Counts and replay
+ranks identify distinct terms; an ambiguous handwritten grammar is counted
+symbolically, so one term still has one rank.
+
+For another complete example, see
+[`FinitePairs.hs`](examples/FinitePairs.hs), or run
+`cabal run cfta-pairs` from the workspace root.
+
+## Equality-constrained generators
+
+An equality generator is `Gen Symbol`, written `ECTAGen`. Its
+transparent regions retain an exact equality-constrained support,
+cardinality, and replay rank; the QuickCheck functions add sampling, opaque
+fallbacks, and structural shrinking. Run the complete introductory example
+from the workspace root with `nix-shell --run 'cabal run cfta-finite-languages'`.
+
+Import the QuickCheck-facing API:
+
+```haskell
+import Data.CFTA.Gen.Equality.QuickCheck (ECTAGen)
+import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
+```
+
+The QuickCheck facade re-exports the qualified do-notation, so `ECTAGen.do`
+and `ECTAGen.pure` sit next to `ECTAGen.node`; the ordinary and refinement
+facades give `FTAGen.do` and `LTAGen.do` the same way.
+
+### Generator API
+
+`fromAutomatonUpToDepth` reads an equality-constrained automaton, a
+`Node Symbol`, up to a depth. Build it with `mkEdge`, or
+annotate an explicit-state automaton with `Data.CFTA.annotate` and intern it
+with `Data.CFTA.Interned.fromFTA`.
+`fromDatatypeUpToDepth` accepts a derived `TypedFTA Constraint a` and returns
+typed values. Both functions are available from the QuickCheck API.
+
+For example, derive `(Bool, Bool)` with `deriveFTA`, then use
+`annotateDatatype` to attach `equalityConstraint (mkEqConstraints [[path [0], path [1]]])` to its
+tuple constructor. The generator has two ranks: `(False, False)` and
+`(True, True)`. The introductory example uses one derived pair grammar for
+ordinary and equality generation.
+
+A leaf has depth zero. The bounded import retains one rank per distinct term
+and samples uniformly over those ranks. Direct child equalities select once
+from the intersection of the child languages. The shared rank plan reuses that
+term at each equal position. Size inspection counts source choices, so repeated
+equal children contribute one selected child. Shrinks remain accepted.
+Nested equality paths and overlapping alternatives use symbolic counts over
+shared automaton states. Equality unifies selected subtrees, and overlapping
+alternatives count each accepted term once. Unranking constructs only the
+selected term. `fromAutomaton` reads an acyclic automaton the same way, and a
+cyclic one as a recursive generator counted by size.
+
+`elements` and `fromIndexed` turn a finite indexed source into an ECTA whose
+leaves contain stable indices, not generated values. `Functor` and
+`Applicative` composition preserve that symbolic structure, so ordinary
+`ApplicativeDo` builds ECTA products. Alongside the ECTA, the generator tracks
+an exact cardinality and a rank-to-outcome selector; applicative products
+multiply their counts rather than materializing their Cartesian products.
+
+`match` generates two values under a reified key equality: in
+`match (authenticatedUser :==: fileOwner) authentication filesystem`, the
+`:==:` keeps both projections as data, so the match can group each input by
+its own key, encode the shared keys as an actual ECTA equality constraint,
+count the matching group products, and unrank directly into the selected
+group. `:&&:` conjoins several equalities. This is the exact-uniform
+conditioning of [Claessen, Duregård and Pałka, *Generating Constrained Random
+Data with Uniform Distribution*, JFP 25,
+2015](https://doi.org/10.1017/S0956796815000143). The condition is reified as
+data, so `match` does not test it on samples. `match` accepts arbitrary value
+projections, so it must enumerate the input ranks to find its groups. To
+condition three or more generators, use the grouped layer (`groupOn` and
+`apply`).
+
+`relate leftKey rightKey relation left right` admits every pair for which the
+projected keys satisfy `relation`. The relation is an ordinary Haskell
+function such as `canRead Admin Public = True`; it may be asymmetric and the
+two key types may differ. A transparent join evaluates it once per live key
+pair, then counts, ranks, and samples the accepted group products directly.
+An opaque input uses rejection filtering. For an equality, `match` is shorter
+and faster, because it intersects the two key maps and does not test their
+Cartesian product.
+
+`relateM` is the compile-time, effectful form for finite transparent inputs. It
+groups each input once, invokes the callback once per live key pair, and then
+uses the same equality join. `relateGroupsM` starts from already grouped
+languages and therefore never enumerates their members. The LTA compiler uses
+it to turn solver-approved refinement tuples into a pure ECTA rank plan.
+`relateN` generalizes that operation to homogeneous n-ary key tuples, and
+`filterGroupsM` performs an effectful selection over an existing key space
+without visiting the members below each key.
+
+`Grouped key a` keeps the grouping of a generator, for nested or very large
+languages. The snippets in this section are fragments of one complete
+program, the typed-expression flagship
+[`Data.CFTA.Gen.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs).
+Read the whole program when the snippets are not sufficient. The `key` is the
+type that the classifier returns. It decides which groups can be joined, and it
+is not part of the generated `a`. Matching key values receive equal internal
+labels on constrained ECTA paths.
+
+`groupOn` classifies the outcomes of any transparent generator and enumerates
+them once. `keyed key generator` declares that every member already has one
+known key. `keyed` does not enumerate members, so it also accepts a recursive
+transparent generator, and the caller must declare the correct key. Grouped
+generators support ordinary `fmap`, and `mapWithKey` when the function also
+needs the key. `regroupOn` changes the classification without enumerating
+values, `sizes` returns the stored cardinality of every group, and `atKey`
+selects one group as an ordinary conditional generator.
+
+A `Sig` classifies an operation of any arity. It has the form of a many-sorted
+operation signature, with `:*` between argument keys and `:->` before the
+result key: `leftKey :* rightKey :-> resultKey`. `apply` matches each
+signature key with the corresponding argument family. It equates their paths
+in one ECTA edge, with one equality constraint per argument, and keeps the
+result key for later equality constraints. The operation family holds
+functions (`fmap` a compiling function onto it), and the argument families
+arrive as an `Args` chain.
+
+`frequencies` chooses among grouped generators with relative weights, group by
+group, so alternated layers stay grouped. `uniformlyGrouped` combines grouped
+generators in proportion to their exact cardinalities, so every member of the
+union is equally likely. A layered language needs this. `uniformly` does the
+same for flat generators. The expressions of depth at most `n` are one such
+union, and no count is computed by hand:
+
+```haskell
+upToDepthByType 0 = literalsByType
+upToDepthByType depth =
+  ECTAGen.uniformlyGrouped
+    [literalsByType, applicationLayer (upToDepthByType (depth - 1))]
+```
+
+`ungroup` returns an ordinary `ECTAGen` with the same exact distribution.
+Stable source order and ascending key order give deterministic replay ranks.
+
+```haskell
+commandsByKind = ECTAGen.oneofGrouped
+  [ ECTAGen.keyed Read readCommands
+  , ECTAGen.keyed Write writeCommands
+  ]
+```
+
+Here each command language keeps its existing compact support. Only the two
+declared keys are stored.
+
+```haskell
+binaryFunctionsBySignature :: Grouped BinarySignature BinaryFunctionInstance
+binaryFunctionsBySignature =
+  ECTAGen.groupOn binarySignature (ECTAGen.elements binaryFunctionInstances)
+
+binarySignature instance_ =
+  firstArgumentType instance_
+    :* secondArgumentType instance_
+    :-> binaryResultType instance_
+
+literalsByType :: Grouped Type TypedExpression
+literalsByType = ECTAGen.groupOn expressionType (ECTAGen.elements literals)
+
+unaryFunctionsBySignature :: Grouped UnarySignature (TypedExpression -> TypedExpression)
+unaryFunctionsBySignature =
+  compileNot <$ ECTAGen.keyed unarySignature (ECTAGen.elements [()])
+
+conditionalFunctionsBySignature =
+  compileConditional
+    <$> ECTAGen.groupOn conditionalSignature (ECTAGen.elements allTypes)
+
+binaryLayer children =
+  ECTAGen.apply
+    (compileBinary <$> binaryFunctionsBySignature)
+    (children :& children :& ANil)
+
+conditionalLayer children =
+  ECTAGen.apply
+    conditionalFunctionsBySignature
+    (children :& children :& children :& ANil)
+```
+
+The
+[`Data.CFTA.Gen.TypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs)
+flagship, a test and benchmark support module, combines unary `Not`, binary functions, and
+ternary `IfExpression`. Its finite layers combine those three alternatives with
+`uniformlyGrouped`, so every expression remains equally likely. Its
+recursive layer uses equal structural alternatives, as recursive declarations
+require.
+
+Both layers also support qualified do-notation through `Data.CFTA.Gen.Do`,
+imported qualified under the generator's alias. Enable `QualifiedDo` together
+with `ApplicativeDo`; statements must stay independent, and the final
+statement must use the qualified `ECTAGen.pure`. A grouped block chooses the
+operation family first and then one argument per signature component in
+order; whatever the arity, it builds exactly one `apply` join:
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE QualifiedDo #-}
+
+authentication :: ECTAGen Authentication
+authentication = ECTAGen.node "authentication" $ ECTAGen.do
+  user <- generatedUser
+  method <- ECTAGen.elements [Password, Token]
+  ECTAGen.pure (Authentication user method)
+
+conditionalLayer children = ECTAGen.node "if" $ ECTAGen.do
+  build <- conditionalFunctionsBySignature
+  condition <- children
+  ifTrue <- children
+  ifFalse <- children
+  ECTAGen.pure (build condition ifTrue ifFalse)
+```
+
+Impossible shapes fail at compile time with an explanation: a statement using
+an earlier bound value, an unqualified `pure` ending, or a fallible pattern.
+A block that binds fewer arguments than its operation's signature arity is a
+type mismatch against `Applying`, whose haddock says what the remaining keys
+are. A statement whose result is a tuple, as `match` and `relate` give, must
+bind it lazily: `ApplicativeDo` rejects `(a, b) <- match ...` and accepts
+`~(a, b) <- match ...`.
+
+Every transparent generator samples compositionally by rank, including exact
+non-uniform `frequency` and conditioned joins; sampling never materializes the
+final Cartesian product. `cardinality` and `unrank` expose deterministic
+replay, while `countOn` reports exact coverage of ranked outcomes. A retained
+`Grouped` key is also a symbolic observation. `countsAtSize` reports how many
+members reach each key. `massesAtSize` reports the exact key distribution used
+by sampling that size. Declared atomic weights can therefore produce equal
+counts and unequal masses. Recursive groups memoize both size series, so these
+queries do not enumerate traces. ECTA support is demand-driven: counts, masses,
+replay, sampling, and constrained joins retain it as a lazy thunk. `support`
+forces the complete symbolic representation, a `Node (Label Symbol)`:
+`Label` wraps the user's symbols, and the other constructors of
+`Data.CFTA.Gen.Label` are the engine's private labels for the applicative
+spine, choices, source indexes, joins, keys, and recursive families.
+
+`termAt` gives the engine term of the member at a rank, and `rankOf` is its
+inverse: it gives the least rank of an engine term, or `TermNotInLanguage`
+when the term is not a member. `ranksOf` gives every rank of a term. A term can
+have more than one rank, because a constructor label removes the choice
+wrapper of its alternatives. The ranking follows the private labels and checks
+the user symbols. Where it cannot check a symbol, `termAt` checks the rank, so a
+term with other user symbols has no rank. A
+recursive generator uses the size-major ranks of `unrank`. For an imported
+automaton, `rankOfTerm` takes the tree of user symbols, and `rankOfValue`
+takes a datatype value from `fromDatatype`.
+
+`smallest (atKey key family)` returns a globally smallest witness for one
+observation. An unreachable key returns `Right Nothing`. A temporal observation
+such as "failure state reached" belongs in the recursive key as a sticky state
+bit; it is not recovered later by filtering complete traces.
+
+`pmfAtSize` asks the more general value-level distribution question. It
+interprets the same size-indexed sampler used by lowering, including weighted
+atomic choices, but may enumerate products before equal results are aggregated.
+The generic `countOn`, `pmf`, and `pmfAtSize` observers are therefore best for
+finite or small result languages. Retain a reusable classification with
+`Grouped` when the observation is part of a recursive language.
+
+```haskell
+failure = ECTAGen.atKey FailureReached tracesByOutcome
+
+shortestFailure = ECTAGen.smallest failure
+outcomeCounts = ECTAGen.countsAtSize tracesByOutcome 41
+outcomeProbabilities = ECTAGen.massesAtSize tracesByOutcome 41
+samples = ECTAGen.toGen (ECTAGen.ungroup tracesByOutcome)
+```
+
+`AtSize` means structural source choices, not list length. In this example the
+empty trace contributes one choice, so size 41 represents forty commands.
+
+`Data.CFTA.Gen.Equality.QuickCheck` exposes `toGen`, plus
+`toGenWithRank` when the sampled replay rank is needed. It gives a
+`RankedValue`: the rank in `valueRank` and the value in `rankedValue`.
+`forAll` checks a property and shrinks to the smallest failing member. It
+first tests every member of strictly smaller size, in size order
+(`smallerMembers`, capped by
+`smallerMemberLimit`), so the reported counterexample is globally size-minimal
+whenever that search reaches one. After that search, `forAll` uses size-major
+structural shrinking through `shrinkRank`. For a recursive generator,
+`shrinkRank` reads its candidates from the form bounded at the current size,
+because only a bounded form gives a recursive member components to shrink.
+Every candidate is a member of
+the generated language, and the failing rank is printed for deterministic
+replay with `unrank`. A generator with an opaque region has no ranks at all, so
+`forAll` tests it by sampling with no shrinking. `sized` builds and compiles
+one generator per QuickCheck size (shared across samples), so layered
+generators can scale with the size parameter.
+
+The greedy shrinkers of QuickCheck, Hedgehog, Hypothesis, and falsify stop at
+a local minimum. Bounded-exhaustive tools find a smallest counterexample by testing the
+whole space up to a bound ([Runciman, Naylor and Lindblad, *SmallCheck and Lazy
+SmallCheck*, Haskell 2008](https://doi.org/10.1145/1411286.1411292), and FEAT's
+exhaustive modes). `forAll` gets a size-minimal counterexample starting from a
+random one, by enumerating every member of strictly smaller size first.
+
+```haskell
+import Data.CFTA.Gen.Equality.QuickCheck (ECTAGen)
+import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
+
+joined :: ECTAGen (Authentication, Filesystem)
+joined =
+  ECTAGen.match
+    (authenticatedUser :==: fileOwner)
+    authentication
+    filesystem
+```
+
+```haskell
+canRead :: Role -> Classification -> Bool
+canRead Admin _ = True
+canRead Member Public = True
+canRead _ _ = False
+
+authorized :: ECTAGen (User, File)
+authorized =
+  ECTAGen.relate roleOf classification canRead users files
+```
+
+```haskell
+replay :: Either GenError Authentication
+replay = ECTAGen.unrank authentication 42
+
+coverage :: Either GenError (Map UserId Cardinality)
+coverage = ECTAGen.countOn authenticatedUser authentication
+```
+
+### Inspect a generator
+
+Use `namedElements` to retain source names, including names for function values.
+Use `nameGroups` to retain display names for classified keys without decoding
+their members. Both functions preserve semantic support, ranks, and weights.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import qualified Data.CFTA.Gen.Equality.QuickCheck as ECTAGen
+
+-- | Two named integer source choices.
+integers :: ECTAGen.ECTAGen Int
+integers = ECTAGen.namedElements [("zero", 0), ("one", 1)]
+
+-- | Apply a named function to the integer source.
+incremented :: ECTAGen.ECTAGen Int
+incremented = ECTAGen.namedElements [("increment", (+ 1))] <*> integers
+```
+
+`ECTAGen.inspect incremented` returns an `Inspection`, and `drawInspection` draws
+it as an ASCII tree. Its `inspectionGraph` is a
+`Node (InspectionSymbol Symbol)`. For another rendering, pass it
+to `ECTA.toTree`, then render the typed labels with `fmap` and
+`Data.Tree.drawTree`. Each `InspectionSymbol` retains `originalSymbol`, a
+`Label Symbol`, and an optional `displayLabel`. `inspectionName` holds a group
+name when one is available. `ViewPath` locations belong to the graph passed to
+`toTree`.
+
+Source names describe source choices. `fmap` preserves those names; it does not
+infer names for mapped results. `regroupOn` clears old group names because the
+keys change. Apply `nameGroups` after regrouping to name the new keys. Source
+names remain available through grouping, application, and recursion.
+
+The diagnostic graph preserves construction structure and equality obligations.
+Names distinguish occurrences that share one semantic node, such as integer
+and Boolean sources with the same rank indices. The graph does not run equality
+reduction. Use `ECTAGen.support` for membership and other semantic operations.
+
+Counts and rank decoding do not evaluate display names or construct the
+diagnostic graph. Retaining the extra fields and closures still uses memory.
+Inspecting the graph also allocates its nodes and formatted names.
+
+Run `cabal run cfta-draw-typed-expressions` to draw the actual finite and
+recursive expression generators. The [example](examples/DrawTypedExpressions.hs) calls
+`drawInspection`, which shows source choices such as `Add :: Int -> Int -> Int`
+and `IntLiteral 0 :: Int`, with `Int` and `Bool` labels on the equality witnesses.
+
+#### Read the ASCII tree
+
+The drawing alternates between state lines (`q0`, `q1`, ...) and transition
+lines (`choice 0`, `"if"`, `Add :: Int -> Int -> Int`, ...). A transition
+shows its display name when it has one. Otherwise it shows its symbol with
+`show`, so a `Symbol` appears in quotes, or a short name for a construction
+step, such as `choice 0`. At a state, choose one transition alternative. A
+chosen transition uses all of its child states in order. For example, the two
+alternatives below `q5` select `Add` or `Multiply`; the children below
+`"binary-application"` supply its operation and both arguments.
+
+Each state occurrence has a local name and a root-relative location:
+
+```text
+q14 @1:0/0:1
+```
+
+`q14` identifies the state in this drawing. The text after `@` identifies this
+occurrence of that state. Read each `transition:child` pair as two zero-based
+indexes: select a transition, then select one of its children.
+Index `0` means the first item. A slash starts the next step from the reached
+state. `@root` means the initial state, with no steps.
+
+In the depth-one `Int` drawing, `@1:0/0:1` means:
+
+| Step | Current state | Select transition | Select child | Reach |
+|---|---|---|---|---|
+| `1:0` | `q0` | `1`: `choice 1` | `0`: its only child | `q9`, the conditional state |
+| `0:1` | `q9` | `0`: `"if"` | `1`: the condition argument | `q14` |
+
+The location is stored as `[ViewStep 1 0, ViewStep 0 1]` in `viewPath`. Each step holds a transition
+index and a child index. The child indexes
+include the operation: below `"if"`, child `0` holds the operation, child `1`
+holds its condition argument, and children `2` and `3` hold its two branches.
+The condition argument has its own type witness and value child. One further
+step, `0:1`, reaches its Boolean literal choices at `@1:0/0:1/0:1`.
+
+References stop repeated expansion:
+
+| State line | Meaning |
+|---|---|
+| `q7 @0:0/0:1/0:1` | Expand state `q7` at this occurrence. |
+| `ref q7 @0:0/0:2/0:1` | Reuse the same state from another occurrence. |
+| `mu q0 @...` | Refer to an ancestor state and stop the recursive expansion. |
+
+A reference's `@` path locates the reference, not the earlier definition.
+State names and occurrence paths belong to one drawing. They can change when
+the graph or its alternative order changes.
+
+Equality annotations use a different path notation. In
+`"binary-application" [0.1 = 2.0, 0.0 = 1.0]`, each dot-separated path starts at
+that transition and follows child indexes only. Thus `0.1` reaches the
+operation's second type witness, and `2.0` reaches the second argument's type
+witness. The equality requires those subterms to agree. These paths do not
+contain alternative indexes and do not start at the drawing's root.
+
+### Recursive languages
+
+`recur` builds a generator from its own language, so a language can be
+unbounded without unrolling it layer by layer:
+
+```haskell
+tree :: ECTAGen Tree
+tree = ECTAGen.recur $ \self ->
+    ECTAGen.oneof
+        [ Leaf <$> ECTAGen.elements [0 .. 2]
+        , Branch <$> self <*> self
+        ]
+```
+
+The result is the whole language. It has no cardinality. It has size
+classes, counted by FEAT-style convolution, where the size of a member is its
+number of source choices. For the tree above, `countAtSize tree 4` is
+`Right 405`. Ranks are size-major, so `unrank tree 0` is the smallest member
+and every rank replays as usual. The ECTA support is a `Mu` node: one finite
+automaton for infinitely many terms.
+
+The convolution is FEAT's ([Duregård, Jansson and Wang, *Feat: Functional
+Enumeration of Algebraic Types*, Haskell
+2012](https://doi.org/10.1145/2364506.2364515)), but the size measure is not:
+FEAT charges size wherever the definition says `pay`, while here every source
+choice costs one and nothing else does. "Size-major rank" is this package's own
+term for the resulting order. Counting a family by a size recurrence and
+drawing from those counts is the recursive method of Nijenhuis and Wilf,
+*Combinatorial Algorithms*, 2nd ed., 1978, and of [Flajolet, Zimmermann and Van
+Cutsem, *A Calculus for the Random Generation of Labelled Combinatorial
+Structures*, TCS 132, 1994](https://doi.org/10.1016/0304-3975(94)90226-7);
+turning a rank back into a member is unranking, as in [Martínez and Molinero,
+*A generic approach for the unranking of labeled combinatorial classes*, RSA
+19, 2001](https://doi.org/10.1002/rsa.10025).
+
+`pure` is one source choice like any other, so `pure f <*> x` has one more
+choice than `f <$> x`: the two have different sizes and therefore different
+ranks. It also counts as guarding recursion, so `pure f <*> self` is accepted
+where `f <$> self` is `UnguardedRecursion`.
+
+`upToSize n` bounds the language back to an ordinary finite generator over
+the members of size at most `n`, and `toGen` and `forAll` apply it from
+QuickCheck's size parameter. A size is a `Data.CFTA.Index.Size`, which holds
+an `Integer`, so a size can be larger than an `Int` allows. Size classes and
+structural alternatives are selected from their member counts; weighted finite
+choices closed with `atomic` retain their declared PMF inside the selected
+size. Bounding preserves ranks: the members of size at most `n` hold the same
+ranks under every bound large enough to contain them. A counterexample
+therefore replays under any larger bound. `forAll` first tests the whole size
+classes below the failing member. After its cap, it shrinks the components of
+the form bounded at the failing member's size.
+
+`atomic` treats every member of a finite generator as one source choice. This
+sets a domain-sized boundary inside a recursive language. For example, an
+acyclic command FTA can retain its compact support and rank decoder while each
+complete command, rather than each node in its term, contributes one unit to a
+trace's size:
+
+```haskell
+command = decodeCommand <$> ECTAGen.atomic (ECTAGen.fromAutomaton commandFTA)
+
+nonEmptyTrace = ECTAGen.recur $ \rest ->
+  ECTAGen.oneof
+    [ (: []) <$> command
+    , (:) <$> command <*> rest
+    ]
+```
+
+This does not enumerate the FTA or add one support edge per command. It keeps
+the accepted language, compact support, ranks, and decoder. The whole acyclic
+FTA becomes the finite command source, so QuickCheck's size acts on the outer
+trace instead of taking a second prefix inside each command. For an already
+finite generator, its cardinality and distribution also stay unchanged. Only
+the size and structural-shrinking boundary changes. A recursive input has
+infinitely many members, so bound it with `upToSize` before making it atomic,
+and do that *outside* the recursive definition. Neither `upToSize` nor `atomic`
+can be applied to the `recur` argument, or to anything built from it: the bound
+would need the size classes that definition is still computing, and an atom
+over them would have a cardinality depending on itself. Both shapes are
+rejected with `BoundedRecursiveOccurrence`. Opaque generators have no size
+structure and cannot be made atomic.
+
+The self-reference has to go through `recur`. A generator that names itself
+directly, as in `tree = Branch <$> tree <*> tree`, is an infinite Haskell
+value. Building it never finishes, so the program hangs and the library
+cannot report an error. In the other direction, a body that never uses the
+argument is not recursive, and `recur` returns it unchanged: a finite body
+stays a finite generator, with its cardinality and inspection. A body that
+cannot be built reports its own error, and `recur` does not turn it into a
+recursive language that every finite inspector calls unbounded.
+
+Two rules apply inside the knot. The recursion must be guarded: every
+occurrence of the argument sits under at least one `<*>`. Otherwise the
+language has no smallest member, so `recur` rejects the definition with
+`UnguardedRecursion` and does not hang. The check is per definition, so inside
+a nested `recur` an occurrence of the *outer* language must also sit under an
+application within the inner body. Structural alternatives around a recursive
+occurrence must carry equal weights. `oneof` gives equal weights, and the size
+bound controls how large members get. `frequency` with unequal weights on
+recursive branches is an error. A weighted finite choice may still enter
+through `atomic`, retaining its own distribution inside every recursive size.
+
+Inspection that reads every member (`groupOn`, `match`, `relate`, `pmf`,
+`countOn`) needs a finite language. Bound a language built with `recur` first:
+`upToSize` keeps one ECTA term per member, so these observers work on the
+bounded language. `termAt` and `rankOf` work without a bound, with size-major
+ranks. The exact-size observers (`countAtSize`, `pmfAtSize`, `countsAtSize`,
+`massesAtSize`) also work without a bound.
+
+`recurGrouped` does the same for the grouped layer, which is where recursion
+and equality constraints meet in one cycle:
+
+```haskell
+expressions :: Grouped Type TypedExpression
+expressions = ECTAGen.recurGrouped $ \self ->
+    ECTAGen.oneofGrouped [literalsByType, applicationLayer self]
+
+anyExpression = ECTAGen.ungroup expressions
+intExpression = ECTAGen.atKey TInt expressions
+```
+
+The set of keys in the family is part of the fixpoint, so `recurGrouped`
+solves it first. It starts from the empty family and adds the result keys of
+operations whose argument keys are already present. Then it ties the languages
+over that set. All the keys share one `Mu` node whose edges carry their key as
+a first child; an occurrence at one key is that node under an edge holding
+the key's label, with an equality constraint tying the two. A recursive
+family is therefore one recursive automaton whose cycle carries the keyed
+joins' equality constraints. Only an ECTA can hold this shape.
+
+For the language above, unfolding that automaton twice accepts exactly the 46
+expressions produced by the hand-unrolled depth-one generator. This includes
+unary `Not`, the binary functions, and ternary `IfExpression`. `ungroup` and
+`atKey` are the exits back to an ordinary recursive generator, so bounding,
+sampling, replay, and shrinking all work as above. `sizes` has no cardinality
+to report for a recursive family; use `countAtSize` on `atKey`.
+
+`fromAutomaton` goes the other way: it reads an existing automaton as a generator
+of the terms it accepts, with the automaton itself as the support. An
+acyclic automaton is a finite generator, as above; a cyclic one is a
+recursive generator, counting terms by size, which is the number of term
+nodes.
+
+```haskell
+import qualified Data.Tree as Tree
+
+types :: Node Symbol
+types = createMu $ \recursive -> Node
+    [ Edge "baseType" []
+    , Edge "->" [recursive, recursive]
+    , Edge "Maybe" [recursive]
+    ]
+
+typeGen :: ECTAGen (Tree.Tree Symbol)
+typeGen = ECTAGen.fromAutomaton types
+```
+
+`countAtSize typeGen` reports 1, 1, 2, 4, 9 for sizes one to five, `unrank`
+walks the terms in size order, and sampling draws uniformly from the terms
+of at most the current size. Bounding one of these keeps full inspection:
+`pmf`, `countOn`, and `groupOn` all work on `upToSize n (fromAutomaton node)`,
+and so does `termAt` on a mapped one. The generated values *are* the accepted
+terms, so `rankOfTerm typeGen` gives the size-major rank of an accepted term.
+
+The recursive count does not count equality constraints. They correlate an
+edge's children, so the edge's count is the size of an intersection rather
+than a product of the children's counts; a cyclic automaton carrying them is
+rejected with `CannotCountConstrainedEdges`. Bound
+the automaton first: the finite import counts equalities exactly.
+
+Nor does it count ambiguity. A node's count is the sum over its edges, which
+counts accepting *runs*, so a node with two edges that accept a common term
+would count that term twice and `unrank` would return it at two ranks. Every
+reachable node is checked, and an ambiguous cyclic automaton is rejected
+with `AmbiguousAutomaton`. Two edges overlap when they share a symbol and
+arity and every child position has a non-empty intersection, which without
+constraints is exactly when they share a term. The finite import counts an
+ambiguous automaton symbolically instead.
+
+`fromIndexed` is the transparent boundary for a FEAT-style finite enumeration:
+it needs only a cardinality and a stable function from a zero-based rank to a
+value. `Data.CFTA.Index` defines `Cardinality` and `Rank`, and an integer
+literal is a value of either type. `elements` is the corresponding list
+convenience function.
+
+`Data.CFTA.Ranked.fromIndexedOnDemand` is the automaton-adapter variant. It keeps
+the same cardinality, ranks, and sampler but never tabulates a small indexed
+source while compiling its replay decoder. Symbolic counting uses it so the
+automaton remains a graph until one rank is selected.
+
+`samplePool n native` bridges a large or infinite QuickCheck source into this finite
+world. Its outer `Gen` samples `n` values once and returns an `ECTAGen` whose
+ranks are those draws. The result supports exact inspection and constrained
+joins. Repeated draws remain repeated ranks and therefore retain their
+empirical weight. Reuse the returned generator when two choices must range over
+the same frozen universe.
+
+`freeze seed n native` is `samplePool` with the draws fixed by a seed, so it is an
+ordinary transparent generator rather than a `Gen` of one: it can be weighted
+by `uniformly`, keyed, joined, replayed, and shrunk, and its ranks are the same
+in every run under the same seed. The native generator runs at QuickCheck size
+30, the default of `generate`; use `resize` on it for another size.
+
+Every failure is a `GenError`. The derived `Show` names the case, and
+`explain` says what it means and which combinator resolves it; sampling a
+generator that could not be built raises both together. `orFail` turns a
+`GenError` result into a failure with the `explain` text, for `main` and tests.
+
+```
+>>> putStrLn (ECTAGen.explain ECTAGen.UnguardedRecursion)
+The recursive language reaches itself without passing through an
+application, so its members never get smaller and no size class can
+be counted.
+Fix: put every occurrence of the argument under <*>, as in
+Branch <$> self <*> self, or under apply in a grouped family. An
+alternative that is the argument itself, such as oneof [leaf, self],
+is the shape to look for.
+```
+
+`fromGen` embeds an ordinary `QuickCheck.Gen` as an explicitly opaque region.
+Opaque regions still compose and sample, but cannot be inspected with `pmf`;
+joining through one falls back to QuickCheck rejection. Opaque regions also
+have no replay rank, and `forAll` therefore tests a generator holding one by
+sampling alone, without shrinking. There is deliberately no `Monad` or
+`Selective` instance. This keeps inspectable applicative regions inside ECTA
+and makes the loss of structure explicit.
+
+## Refinement-constrained generators
+
+A refinement generator is `Gen Symbol`, written
+`LTAGen`. Each value carries a refinement, a formula that the solver knows
+about it. A condition on one child goes where the child is drawn, with
+`satisfying`. A relation between children is the contract of a `guarded`
+node. Call `compile` once, then use pure sampling, replay, and shrinking.
+Compilation keeps symbolic counts and constructs selected values on demand.
+
+### A complete first program
+
+This program generates safe divisions. The solver removes the zero
+denominator before the division is evaluated.
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QualifiedDo #-}
+
+import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
+import Data.CFTA.Refinement.Expression ((./=))
+import qualified Test.QuickCheck as QC
+
+divisions :: LTAGen.LTAGen (Integer, Integer)
+divisions = LTAGen.node "divide" $ LTAGen.do
+    d <- LTAGen.elements [0 .. 5] `LTAGen.satisfying` (\v -> v ./= 0)
+    LTAGen.pure (d, 12 `div` d)
+
+main :: IO ()
+main = do
+    gen <- LTAGen.compile divisions
+    print (LTAGen.values gen)
+    QC.quickCheck $ LTAGen.forAll gen $ \(d, q) -> d /= 0 && q == 12 `div` d
+```
+
+Use the packages `base`, `microcfta`, `microcfta-generator`, and `QuickCheck`.
+Install Z3 and put it on `PATH`. The program prints
+`Right [(1,12),(2,6),(3,4),(4,3),(5,2)]`.
+
+A refinement is a Haskell function of the value, such as `\v -> v ./= 0`. Its
+terms take integer literals and arithmetic, as in `\v -> v .== 2 * n + 1`. The
+logic has the comparisons `.==`, `./=`, `.<`, `.<=`, `.>`, and `.>=`, and the
+connectives `.&&`, `.||`, and `lnot`. `elements` gives each integer `x` the
+refinement `\v -> v .== literal x`, so the solver knows each value exactly.
+`satisfying` keeps the terms whose refinement implies the condition. The
+solver declares every free name as an integer.
+
+Run the checked introductory example from the workspace:
+
+```sh
+nix-shell --run 'cabal run cfta-safe-division'
+```
+
+### Refined pools and contracts
+
+A pool can say less than the value. Then the solver knows only what the pool
+says:
+
+```haskell
+ranged :: [(Integer, Refinement)]
+ranged =
+    [ (1, \v -> 0 .<= v .&& v .< 2)
+    , (3, \v -> 2 .<= v .&& v .< 4)
+    , (5, \v -> 4 .<= v .&& v .< 6)
+    ]
+
+below :: Expr -> Expr -> Formula
+below left right = left .< right
+
+pairs :: LTAGen.LTAGen (Integer, Integer)
+pairs = LTAGen.guarded "pair" below $ LTAGen.do
+    left <- LTAGen.pool ranged
+    right <- LTAGen.pool ranged
+    LTAGen.pure (left, right)
+```
+
+`pool` takes values with their refinements and names each entry by `show`.
+`guarded` closes the block with a contract: a function with one term for each
+child, in order. The solver proves each conjunct of the contract, and assumes
+the refinement of each child that the conjunct names. `notGuard` of a contract
+holds only when those refinements refute it. Here the ranges order
+three pairs: `(1,3)`, `(1,5)`, and `(3,5)`. The contract names the children as
+a function signature names its parameters, and the do-block binds their values.
+
+The generator trusts a pool's refinements. It does not inspect a Haskell value
+to prove its refinement. `checkPool solver ranged` asks the solver to prove
+each refinement for its value, and returns the values that it cannot prove.
+[`LiquidPairs.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/LiquidPairs.hs)
+runs this program with `checkPool`, and CI runs it with the other examples.
+`compileAssuming` adds ambient facts, such as `[variable "input" .== 2]`, that
+the solver may assume. `compileWith` takes a solver from `withZ3`, to share one
+solver between several generators, and returns the error instead of failing.
+Mapping a generator changes its Haskell value and retains the term and
+refinement that justify its conditions.
+
+### Values without a pool
+
+`every` draws every value of a type, each refined as itself, as `elements`
+refines its members. On this leaf, a condition narrows the values, and a
+contract over such children keeps the tuples that it admits. `compile` counts
+them without enumeration and without the solver:
+
+```haskell
+boundedReads :: LTAGen.LTAGen (Integer, Integer)
+boundedReads = LTAGen.guarded "read-at" (\n i -> 0 .<= i .&& i .< n) $ LTAGen.do
+    n <- LTAGen.every `LTAGen.satisfying` (\v -> 1 .<= v .&& v .<= 1000000)
+    i <- LTAGen.every `LTAGen.satisfying` (\v -> (-10) .<= v .&& v .<= 1000000)
+    LTAGen.pure (n, i)
+```
+
+The signature makes both children `Integer`, which is unbounded, so the
+conditions bound them. Where nothing fixes the type, write `every @Integer`,
+which needs the `TypeApplications` extension.
+The compiled generator has 500,000,500,000 members. Ranks follow the
+lexicographic order of the children, so rank 0 is `(1,0)` and the last
+rank is `(1000000,999999)`. Sampling decodes one rank at a time, and a shrink
+goes to an earlier rank. Each member's term has an exact leaf for each value,
+with the refinement that `elements` gives. The leaf is named by the integer
+of the value, so an `every @Char` leaf for `'a'` is named `97`.
+
+The conditions and the contract must be linear, with integer coefficients, and
+each integer must be bounded. Inside a choice, the conditions of each `every`
+must bound it, because the choice weighs its alternatives by their values.
+A condition on `every` names only `v` and constants: `compile` does not count
+an ambient name, such as a name from `compileAssuming`. `Data.CFTA.Refinement.Lattice` counts the
+integer points of such a formula exactly: it sums the variables out with
+Faulhaber polynomials, as in Pugh, "Counting solutions to Presburger formulas"
+(PLDI 1994), and it decodes a rank with one binary search for each variable.
+When it sums a variable out, each bound must have the coefficient one or minus
+one on that variable. A contract can also name a child from `elements`, whose
+refinement fixes one integer. A domain that the counter cannot count gives
+`UncountableIntegers`. A guard that reads below the root of a child from
+`every`, or reads it through an equality, gives `IntegerLeafRead`.
+[`BoundedReads.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/BoundedReads.hs)
+runs this program, and CI runs it with the other examples.
+
+`every` takes every type that integers stand for: `Integer`, `Word8`, `Char`,
+`Bool`, another integral type, or an enumeration that derives `Literal` via
+`Enumerated`. A bounded type needs no condition. A condition or a contract
+reads a value as its integer, so it compares the value with a `literal`, as in
+`(./= literal Red)`.
+[`docs/symbolic-values.md`](../docs/symbolic-values.md) explains the types,
+what `compile` can count, and how the counter works, and
+[`TypedValues.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/TypedValues.hs)
+relates a color, a brightness byte, and a flag in one contract.
+
+### Measures and bounded recursion
+
+`measured` closes a constructor with a contract and a measure. A measure gives
+each generated term one integer that refinements can read, defined
+constructor by constructor; Liquid Haskell calls such a function a measure.
+The second argument of `measured` is the contract, as for `guarded`, and the
+third is the measure of the new term. Both are functions with one term for
+each child, in order, and each term is the measure of that child, not the
+child's Haskell value. The refinement of each constructed term is then
+`\v -> v .== measure`, so the contract of a parent reads it. A measure does
+not change the generated value. `recurUpTo` unfolds a recursive description a
+bounded number of times, from the empty generator, and `compile` compiles each
+unfolding once.
+
+Where does the integer come from? Every node of a term of a liquid tree
+automaton has one integer, the `v` of its refinement, and the solver reads only
+these integers, never the Haskell value. So the generator builds two things
+side by side: the Haskell value, through `fmap` and `<*>`, and a term of
+refined symbols. For a type with a natural integer, the refinement gives it:
+`elements [1, 2, 3]` refines each member as `v == x`. A tree has no natural
+integer, so the author chooses what `v` means. A leaf gets its integer from its
+refinement, and a constructor from `measured` gets its integer from its
+measure.
+
+These two give red-black trees. The measure of a tree is its black height: a
+leaf has black height zero, a black node adds one, and a red node keeps the
+black height of its subtrees. The grammar keeps red children black, and the
+contracts keep the black heights of the two subtrees equal:
+
+```haskell
+redBlackTrees :: Depth -> LTAGen.LTAGen Tree
+redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
+    let anyRooted = LTAGen.oneof [blackRooted, red blackRooted]
+     in LTAGen.oneof [leaf, black anyRooted]
+  where
+    -- A leaf has black height zero.
+    leaf = LTAGen.leaf Leaf "leaf" (.== 0)
+    black, red :: LTAGen.LTAGen Tree -> LTAGen.LTAGen Tree
+    -- The two subtrees have equal black heights, and a black node adds one.
+    black child =
+        LTAGen.measured
+            "black"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight + 1)
+            (Black <$> child <*> child)
+    -- A red node keeps the black height of its subtrees.
+    red child =
+        LTAGen.measured
+            "red"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight)
+            (Red <$> child <*> child)
+```
+
+Read `black` as follows. The constructor `black` has two children. Its contract
+says that their measures, the black heights `leftHeight` and `rightHeight`, are
+equal. Its measure, the black height of the new tree, is `leftHeight + 1`. The
+leaf has the measure 0 from its refinement `v == 0`. Because the leaf, `black`,
+and `red` agree, the integer of every tree is its black height; nothing checks
+that meaning. Some terms:
+
+| Term | Measures of the children | Contract | Measure |
+| --- | --- | --- | --- |
+| `Leaf` | none | none | 0, from `v == 0` |
+| `Black Leaf Leaf` | 0 and 0 | holds | 0 + 1 = 1 |
+| `Black (Black Leaf Leaf) (Black Leaf Leaf)` | 1 and 1 | holds | 2 |
+| `Black (Black Leaf Leaf) Leaf` | 1 and 0 | fails | not generated |
+
+The measure is also what makes `compile` fast here. It groups the children by
+their measures, decides each contract once for each pair of groups, and counts
+the trees without listing them.
+
+With three unfoldings, the compiled generator has 25,728,160,405 trees.
+`countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
+1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten. Compilation takes a
+few milliseconds, because each unfolding is compiled once.
+
+The measure of children from `every` stays a term of their integers. The
+measure of a sorted list is its head, and each `cons` relates its element to
+the head of the rest:
+
+```haskell
+sortedLists :: LTAGen.LTAGen [Integer]
+sortedLists = LTAGen.recurUpTo 8 $ \rest -> LTAGen.oneof [nil, cons rest]
+  where
+    nil = LTAGen.leaf [] "nil" (.== 1000001)
+    -- The element is at most the head of the rest, and it is the head of the list.
+    cons rest =
+        LTAGen.measured
+            "cons"
+            (\element restHead -> element .<= restHead)
+            (\element _ -> element)
+            $ LTAGen.do
+                x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
+                xs <- rest
+                LTAGen.pure (x : xs)
+```
+
+The head of the empty list is above every element, so every element can come
+before it. `compile` keeps the elements as integer variables through the whole
+list, and counts the points of `0 <= x1 <= ... <= xk <= 1000000` where the
+list ends: C(1000009, 8), about 2.5 × 10^43 lists. Each rank decodes to a
+sorted list, and each term carries the exact integer of each element and the
+exact head of each `cons`.
+
+A child that a measure names must have a measure of its own: a refinement that
+fixes one integer, as `elements` and `leaf` give, an integer from `every`, or a
+constructor built with `measured`. Otherwise `compile` reports
+`InexactMeasure`. A parent reads only the root of a child whose integers stay
+open. `measuredNode` is `measured` with a positional guard, as `refinedNode`
+takes, in place of the contract.
+[`RedBlackTrees.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/RedBlackTrees.hs)
+and
+[`SortedLists.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/SortedLists.hs)
+run these programs, and CI runs them with the other examples.
+
+### Construction and compilation
+
+`elements` and `pool` choose uniformly. `namedPool` takes
+`Refined value symbol refinement` atoms with explicit symbols, and `leaf` is one
+such atom. Repeated entries are repeated ranks. `oneof` and `frequency` are the
+generic choices: `frequency` weights its branches as QuickCheck's does, and
+skips an empty branch.
+
+Each qualified do-block describes independent direct children, and its
+adjacent `node` or `guarded` supplies the constructor. A contract must take
+exactly one argument per child; write `_` for an unused child. An
+argument-count mismatch is a construction error, including when the source is
+empty. `satisfying` applies to the root of the generator it follows: a pool, a
+leaf, a node, a bounded import, a choice of these, or a mapped generator. A
+condition names only `v` and ambient names, and on `every` only `v` and
+constants; a relation between children belongs in a contract. Names that
+start with `__microcfta_` are reserved for the compiler.
+
+`node` and `guarded` use the universal result refinement. `refinedNode`
+supplies a fixed result refinement, and `refinedNodeByRoots` computes one from
+the labels of the children, a list of `Symbol`. Both take a positional
+guard from `Data.CFTA.Refinement.Guard`. That is the form of the paper's
+encodings, where a function type is a subtree of the term: for example
+``actual `isSubtypeOf` expected``, ``argument `requires` refinement``, or
+`withActualFor actual formal dependentResultCheck`. `descendant argument [1]`
+selects the argument's second child. Raw `Constraint` values remain
+available and retain the paper's Boolean meaning for missing paths.
+
+A constructor without a condition or a contract is built at once, like any
+other generator. A constructor that needs the solver defers the generator:
+`cardinality`, `unrank`, and `support` report `SourceRequiresCompilation` until
+`compile` has decided every guard. `compile` folds the generator's construction
+once, with the solver. Each child language is grouped by the observations its
+parent guard reads: the label at the child's root, and at deeper paths the
+guard names. The solver decides the guard once per tuple of child groups, and
+the accepted tuples become one join per constructor. No candidate is built to
+decide a guard, so the accepted language can be larger than a machine integer.
+Groups are ordered by the first member that has their observations, so ranks
+keep source order.
+
+`isSameTermAs` normally requires exact subtree equality. Inside `withActualFor`,
+it compares views with the formal symbol replaced by the actual symbol,
+including free variables in refinement annotations. The generated terms and
+values stay unchanged. Several replacements in `withActualsFor` apply
+simultaneously. Compilation can decide this scoped equality on observed leaves.
+Scoped equality on compound subtrees remains unsupported by the compiler.
+
+The result of `compile` is an ordinary finite generator: `cardinality`,
+`unrank`, `termAt`, `rankOf`, `support`, `shrinkRank`, and `smallerMembers`
+work on it, and sampling, replay, and shrinking make no solver calls. `termAt`
+returns the engine's labelled term; `surface` reads the accepted liquid term
+under it. An undecidable guard, a guard the observations cannot decide, and a
+guard the symbolic counter cannot count are compile failures, each
+explained by `explain`; an empty language is not a failure. Ranks are
+deterministic for a fixed generator. A changed pool, bound, or
+specification can change them.
+
+### Import an LTA
+
+`fromAutomaton` reads a liquid automaton, and `fromAutomatonUpToDepth` bounds
+it first by tree height, leaves having height zero. An automaton whose guards
+the engine can count is read at once, with one rank per distinct accepted
+term: Boolean equality between subterms, nested equalities, negation,
+disjunction, and overlapping alternatives are counted symbolically. An
+automaton with guards that need the solver waits for `compile`, which prunes
+it first. Both compose with ordinary sources:
+
+```haskell
+boundedTerms = LTAGen.fromAutomatonUpToDepth 6 automaton
+
+wrapped = LTAGen.node "wrap" $ LTAGen.do
+  term <- boundedTerms `LTAGen.satisfying` desiredRefinement
+  LTAGen.pure (decode term)
+
+compiled <- LTAGen.compile wrapped
+```
+
+Under a guard, the pruned automaton is split by the observations the guard
+reads, so an import stays a graph until one rank is selected. An empty or
+negative-bound import is an empty source and can occur beside a nonempty
+alternative. A guard that remains after pruning and that the symbolic
+counter cannot count is reported as `ResidualGuard`. Core `denotationAtMost`
+remains an explicit bounded reference evaluator.
+
+`fromDatatypeUpToDepth` accepts a derived
+`TypedFTA (Refinement, Constraint) a`. Use `annotateDatatype`, or
+`annotateConstructors` to annotate constructors by name, to supply the
+refinement and constraint for each constructor. The datatype supplies its
+fields and recursive structure; the retained codec supplies `a`. The caller
+must still justify the refinements assigned to each constructor.
+[`AutomatonInterop.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/AutomatonInterop.hs) derives a recursive
+natural-number grammar, annotates it, imports it with `fromDatatypeUpToDepth`,
+keeps its positive terms with `satisfying`, and composes them with
+`elements`:
+
+```sh
+nix-shell --run 'cabal run cfta-automaton-interop'
+```
+
+`validOutcomes` is the explicit oracle. It enumerates every candidate the
+construction describes, checks each complete witness with the solver, and
+returns the accepted values in source order. It has no materialization
+limit, so use it on small diagnostic inputs.
+
+### Frozen native pools
+
+A pool need not be part of a long-lived specification. Draw it once from a
+native QuickCheck generator of values with their refinements:
+
+```haskell
+lefts  = LTAGen.pool <$> QC.vectorOf 32 nativeRefinedInt
+rights = LTAGen.pool <$> QC.vectorOf 8  nativeRefinedInt
+```
+
+Sample once and use the same `LTAGen` at both child positions when they
+should share a universe. The pools stay fixed inside the compiled generator;
+changing them for each individual test would make ranks, replay, and
+shrinking unstable and would also invoke Z3 per test. Independent pool sizes
+multiply: the example describes 32 x 8 candidate pairs. For replay across
+process runs, fix the draws with a seed through `Test.QuickCheck.Gen.unGen`,
+as `freeze` does for unrefined values.
+
+### What the LTA adds
+
+An FTA says which constructor shapes exist. An ECTA additionally says that two
+paths must contain the same term. An LTA can say that one path's refinement
+implies another predicate, including after substituting actual argument names
+for formal parameters. That permits constraints such as:
+
+```haskell
+safeDivision =
+  LTAGen.node "divide" $ LTAGen.do
+    numerator   <- integers
+    denominator <- integers `LTAGen.satisfying` (\v -> v ./= 0)
+    LTAGen.pure (Divide numerator denominator)
+
+safeReads =
+  LTAGen.guarded "read-at" (\n i -> 0 .<= i .&& i .< n) $ LTAGen.do
+    buffer <- buffers
+    index  <- indexes
+    LTAGen.pure (ReadAt buffer index)
+```
+
+For dependent application with a generated function, put the result type,
+function, and argument in the term exactly as the paper does, and give names
+to the nested type positions with a positional guard:
+
+```haskell
+applicationGuard result function argument =
+  allOf
+    [ argument `isSubtypeOf` descendant function [1] -- input type
+    , withActualFor argument (descendant function [0]) $
+        descendant function [2] `isSubtypeOf` result -- output type
+    ]
+```
+
+The compiler checks these contracts through grouped observations. It reports
+an error for a contract that needs complete candidates.
+
+### Flagship: typed state-machine traces
+
+[`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)
+is the LTA step in the repository's worked progression. The FTA example has
+only integer expression shapes; the ECTA example adds Boolean result types;
+this example tracks those types across the steps of a trace as a stack-machine state.
+
+The abstract contract is a typed reverse-Polish calculator:
+
+```text
+Push TInt  : Stack s                   -> Stack (TInt  ': s)
+Add        : Stack (TInt ': TInt ': s) -> Stack (TInt  ': s)
+Equal      : Stack (a    ': a    ': s) -> Stack (TBool ': s)
+Pop        : Stack (a    ': s)         -> (a, Stack s)
+```
+
+Those are explanatory signatures, not GADT constructors. The public Haskell
+values stay ordinary. The surface specification recursively builds a prefix
+and one command, grouped by their root refinements. The liquid guard decides
+which group tuples survive, and `refinedNodeByRoots` propagates the resulting
+output state without decoding the traces hidden inside those groups:
+
+```haskell
+extendTrace prefixes =
+  LTAGen.refinedNodeByRoots
+    "step"
+    stepRefinementFromRoots
+    validStep $ LTAGen.do
+      prefix  <- prefixes
+      command <- commandContracts
+      LTAGen.pure (predictPrefixStep prefix command)
+
+validStep previous command =
+  allOf
+    [ previous `isSubtypeOf` command
+    , withActualFor previous (descendant command [0]) $
+        descendant command [1] `isSubtypeOf` root
+    ]
+
+Right compiled <- LTAGen.compileWith solver (tracesOfLength length)
+```
+
+The first guard says that the preceding trace's output state inhabits the next
+command's input space. The second substitutes that actual state for the
+command's formal `model` and proves its output formula implies the new trace
+root. These are the paper's positional guards, not a contract: each command is
+generated data that carries its stack types as refinements, so the step relates
+refinements and not values. For example, with the top stack type in the low
+bits, pushing an integer has output `v = 2 * model + 1`, while `Add` accepts
+two leading integer tags and has output relation `model = 2 * v + 1`.
+
+The stack depth is bounded only to keep the refinement-key space finite. There
+is one liquid schema per operation; each compilation layer relates the live
+prefix-state and command-contract groups instead of expanding complete command
+sequences. Here the LTA is clearer than an ECTA. A bounded ECTA could
+tabulate every valid state pair, but it cannot state and reuse the
+dependent arithmetic transition itself.
+
+Following the
+[quickcheck-state-machine workflow](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the whole trace is generated before execution. Every retained event predicts
+its before-state, response space, and after-state. The specs ask Z3 to prune the
+LTA, check its independently computed cardinalities, enumerate all 132 accepted
+traces of length three, and replay each through an independent abstract model
+and a separate concrete integer/Boolean interpreter. A smaller surface-DSL
+variant also verifies guarded shrinking. The final QuickCheck property needs no
+implication or `suchThat` filter.
+
+### LTA-biased case study: sized-vector pipelines
+
+The stack machine is a stateful progression, but an FTA author can still
+tabulate its bounded stack shapes by hand. The example that depends more on
+the LTA is
+[`Data.CFTA.Gen.Refinement.SizedVectorLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/SizedVectorLanguage.hs): a
+dependent vector-expression language in which result sizes are arithmetic
+refinements rather than finite type tags.
+
+```text
+append xs ys    : Vector n -> Vector m -> Vector (n + m)
+take k xs       : 0 <= k <= n => Vector n -> Vector k
+zipWith (+) x y : Vector n -> Vector n -> Vector n
+index i xs      : 0 <= i < n => Vector n -> Int
+```
+
+One operation layer is ordinary applicative LTA syntax with a contract:
+
+```haskell
+takenVectors maximumLength children =
+  LTAGen.refinedNodeByRoots "take" (const . resultRefinement) (contract takeContract) $ LTAGen.do
+    result <- possibleLengths maximumLength
+    count  <- possibleLengths maximumLength
+    input  <- children
+    LTAGen.pure $ SizedVector
+      (Take (numberValue count) $ vectorExpression input)
+      (numberRefinement result)
+
+takeContract :: Expr -> Expr -> Expr -> Formula
+takeContract result k n = 0 .<= k .&& k .<= n .&& result .== k
+```
+
+A vector's own refinement is its exact length, so the contract names the
+length of the input vector by the child's term `n`. The contract of `append` is
+`result .== n + m`, and that of `zipWith` is `m .== n .&& result .== n`. Each
+constructor proposes its result length as its first child, and
+`refinedNodeByRoots` makes that child's refinement the node's own, so the
+proofs compose at the next expression layer without a refinement wrapper in
+`Program`.
+
+The one-layer language contains 20 pipelines and exactly 44 safe indexing
+programs. The tests enumerate them, check every result refinement against an
+independent list interpreter, and execute the deliberately partial indexer over
+every accepted program.
+
+This example shows how much specification the LTA saves. A handwritten
+exact-uniform
+generator must group every recursive sublanguage by result length, derive the
+append, take, and zip cardinality recurrences for those groups, weight each
+constructor by its number of valid completions, and repeat the bookkeeping for
+the final index. The LTA source states the four dependent contracts once. This
+small surface compiler is an example for clarity. Compile large recursive
+languages as automata so that terms stay symbolic.
+
+### A second dependent example: safe buffer programs
+
+[`Data.CFTA.Gen.Refinement.SafeBufferLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/SafeBufferLanguage.hs) gives
+buffers and indexes symbolic integer names, records the surrounding Liquid
+environment as solver assumptions, and generates two deliberately partial
+operations:
+
+```haskell
+safeReads = LTAGen.guarded "read-at" inBounds $ LTAGen.do
+  buffer <- sourceBuffers
+  ~(_, index) <- indexes
+  LTAGen.pure (ReadAt (bufferExpression buffer) index)
+
+inBounds :: Expr -> Expr -> Formula
+inBounds n i = 0 .<= i .&& i .< n
+```
+
+A buffer's refinement is `v == tripleLength` for the triple, and an index's is
+`v == indexTwo` for index two. Z3 assumes those refinements for `n` and `i`,
+uses facts such as `tripleLength = 3` from the environment, and retains indexes
+0, 1, and 2 while rejecting -1 and 3.
+
+The same module demonstrates a dependent result. Append proposes a result
+length as its first child, its contract is `result .== n + m`, and
+`refinedNodeByRoots` keeps the proven result refinement. A later `head` node
+draws a buffer with ``allBuffers `satisfying` (\v -> v .>= 1)``, so it can prove
+the appended buffer non-empty. The property itself needs no precondition:
+
+```haskell
+withZ3Assuming solverDeclarations solverAssumptions $ \solver -> do
+  Right compiled <- LTAGen.compileWith solver safePrograms
+  quickCheck $ LTAGen.forAll compiled $ \program ->
+    programIsSafe program && safeResult program == Just (runProgram program)
+```
+
+The specs enumerate all 14 accepted programs, verify exact append lengths, and
+run the partial interpreter through QuickCheck. This is how it differs from an
+ECTA key: the accepted combinations depend on arithmetic implication under an
+environment, and not on the equality of a finite classification tag.
+
+### Shrinking, similarity, and pools
+
+A compiled generator shrinks structurally, as every generator does.
+`shrinkRank` jumps to the smallest member of an earlier alternative and
+shrinks each product component independently; every candidate is a member
+of the compiled language with a smaller rank, so a shrink never leaves the
+accepted language. `smallerMembers` streams every member of strictly smaller
+size, and `forAll` searches it first, so the reported counterexample is
+size-minimal whenever that search reaches one.
+
+For a two-entry pool ordered as `[nonNegative, exactOne]` and a pair guard
+``left `isSubtypeOf` right``, the raw product is:
+
+```text
+(0,0)  accepted
+(0,1)  rejected: non-negative does not entail exactly-one
+(1,0)  accepted
+(1,1)  accepted
+```
+
+The compiled generator holds the three accepted pairs at ranks 0, 1, and 2,
+and `(1,1)` shrinks toward `(1,0)` and `(0,0)`; `(0,1)` is never handed to
+QuickCheck.
+
+The refinement is a trusted annotation on the Haskell value. The library can
+prove it only for a type with a `Literal` encoding: `elements` infers the exact
+refinement of each value, and `checkPool` proves hand-written ones. For another
+type, the caller must justify the refinements before constructing the pool.
+
+Similarity minimisation is separate and opt-in, because a test often needs a
+value that is syntactically different, and minimisation drops it. Declare the
+non-liquid type class when you want semantic representatives:
+
+```haskell
+Right representatives <-
+  LTAGen.minimizePoolOn solver operationKind candidates
+```
+
+`minimizePoolOn` represents the entries as a one-state LTA, invokes the core
+`similarity` and `minimize` procedures, then turns the retained transitions back
+into a pool. Within each class, a subtype replaces its supertype, equivalent
+entries keep the earlier rank, and incomparable entries remain. So the
+generator has no second implementation of LTA minimization. `minimizePoolOn`
+is an adapter over the automaton operation. Ordinary pools are never reduced
+implicitly.
+
+### Recursive LTAs
+
+The core accepts recursive LTAs as long as guards do not point into cyclic
+states. QuickCheck needs a finite language, so bound the import by tree
+height before compiling:
+
+```haskell
+Right compiled <- LTAGen.compileWith solver (LTAGen.fromAutomatonUpToDepth 6 recursiveLTA)
+```
+
+Depth zero keeps nullary transitions. Every parent-to-child edge consumes one
+unit, including edges outside a cycle. A negative bound or empty language
+gives `EmptyGenerator`. Ranks remain deterministic inside the bounded
+language. A recursive LTA without solver guards can also be read unbounded
+with `fromAutomaton`, as a recursive generator counted by size.
+
+Enter the repository's `nix-shell` to place Z3 on `PATH`, then run the complete
+example, which bounds a recursive datatype grammar:
+
+```sh
+cabal run cfta-automaton-interop
+```
+
+## Sampling performance
+
+The flagship FTA and ECTA languages each have three exact-uniform generators:
+
+- The naive generator makes an unconstrained representation, then recognizes
+  or rejects it.
+- The bespoke generator is handwritten and specialized to the language.
+- The FTA or ECTA generator compiles the declarative automaton to a rank
+  decoder.
+
+All rows at a given depth therefore sample the same finite language with the
+same uniform distribution. A smaller or biased baseline would make a speed
+comparison meaningless. The FTA's naive generator builds a generic
+ranked term, recognizes it with a one-state FTA, then decodes it. There is no
+semantic condition to reject, so that row is the zero-rejection control. The
+ECTA's naive generator creates a raw application at each layer and rejects it
+after independent type inference; its root alternatives are weighted by raw
+candidate counts, so conditioning preserves uniformity. The bespoke ECTA
+generator carries the requested result type through ordinary Haskell.
+
+Every cell runs in a fresh process because the interning tables never evict.
+The first-sample column includes construction; the throughput and allocation
+columns reuse the resulting generator. A complete cell has a
+30-second wall-clock limit and successful cells are the median of three runs.
+
+### Ordinary generators: untyped integer expressions
+
+Each successful FTA cell draws 100,000 samples.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 100k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 8 | naive | 0.03 ms | 3,247,563 | 1.1 KB | 32.8 KB | 35.0 KB |
+| 1 | 8 | bespoke | 0.01 ms | 13,326,681 | 384 B | 1.0 KB | 3.1 KB |
+| 1 | 8 | FTA | 0.03 ms | 10,916,059 | 432 B | 40.9 KB | 43.3 KB |
+| 2 | 128 | naive | 0.03 ms | 1,321,243 | 2.4 KB | 32.9 KB | 35.0 KB |
+| 2 | 128 | bespoke | 0.01 ms | 5,944,053 | 768 B | 1.0 KB | 3.2 KB |
+| 2 | 128 | FTA | 0.04 ms | 5,220,430 | 704 B | 47.5 KB | 52.5 KB |
+| 3 | 32,768 | naive | 0.02 ms | 616,877 | 4.9 KB | 32.9 KB | 35.0 KB |
+| 3 | 32,768 | bespoke | 0.01 ms | 2,928,788 | 1.5 KB | 1.1 KB | 3.2 KB |
+| 3 | 32,768 | FTA | 0.04 ms | 3,042,596 | 1.3 KB | 55.4 KB | 73.8 KB |
+| 4 | 2,147,483,648 | naive | 0.03 ms | 281,145 | 10.0 KB | 32.9 KB | 35.0 KB |
+| 4 | 2,147,483,648 | bespoke | 0.01 ms | 1,440,284 | 3.0 KB | 1.1 KB | 3.2 KB |
+| 4 | 2,147,483,648 | FTA | 0.05 ms | 1,250,528 | 2.5 KB | 66.1 KB | 143.4 KB |
+
+An ordinary FTA adds no semantic pruning to this language, so this row is the
+control. The FTA decoder stays within about 20% of the direct bespoke
+generator at every depth. The naive row is 3.4x to 4.9x slower than the FTA,
+because it builds a generic term and then recognizes it.
+
+### Equality generators: typed integer and Boolean expressions
+
+Each successful ECTA cell draws 20,000 samples. The smaller fixed workload
+keeps depth three measurable while preserving the depth-four rejection
+failure; it is still large enough for stable normalized rates.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | naive | 0.01 ms | 2,460,466 | 1.1 KB | 1.6 KB | 3.6 KB |
+| 1 | 42 | bespoke | 0.01 ms | 5,753,013 | 350 B | 2.5 KB | 6.2 KB |
+| 1 | 42 | ECTA | 0.08 ms | 6,921,840 | 458 B | 56.5 KB | 58.9 KB |
+| 2 | 27,054 | naive | 0.03 ms | 248,396 | 9.3 KB | 32.9 KB | 35.0 KB |
+| 2 | 27,054 | bespoke | 0.03 ms | 3,317,611 | 754 B | 4.0 KB | 31.3 KB |
+| 2 | 27,054 | ECTA | 0.10 ms | 3,390,678 | 933 B | 67.2 KB | 70.2 KB |
+| 3 | 8,887,065,932,466 | naive | 0.06 ms | 43,394 | 61.4 KB | 33.2 KB | 35.3 KB |
+| 3 | 8,887,065,932,466 | bespoke | 0.16 ms | 1,219,930 | 1.9 KB | 10.3 KB | 89.5 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.18 ms | 1,567,726 | 2.3 KB | 77.6 KB | 81.8 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | naive | 0.24 ms | 9,897 | 262.7 KB | 33.6 KB | 35.8 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | bespoke | 1.44 ms | 369,357 | 7.0 KB | 21.8 KB | 212.8 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.24 ms | 471,472 | 7.7 KB | 89.2 KB | 94.2 KB |
+
+At depth three the ECTA decoder is about 36x faster than rejection and 1.3x
+faster than the bespoke generator. It allocates about 27x less per sample than
+rejection, and 1.2x as much as the bespoke generator. At depth four the ECTA
+is about 48x faster than rejection and 1.3x faster than the bespoke
+generator. The setup cost stays below 0.25 ms because the finite dependency
+structure is compiled once and every later sample is one rank decode.
+
+Measured with GHC 9.14.1 and `-O2` on an x86_64 machine under WSL2 on
+2026-09-30. An empty generator ran at about 11.7M draws/s and one `chooseInt`
+at 48.8M draws/s during the ECTA run. Rates move by up to about 20% between
+runs on this machine, and with the QuickCheck and `random` versions in use.
+Reproduce one table, or all four repository tables, with:
+
+```sh
+cabal bench microcfta-generator:untyped-expression-speed --enable-optimization=2
+cabal bench microcfta-generator:typed-expression-speed --enable-optimization=2
+./scripts/benchmark-generators.sh
+```
+
+### Refinement generators: typed state-machine traces
+
+The typed stack-machine benchmark compares six generators:
+
+- The naive row draws uniformly from all nine raw commands at every position,
+  and rejects the complete sequence if abstract replay fails.
+- The QSM online row follows the usual state-machine-testing shape: choose a
+  command that the current model admits, advance the model, and continue.
+- The bespoke row is ordinary compositional QuickCheck code that weights every
+  valid next command by its number of complete suffixes.
+- The ranked row is the strongest handwritten control. It duplicates the count
+  and global-unrank algorithm in application code and constructs `Trace`
+  directly.
+- The LTA do row compiles the qualified-do surface. It groups the live
+  refinement observations and lowers solver-approved tuples through the
+  engine's joins.
+- The LTA automaton row compiles the hand-built trace automaton, prunes it,
+  and decodes each selected `Tree Symbol` to a `Trace`.
+
+Naive rejection, bespoke, ranked, and the LTA rows are uniform over the
+same exact trace language. QSM online has the same support but intentionally has
+a different distribution: choosing uniformly at each prefix gives extra
+probability to traces passing through states with fewer valid continuations.
+That is usually the right engineering trade in state-machine testing. As in
+[quickcheck-state-machine](https://well-typed.com/blog/2019/01/qsm-in-depth/),
+the complete trace is generated before execution; after a failure,
+`qsmTraceShrinks` removes commands and replays the remainder so dependencies
+whose producers disappeared are rejected.
+
+Each successful cell draws 20,000 traces. It runs in a fresh process with a
+30-second wall-clock limit and is the median of three runs. The first-sample
+column includes all setup. In an LTA row, it includes starting Z3, compiling
+the semantic constraints, building the rank index, and drawing once.
+Steady-state sampling is pure. After an engine times out at one length, the
+harness skips its larger cells and reports `after timeout`.
+
+The crossover and deep-scaling rows are:
+
+| length | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 342,136 | naive | 0.02 ms | 83,736 | 79.1 KB | 1.1 KB | 3.2 KB |
+| 8 | 342,136 | QSM online | 0.01 ms | 908,875 | 8.4 KB | 1.3 KB | 34.5 KB |
+| 8 | 342,136 | bespoke | 0.10 ms | 231,541 | 5.9 KB | 46.8 KB | 29.38 MB |
+| 8 | 342,136 | ranked | 0.09 ms | 504,794 | 9.1 KB | 41.2 KB | 43.3 KB |
+| 8 | 342,136 | LTA do | 62.72 ms | 855,886 | 4.0 KB | 784.2 KB | 843.6 KB |
+| 8 | 342,136 | LTA automaton | 450.05 ms | 167,692 | 18.8 KB | 9.84 MB | 10.40 MB |
+| 10 | 8,567,224 | naive | 0.07 ms | 22,708 | 254.0 KB | 1.0 KB | 3.2 KB |
+| 10 | 8,567,224 | QSM online | 0.01 ms | 731,924 | 10.6 KB | 1.3 KB | 34.5 KB |
+| 10 | 8,567,224 | bespoke | 0.12 ms | 53,172 | 12.6 KB | 53.5 KB | 67.73 MB |
+| 10 | 8,567,224 | ranked | 0.11 ms | 389,726 | 11.4 KB | 43.0 KB | 45.2 KB |
+| 10 | 8,567,224 | LTA do | 60.17 ms | 828,862 | 5.0 KB | 977.1 KB | 1.05 MB |
+| 10 | 8,567,224 | LTA automaton | 488.44 ms | 160,811 | 24.1 KB | 14.01 MB | 15.00 MB |
+| 12 | 215,809,688 | naive | 0.50 ms | 7,218 | 833.7 KB | 1.0 KB | 3.2 KB |
+| 12 | 215,809,688 | QSM online | 0.02 ms | 609,628 | 12.8 KB | 32.5 KB | 34.5 KB |
+| 12 | 215,809,688 | bespoke | 0.14 ms | 58,072 | 19.6 KB | 55.6 KB | 109.20 MB |
+| 12 | 215,809,688 | ranked | 0.11 ms | 290,113 | 13.8 KB | 44.9 KB | 47.0 KB |
+| 12 | 215,809,688 | LTA do | 56.29 ms | 568,957 | 5.9 KB | 1.15 MB | 1.27 MB |
+| 12 | 215,809,688 | LTA automaton | 501.61 ms | 145,605 | 29.7 KB | 18.28 MB | 19.63 MB |
+| 20 | 90,356,263,022,904 | naive | **timeout (30s)** | — | — | — | — |
+| 20 | 90,356,263,022,904 | QSM online | 0.02 ms | 365,499 | 21.5 KB | 32.5 KB | 34.5 KB |
+| 20 | 90,356,263,022,904 | bespoke | 0.20 ms | 15,712 | 48.4 KB | 72.3 KB | 284.01 MB |
+| 20 | 90,356,263,022,904 | ranked | 0.27 ms | 157,884 | 23.2 KB | 52.3 KB | 54.5 KB |
+| 20 | 90,356,263,022,904 | LTA do | 72.06 ms | 319,833 | 9.7 KB | 1.90 MB | 2.16 MB |
+| 20 | 90,356,263,022,904 | LTA automaton | 813.08 ms | 59,552 | 54.0 KB | 35.26 MB | 38.27 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | naive | **after timeout** | — | — | — | — |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | QSM online | 0.04 ms | 162,950 | 43.4 KB | 32.5 KB | 34.5 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | bespoke | 0.55 ms | 6,825 | 129.0 KB | 120.1 KB | 742.60 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | ranked | 0.33 ms | 71,681 | 48.4 KB | 76.3 KB | 78.4 KB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA do | 116.07 ms | 130,377 | 20.1 KB | 3.81 MB | 4.41 MB |
+| 40 | 11,207,052,560,775,737,667,197,734,440 | LTA automaton | 1866.66 ms | 19,747 | 131.2 KB | 78.42 MB | 85.47 MB |
+
+The ordinary bespoke generator wins at very short lengths, but LTA do overtakes
+it after length five. At length 40 the generic relational compiler produces
+130,377 traces/s against 6,825/s, 19x the throughput, and retains 4.41 MB
+instead of 742.60 MB after the fixed workload. Its setup takes 116 ms once,
+and it then reuses the compiled ECTA rank plan instead of rebuilding weighted
+QuickCheck choices through every generated suffix.
+
+The hand-ranked row is the strongest handwritten control. At length 40 LTA do
+is 1.8x faster than it and allocates 20.1 KB per trace against 48.4 KB. QSM
+online is the pragmatic state-machine baseline, with a different distribution.
+From length 8 to 40 it runs between 12% slower (length 10) and 25% faster
+(length 40) than LTA do. LTA do remains uniform over complete traces, at the
+cost of a solver-backed setup phase and a larger retained rank index.
+
+Naive rejection times out at length 20 for the 20,000-sample workload. At length
+12 it is already 79x slower than LTA do and allocates 833.7 KB per accepted
+trace.
+
+The first benchmark run made repeated solver work visible: length four took
+6.50 seconds to compile and length five timed out, despite only 115 distinct
+entailment requests among 34,073 requests at length four. Caching exact
+obligations for one compile and checking a generated witness directly, rather
+than first turning it into a singleton automaton, cut length-four setup to 188
+ms and made length five complete in 1.94 seconds.
+
+Replacing the outcome lists with `PlanAp` removed product allocation but did
+not remove the work: the old surface compiler still visited `11^6 = 1,771,561`
+ranks to discover 13,760 valid traces. Retaining the applicative recipe changes
+that algorithm. Children are grouped by only the refinements their parent
+observes; the solver selects live key tuples, and the equality counter counts
+their products without visiting members. The same qualified-do source now
+reaches length 40.
+
+The LTA automaton row samples through the compact plans of the imported
+automaton. At length 40 it draws 19,747 traces/s and allocates 131.2 KB per
+trace, because each sample decodes a complete `Tree Symbol` and then
+converts it to a `Trace`. Its setup of 1.87 s prunes the guarded graph and
+builds the rank index, which retains 85.47 MB against 4.41 MB for LTA do.
+Reducing that index and decoding a `Trace` directly from a rank are the next
+optimizations to try.
+
+### Equality theory cost: ECTA versus LTA
+
+The typed-expression flagship also has a deliberately equivalent liquid
+encoding in
+[`Data.CFTA.Gen.Refinement.EqualityTypedExpressionLanguage`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/common/Data/CFTA/Gen/Refinement/EqualityTypedExpressionLanguage.hs).
+`TInt` is the refinement `v = 0` and `TBool` is `v = 1`. Each application LTA
+contains candidate ground child states, and Z3 retains precisely those whose
+refinements imply the operation's expected input equalities. This expresses the
+same language as the ECTA's path-equality join without adding LTA-only power.
+
+This control uses the same fixed QuickCheck seed for both engines, draws
+20,000 values per cell, and forces the complete expression tree. The LTA
+cardinality was checked against the independent ECTA count. The checksums
+differ: the LTA import lists the members of a node whose alternatives share a
+symbol one alternative after another, so its ranks differ from the ECTA
+ranks.
+
+| depth | members | engine | first sample | samples/s | alloc/sample | setup mem | retained after 20k |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 42 | ECTA | 0.09 ms | 6,526,932 | 458 B | 56.4 KB | 58.8 KB |
+| 1 | 42 | LTA equality | 11.03 ms | 2,640,301 | 1.2 KB | 220.6 KB | 225.3 KB |
+| 2 | 27,054 | ECTA | 0.13 ms | 2,919,240 | 933 B | 67.2 KB | 70.1 KB |
+| 2 | 27,054 | LTA equality | 11.88 ms | 856,964 | 4.1 KB | 316.8 KB | 305.5 KB |
+| 3 | 8,887,065,932,466 | ECTA | 0.15 ms | 1,460,418 | 2.3 KB | 77.5 KB | 81.7 KB |
+| 3 | 8,887,065,932,466 | LTA equality | 13.08 ms | 277,920 | 12.5 KB | 439.0 KB | 428.3 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | ECTA | 0.22 ms | 416,584 | 7.7 KB | 89.1 KB | 94.1 KB |
+| 4 | 494,767,711,145,600,737,617,026,761,045,287,855,174 | LTA equality | 13.33 ms | 86,847 | 39.2 KB | 564.2 KB | 548.7 KB |
+
+For equality alone, the ECTA is the right tool. Its setup stays below 0.25 ms;
+the LTA needs about 11 to 13.3 ms to start Z3 and prune the guarded graph. The
+LTA sampler is 2.5x slower at depth one and 4.8x slower at depth four, with
+5.1x the per-sample allocation at depth four. That allocation is the cost of
+constructing an annotated term and decoding it to the same Haskell AST. The
+language itself remains symbolic: even the roughly 4.95e38-member depth-four
+language occupies only about 564 KB of LTA setup memory.
+
+Measured with GHC 9.14.1 and `-O2` on an x86_64 machine under WSL2 on
+2026-09-30. Reproduce either LTA table, or all four repository tables, from the
+repository root with:
+
+```sh
+cabal bench microcfta-generator:state-machine-trace-speed --enable-optimization=2
+cabal bench microcfta-generator:typed-expression-constraint-cost --enable-optimization=2
+./scripts/benchmark-generators.sh
+```
+
+## Concurrency
+
+Generators are safe to use from any thread. They build automata, and
+`microcfta` interns nodes through process-global tables, which are
+synchronized.
+
+A testing library needs this, because test runners run tests in parallel:
+`tasty` runs independent tests concurrently by default when the test binary is
+linked with `-threaded` and run with `+RTS -N`, and `hspec` does so under
+`parallel`. A property that draws from an `ECTAGen` can run that way even when
+nothing in your code looks concurrent. With `microecta` 0.1.0.0, that gave
+silent corruption, not a crash; see the concurrency note in the `microcfta`
+README.
+
+## Dependencies
+
+The library depends on `microcfta`, `QuickCheck`, `array`, `containers`,
+`hashable`, `mtl`, and `text`; the benchmarks additionally use `random` and
+`process`. The refinement generator and its tests need `z3` on `PATH`.
+
+## Build
+
+From the repository root:
+
+```sh
+cabal build microcfta-generator
+cabal test microcfta-generator
+```
+
+The package has two test suites, `gen-tests` and `refinement-tests`; the
+second needs `z3`. With `-j1`, an optimized build of the core fits in the
+memory of a small machine.

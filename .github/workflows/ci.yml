@@ -8,13 +8,35 @@ permissions:
   contents: read
 
 jobs:
-  build-test-bench:
-    name: GHC ${{ matrix.ghc }}
+  lint:
+    name: Format and lint
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ghc: ["9.12.2", "9.14.1"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check formatting
+        uses: haskell-actions/run-fourmolu@v13
+        with:
+          version: "0.20.1.0"
+          pattern: |
+            microcfta/**/*.hs
+            microcfta-generator/**/*.hs
+
+      - name: Set up hlint
+        uses: haskell-actions/hlint-setup@v2
+        with:
+          version: "3.10"
+
+      - name: Run hlint
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: '["microcfta", "microcfta-generator"]'
+          fail-on: warning
+
+  build-test-bench:
+    name: GHC 9.14.1
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -24,9 +46,14 @@ jobs:
         uses: haskell-actions/setup@v2
         id: setup
         with:
-          ghc-version: ${{ matrix.ghc }}
+          ghc-version: "9.14.1"
           cabal-version: "3.16.1.0"
           cabal-update: true
+
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
 
       - name: Configure build plan
         run: cabal v2-build all --dry-run --enable-tests --enable-benchmarks
@@ -54,6 +81,8 @@ jobs:
 
       - name: Check package metadata
         run: |
+          (cd microcfta && cabal check)
+          (cd microcfta-generator && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -66,6 +95,9 @@ jobs:
       # cap is not baked into the library's ghc-options.
       - name: Guard compile-time memory of the optimized core
         run: |
+          cabal v2-build lib:microcfta \
+            --enable-optimization=2 \
+            --ghc-options='-Werror +RTS -K512M -M512M -RTS'
           cabal v2-build lib:microecta \
             --enable-optimization=2 \
             --ghc-options='-Werror +RTS -K512M -M512M -RTS'
@@ -73,19 +105,38 @@ jobs:
       - name: Test
         run: cabal v2-test all --enable-optimization=2 --ghc-options=-Werror --test-show-details=direct
 
-      # The examples are run on every compiler in the matrix.
+      # Run the library examples with the supported compiler.
       - name: Doctest
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
-      - name: Validate release artifacts
+      - name: Test the generator examples
         run: |
+          cabal v2-run cfta-pairs
+          cabal v2-run cfta-liquid-pairs
+          cabal v2-run cfta-finite-languages
+          cabal v2-run cfta-draw-typed-expressions
+          cabal v2-run cfta-safe-division
+          cabal v2-run cfta-bounded-reads
+          cabal v2-run cfta-red-black-trees
+          cabal v2-run cfta-sorted-lists
+          cabal v2-run cfta-typed-values
+          cabal v2-run cfta-automaton-interop
+
+      # The release check builds every dependency again, with documentation,
+      # and takes about 30 minutes. It runs only on pull requests into main.
+      - name: Validate release artifacts
+        if: github.base_ref == 'main'
+        run: |
+          scripts/release.sh microcfta --check-only
+          scripts/release.sh microcfta-generator --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
 
       - name: Benchmark
-        if: matrix.ghc == '9.14.1'
         run: cabal v2-bench all --enable-optimization=2

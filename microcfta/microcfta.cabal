@@ -1,0 +1,211 @@
+cabal-version: 3.0
+name: microcfta
+version: 0.1.0.0
+synopsis: Shared interned tree automata and finite-state graphs
+description:
+  Constraint-parameterized interned tree automata with shared recursive
+  operations, ordinary first-order trees, and checked finite-state graphs.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microcfta#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Jimmy Koppel, Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2021-2024 Jimmy Koppel, 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microcfta
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wno-pattern-namespace-specifier
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    MultiWayIf
+    NamedFieldPuns
+    PatternGuards
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.CFTA
+    Data.CFTA.Constraint
+    Data.CFTA.Enumeration
+    Data.CFTA.Equality
+    Data.CFTA.Equality.Constraint
+    Data.CFTA.Equality.Operations
+    Data.CFTA.Generic
+    Data.CFTA.Index
+    Data.CFTA.Internal.UnionFind
+    Data.CFTA.Interned
+    Data.CFTA.Interned.Cache
+    Data.CFTA.Interned.Memo
+    Data.CFTA.Interned.Operations
+    Data.CFTA.Interned.Type
+    Data.CFTA.Path
+    Data.CFTA.Refinement
+    Data.CFTA.Refinement.Automaton
+    Data.CFTA.Refinement.Denotation
+    Data.CFTA.Refinement.Evaluate
+    Data.CFTA.Refinement.Expression
+    Data.CFTA.Refinement.Guard
+    Data.CFTA.Refinement.Lattice
+    Data.CFTA.Refinement.LiquidFixpoint
+    Data.CFTA.Refinement.Minimize
+    Data.CFTA.Refinement.Prune
+    Data.CFTA.Refinement.Verdict
+    Data.CFTA.Simple
+    Data.CFTA.Symbol
+    Data.CFTA.Template
+
+  other-modules:
+    Data.CFTA.Internal.Tree
+
+  build-depends:
+    array >=0.5 && <0.6,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    transformers >=0.6 && <0.7,
+    unordered-containers >=0.2 && <0.3,
+
+test-suite unit-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs:
+    common
+    test
+
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -Wno-orphans
+
+  other-modules:
+    Data.CFTA.Equality.ConstraintSpec
+    Data.CFTA.Equality.FTASpec
+    Data.CFTA.EqualitySpec
+    Data.CFTA.Internal.UnionFindSpec
+    Data.CFTA.Refinement.GuardSpec
+    Data.CFTA.Refinement.MinimizeSpec
+    Data.CFTA.Refinement.PruneSpec
+    Data.CFTA.Refinement.RecognitionSpec
+    Data.CFTA.Refinement.RecursiveSpec
+    Data.CFTA.Refinement.RefinementRelationSpec
+    Data.CFTA.Refinement.SimpleSpec
+    Data.CFTA.Refinement.SubstitutionSpec
+    Data.CFTA.Refinement.SyntaxSpec
+    Data.CFTA.Refinement.TestSupport
+    Data.CFTA.SimpleSpec
+    Data.CFTA.SymbolSpec
+    Data.CFTA.TermSearch
+    Data.CFTA.TermSearchSpec
+    Data.CFTASpec
+    Test.Generators.Equality
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    directory >=1.3 && <1.4,
+    equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
+    hspec >=2.11 && <2.12,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta,
+    mtl >=2.3 && <2.4,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
+
+benchmark enumeration-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: EnumerationSpeed.hs
+  hs-source-dirs: benchmarks
+  ghc-options: -rtsopts
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
+
+benchmark micro-bench
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Benchmarks.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-M512M
+
+  other-modules: Data.CFTA.TermSearch
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    microcfta,
+    text >=2.1 && <2.2,
+
+benchmark cross-layer-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: CrossLayerSpeed.hs
+  hs-source-dirs: benchmarks
+  ghc-options: -rtsopts
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta,
+    text >=2.1 && <2.2,
