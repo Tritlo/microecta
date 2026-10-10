@@ -48,18 +48,15 @@ the group.
 -}
 bucketFromOutcomes ::
     (Hashable symbol, Typeable symbol) =>
-    Bool -> [(Rational, Outcome symbol a)] -> Either GenError (KeyedBucket symbol a)
+    Bool -> Seq (Rational, Outcome symbol a) -> Either GenError (KeyedBucket symbol a)
 bucketFromOutcomes retainAtomic weightedOutcomes = do
     sampler <- sequenceSampler conditional
-    sizeSampling <- case commonValue $ map (Just . fst) weightedOutcomes of
+    sizeSampling <- case commonValue $ toList $ Just . fst <$> weightedOutcomes of
         Just _ -> pure Nothing
         Nothing -> do
             weightSampler <-
                 sequenceSampler $
-                    Sequence.fromList
-                        [ outcome{outcomeMass = weight}
-                        | (weight, outcome) <- weightedOutcomes
-                        ]
+                    (\(weight, outcome) -> outcome{outcomeMass = weight}) <$> weightedOutcomes
             pure $ Just (atomicSampleIndex weightSampler, Right . weightAt)
     pure
         $ KeyedBucket bucketMass
@@ -69,7 +66,7 @@ bucketFromOutcomes retainAtomic weightedOutcomes = do
                 totalOutcomes
                 uniformMass
                 select
-                (enumeratedRanks $ map outcomeTerm outcomes)
+                (enumeratedRanks $ toList $ outcomeTerm <$> outcomes)
                 selectValue
                 sampler
                 (PlanSelect totalOutcomes selectValue)
@@ -77,24 +74,20 @@ bucketFromOutcomes retainAtomic weightedOutcomes = do
                 { outcomeSizeSampling = sizeSampling
                 }
             retainAtomic
-            (Inspection Nothing $ Node [inspectionEdge $ outcomeInspection outcome | outcome <- outcomes])
-            (commonRootCount $ map (RootCount . termRootCount . outcomeTerm) outcomes)
+            (Inspection Nothing $ Node [inspectionEdge $ outcomeInspection outcome | outcome <- toList outcomes])
+            (commonRootCount $ toList $ RootCount . termRootCount . outcomeTerm <$> outcomes)
   where
-    outcomes = map snd weightedOutcomes
+    outcomes = snd <$> weightedOutcomes
     -- The weights of the group add up to its number of members.
-    weights = Sequence.fromList $ map fst weightedOutcomes
+    weights = fst <$> weightedOutcomes
     totalWeight = sum weights
     weightAt index =
         toRational totalOutcomes * Sequence.index weights (fromEnum index) / totalWeight
-    bucketMass = sum $ map outcomeMass outcomes
-    conditional =
-        Sequence.fromList
-            [ outcome{outcomeMass = outcomeMass outcome / bucketMass}
-            | outcome <- outcomes
-            ]
+    bucketMass = sum $ outcomeMass <$> outcomes
+    conditional = (\outcome -> outcome{outcomeMass = outcomeMass outcome / bucketMass}) <$> outcomes
     totalOutcomes = toEnum $ length outcomes
     uniformMass = commonValue $ Just . outcomeMass <$> toList conditional
-    bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- outcomes]
+    bucketSupport = Node [termEdge $ outcomeTerm outcome | outcome <- toList outcomes]
     termEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
     inspectionEdge (Tree.Node symbol children) = Edge symbol $ map singletonNode children
 

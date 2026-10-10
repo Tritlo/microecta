@@ -80,7 +80,7 @@ groupOn _ (Transparent (Left err)) = Grouped $ Left err
 groupOn key (Transparent (Right static)) =
     Grouped $ do
         outcomes <- enumerateWeighted static
-        traverse (bucketFromOutcomes (staticAtomic static) . toList) $
+        traverse (bucketFromOutcomes (staticAtomic static)) $
             groupOutcomes
                 [ (key $ outcomeValue outcome, (weight, outcome))
                 | (weight, outcome) <- outcomes
