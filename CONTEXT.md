@@ -47,6 +47,13 @@ Wilf, and Feat (ranking).
   transition's *constraint* `ψ`.
 - **Constraint**: the whole label of a transition: equality constraints and
   a guard.
+- **Contract**: a guard about the children of a constructor, written as a
+  function with one term for each child, in order.
+- **Measure**: the integer of each term of a constructor, written as a term
+  of the measures of its children (`measured`). The refinement of a constructed
+  term is `v == measure`, so the contract of a parent reads it. Liquid Haskell
+  says measure; the LTA paper calls a constructor's refinement its *result
+  refinement*.
 - **Observed**: what a guard can read at one path of a term: the symbol there
   and its **leafness** (leaf, inner, or mixed when some members of a group
   are leaves and some are not).
