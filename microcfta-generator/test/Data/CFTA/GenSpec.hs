@@ -36,7 +36,7 @@ import qualified Data.Tree as Tree
 
 -- | A derived recursive fixture with named child positions.
 data DerivedTree = Leaf Bool | Fork DerivedTree DerivedTree
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Ord, Show, Generic)
 
 instance Datatype.HasFTA DerivedTree
 
@@ -105,6 +105,22 @@ spec = do
                     check $ FTAGen.upToSize 5 $ FTAGen.fromDatatype datatype
                     ranksEveryMemberBack FTAGen.rankOfValue $ FTAGen.fromDatatypeUpToDepth 2 datatype
                     ranksBack FTAGen.rankOfValue (FTAGen.fromDatatype datatype) [0 .. 30]
+
+        it "gives a built and an imported generator of one datatype the same sizes" $
+            -- Every constructor pays one, so both count the nodes of a term.
+            case Datatype.deriveFTA @DerivedTree of
+                Left err -> expectationFailure $ show err
+                Right datatype -> do
+                    let built :: FTAGen.Gen String DerivedTree
+                        built =
+                            FTAGen.recur $ \tree ->
+                                FTAGen.oneof
+                                    [ FTAGen.node "Leaf" $ Leaf <$> FTAGen.oneof [FTAGen.leaf False "False", FTAGen.leaf True "True"]
+                                    , FTAGen.node "Fork" $ Fork <$> tree <*> tree
+                                    ]
+                        imported = FTAGen.fromDatatype datatype
+                    map (FTAGen.countAtSize built) [0 .. 9] `shouldBe` map (FTAGen.countAtSize imported) [0 .. 9]
+                    map (FTAGen.pmfAtSize built) [0 .. 7] `shouldBe` map (FTAGen.pmfAtSize imported) [0 .. 7]
 
         it "retains record names, positions, and fully applied field types" $ do
             let Tree.Node constructor _ = Datatype.encodeTerm $ RecordPair (Leaf False) (Leaf True)

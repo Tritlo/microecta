@@ -512,6 +512,26 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
 
     it "imports every term of an automaton once" $ QC.property importAgreement
 
+    describe "the Functor and Applicative laws" $ do
+        it "identity: pure id <*> v is v, rank by rank" $ QC.property $ \(Small v) ->
+            sameRanks (pure id <*> build v) (build v)
+        it "fmap f v is pure f <*> v, rank by rank" $ QC.property $ \(Small v) ->
+            sameRanks (Tagged 3 <$> build v) (pure (Tagged 3) <*> build v)
+        it "homomorphism: pure f <*> pure x is pure (f x), rank by rank" $ QC.property $ \n ->
+            sameRanks (pure (Tagged 1) <*> pure (Atom n)) (pure $ Tagged 1 $ Atom n)
+        it "interchange: u <*> pure y is pure ($ y) <*> u, rank by rank" $ QC.property $ \(Small a) n ->
+            let u = Paired <$> build a
+             in sameRanks (u <*> pure (Atom n)) (pure ($ Atom n) <*> u)
+        it "composition: pure (.) <*> u <*> v <*> w is u <*> (v <*> w), size by size" $ QC.property $ \(Small a) (Small b) (Small c) ->
+            let u = Paired <$> build a
+                v = Paired <$> build b
+                w = build c
+                left = pure (.) <*> u <*> v <*> w
+                right = u <*> (v <*> w)
+             in sameSizes left right
+                    -- A finite product ranks in mixed radix, which is associative.
+                    .&&. (if Gen.isRecursive left then QC.property True else sameRanks left right)
+
 -- | The grouped observers of one described family agree with its model.
 familyAgreement :: ClosedFamily -> Property
 familyAgreement (ClosedFamily desc) =
@@ -550,6 +570,44 @@ familyAgreement (ClosedFamily desc) =
         | otherwise =
             groupMass group
                 * sum [memberMass member | member <- maybe [] snd $ modelFinite $ groupModel group, memberSize member == size]
+
+-- | A closed random description of about eight constructors, for the laws.
+newtype Small = Small Desc
+    deriving (Show)
+
+instance QC.Arbitrary Small where
+    arbitrary = Small <$> QC.sized (\budget -> description 0 0 $ min 8 budget)
+    shrink (Small desc) = [Small smaller | smaller <- shrinkDesc desc, closed smaller]
+
+-- | Two generators with the same members at the same ranks, of the same sizes.
+sameRanks :: Gen.Gen Text.Text Value -> Gen.Gen Text.Text Value -> Property
+sameRanks left right =
+    QC.within 5000000
+        $ QC.conjoin
+        $ [ Gen.isRecursive left === Gen.isRecursive right
+          , Gen.cardinality left === Gen.cardinality right
+          ]
+            <> [ counterexample ("size " <> show size) $ Gen.countAtSize left (Size size) === Gen.countAtSize right (Size size)
+               | size <- [0 .. sizeBound]
+               ]
+            <> [ counterexample ("rank " <> show rank) $
+                    (Gen.unrank left rank, Gen.sizeOfRank left rank) === (Gen.unrank right rank, Gen.sizeOfRank right rank)
+               | rank <- take rankBound [0 ..]
+               ]
+
+-- | Two generators with the same counts and the same distribution at each size.
+sameSizes :: Gen.Gen Text.Text Value -> Gen.Gen Text.Text Value -> Property
+sameSizes left right =
+    QC.within 5000000 $
+        QC.conjoin
+            [ counterexample ("size " <> show size) $
+                Gen.countAtSize left (Size size) === Gen.countAtSize right (Size size)
+                    .&&. ( if either (const True) (<= Cardinality listBound) (Gen.countAtSize left (Size size))
+                            then Gen.pmfAtSize left (Size size) === Gen.pmfAtSize right (Size size)
+                            else QC.property True
+                         )
+            | size <- [0 .. sizeBound]
+            ]
 
 -- | The first member of least size.
 smallestMember :: [Member Value] -> Member Value
