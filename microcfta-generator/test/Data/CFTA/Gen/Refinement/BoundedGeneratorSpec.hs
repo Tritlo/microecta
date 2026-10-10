@@ -42,6 +42,7 @@ import Data.CFTA.Refinement (
  )
 import Data.CFTA.Refinement.Expression (Expr, refinementFormula, toExpr, true, (.==), (.>))
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..), withZ3)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | Fail if an unconstrained fixture unexpectedly calls the solver.
@@ -134,7 +135,7 @@ spec :: Spec
 spec = do
     describe "liquid annotations on a derived datatype" $ do
         it "keeps the datatype codec and shrinks within the guarded language" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
                 datatype <- either (fail . show) pure $ Datatype.deriveFTAWith @(Maybe (Int, Int)) $ Datatype.domain @Int [0, 1, 2]
                 let annotate constructor
                         | Datatype.constructorType constructor == typeRep (Proxy @Int) =
@@ -235,12 +236,12 @@ spec = do
                     (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
 
         it "checks root, nested, and missing observations across an imported boundary" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
-                let zero = variable "v" .== 0
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
+                let zero = variable valueName .== 0
                     boxed =
                         Node
                             [ Transition "a" zero [] noConstraint
-                            , Transition "a" (variable "v" .== 1) [] noConstraint
+                            , Transition "a" (variable valueName .== 1) [] noConstraint
                             ]
                     imported = Node [Transition "a" zero [] noConstraint, plain "box" [boxed]]
                     absent = Satisfies (path [0, 0]) true
@@ -382,7 +383,7 @@ spec = do
             fmap termsOf mapped `shouldBe` Right (termsOf compiled)
 
         it "retains distinct refinements when symbols and values coincide" $ do
-            let automaton = Node [plain "a" [], Transition "a" (variable "v" .== 0) [] noConstraint]
+            let automaton = Node [plain "a" [], Transition "a" (variable valueName .== 0) [] noConstraint]
             result <- compileBoundedWith unusedEntailment (\_ _ _ -> ()) 0 automaton
             (result >>= LTAGen.cardinality) `shouldBe` Right 2
 
@@ -414,12 +415,12 @@ spec = do
                 denotationAtMost solver 2 automaton `shouldDenote` termsOf compiled
 
         it "reports unavailable compound actual identities without changing the core language" $
-            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "x", "y", "app", "known"] :: [String]] $ \solver -> do
+            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "x", "y", "app", "known"] :: [String]] $ \solver -> do
                 let guard =
                         Substitute
                             [Substitution (path [0]) (path [2]), Substitution (path [1]) (path [3])]
                             (Satisfies (path []) $ variable "x" .== variable "y")
-                    known = Node [Transition "known" (variable "v" .== 0) [] noConstraint, plain "app" [atoms]]
+                    known = Node [Transition "known" (variable valueName .== 0) [] noConstraint, plain "app" [atoms]]
                     automaton =
                         Node
                             [ Transition "pair" true [known, known, Node [plain "x" []], Node [plain "y" []]] $

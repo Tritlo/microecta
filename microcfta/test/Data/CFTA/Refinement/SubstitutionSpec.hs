@@ -19,6 +19,7 @@ import Data.CFTA.Refinement (
 import Data.CFTA.Refinement.Expression (false, fromExpr, toExpr, true, variable, (.<), (.==))
 import Data.CFTA.Refinement.Guard (buildGuard, isSubtypeOf, withActualFor, withActualsFor)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3, withZ3Assuming)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 equalityEntailment :: Entailment
@@ -35,8 +36,8 @@ spec :: Spec
 spec =
     describe "dependent LTA guards" $ do
         it "substitutes the actual argument for the formal in the result type" $ do
-            let expected = variable "v" .== variable "x"
-                dependent = variable "v" .== variable "n"
+            let expected = variable valueName .== variable "x"
+                dependent = variable valueName .== variable "n"
                 term =
                     Tree.Node
                         ( RefinedSymbol
@@ -51,8 +52,8 @@ spec =
             evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` Yes)
 
         it "keeps different actual arguments distinct" $ do
-            let expected = variable "v" .== variable "y"
-                dependent = variable "v" .== variable "n"
+            let expected = variable valueName .== variable "y"
+                dependent = variable valueName .== variable "n"
                 term =
                     Tree.Node
                         ( RefinedSymbol
@@ -67,8 +68,8 @@ spec =
             evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` No)
 
         it "substitutes several actual arguments in one dependent result" $ do
-            let expected = variable "v" .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "x") (fromExpr $ variable "y"))
-                dependent = variable "v" .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "n") (fromExpr $ variable "m"))
+            let expected = variable valueName .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "x") (fromExpr $ variable "y"))
+                dependent = variable valueName .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "n") (fromExpr $ variable "m"))
                 guard =
                     buildGuard $ \resultType functionOutput firstActual firstFormal secondActual secondFormal ->
                         withActualsFor
@@ -156,8 +157,8 @@ spec =
                                 "pair"
                                 true
                             )
-                            [ Tree.Node (RefinedSymbol "x" (variable "v" .== 0)) []
-                            , Tree.Node (RefinedSymbol "y" (variable "v" .== 1)) []
+                            [ Tree.Node (RefinedSymbol "x" (variable valueName .== 0)) []
+                            , Tree.Node (RefinedSymbol "y" (variable valueName .== 1)) []
                             ]
                 evaluateGuard solver guard term >>= (`shouldBe` No)
 
@@ -189,9 +190,9 @@ spec =
                                 "quadruple"
                                 true
                             )
-                            [ Tree.Node (RefinedSymbol "x" (variable "v" .== variable "z")) []
+                            [ Tree.Node (RefinedSymbol "x" (variable valueName .== variable "z")) []
                             , Tree.Node (RefinedSymbol "y" true) []
-                            , Tree.Node (RefinedSymbol "w" (variable "v" .== 1)) []
+                            , Tree.Node (RefinedSymbol "w" (variable valueName .== 1)) []
                             , Tree.Node (RefinedSymbol "z" true) []
                             ]
                 evaluateGuard solver (guard $ variable "y" .== variable "w") term >>= (`shouldBe` No)
@@ -210,7 +211,7 @@ spec =
 
 -- | Sorts for actual variables and constructor result values in these checks.
 declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-declarations = [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "app", "w", "x", "y", "z"] :: [String]]
+declarations = [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "app", "w", "x", "y", "z"] :: [String]]
 
 -- | Two different applications whose result refinements identify their values.
 collidingActuals :: Tree.Tree Symbol
@@ -220,8 +221,8 @@ collidingActuals =
             "pair"
             true
         )
-        [ Tree.Node (RefinedSymbol "app" (variable "v" .== 0)) [Tree.Node (RefinedSymbol "zero" true) []]
-        , Tree.Node (RefinedSymbol "app" (variable "v" .== 1)) [Tree.Node (RefinedSymbol "one" true) []]
+        [ Tree.Node (RefinedSymbol "app" (variable valueName .== 0)) [Tree.Node (RefinedSymbol "zero" true) []]
+        , Tree.Node (RefinedSymbol "app" (variable valueName .== 1)) [Tree.Node (RefinedSymbol "one" true) []]
         , Tree.Node (RefinedSymbol "x" true) []
         , Tree.Node (RefinedSymbol "y" true) []
         ]

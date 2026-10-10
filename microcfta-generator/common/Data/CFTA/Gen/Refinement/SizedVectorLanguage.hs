@@ -37,6 +37,7 @@ import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (Formula, Symbol (RefinedSymbol))
 import Data.CFTA.Refinement.Expression (Expr, Refinement, refinementFormula, (.&&), (.<), (.<=), (.==))
 import Data.CFTA.Refinement.Guard (contract)
+import Data.CFTA.Symbol (valueName)
 
 -- | Pure syntax for a small sized-vector pipeline.
 data VectorExpression
@@ -62,7 +63,7 @@ solverDeclarationsAtDepth :: Int -> [(Fixpoint.Symbol, Fixpoint.Sort)]
 solverDeclarationsAtDepth requestedDepth =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
     | name <-
-        ["v", "n", "m", "k", "i"]
+        [valueName, "n", "m", "k", "i"]
             <> map numberName [-1 .. maximumLength]
     ]
   where

@@ -52,6 +52,7 @@ import Data.CFTA.Refinement.Guard (
  )
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | Exact refinement attached to one integer.
@@ -500,4 +501,4 @@ homogeneousBits width = foldr (\_ rest -> prepend rest) ((: []) <$> bit) [2 .. w
 
 -- | Liquid Fixpoint declarations needed by the exact integer refinements.
 declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-declarations = [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)]
+declarations = [(Fixpoint.symbol valueName, Fixpoint.FInt)]

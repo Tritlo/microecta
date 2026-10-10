@@ -31,6 +31,7 @@ import Data.CFTA.Refinement.Guard (
     withActualsFor,
  )
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
@@ -89,12 +90,12 @@ spec = do
             (compiled >>= LTAGen.cardinality) `shouldBe` Right (2 ^ (50 :: Int))
 
         it "preserves fresh value declarations through the compilation cache" $
-            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "app", "x", "y"] :: [String]] $ \solver -> do
+            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "app", "x", "y"] :: [String]] $ \solver -> do
                 let variable :: String -> Expr
                     variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
                     actual :: Int -> LTAGen.LTAGen Int
                     actual integer =
-                        LTAGen.refinedNode "app" (const $ variable "v" .== fromIntegral integer) Top $
+                        LTAGen.refinedNode "app" (const $ variable valueName .== fromIntegral integer) Top $
                             LTAGen.leaf integer "input" (const true)
                     forest =
                         (,,,)
@@ -130,7 +131,7 @@ spec = do
         it "compares renamed symbols and refinements while preserving source values and witnesses" $ do
             let variable :: String -> Expr
                 variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
-                annotation name = const (variable "v" .== variable name)
+                annotation name = const (variable valueName .== variable name)
                 actuals =
                     LTAGen.namedPool
                         [ LTAGen.Refined (10 :: Int) "a" $ annotation "a"
@@ -199,7 +200,7 @@ compileActualEquality ::
     LTAGen.LTAGen Int ->
     IO (Either LTAGen.GenError Cardinality)
 compileActualEquality left right =
-    withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["v", "shared", "app", "x", "y"] :: [String]] $ \solver -> do
+    withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "shared", "app", "x", "y"] :: [String]] $ \solver -> do
         let variable :: String -> Expr
             variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
             forest =

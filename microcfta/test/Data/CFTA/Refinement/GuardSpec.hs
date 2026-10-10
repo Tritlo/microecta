@@ -33,6 +33,7 @@ import Data.CFTA.Refinement.Expression (false, refinementFormula, toExpr, true, 
 import Data.CFTA.Refinement.Guard (anyOf, buildGuard, isSameTermAs, notGuard, requires, withActualFor)
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..), withZ3, withZ3Timeout)
 import Data.CFTA.Refinement.TestSupport (tableEntailment)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
@@ -267,7 +268,7 @@ spec =
                 model = Fixpoint.EVar $ Fixpoint.symbol ("model" :: String)
                 declarations =
                     [ (Fixpoint.symbol name, Fixpoint.FInt)
-                    | name <- ["v", "model", "previous"] :: [String]
+                    | name <- [valueName, "model", "previous"] :: [String]
                     ]
                 guard =
                     Substitute
@@ -313,7 +314,7 @@ spec =
             -- process. The next query goes to a new process, so it reads its
             -- own answer. The waits cover interruptions before the query is
             -- sent, while Z3 runs, and after it answers.
-            let v = variable "v"
+            let v = variable valueName
             withZ3 [] $ \solver -> do
                 answers <-
                     mapM

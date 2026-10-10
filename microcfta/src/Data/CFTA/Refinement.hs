@@ -11,8 +11,9 @@ requirement, avoiding phantom constant children.
 term's refinement for its name. 'Substitute' applies the paper's
 actual-for-formal position substitutions before semantic checks and syntactic
 comparison. A stored refinement is a 'Formula', a Liquid Fixpoint expression
-about the variable @v@. "Data.CFTA.Refinement.Expression" writes refinements
-as Haskell functions of the value.
+about the value variable 'Data.CFTA.Symbol.valueName'.
+"Data.CFTA.Refinement.Expression" writes refinements as Haskell functions of
+the value.
 
 Recursive automata are accepted. As required by the LTA construction, a guard
 may only inspect positions whose nodes are acyclic; recursive nodes can still

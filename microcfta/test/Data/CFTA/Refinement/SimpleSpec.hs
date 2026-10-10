@@ -73,7 +73,7 @@ import Data.CFTA.Refinement (
 import Data.CFTA.Refinement.Expression (literal, refinementFormula, variable, (.&&), (.<), (.<=), (.==), (.>=))
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import qualified Data.CFTA.Simple as Simple
-import Data.CFTA.Symbol (Formula)
+import Data.CFTA.Symbol (Formula, valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
@@ -191,10 +191,6 @@ holds constraint term = equalitiesHold constraint term && decide (constraintGuar
         pure [value | value <- domain, truth [(valueName, value)] refinement]
     contract formula assignment = truth (zip (map contractTermName [0 ..]) assignment) formula
     resolved = all (\(Substitution actual formal) -> isJust (at actual) && isJust (at formal))
-
--- | The name of the value in a refinement formula.
-valueName :: String
-valueName = "v"
 
 -- | Every integer that a refinement of the generated automata can hold.
 domain :: [Integer]

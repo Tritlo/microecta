@@ -9,6 +9,7 @@ module Data.CFTA.Refinement.TestSupport (
 
 import Data.CFTA.Refinement (Entailment (Entailment), Verdict (..))
 import Data.CFTA.Refinement.Expression (true)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A small decidable implication table that keeps syntax tests independent of Z3.
@@ -27,5 +28,5 @@ unusedEntailment = Entailment $ \_ _ -> pure Unknown
 declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 declarations =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
-    | name <- ["v", "x", "y", "n"] :: [String]
+    | name <- [valueName, "x", "y", "n"] :: [String]
     ]

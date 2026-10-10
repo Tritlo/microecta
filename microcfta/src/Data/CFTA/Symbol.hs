@@ -16,6 +16,7 @@ the 'Symbol' pattern or a string literal, and a refined one with 'RefinedSymbol'
 module Data.CFTA.Symbol (
     Symbol (Symbol, RefinedSymbol),
     Formula,
+    valueName,
     symbolText,
     symbolRefinement,
     unrefined,
@@ -35,6 +36,16 @@ import Data.CFTA.Interned.Cache (Cache, freshCacheWith, intern, newIdSupply)
 
 -- | A logical refinement understood by Liquid Fixpoint.
 type Formula = Fixpoint.Expr
+
+{- | The solver name of the refined value in a refinement 'Formula'.
+
+The name starts with the reserved prefix @__microcfta_@, so a user name made
+with 'Data.CFTA.Refinement.Expression.variable' does not collide with it.
+Write a refinement as a function of the value, and
+'Data.CFTA.Refinement.Expression.refinementFormula' applies it to this name.
+-}
+valueName :: String
+valueName = "__microcfta_value"
 
 {- | The identity of an interned symbol.
 

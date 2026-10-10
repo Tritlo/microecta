@@ -83,7 +83,7 @@ import Data.CFTA.Refinement (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (variable, (.<=), (.==), (.>=))
+import Data.CFTA.Refinement.Expression (refinementFormula, variable, (.<=), (.==), (.>=))
 import Data.CFTA.Refinement.Guard (
     Path,
     allOf,
@@ -94,6 +94,7 @@ import Data.CFTA.Refinement.Guard (
     unconstrained,
     withActualFor,
  )
+import qualified Data.CFTA.Symbol as Symbol
 import Data.List (elemIndex)
 
 -- | Ground value types shared with the typed-expression example.
@@ -160,13 +161,13 @@ encodeState (StackState types) = foldr encodeType 0 types
 
 -- | Give one stack state an exact symbolic refinement.
 stateRefinement :: StackState -> Formula
-stateRefinement state = variable "v" .== variable (stateName state)
+stateRefinement state = refinementFormula (.== variable (stateName state))
 
 -- | Integer symbols that can occur in a stack-machine solver query.
 solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 solverDeclarations =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
-    | name <- ["v", "model", "start", "step"] <> map stateName stackStates
+    | name <- [Symbol.valueName, "model", "start", "step"] <> map stateName stackStates
     ]
 
 -- | Facts assigning each finite stack shape its compact integer encoding.
@@ -677,7 +678,7 @@ pushContract pushed =
         (fromString $ "push-" <> valueName pushed)
         (Push pushed)
         stacksWithRoom
-        (variable "v" .== (2 * variable "model" + fromIntegral (typeTag (valueType pushed))))
+        (refinementFormula (.== 2 * variable "model" + fromIntegral (typeTag (valueType pushed))))
 
 -- | Build one of the two typed pop transition contracts.
 popContract :: ValueType -> CommandContract
@@ -715,7 +716,7 @@ stacksStartingWith prefix = oneOfStates (prefix `isPrefixOf`)
 oneOfStates :: (StackState -> Bool) -> Formula
 oneOfStates predicate =
     Fixpoint.pOr
-        [ variable "v" .== fromIntegral (encodeState state)
+        [ refinementFormula (.== fromIntegral (encodeState state))
         | state <- stackStates
         , predicate state
         ]
@@ -724,29 +725,29 @@ oneOfStates predicate =
 stateRange :: Formula
 stateRange =
     Fixpoint.pAnd
-        [ variable "v" .>= 0
-        , variable "v" .<= fromIntegral maximumEncodedState
+        [ refinementFormula (.>= 0)
+        , refinementFormula (.<= fromIntegral maximumEncodedState)
         ]
 
 -- | @Add@ and @Pop Int@ both remove one leading integer tag.
 popIntOutput :: Formula
-popIntOutput = variable "model" .== (2 * variable "v" + 1)
+popIntOutput = refinementFormula (\v -> variable "model" .== 2 * v + 1)
 
 -- | @And@ and @Pop Bool@ both remove one leading Boolean tag.
 popBoolOutput :: Formula
-popBoolOutput = variable "model" .== (2 * variable "v" + 2)
+popBoolOutput = refinementFormula (\v -> variable "model" .== 2 * v + 2)
 
 -- | Replacing two integers with a Boolean relates input to output by this law.
 equalIntOutput :: Formula
-equalIntOutput = variable "model" .== (2 * variable "v" - 1)
+equalIntOutput = refinementFormula (\v -> variable "model" .== 2 * v - 1)
 
 -- | Replacing two Booleans with one Boolean relates input and output by this law.
 equalBoolOutput :: Formula
-equalBoolOutput = variable "model" .== (2 * variable "v" + 2)
+equalBoolOutput = refinementFormula (\v -> variable "model" .== 2 * v + 2)
 
 -- | Operations such as Boolean negation preserve the complete stack type.
 unchangedOutput :: Formula
-unchangedOutput = variable "v" .== variable "model"
+unchangedOutput = refinementFormula (.== variable "model")
 
 -- | Every stack type inside the finite generation boundary.
 stackStates :: [StackState]
