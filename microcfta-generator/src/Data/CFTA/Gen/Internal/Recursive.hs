@@ -497,7 +497,7 @@ mergeRecursiveGroups alternatives =
         ]
 
 {- | A memoized unnormalized mass for sizes in ascending order. Sizes without
-members are left out, except for the zero mass that a product starts with.
+members are left out. A product and a pay start at their minimum size.
 -}
 newtype MassIndex = MassIndex [(Size, Rational)]
 

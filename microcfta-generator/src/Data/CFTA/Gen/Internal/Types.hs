@@ -227,7 +227,8 @@ Sizes count pays. 'pure' has size zero, '<*>' adds the sizes of its sides, and
 size one, and a constructor ('node', 'leaf') pays one. So the 'Functor' and
 'Applicative' laws hold for sizes. A recursion must reach its occurrence
 through a pay, or through a product whose other side has no member of size
-zero. A pay changes no term, rank, or value.
+zero. A pay changes no term, rank, or value. An opaque generator has no sizes
+and is unchanged.
 -}
 pay :: Gen symbol a -> Gen symbol a
 pay generator =

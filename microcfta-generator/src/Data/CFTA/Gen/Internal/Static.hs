@@ -253,8 +253,9 @@ data Static symbol a = Static
     {- ^ Whether an explicit atomic boundary closes this finite language.
 
     Ordinary finite weights do not control recursive structure. 'atomicStatic'
-    sets this marker so 'staticSampling' can preserve them as one source
-    choice. The sampler itself already lives in 'staticOutcomes'.
+    sets this marker so 'staticSampling' can keep them as one choice at the
+    size of the atom: one, or more under a pay. The sampler itself already
+    lives in 'staticOutcomes'.
     -}
     , staticInspection :: Inspection symbol
     -- ^ Diagnostic structure. Counting and decoding do not force this field.
