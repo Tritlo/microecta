@@ -38,6 +38,7 @@ module Data.CFTA.Gen.Internal.Grouped (
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Sequence
 import Data.Text (Text)
@@ -390,23 +391,40 @@ relateGroupsM relation resultKey left right =
                                     then
                                         accepted
                                             :|> ( resultKey leftGroupKey rightGroupKey
-                                                , -- A pair counts the members of its parts, as a join does.
-                                                  KeyedBucket
-                                                    (keyedBucketMass leftBucket * keyedBucketMass rightBucket)
-                                                    ( joinNBucketStatic
-                                                        componentIndex
-                                                        -- Pairing is not a source choice, so a pair has the size of its two parts.
-                                                        (resizedStatic 0 $ pureStatic (,))
-                                                        ( ChainCons
-                                                            (keyedBucketStatic leftBucket)
-                                                            (ChainCons (keyedBucketStatic rightBucket) ChainNil)
-                                                        )
-                                                    )
-                                                    Nothing
+                                                , pairBucket componentIndex leftBucket rightBucket
                                                 )
                                     else accepted
                             nextIndex = if keep then componentIndex + 1 else componentIndex
                          in decideRights nextIndex retained leftGroupKey leftBucket rest
+
+{- | The pair of two buckets. Pairing is not a source choice, so a pair has the
+size of its two parts. A part with weights of its own gives the pair weights
+of its own: the products of the weights of the parts.
+-}
+pairBucket ::
+    (Hashable symbol, Typeable symbol) =>
+    ComponentIndex -> KeyedBucket symbol left -> KeyedBucket symbol right -> KeyedBucket symbol (left, right)
+pairBucket componentIndex leftBucket rightBucket
+    | weighted =
+        KeyedBucket
+            mass
+            ( pairStaticWithMasses
+                (massAtSize <$> keyedBucketMasses leftBucket)
+                (keyedBucketStatic leftBucket)
+                (massAtSize <$> keyedBucketMasses rightBucket)
+                (keyedBucketStatic rightBucket)
+                paired
+            )
+            (Just $ productMassIndex (bucketMassIndex leftBucket) (bucketMassIndex rightBucket))
+    | otherwise = KeyedBucket mass paired Nothing
+  where
+    weighted = isJust (keyedBucketMasses leftBucket) || isJust (keyedBucketMasses rightBucket)
+    mass = keyedBucketMass leftBucket * keyedBucketMass rightBucket
+    paired =
+        joinNBucketStatic
+            componentIndex
+            (resizedStatic 0 $ pureStatic (,))
+            (ChainCons (keyedBucketStatic leftBucket) (ChainCons (keyedBucketStatic rightBucket) ChainNil))
 
 -- | Compile one relation over a homogeneous list of grouped arguments.
 relateN ::

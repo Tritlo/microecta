@@ -366,8 +366,7 @@ is read back with its term; a member's term is the user's part of the
 engine's labelled term. A member keeps its mass, its size, and its weight
 inside its size class. The groups carry these weights to the merges that join
 them again, so a guard that reads the language keeps its distribution inside a
-size class. A product of such a group with another child counts members
-inside a size class instead.
+size class. The pairs of the children of a node keep them too.
 -}
 groupBuilt :: Set Path -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator

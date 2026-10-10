@@ -236,6 +236,35 @@ spec = do
                 LTAGen.pmf (LTAGen.upToSize 2 compiled) `shouldBe` Right expected
                 sampled (LTAGen.upToSize 2 compiled) `shouldBe` expected
 
+        it "keeps the weights inside a size class when a guard reads one child of a pair" $
+            withZ3 declarations $ \solver -> do
+                -- A member of size three splits as one and two, or as two and
+                -- one. The weights of the left groups differ by size class, so
+                -- they choose the split, and each part keeps its weights.
+                let atom weightA weightB =
+                        LTAGen.atomic $
+                            LTAGen.frequency
+                                [(weightA, LTAGen.leaf (0 :: Int) "a" (const true)), (weightB, LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true))]
+                    left =
+                        LTAGen.ungroup
+                            $ LTAGen.keyed ()
+                            $ LTAGen.oneof
+                                [ LTAGen.node "p" $ Left <$> atom 1 3
+                                , LTAGen.node "q" $ fmap Right $ (,) <$> atom 3 1 <*> LTAGen.leaf (7 :: Int) "c" (const true)
+                                ]
+                    right =
+                        LTAGen.oneof
+                            [ LTAGen.leaf (5 :: Int) "x" (const true)
+                            , LTAGen.node "y" $ (+) <$> LTAGen.leaf 6 "z" (const true) <*> LTAGen.leaf 0 "o" (const true)
+                            ]
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard $ (,) <$> left <*> right
+                    sampled generator = Map.toAscList $ Map.fromListWith (+) [(value, mass) | (mass, Right value) <- runExact $ LTAGen.lowerVia generator]
+                    expected = LTAGen.pmf $ LTAGen.upToSize 3 $ outer noConstraint
+                compiled <- compileOrFail solver $ outer $ Satisfies (path [0, 0]) true
+                LTAGen.pmf (LTAGen.upToSize 3 compiled) `shouldBe` expected
+                Right (sampled $ LTAGen.upToSize 3 compiled) `shouldBe` expected
+                LTAGen.pmf compiled `shouldBe` LTAGen.pmf (outer noConstraint)
+
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do
                 let pairs =

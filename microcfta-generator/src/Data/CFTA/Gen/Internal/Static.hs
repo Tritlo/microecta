@@ -38,6 +38,7 @@ module Data.CFTA.Gen.Internal.Static (
     applyStatic,
     frequencyStatic,
     frequencyStaticWithMasses,
+    pairStaticWithMasses,
     mapStatic,
     atomicStatic,
     resizedStatic,
@@ -103,7 +104,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
  )
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (planMemberSize)
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, countAtSize, sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (SizeIndex (sizeClassCounts), countAtSize, mapIndex, sizeIndex)
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome symbol a = Outcome
@@ -641,6 +642,56 @@ frequencyStaticWithMasses alternatives =
             , first <= value
             ]
     offsets = map fst $ offsetAlternatives [(1, alternative) | (alternative, _) <- weighted]
+
+{- | Give a pair of two languages the sampler and the weights that follow the
+weights of its parts in each size class, when a part has weights of its own.
+
+The pair has the ranks of a join over an operation of size zero: a rank pairs
+a rank of the left with a rank of the right, the right as the less significant
+part, and the size of a member is the sum of the sizes of its parts. Inside a
+size class, the weights of the parts choose the split of the size, and each
+part keeps its own weights inside its size class. A weight of the result keeps
+the convention of 'staticSampling'. 'Nothing' is the member count of a part.
+-}
+pairStaticWithMasses ::
+    Maybe (Size -> Rational) ->
+    Static symbol left ->
+    Maybe (Size -> Rational) ->
+    Static symbol right ->
+    Static symbol (left, right) ->
+    Static symbol (left, right)
+pairStaticWithMasses leftMasses left rightMasses right pair =
+    pair{staticOutcomes = (staticOutcomes pair){outcomeSizeSampling = Just (sampling, weightAt)}}
+  where
+    indexOf = outcomeSizeIndex . staticOutcomes
+    massOf masses part = fromMaybe (toRational . countAtSize (indexOf part)) masses
+    leftMass = massOf leftMasses left
+    rightMass = massOf rightMasses right
+    sampling =
+        productMassSampleIndex
+            (mapIndex (,) $ indexOf left)
+            leftMass
+            (mapSampleIndex (,) $ fst $ staticSampling left)
+            (indexOf right)
+            rightMass
+            (fst $ staticSampling right)
+    -- The count of the size class, times the share of the split of the size in
+    -- the class, times the share of each part's member in its own size class.
+    weightAt rank = do
+        let (leftRank, rightRank) = splitRank (outcomeCardinality $ staticOutcomes right) rank
+            leftSize = sizeOf left leftRank
+            rightSize = sizeOf right rightRank
+        leftWeight <- maybe (Right 1) ($ leftRank) $ snd $ staticSampling left
+        rightWeight <- maybe (Right 1) ($ rightRank) $ snd $ staticSampling right
+        let size = leftSize + rightSize
+            splits = sum [leftMass split * rightMass (size - split) | (split, _) <- sizeClassCounts (indexOf left), split < size]
+            share part partSize weight = weight / toRational (countAtSize (indexOf part) partSize)
+        pure $
+            toRational (countAtSize (indexOf pair) size)
+                * (leftMass leftSize * rightMass rightSize / splits)
+                * share left leftSize leftWeight
+                * share right rightSize rightWeight
+    sizeOf part = planMemberSize $ outcomePlan $ staticOutcomes part
 
 -- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic ::
