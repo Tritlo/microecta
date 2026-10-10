@@ -263,7 +263,11 @@ test-suite refinement-tests
     Data.CFTA.Gen.Refinement.PreconditionTypedExpressionSpec
     Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec
     Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
+    Data.CFTA.Gen.Refinement.SafeBufferLanguage
+    Data.CFTA.Gen.Refinement.SafeBufferSpec
     Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
+    Data.CFTA.Gen.Refinement.SizedVectorLanguage
+    Data.CFTA.Gen.Refinement.SizedVectorSpec
     Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
     Data.CFTA.Gen.Refinement.TestSupport
     Data.CFTA.Gen.Refinement.TypedExpressionLanguage
