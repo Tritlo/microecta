@@ -13,16 +13,7 @@ import Text.Printf (printf)
 
 import Data.CFTA.Equality
 import Data.CFTA.Symbol (Symbol (Symbol))
-import Data.CFTA.TermSearch.Dataset (typeToFta)
-import Data.CFTA.TermSearch.TermSearch (filterType, reduceFully)
-import Data.CFTA.TermSearch.Type (TypeSkeleton (..))
-import Data.CFTA.TermSearch.Utils (
-    arrowType,
-    constFunc,
-    mkDatatype,
-    theArrowNode,
-    typeConst,
- )
+import Data.CFTA.TermSearch (constFunc, filterType, reduceFully, theArrowNode, typeNode)
 
 data Bench = Bench
     { benchName :: String
@@ -194,13 +185,13 @@ filterMaybeIntSize2 :: Int -> Node Symbol
 filterMaybeIntSize2 i =
     filterType
         (monoTermsOfSize i 2)
-        (typeToFta $ TCons "Maybe" [TCons "Int" []])
+        (typeNode @(Maybe Int))
 
 filterListIntSize3 :: Int -> Node Symbol
 filterListIntSize3 i =
     filterType
         (monoTermsOfSize i 3)
-        (typeToFta $ TCons "List" [TCons "Int" []])
+        (typeNode @[Int])
 
 monoTermsOfSize :: Int -> Int -> Node Symbol
 monoTermsOfSize salt size = union (go size)
@@ -230,32 +221,23 @@ appNode f x =
 monoArgumentScope :: Int -> Node Symbol
 monoArgumentScope salt =
     Node
-        [ constFunc (named "x" salt) (typeConst "Int")
-        , constFunc (named "y" salt) (typeConst "Int")
-        , constFunc (named "xs" salt) (mkDatatype "List" [typeConst "Int"])
+        [ constFunc (named "x" salt) (typeNode @Int)
+        , constFunc (named "y" salt) (typeNode @Int)
+        , constFunc (named "xs" salt) (typeNode @[Int])
         ]
 
 monoFunctionScope :: Int -> Node Symbol
 monoFunctionScope salt =
     Node
-        [ constFunc (named "idInt" salt) (arrowType intType intType)
-        , constFunc (named "JustInt" salt) (arrowType intType maybeIntType)
-        , constFunc (named "headInt" salt) (arrowType listIntType intType)
-        , constFunc (named "nilInt" salt) listIntType
-        , constFunc (named "consInt" salt) (arrowType intType (arrowType listIntType listIntType))
+        [ constFunc (named "idInt" salt) (typeNode @(Int -> Int))
+        , constFunc (named "JustInt" salt) (typeNode @(Int -> Maybe Int))
+        , constFunc (named "headInt" salt) (typeNode @([Int] -> Int))
+        , constFunc (named "nilInt" salt) (typeNode @[Int])
+        , constFunc (named "consInt" salt) (typeNode @(Int -> [Int] -> [Int]))
         ]
 
 named :: String -> Int -> Symbol
 named prefix salt = Symbol $ Text.pack (prefix ++ show salt)
-
-intType :: Node Symbol
-intType = typeConst "Int"
-
-maybeIntType :: Node Symbol
-maybeIntType = mkDatatype "Maybe" [intType]
-
-listIntType :: Node Symbol
-listIntType = mkDatatype "List" [intType]
 
 {- | The congruence input at a chosen size: a chain of equal root paths, each
 with two children in one class. Every root forces classes over the children
@@ -327,6 +309,6 @@ recursiveTypeB salt =
     createMu $ \r ->
         Node
             [ Edge (named "baseType" salt) []
-            , Edge "->" [theArrowNode, mkDatatype "List" [r], r]
+            , Edge "->" [theArrowNode, Node [Edge "List" [r]], r]
             , Edge "List" [r]
             ]

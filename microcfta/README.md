@@ -637,7 +637,7 @@ reduceFully :: Node Symbol -> Node Symbol
 reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
 ```
 
-The test and benchmark support module `Data.CFTA.TermSearch.TermSearch`
+The test and benchmark support module `Data.CFTA.TermSearch`
 defines that helper.
 
 ## Refinements
