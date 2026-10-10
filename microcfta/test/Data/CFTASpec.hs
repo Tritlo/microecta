@@ -25,6 +25,7 @@ import Data.CFTA.Interned (pathsMatching, requirePath)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Interned.Type (MuDepth (..))
 import Data.CFTA.Path (getPath, path)
+import qualified Data.CFTA.Simple as Simple
 import Data.CFTA.Template (Template (..), matchesTemplate, restrict, restrictFTA)
 
 data State = Expression
@@ -405,7 +406,7 @@ spec = do
                         `shouldBe` [True, True, False]
                     runIdentity (Automaton.acceptsM accept expressions (Tree.Node "mul" [zero, zero])) `shouldBe` False
 
-    describe "explicit-state recognition" $
+    describe "explicit-state recognition" $ do
         it "rejects a transition whose guard is Bottom, as the interned view does" $ do
             let bottom = case Automaton.mkFTA ("q" :: String) [("q", [Transition "a" [] (semanticConstraint Bottom)])] of
                     Right fta -> fta
@@ -413,6 +414,22 @@ spec = do
                 leaf = Tree.Node "a" [] :: Tree.Tree String
             (Automaton.accepts bottom leaf, Common.acceptsWith equalitiesHold (Common.fromFTA bottom) leaf)
                 `shouldBe` (False, False)
+
+        it "decides a deep term in linear time when a state has two transitions with one symbol" $ do
+            -- A search with no table tries both "f" transitions again at each
+            -- level of a rejected term, so its time is exponential in the depth.
+            let a = Transition "a" [] noConstraint
+                f child = Transition "f" [child] noConstraint
+                ambiguous =
+                    either (error . show) id $
+                        Automaton.mkFTA ("q" :: String) [("q", [a, f "q", f "r"]), ("r", [a, f "q"])]
+                node = Common.fromFTA ambiguous
+                chain depth leaf = iterate (\term -> Tree.Node "f" [term]) (Tree.Node leaf []) !! depth
+                decide term = [Automaton.accepts ambiguous term, Common.acceptsWith equalitiesHold node term]
+            forM_ [chain depth leaf | depth <- [0 .. 10], leaf <- ["a", "b"]] $ \term ->
+                (term, map Just (decide term)) `shouldBe` (term, replicate 2 (Simple.accepts ambiguous term))
+            finished <- timeout 10000000 $ map (decide . chain 60) ["a", "b"] `shouldBe` [[True, True], [False, False]]
+            finished `shouldBe` Just ()
 
     describe "derived datatype grammars" $ do
         it "accepts a type argument that grows and then stops" $
@@ -450,6 +467,13 @@ spec = do
                     map (Datatype.decodeTerm . Datatype.encodeTerm) values `shouldBe` map Just values
                     Automaton.accepts grammar (Datatype.encodeTerm (Just (Dot 7))) `shouldBe` False
                     Automaton.cycleState grammar `shouldSatisfy` (/= Nothing)
+                    -- No junk: every term of the grammar is the encoding of a value.
+                    let roundTrips term = fmap Datatype.encodeTerm (Datatype.decodeTerm term :: Maybe (Maybe Shape)) == Just term
+                    case Simple.termsUpTo 3 grammar of
+                        Nothing -> expectationFailure "the grammar has a constraint"
+                        Just grammarTerms -> do
+                            length grammarTerms `shouldSatisfy` (> 3)
+                            filter (not . roundTrips) grammarTerms `shouldBe` []
 
 -- | A type argument that grows once: 'Stop' leads back to a fixed larger type.
 data Grows a = Grows a Stop | Stopped

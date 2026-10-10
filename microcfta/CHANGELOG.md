@@ -19,6 +19,12 @@ remains a separate ECTA-only package.
   automaton without constraints lazily by depth, and `runs` returns each
   accepting run with the residual constraints it must satisfy. The pruning
   oracles are `termsPrune` and `termsPruneWith`.
+- `Data.CFTA.Simple`: the automata defined as simply as possible, on the
+  explicit-state automata of `Data.CFTA`. Membership recurses on the term,
+  the terms up to a depth are every accepted tree of the underlying graph,
+  and union, intersection, and the depth bound are the textbook
+  constructions. The tests check the interned automata and enumeration
+  against it.
 - Enumeration removes duplicate terms with a hash set, so `terms` and
   `termsUpToM` of `Data.CFTA` need `Hashable symbol`. With an optimized
   `hashable`, this takes less than half the time of an ordered set on the

@@ -339,6 +339,7 @@ you import `Data.Tree` directly.
 | `Data.CFTA.Constraint` | The `Constraint` type: equalities and a guard, conjunction, `noConstraint`, known contradictions, and views of the constraint. |
 | `Data.CFTA.Equality.Constraint` | Equality constraints over paths and their tries. |
 | `Data.CFTA.Enumeration` | Enumeration for every theory: `terms`, `runs`, the lazy `plainTerms`, and the pruning oracles. |
+| `Data.CFTA.Simple` | The automata defined as simply as possible, on explicit-state automata: membership by recursion on the term, the terms up to a depth by filtering every tree, and the textbook union, product, and depth bound. It is slow, and the tests check the other modules against it. |
 | `Data.Tree` from `containers` | Concrete constructor trees. |
 
 The interned engine has a symbol type. Every edge carries a `Constraint`,
