@@ -202,7 +202,14 @@ data Refined a = Refined !a !Symbol !Refinement
 namedPool :: [Refined a] -> LTAGen a
 namedPool entries = oneof [leaf member symbol refinement | Refined member symbol refinement <- entries]
 
--- | One refined atom.
+{- | One refined atom: a Haskell value, a symbol, and a refinement.
+
+The refinement is about the integer @v@ of the atom, not about the Haskell
+value. Every node of a term of a liquid tree automaton has one such integer,
+and the contracts and measures of a parent read only these integers. The
+author chooses what the integer means: @leaf Leaf "leaf" (.== 0)@ gives the
+leaf the integer 0, which 'measured' then reads as a black height.
+-}
 leaf :: a -> Symbol -> Refinement -> LTAGen a
 leaf member symbol refinement = Gen.node (RefinedSymbol symbol $ refinementFormula refinement) $ pure member
 
@@ -362,6 +369,15 @@ black child =
         (\\leftHeight _ -> leftHeight + 1)
         (Black \<$\> child \<*\> child)
 @
+
+Every node of a term of a liquid tree automaton has one integer, the @v@ of
+its refinement. The solver reads only these integers, never the Haskell value.
+A leaf gets its integer from its refinement: @(.== 0)@ above says that the
+integer of a leaf is 0. A constructor from 'measured' gets its integer from its
+measure. What the integer means is the author's choice. Here the leaf, the
+@black@ node, and a @red@ node that keeps the height of its subtrees agree that
+it is the black height, so the integer of every tree is its black height.
+Nothing checks that meaning.
 
 The second argument is the contract, as for 'guarded'. The third argument is
 the measure of the constructed term. Both take one term for each child, in

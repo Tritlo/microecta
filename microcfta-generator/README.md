@@ -995,6 +995,16 @@ not change the generated value. `recurUpTo` unfolds a recursive description a
 bounded number of times, from the empty generator, and `compile` compiles each
 unfolding once.
 
+Where does the integer come from? Every node of a term of a liquid tree
+automaton has one integer, the `v` of its refinement, and the solver reads only
+these integers, never the Haskell value. So the generator builds two things
+side by side: the Haskell value, through `fmap` and `<*>`, and a term of
+refined symbols. For a type with a natural integer, the refinement gives it:
+`elements [1, 2, 3]` refines each member as `v == x`. A tree has no natural
+integer, so the author chooses what `v` means. A leaf gets its integer from its
+refinement, and a constructor from `measured` gets its integer from its
+measure.
+
 These two give red-black trees. The measure of a tree is its black height: a
 leaf has black height zero, a black node adds one, and a red node keeps the
 black height of its subtrees. The grammar keeps red children black, and the
@@ -1028,7 +1038,20 @@ redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
 Read `black` as follows. The constructor `black` has two children. Its contract
 says that their measures, the black heights `leftHeight` and `rightHeight`, are
 equal. Its measure, the black height of the new tree, is `leftHeight + 1`. The
-leaf has the measure 0 from its refinement `v == 0`.
+leaf has the measure 0 from its refinement `v == 0`. Because the leaf, `black`,
+and `red` agree, the integer of every tree is its black height; nothing checks
+that meaning. Some terms:
+
+| Term | Measures of the children | Contract | Measure |
+| --- | --- | --- | --- |
+| `Leaf` | none | none | 0, from `v == 0` |
+| `Black Leaf Leaf` | 0 and 0 | holds | 0 + 1 = 1 |
+| `Black (Black Leaf Leaf) (Black Leaf Leaf)` | 1 and 1 | holds | 2 |
+| `Black (Black Leaf Leaf) Leaf` | 1 and 0 | fails | not generated |
+
+The measure is also what makes `compile` fast here. It groups the children by
+their measures, decides each contract once for each pair of groups, and counts
+the trees without listing them.
 
 With three unfoldings, the compiled generator has 25,728,160,405 trees.
 `countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
