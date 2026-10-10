@@ -37,6 +37,13 @@ newtype Path = Path [ChildIndex]
     deriving (Show)
     deriving (Eq, Ord) via [Int]
 
+-- | Concatenation of paths, as the notation @p.q@ of tree automata.
+instance Semigroup Path where
+    Path left <> Path right = Path (left <> right)
+
+instance Monoid Path where
+    mempty = EmptyPath
+
 instance Hashable Path where
     hashWithSalt salt (Path components) = salt `hashWithSalt` (coerce components :: [Int])
 

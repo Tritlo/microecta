@@ -11,15 +11,19 @@ module Data.CFTA.Internal.Tree (
     termsBy,
     termLevelsBy,
     termsUpToBy,
+    acceptsBy,
     andM,
     orM,
 ) where
 
 import Control.Monad (filterM, zipWithM)
 import qualified Control.Monad.State.Strict as State
+import Control.Monad.Trans.Class (lift)
 import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable (toList)
 import qualified Data.Graph as Graph
+import qualified Data.HashSet as HashSet
+import Data.Hashable (Hashable)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq (..))
@@ -123,16 +127,17 @@ The rows are trimmed first with 'trimRows'; the list then ends once no
 remaining row has a term of the current depth, so an acyclic graph gives a
 finite list. Each key lists a term once per depth: rows whose alternatives
 all carry distinct symbols cannot repeat a term, and the others are
-deduplicated per level. Every child key must have a row.
+deduplicated per level. A child key without a row accepts nothing, so
+'trimRows' removes the alternatives that use it.
 -}
-termsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
+termsBy :: (Ord key, Ord symbol, Hashable symbol) => [(key, [(symbol, [key])])] -> key -> [Tree symbol]
 termsBy rows root = concat $ termLevelsBy rows root
 
 {- | The terms of 'termsBy' grouped by depth: the terms of depth zero first,
 then the terms of depth one, and so on. The list of levels is lazy, so a
 prefix of it bounds the depth without building the deeper terms.
 -}
-termLevelsBy :: (Ord key, Ord symbol) => [(key, [(symbol, [key])])] -> key -> [[Tree symbol]]
+termLevelsBy :: (Ord key, Ord symbol, Hashable symbol) => [(key, [(symbol, [key])])] -> key -> [[Tree symbol]]
 termLevelsBy rows root
     | Map.member root table = map (Map.! root) $ takeWhile (not . all null) $ map exactly levels
     | otherwise = []
@@ -167,7 +172,7 @@ candidate is never a child. Each key lists a term once per depth, as in
 'termsBy'.
 -}
 termsUpToBy ::
-    (Monad m, Ord key, Ord symbol) =>
+    (Monad m, Ord key, Ord symbol, Hashable symbol) =>
     (alternative -> symbol) ->
     (alternative -> [key]) ->
     (key -> alternative -> Tree symbol -> m Bool) ->
@@ -209,15 +214,19 @@ distinctSymbols symbols = length (nubOrd symbols) == length symbols
 
 {- | Deduplicate a level unless it cannot contain duplicates.
 
-A set beats hashing here by a factor of four to six: comparing two different
-terms stops at the first differing node, while a hash visits every node, and
-hashing one small term with the standard instances costs microseconds. The
-order within a level is not specified.
+With an optimized @hashable@, a hash set does this in less than half the
+time of an ordered set: on the four ambiguous cells of @enumeration-speed@,
+the hash set takes 35% to 39% of the time of the ordered set. An ordered set
+compares each new term with about log n terms of the level, and terms of one
+level often share long prefixes. A hash set visits each term once to hash it
+and compares terms only when the hashes match. An unoptimized @hashable@ makes
+the hash set slower than the ordered set: on the same cells, it takes 2.7 to 4.9
+times the time of the ordered set. The order within a level is not specified.
 -}
-dedupUnless :: (Ord a) => Bool -> [a] -> [a]
+dedupUnless :: (Hashable a) => Bool -> [a] -> [a]
 dedupUnless unambiguous
     | unambiguous = id
-    | otherwise = Set.toList . Set.fromList
+    | otherwise = HashSet.toList . HashSet.fromList
 
 -- | Apply a function to the child at an index, if it exists.
 adjustAt :: ChildIndex -> (a -> a) -> [a] -> [a]
@@ -236,3 +245,79 @@ andM (action : actions) = action >>= \ok -> if ok then andM actions else pure Fa
 orM :: (Monad m) => [m Bool] -> m Bool
 orM [] = pure False
 orM (action : actions) = action >>= \ok -> if ok then pure True else orM actions
+
+{- | Decide whether a key accepts a term, from the outgoing alternatives of each key.
+
+An alternative matches a subterm when its symbol and its number of children
+are those of the root of the subterm. The matching alternatives of a key are
+tried in order, and the search stops at the first one that accepts. The
+children of an alternative are tried from left to right. The check runs only
+when all of them accept. This is the order of the direct recursion.
+
+The direct recursion decides a subterm again for each alternative above it
+that fails, so its time can be exponential in the depth of the term. This
+search keeps a table below each subterm that two or more alternatives match.
+In the table, each key at each position of the term is decided once, and a
+later visit uses that result and runs no check. Above such a subterm, each
+subterm has one visit, and the search keeps no table. Thus each check runs at
+most once for each key, alternative, and position, in the order in which the
+direct recursion first runs it.
+-}
+{-# INLINEABLE acceptsBy #-}
+acceptsBy ::
+    (Monad m, Ord key, Eq symbol) =>
+    (key -> [alternative]) ->
+    (alternative -> symbol) ->
+    (alternative -> [key]) ->
+    (key -> alternative -> Tree symbol -> m Bool) ->
+    key ->
+    Tree symbol ->
+    m Bool
+acceptsBy outgoing symbolOf childrenOf check = unshared
+  where
+    matches (Node symbol children) alternative =
+        symbolOf alternative == symbol && length (childrenOf alternative) == length children
+
+    -- The alternatives of a row from the first one that matches a subterm.
+    fromMatch _ [] = []
+    fromMatch term alternatives@(alternative : rest)
+        | matches term alternative = alternatives
+        | otherwise = fromMatch term rest
+
+    -- No other visit reaches this subterm, so its result needs no table.
+    unshared key term@(Node _ children) = case fromMatch term (outgoing key) of
+        [] -> pure False
+        alternative : rest -> case fromMatch term rest of
+            [] ->
+                childrenAccept (childrenOf alternative) children >>= \accepted ->
+                    if accepted then check key alternative term else pure False
+            _ -> State.evalStateT (shared key (positioned term)) Map.empty
+    childrenAccept (key : keys) (child : rest) =
+        unshared key child >>= \accepted -> if accepted then childrenAccept keys rest else pure False
+    childrenAccept _ _ = pure True
+
+    -- This subterm is at or below a subterm that two or more alternatives
+    -- match. The table holds the result of each position and key.
+    shared key (Node (_, term) children) =
+        orM
+            [ andM (zipWith visit (childrenOf alternative) children) >>= \accepted ->
+                if accepted then lift (check key alternative term) else pure False
+            | alternative <- outgoing key
+            , matches term alternative
+            ]
+    visit key node@(Node (position, _) _) = do
+        known <- State.gets (Map.lookup (position, key))
+        case known of
+            Just accepted -> pure accepted
+            Nothing -> do
+                accepted <- shared key node
+                State.modify' (Map.insert (position, key) accepted)
+                pure accepted
+
+    -- Each subterm with its position in preorder.
+    positioned whole = State.evalState (number whole) (0 :: Int)
+      where
+        number term@(Node _ children) = do
+            position <- State.get
+            State.modify' (+ 1)
+            Node (position, term) <$> traverse number children
