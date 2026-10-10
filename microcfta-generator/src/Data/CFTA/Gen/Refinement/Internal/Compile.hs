@@ -46,7 +46,13 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import Data.CFTA.Equality.Constraint (EqConstraints (EmptyConstraints))
 import Data.CFTA.Gen
-import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..), MassIndex (..), mergeComponentsByKey)
+import Data.CFTA.Gen.Internal.Bucket (
+    KeyedBucket (..),
+    MassIndex (..),
+    atomicMassIndex,
+    mergeComponentsByKey,
+    productMassIndex,
+ )
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Grouped (groupKeys)
 import Data.CFTA.Gen.Internal.Static (
@@ -366,7 +372,8 @@ is read back with its term; a member's term is the user's part of the
 engine's labelled term. A member keeps its mass, its size, and its weight
 inside its size class. The groups carry these weights to the merges that join
 them again, so a guard that reads the language keeps its distribution inside a
-size class. The pairs of the children of a node keep them too.
+size class. The pairs of the children of a node keep them too, and so do the
+groups that close their integer points.
 -}
 groupBuilt :: Set Path -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator
@@ -948,9 +955,8 @@ settleGroups settle (Grouped (Right buckets)) = do
   where
     one (childKeys, bucket) = fmap (build bucket) <$> settle childKeys
     build bucket (key, kept, Nothing) = (key, bucket{keyedBucketMass = keyedBucketMass bucket * kept})
-    -- The points give the group new members, so it has no weights of its own.
-    build (KeyedBucket mass static _) (key, kept, Just found) =
-        (key, KeyedBucket (mass * kept) (mapStatic const $ closePoints found static) Nothing)
+    build (KeyedBucket mass static masses) (key, kept, Just found) =
+        (key, KeyedBucket (mass * kept) (mapStatic const $ closePoints found static) (closedMasses found <$> masses))
 
 {- | Close every open group by the integer points of its formula, for a parent
 that reads no variable.
@@ -962,14 +968,14 @@ closeOpen (Grouped (Right buckets)) = do
     closed <- catMaybes <$> traverse one (Map.toAscList buckets)
     pure $ Grouped $ mergeComponentsByKey closed
   where
-    one (key, bucket@(KeyedBucket mass static _))
+    one (key, bucket@(KeyedBucket mass static masses))
         | openCount key == 0 = Right $ Just (openObservations key, bucket{keyedBucketStatic = mapStatic ($ []) static})
         | otherwise = do
             found <- countPoints integerLabel (openCount key) (openFormula key)
             pure $
                 if pointCount found == 0
                     then Nothing
-                    else Just (openObservations key, KeyedBucket mass (closePoints found static) Nothing)
+                    else Just (openObservations key, KeyedBucket mass (closePoints found static) (closedMasses found <$> masses))
 
 {- | Apply the outcomes of an open group to the integer points of its formula.
 A term ranks by the integers at its placeholder leaves.
@@ -983,6 +989,12 @@ closePoints found = pointsStatic fillHoles rankPoint (Indexed (pointCount found)
         pure (rank, point)
       where
         leafValue (RefinedSymbol _ refinement) = onlyPoint valueName refinement
+
+{- | The weights of a group in each size class after 'closePoints'. Every
+member takes each point, and the choice of a point is one source choice.
+-}
+closedMasses :: Points -> MassIndex -> MassIndex
+closedMasses found masses = productMassIndex masses $ atomicMassIndex $ toRational $ pointCount found
 
 {- | Replace the placeholder leaves of a term, in order, by the leaves of the
 integers of a point, and make each label that names open variables exact.

@@ -265,6 +265,58 @@ spec = do
                 Right (sampled $ LTAGen.upToSize 3 compiled) `shouldBe` expected
                 LTAGen.pmf compiled `shouldBe` LTAGen.pmf (outer noConstraint)
 
+        it "keeps the weights inside a size class when a node closes an integer leaf beside a guarded child" $
+            withZ3 declarations $ \solver -> do
+                -- The node closes the integer leaf of each tuple of groups.
+                -- The choices of the leaf have two and three points, so each
+                -- closed group weighs its points and its own weights.
+                let atom weightA weightB =
+                        LTAGen.atomic $
+                            LTAGen.frequency
+                                [(weightA, LTAGen.leaf (0 :: Int) "a" (const true)), (weightB, LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true))]
+                    left =
+                        LTAGen.ungroup
+                            $ LTAGen.keyed ()
+                            $ LTAGen.oneof
+                                [ LTAGen.node "p" $ Left <$> atom 1 3
+                                , LTAGen.node "q" $ fmap Right $ (,) <$> atom 3 1 <*> LTAGen.leaf (7 :: Int) "c" (const true)
+                                ]
+                    digits :: Integer -> Integer -> LTAGen.LTAGen Integer
+                    digits low high = LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)
+                    right = LTAGen.oneof [digits 8 9, digits 1 3]
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard $ (,) <$> left <*> right
+                    sampled generator = Map.toAscList $ Map.fromListWith (+) [(value, mass) | (mass, Right value) <- runExact $ LTAGen.lowerVia generator]
+                plain <- compileOrFail solver $ outer noConstraint
+                compiled <- compileOrFail solver $ outer $ Satisfies (path [0, 0]) true
+                let expected = LTAGen.pmf $ LTAGen.upToSize 4 plain
+                LTAGen.pmf (LTAGen.upToSize 4 compiled) `shouldBe` expected
+                Right (sampled $ LTAGen.upToSize 4 compiled) `shouldBe` expected
+                LTAGen.pmf compiled `shouldBe` LTAGen.pmf plain
+
+        it "keeps the weights inside a size class when the top closes the integer leaf of a result" $
+            withZ3 declarations $ \solver -> do
+                -- The guard keeps the members with the atom a, which weighs 1
+                -- against 3. The result of each node is its integer leaf, so
+                -- the leaf stays open until the top closes it. The choice must
+                -- weigh the kept members as it does for listed integers.
+                let atom = LTAGen.atomic $ LTAGen.frequency [(1, LTAGen.leaf (0 :: Int) "a" (.== 0)), (3, LTAGen.leaf 1 "b" (.== 1))]
+                    left = LTAGen.ungroup $ LTAGen.keyed () $ LTAGen.oneof [LTAGen.node "p" atom, LTAGen.node "q" $ (+ 10) <$> atom]
+                    keepsA = Satisfies (path [0, 0]) (refinementFormula (.== 0))
+                    choice :: LTAGen.LTAGen Integer -> LTAGen.LTAGen (Int, Integer)
+                    choice digit =
+                        LTAGen.oneof
+                            [ (LTAGen.refinedNode "outer" (const true) keepsA `LTAGen.ensuring` (\_ d -> d)) $ (,) <$> left <*> digit
+                            , (LTAGen.refinedNode "other" (const true) noConstraint `LTAGen.ensuring` (\_ d -> d)) $
+                                (,) <$> LTAGen.leaf 5 "x" (const true) <*> digit
+                            ]
+                    sampled generator = Map.toAscList $ Map.fromListWith (+) [(value, mass) | (mass, Right value) <- runExact $ LTAGen.lowerVia generator]
+                open <- compileOrFail solver $ choice $ LTAGen.every `LTAGen.satisfying` (\v -> 8 .<= v .&& v .<= 9)
+                closed <- compileOrFail solver $ choice $ LTAGen.elements [8, 9]
+                let expected = LTAGen.pmf $ LTAGen.upToSize 4 closed
+                LTAGen.pmf (LTAGen.upToSize 4 open) `shouldBe` expected
+                Right (sampled $ LTAGen.upToSize 4 open) `shouldBe` expected
+                LTAGen.pmf open `shouldBe` LTAGen.pmf closed
+
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do
                 let pairs =
