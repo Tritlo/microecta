@@ -15,6 +15,7 @@ module Data.CFTA.Gen.Internal.Bucket (
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
@@ -34,8 +35,8 @@ data KeyedBucket symbol a = KeyedBucket
     }
 
 -- | Group enumerated outcomes by key, in their order.
-groupOutcomes :: (Ord key) => [(key, outcome)] -> Map.Map key [outcome]
-groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
+groupOutcomes :: (Ord key) => [(key, outcome)] -> Map.Map key (Seq outcome)
+groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap Sequence.singleton)
 
 {- | Build one retained group from its outcomes, in rank order.
 
@@ -128,7 +129,7 @@ mergeComponentsByKey ::
     Either GenError (Map.Map resultKey (KeyedBucket symbol a))
 mergeComponentsByKey [] = Left EmptyGenerator
 mergeComponentsByKey components = do
-    unnormalized <- traverse mergeBucketGroup grouped
+    unnormalized <- traverse (mergeBucketGroup . toList) grouped
     let totalAcceptedMass = sum $ keyedBucketMass <$> unnormalized
     pure $ fmap (normalizeBucket totalAcceptedMass) unnormalized
   where
