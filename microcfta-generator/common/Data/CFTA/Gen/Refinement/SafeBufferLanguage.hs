@@ -37,6 +37,7 @@ import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (Formula, Symbol (RefinedSymbol))
 import Data.CFTA.Refinement.Expression (Expr, Refinement, refinementFormula, variable, (.&&), (.<), (.<=), (.==), (.>=))
 import Data.CFTA.Refinement.Guard (contract)
+import Data.CFTA.Symbol (valueName)
 
 -- | Buffer expressions understood by the example interpreter.
 data BufferExpression
@@ -61,7 +62,7 @@ data Program
 solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 solverDeclarations =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
-    | name <- "v" : "n" : "m" : map fst namedIntegers
+    | name <- valueName : "n" : "m" : map fst namedIntegers
     ]
 
 -- | Facts a Liquid typing environment knows about the named inputs.
