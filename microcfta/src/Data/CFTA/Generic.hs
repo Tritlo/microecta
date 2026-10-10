@@ -18,6 +18,22 @@ with @deriving via@, or with 'atomic' and handwritten codecs:
 @
 deriving via (Atomic Double) instance HasFTA Double
 @
+
+A literal is a 'Constructor' whose name is the 'Show' text of its value.
+'domain' shows each value once, when the grammar is built, and 'encodeTerm'
+shows a value when it encodes it, for example to rank the value. 'decodeTerm'
+reads each literal of a term back with 'Read'. A generator decodes the term
+of a sample when the program demands the value, so 'Read' runs once for each
+atomic leaf of each demanded sample.
+
+A grammar symbol must be a first-order value with
+'Eq' and 'Ord', so a literal keeps its value as text. The codec is a method
+of the type, and it does not see the domain, so the text is all that it can
+decode. 'Show' and 'Read' are the text codec that @base@ gives every atomic
+type. A 'Show' instance that 'Read' does not invert gives literals that do
+not decode. The generators of @microcfta-generator@ decode one term for each
+constructor when they are built, and report @UndecodableConstructor@ for such
+a literal.
 -}
 module Data.CFTA.Generic (
     HasFTA (..),
