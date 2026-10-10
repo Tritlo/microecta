@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | Generators over liquid tree automata.
 
@@ -23,6 +24,7 @@ module Data.CFTA.Gen.Refinement (
 
     -- * Refined sources
     elements,
+    every,
     pool,
     Refined (..),
     namedPool,
@@ -97,7 +99,16 @@ import Data.CFTA.Refinement (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Literal (literal), Refinement, refinementFormula, true, (.==))
+import Data.CFTA.Refinement.Expression (
+    Literal (..),
+    Refinement,
+    literal,
+    refinementFormula,
+    true,
+    (.&&),
+    (.<=),
+    (.==),
+ )
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
@@ -123,6 +134,45 @@ contract can decide each value exactly. The value's 'show' names its entry.
 -}
 elements :: (Literal a, Show a) => [a] -> LTAGen a
 elements members = pool [(member, \v -> v .== literal member) | member <- members]
+
+{- | Choose uniformly from every value of a type that integers stand for.
+
+Each value is refined as itself, @\\v -> v .== literal x@, as 'elements'
+refines its members. A bounded type, such as 'Word8', 'Char', 'Bool', or an
+enumeration that derives 'Literal' via 'Enumerated', needs no condition. An
+unbounded type, such as 'Integer', needs conditions that bound it:
+
+@d <- every @Word8 `satisfying` (./= 0)@
+
+@n <- every @Integer `satisfying` (\\v -> 0 .<= v .&& v .< 1000000)@
+
+On this leaf, a condition narrows the values, and a contract of 'guarded' keeps
+the tuples of values that it admits. 'compile' counts them without enumeration,
+by counting integer points. The solver still decides the parts of a guard that
+read no value of 'every'. Inside one group, 'compile' ranks the tuples in
+increasing lexicographic order, with the leaves of 'every' as the digits from
+left to right and the tuple as the fastest part of the rank. Groups are ordered
+by their keys, so ranks in different groups are not ordered by their integers. A
+condition and a contract must be linear. They read a value as its integer,
+'toLiteral', so compare it with a 'literal', as in
+@\\c -> c ./= literal Red@. Arithmetic on these integers is exact: it does
+not wrap around. A term names each value by its integer.
+-}
+every :: forall a. (Literal a) => LTAGen a
+every = case literalRange :: (Maybe a, Maybe a) of
+    (Nothing, Nothing) -> fromLiteral <$> integerLeaf
+    (least, greatest) ->
+        fromLiteral
+            <$> integerLeaf
+                `satisfying` \v ->
+                    foldr
+                        (.&&)
+                        true
+                        ([literal low .<= v | Just low <- [least]] <> [v .<= literal high | Just high <- [greatest]])
+
+-- | The leaf of all integers, which conditions narrow and 'compile' counts.
+integerLeaf :: LTAGen Integer
+integerLeaf = withRecipe (Integers noConstraint) $ Transparent $ Left SourceRequiresCompilation
 
 {- | Choose uniformly from values with their refinements.
 
@@ -218,11 +268,14 @@ Use it where a child is drawn:
 @d <- elements [0 .. 5] `satisfying` (\\v -> v ./= 0)@
 
 The condition applies to the root of each term, the constructor that the
-generator ends in. A pool, a leaf, a node, a bounded import, a choice of these,
-and a mapped generator have such a root. An unbounded import with a recursive
-root, and another generator, give 'ConditionNeedsConstructor', because the
-condition must not apply to the recursive occurrences. The condition can name only @v@ and ambient
-names; a relation between children is the contract of 'guarded'.
+generator ends in. A pool, a leaf, a node, an import, a choice of these, and
+a mapped generator have such a root. An import with a recursive root is
+unfolded once, so the condition does not apply to the recursive occurrences.
+On 'every', the condition narrows the values. Another generator gives
+'ConditionNeedsConstructor'. The condition can name only @v@ and ambient
+names; a relation between children is the contract of 'guarded'. On 'every',
+'compile' counts the values, and it does not count an ambient name, so a
+condition there names only @v@ and constants.
 -}
 satisfying :: LTAGen a -> Refinement -> LTAGen a
 satisfying generator condition = case generator of
@@ -230,6 +283,7 @@ satisfying generator condition = case generator of
     _ -> case genRecipe generator of
         Closed label constraint child -> deferred (Closed label (conditioned constraint) child)
         ClosedBy labelOf constraint child -> deferred (ClosedBy labelOf (conditioned constraint) child)
+        Integers constraint -> deferred (Integers $ conditioned constraint)
         Chosen alternatives -> Flat.frequency [(weight, alternative `satisfying` condition) | (weight, alternative) <- alternatives]
         Uniform alternatives -> Flat.uniformly [alternative `satisfying` condition | alternative <- alternatives]
         Mapped transform inner -> transform <$> (inner `satisfying` condition)
