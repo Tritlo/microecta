@@ -176,6 +176,21 @@ spec = do
                 map (LTAGen.sizeOfRank compiledPair) [0, 1] `shouldBe` map (LTAGen.sizeOfRank paired) [0, 1]
                 LTAGen.pmf (LTAGen.upToSize 2 compiledPair) `shouldBe` LTAGen.pmf (LTAGen.upToSize 2 $ outerPair noConstraint)
 
+        it "keeps the sizes of a node with several children when a guard reads one" $
+            withZ3 declarations $ \solver -> do
+                -- Pairing the children is not a source choice, so each member
+                -- has the size of its children together.
+                let choice = LTAGen.oneof [LTAGen.leaf (0 :: Int) "a" (const true), LTAGen.node "w" $ LTAGen.leaf 1 "b" (const true)]
+                    leafC = LTAGen.leaf (7 :: Int) "c" (const true)
+                    pair = (,) <$> choice <*> leafC
+                    triple = (,,) <$> choice <*> leafC <*> leafC
+                    readsChild = Satisfies (path [0]) true
+                compiledPair <- compileOrFail solver $ LTAGen.refinedNode "n" (const true) readsChild pair
+                map (LTAGen.sizeOfRank compiledPair) [0, 1] `shouldBe` map (LTAGen.sizeOfRank $ LTAGen.node "n" pair) [0, 1]
+                LTAGen.cardinality (LTAGen.upToSize 2 compiledPair) `shouldBe` Right 2
+                compiledTriple <- compileOrFail solver $ LTAGen.refinedNode "n" (const true) readsChild triple
+                map (LTAGen.sizeOfRank compiledTriple) [0, 1] `shouldBe` map (LTAGen.sizeOfRank $ LTAGen.node "n" triple) [0, 1]
+
         it "keeps the weights inside a size class of a built source whether or not a guard reads it" $
             withZ3 declarations $ \solver -> do
                 -- The weights of the atomic choice decide inside the size class

@@ -395,7 +395,8 @@ relateGroupsM relation resultKey left right =
                                                     (keyedBucketMass leftBucket * keyedBucketMass rightBucket)
                                                     ( joinNBucketStatic
                                                         componentIndex
-                                                        (pureStatic (,))
+                                                        -- Pairing is not a source choice, so a pair has the size of its two parts.
+                                                        (resizedStatic 0 $ pureStatic (,))
                                                         ( ChainCons
                                                             (keyedBucketStatic leftBucket)
                                                             (ChainCons (keyedBucketStatic rightBucket) ChainNil)
