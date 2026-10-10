@@ -17,14 +17,16 @@ import Data.CFTA.Gen.Refinement.ExampleSupport (nonNegative)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (compileOrFail, massesByRank, rightOrFail, values)
 import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
+import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Refinement (
     Entailment (Entailment),
-    Guard (Bottom),
+    Guard (Bottom, Satisfies),
     Node (Mu, Node),
     Symbol (RefinedSymbol),
     Verdict (Yes),
     noConstraint,
     nodeCount,
+    path,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (
@@ -173,6 +175,27 @@ spec = do
                 compiledPair <- compileOrFail solver $ outerPair (`requires` const true)
                 map (LTAGen.sizeOfRank compiledPair) [0, 1] `shouldBe` map (LTAGen.sizeOfRank paired) [0, 1]
                 LTAGen.pmf (LTAGen.upToSize 2 compiledPair) `shouldBe` LTAGen.pmf (LTAGen.upToSize 2 $ outerPair noConstraint)
+
+        it "keeps the weights inside a size class of a built source whether or not a guard reads it" $
+            withZ3 declarations $ \solver -> do
+                -- The weights of the atomic choice decide inside the size class
+                -- two. A guard that reads the child of each member puts a(..)
+                -- and wrap(b) into different groups, across p and q, so the
+                -- groups have these weights and not their member counts.
+                let weighted =
+                        LTAGen.atomic $
+                            LTAGen.frequency
+                                [(1, LTAGen.leaf (0 :: Int) "a" (const true)), (3, LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true))]
+                    tagged label = LTAGen.node label $ (,) <$> weighted <*> LTAGen.leaf (7 :: Int) "c" (const true)
+                    built = LTAGen.ungroup $ LTAGen.keyed () $ LTAGen.oneof [tagged "p", tagged "q"]
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard built
+                    expected = [((0, 7), 1 % 4), ((1, 7), 3 % 4)]
+                    sampled generator = Map.toAscList $ Map.fromListWith (+) [(value, mass) | (mass, Right value) <- runExact $ LTAGen.lowerVia generator]
+                LTAGen.pmf (LTAGen.upToSize 2 $ outer noConstraint) `shouldBe` Right expected
+                forM_ [Satisfies (path [0]) true, Satisfies (path [0, 0]) true] $ \guard -> do
+                    compiled <- compileOrFail solver $ outer guard
+                    LTAGen.pmf (LTAGen.upToSize 2 compiled) `shouldBe` Right expected
+                    sampled (LTAGen.upToSize 2 compiled) `shouldBe` expected
 
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do

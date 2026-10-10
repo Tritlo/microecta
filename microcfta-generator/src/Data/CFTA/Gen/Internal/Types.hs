@@ -246,10 +246,7 @@ instance Functor (Grouped symbol key) where
     fmap transform (Grouped result) =
         Grouped $ fmap (fmap mapBucket) result
       where
-        mapBucket bucket =
-            KeyedBucket
-                (keyedBucketMass bucket)
-                (mapStatic transform $ keyedBucketStatic bucket)
+        mapBucket bucket = bucket{keyedBucketStatic = mapStatic transform $ keyedBucketStatic bucket}
     fmap transform (CyclicGrouped result) =
         CyclicGrouped $ fmap (fmap mapGroup) result
       where

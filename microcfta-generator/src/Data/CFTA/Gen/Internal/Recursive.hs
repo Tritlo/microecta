@@ -44,7 +44,16 @@ import Data.Typeable (Typeable)
 
 import Data.CFTA.Equality (Edge (Edge), Node (Node))
 import Data.CFTA.Gen.Error (GenError (..))
-import Data.CFTA.Gen.Internal.Bucket (KeyedBucket (..))
+import Data.CFTA.Gen.Internal.Bucket (
+    KeyedBucket (..),
+    MassIndex (..),
+    atomicMassIndex,
+    countMassIndex,
+    emptyMassIndex,
+    massAtSize,
+    productMassIndex,
+    sumMassIndexes,
+ )
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Static
 import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm)
@@ -53,21 +62,18 @@ import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size, every
 import Data.CFTA.Ranked.Internal.Decoder (Plan (..), RankedValue (..), SizeClass (..))
 import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Size (
-    SizeIndex (sizeClassCounts, sizeClassSelect),
+    SizeIndex (sizeClassSelect),
     SizedRank (..),
-    addSparse,
     choiceIndex,
     choicePosition,
     mapIndex,
     mapIndexWithRank,
-    mulSparse,
     planPosition,
     productIndex,
     productPosition,
     sizeClassOf,
     sizeClasses,
     sizeMajorRank,
-    valueAtSize,
  )
 
 {- | One recursive ECTA and the size-stratified language it accepts.
@@ -426,12 +432,15 @@ keyedRecursiveFromBuckets buckets = fmap fromBucket buckets
         recursive = recursiveFromStatic static
         bucketCount = outcomeCardinality $ staticOutcomes static
         masses
+            | Just weights <- keyedBucketMasses bucket = weights
             | staticAtomic static =
                 atomicMassIndex $ toRational totalCount * keyedBucketMass bucket
             | otherwise = countMassIndex $ recursiveIndex recursive
         massWeighted =
-            staticAtomic static
-                && toRational totalCount * keyedBucketMass bucket /= toRational bucketCount
+            isJust (keyedBucketMasses bucket)
+                || ( staticAtomic static
+                        && toRational totalCount * keyedBucketMass bucket /= toRational bucketCount
+                   )
 
 {- | Merge recursive groups sharing a key into one alternative each.
 
@@ -463,39 +472,6 @@ mergeRecursiveGroups alternatives =
         | alternative <- alternatives
         ]
 
-{- | A memoized unnormalized mass for sizes in ascending order. Sizes without
-members are left out, except for the zero mass that a product starts with.
--}
-newtype MassIndex = MassIndex [(Size, Rational)]
-
--- | Read one size, returning zero outside the sizes with mass.
-massAtSize :: MassIndex -> Size -> Rational
-massAtSize (MassIndex masses) = valueAtSize masses
-
 -- | Read one recursive group's mass at a size.
 keyedRecursiveMassAtSize :: KeyedRecursive symbol a -> Size -> Rational
 keyedRecursiveMassAtSize recursive = massAtSize $ keyedRecursiveMasses recursive
-
--- | A language with no members at any size.
-emptyMassIndex :: MassIndex
-emptyMassIndex = MassIndex []
-
--- | Structural counts interpreted as unnormalized uniform mass.
-countMassIndex :: SizeIndex a -> MassIndex
-countMassIndex index =
-    MassIndex [(size, toRational count) | (size, count) <- sizeClassCounts index]
-
--- | One finite atom's complete mass at size one.
-atomicMassIndex :: Rational -> MassIndex
-atomicMassIndex mass = MassIndex [(1, mass) | mass > 0]
-
--- | Add alternative masses by size.
-sumMassIndexes :: [MassIndex] -> MassIndex
-sumMassIndexes indexes = MassIndex $ foldr (\(MassIndex masses) -> addSparse masses) [] indexes
-
-{- | Convolve two mass series: the sizes of a pair add, and the masses
-multiply. The zero mass at size one lets a recursive knot of masses give its
-smallest sizes before the product is computed, as for the size counts.
--}
-productMassIndex :: MassIndex -> MassIndex -> MassIndex
-productMassIndex (MassIndex left) (MassIndex right) = MassIndex $ (1, 0) : mulSparse left right

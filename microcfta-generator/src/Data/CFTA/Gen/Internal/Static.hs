@@ -37,6 +37,7 @@ module Data.CFTA.Gen.Internal.Static (
     userTerm,
     applyStatic,
     frequencyStatic,
+    frequencyStaticWithMasses,
     mapStatic,
     atomicStatic,
     resizedStatic,
@@ -101,7 +102,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
     sharedChoiceBound,
  )
 import Data.CFTA.Ranked.Internal.Sampler
-import Data.CFTA.Ranked.Internal.Size (SizeIndex, sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (SizeIndex, SizedRank (..), countAtSize, sizeClassOf, sizeIndex)
 
 -- | One term, its normalized probability mass, and its decoded value.
 data Outcome symbol a = Outcome
@@ -597,6 +598,49 @@ applyStatic functions values =
                 (pairRank valueCardinality)
                 (outcomeRanks functionOutcomes functionView)
                 (outcomeRanks valueOutcomes (WholeTerm argument))
+
+{- | 'frequencyStatic' for alternatives that come with their weight in each
+size class, on the scale of member counts, when it is not their member count.
+
+Inside a size class these weights choose the alternative, and the alternative
+keeps its own weights inside it. A weight of the result keeps the convention
+of 'staticSampling': the weights of a size class add up to its member count.
+'Nothing' is the member count of the alternative.
+-}
+frequencyStaticWithMasses ::
+    (Hashable symbol, Typeable symbol) =>
+    [(Weight, Maybe (Size -> Rational), Static symbol a)] -> Static symbol a
+frequencyStaticWithMasses alternatives =
+    merged{staticOutcomes = (staticOutcomes merged){outcomeSizeSampling = Just (sampling, weightAt)}}
+  where
+    merged = frequencyStatic [(weight, alternative) | (weight, _, alternative) <- alternatives]
+    indexOf = outcomeSizeIndex . staticOutcomes
+    weighted =
+        [ (alternative, fromMaybe (toRational . countAtSize (indexOf alternative)) masses)
+        | (_, masses, alternative) <- alternatives
+        ]
+    sampling =
+        choiceMassSampleIndex
+            [(indexOf alternative, massAt, fst $ staticSampling alternative) | (alternative, massAt) <- weighted]
+    -- The count of the size class, times the share of the alternative in the
+    -- class, times the share of the member in the alternative.
+    weightAt rank = case sizeClassOf (indexOf merged) rank of
+        Nothing -> Left $ SelectionOutOfRange rank $ outcomeCardinality $ staticOutcomes merged
+        Just (SizedRank size _) -> do
+            let (offset, alternative, massAt) = branchOf rank
+                total = sum [mass size | (_, mass) <- weighted]
+                inside = toRational $ countAtSize (indexOf alternative) size
+            memberWeight <- maybe (Right 1) ($ rebaseRank offset rank) $ snd $ staticSampling alternative
+            pure $ toRational (countAtSize (indexOf merged) size) * massAt size / total * memberWeight / inside
+    branchOf rank =
+        last
+            [ (offset, alternative, massAt)
+            | (offset, (alternative, massAt)) <- zip offsets weighted
+            , let RankOffset first = offset
+            , let Rank value = rank
+            , first <= value
+            ]
+    offsets = map fst $ offsetAlternatives [(1, alternative) | (alternative, _) <- weighted]
 
 -- | Concatenate weighted alternatives with stable rank offsets.
 frequencyStatic ::
