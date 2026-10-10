@@ -150,6 +150,10 @@ the repository root with:
 
 ## Development
 
+The [Lean formalization spike](lean/README.md) proves core language and
+probability laws. It also records counterexamples and the remaining proof
+obligations for the Haskell implementation.
+
 GHC 9.14 is the supported compiler series. The workspace selects GHC 9.14.1.
 The packages require `base >=4.22 && <4.23` and `containers >=0.8 && <0.9`.
 The test suites need `z3` on `PATH`; `nix-shell` provides it.
