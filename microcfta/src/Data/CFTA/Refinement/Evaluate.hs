@@ -195,11 +195,20 @@ evaluateGuardWithSame entailment observedAt sameAt guard = go guard
         case traverse observedAt targets of
             Just observations ->
                 let formals = [Fixpoint.symbol (contractTermName index) | index <- map ArgumentIndex [0 .. length targets - 1]]
+                    -- Two names of one path name one term, so they are equal.
+                    firstNames = Map.fromListWith (\_ earlier -> earlier) $ zip targets formals
+                    aliases =
+                        [ Fixpoint.PAtom Fixpoint.Eq (Fixpoint.EVar formal) (Fixpoint.EVar first)
+                        | (target, formal) <- zip targets formals
+                        , let first = firstNames Map.! target
+                        , first /= formal
+                        ]
                     assumed =
-                        Fixpoint.pAnd
+                        Fixpoint.pAnd $
                             [ substituteRefinement [(refinementValueSymbol, Fixpoint.EVar formal)] refinement
                             | (formal, Observed (RefinedSymbol _ refinement) _) <- zip formals observations
                             ]
+                                <> aliases
                  in decideWith
                         [(formal, refinementValueSymbol) | formal <- formals]
                         substitutions

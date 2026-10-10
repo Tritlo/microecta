@@ -85,7 +85,8 @@ data Guard
       Satisfies !Path !Formula
     | {- | Require a formula about the terms at the paths. The formula names the
       term at the path with index @i@ by 'contractTermName' @i@, and each term's
-      refinement is assumed for its name.
+      refinement is assumed for its name. Two indexes with the same path name
+      the same term.
       -}
       Holds ![Path] !Formula
     | -- | Apply actual-for-formal substitutions before checking a guard.
