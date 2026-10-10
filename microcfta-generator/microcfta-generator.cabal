@@ -172,6 +172,8 @@ test-suite gen-tests
   other-modules:
     Data.CFTA.Gen.Equality.DatatypeGenSpec
     Data.CFTA.Gen.Equality.GenSpec
+    Data.CFTA.Gen.Equality.IFCExpressionGenSpec
+    Data.CFTA.Gen.Equality.IFCExpressionLanguage
     Data.CFTA.Gen.Equality.RankDecodingSpec
     Data.CFTA.Gen.Equality.RecursiveGenSpec
     Data.CFTA.Gen.Equality.SimpleSpec
