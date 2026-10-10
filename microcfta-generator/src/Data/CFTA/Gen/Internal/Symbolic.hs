@@ -72,9 +72,11 @@ constructor at each position and counts the conditioned problems, and later
 selections need many of the same counts. On an equality import of depth three
 with overlapping alternatives and equalities below the children, selections
 that each start from the counts of the total allocate 12.6 times as much, and
-take 11 times as long, as selections that share the cache. A pure value
-cannot grow while a QuickCheck generator samples, so the cache is an 'IORef'
-that 'unsafePerformIO' makes.
+take 11 times as long, as selections that share the cache. The keys of the
+cache are not known before the selections run: a key is a normalized context
+of variables, nodes, and pending equalities. A pure memo table would need a
+lazy trie over such keys, which the counter does not have, so the cache is an
+'IORef' that 'unsafePerformIO' makes.
 -}
 newCountCache :: Counts symbol -> IORef (Counts symbol)
 newCountCache counts = unsafePerformIO $ newIORef counts
