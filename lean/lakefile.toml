@@ -1,0 +1,6 @@
+name = "microcfta"
+version = "0.1.0"
+defaultTargets = ["MicroCFTA"]
+
+[[lean_lib]]
+name = "MicroCFTA"
