@@ -25,6 +25,15 @@ on the same canonical value.
 The cache never evicts and holds every distinct value ever interned, so it
 grows with the size of that set and is never released. See the memory section
 of the package README.
+
+The tables are global because an identity must be the same wherever a
+structure is built: a 'Data.CFTA.Interned.Type.Node' that one call builds
+must be equal to the same 'Data.CFTA.Interned.Type.Node' that another call
+builds, in constant time. A pure function cannot give a table to the next
+call, so each table is a process-global value that @unsafePerformIO@ makes.
+The alternative is a table in a monad, or in each automaton. Then every
+function that builds a node takes and gives the table, and the nodes of two
+tables are not equal in constant time and do not share structure.
 -}
 module Data.CFTA.Interned.Cache (
     IdSupply,

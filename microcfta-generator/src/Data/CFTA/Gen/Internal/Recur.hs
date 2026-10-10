@@ -530,6 +530,16 @@ recursion reads only its own token. Tokens need to differ only between
 recursions that are nested in each other, and those have different body
 functions. The result of a recursion does not depend on the value of its
 token, only on which probes carry it.
+
+The supply is global because a recursion cannot see the recursions that
+enclose it. Its body is a Haskell function, and an enclosing recursion reaches
+it only through a placeholder that the body reads. A token chosen from the
+body, one more than every token that the body reaches, needs one more build
+of the body for each recursion, and nested recursions multiply the builds. On
+a probe of nested recursions, that build multiplies the instructions of the
+setup by 2.2 at depth four, 3.9 at depth five, and 10 at depth seven. A
+context of the enclosing tokens in every generator would make every generator
+a function. The supply gives a new token without a build.
 -}
 freshToken :: a -> Occurrence
 freshToken body = unsafePerformIO $ body `seq` atomicModifyIORef' tokenSupply (\token -> (token + 1, Occurrence token))

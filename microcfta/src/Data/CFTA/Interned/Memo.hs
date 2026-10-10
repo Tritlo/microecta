@@ -24,6 +24,13 @@ distinct argument it has ever been applied to, for the lifetime of the process.
 That avoids repeated work. It also means that memory grows with the
 number of distinct inputs rather than with the work done. See the memory
 section of the package README.
+
+The tables are global for the reason that the intern tables are global. A
+memoized function is a pure function of interned values, so its table changes
+no result, only the time to compute it. A global table shares results between
+calls: two generators that reduce one automaton reduce it once. A table that
+the caller gives would make every operation monadic, and the sharing would
+stop at the boundary of each call.
 -}
 module Data.CFTA.Interned.Memo (
     MemoCache,
