@@ -33,7 +33,7 @@ import Data.CFTA.Index (ChildIndex (..), TransitionIndex (..))
 import Data.CFTA.Interned (InternedState (..), NodeId (..), fromFTA, nodeIdentity)
 import Data.CFTA.Path (Path, unPath)
 
-import Data.CFTA.Constraint (Constraint (..), Guard (..), constraintPaths, guardPaths)
+import Data.CFTA.Constraint (Constraint (..), Guard (..), constraintPaths, guardPaths, noConstraint)
 import Data.CFTA.Refinement.Automaton (
     Automaton,
     AutomatonError (CyclicGuardReference),
@@ -221,6 +221,15 @@ consequent of an 'Entails', a negated 'Entails', a substitution, or an
 equality class that reads the node or a term that contains it would change
 its answer.
 
+A step also needs a representative with an accepted term. A structural
+derivation is an accepted term only when no constraint at or below the
+representative can reject it, and 'minimize' has no solver to decide a
+constraint. So the schedule skips a step whose representative has a
+constraint at or below it. 'Data.CFTA.Refinement.Prune.prune' removes the
+semantic part of each guard that it decides, so after pruning this skips the
+representatives with an undecided guard, a 'Same', or an equality class at or
+below them.
+
 The original automaton is retained if dependencies become unsafe, a
 representative loses its finite structural derivations, the last finite root
 derivation is lost, or a guard would inspect a recursive node. Unproductive
@@ -263,6 +272,9 @@ minimize automaton (Similarity original related) = do
             -- The step changes the terms of the source in every context, so
             -- each guard that reads the source must keep its answer.
             | not $ keepsGuards table' source = (table', steps)
+            -- Without a solver, a representative has an accepted term only when
+            -- no constraint at or below it can reject its structural terms.
+            | not $ unconstrainedBelow table' retained = (table', steps)
             | otherwise =
                 ( Map.adjust (filter (/= removed)) source $ fmap (copyAlternatives redirect) table'
                 , steps :|> redirect
@@ -339,6 +351,20 @@ minimize automaton (Similarity original related) = do
         transition{FTA.transitionChildren = map redirect $ FTA.transitionChildren transition}
       where
         redirect state = Map.findWithDefault state state redirects
+
+    -- Whether a transition and every transition below it have no constraint.
+    unconstrainedBelow :: Map.Map InternedState [ViewTransition] -> ViewTransition -> Bool
+    unconstrainedBelow rows transition =
+        all ((== noConstraint) . FTA.transitionConstraint) $
+            transition : concat [Map.findWithDefault [] state rows | state <- Set.toList below]
+      where
+        below = grow $ Set.fromList $ FTA.transitionChildren transition
+        grow known =
+            let next =
+                    known
+                        <> Set.fromList
+                            [child | state <- Set.toList known, edge <- Map.findWithDefault [] state rows, child <- FTA.transitionChildren edge]
+             in if next == known then known else grow next
 
     -- Whether each guard keeps its answer when the terms of the state change
     -- to terms of a representative with a stronger refinement. A guard can read

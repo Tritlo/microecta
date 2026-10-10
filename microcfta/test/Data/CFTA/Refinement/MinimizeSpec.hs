@@ -9,10 +9,11 @@ import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatch
 import Data.CFTA.Refinement (
     Automaton,
     Entailment,
-    Guard (Entails, Not, Same, Satisfies),
+    Guard (Entails, Not, Same, Satisfies, Substitute),
     MinimizeError (StaleSimilarity),
     Node (Mu, Node),
     SimilarityPair (SimilarityPair),
+    Substitution (Substitution),
     Subtyping (..),
     Symbol (RefinedSymbol),
     Transition,
@@ -199,6 +200,20 @@ spec =
             withZ3 declarations $ \solver ->
                 checkRetainedBatch solver (atomSubtyping solver) entailedChild 2
 
+        it "retains a batch whose representative has a guard that rejects its terms" $
+            withZ3 declarations $ \solver ->
+                checkRetainedBatch solver (atomSubtyping solver) rejectedRepresentative 1
+
+        it "keeps the supertype when pruning leaves the representative's guard undecided" $
+            -- Two compound actuals with the same root observation make the
+            -- substitution ambiguous, so pruning keeps the guard as it is.
+            withZ3 (declarations <> [(Fixpoint.symbol ("app" :: String), Fixpoint.FInt)]) $ \solver -> do
+                denotationAtMost solver 4 undecidedRepresentative >>= (\terms -> fmap length terms `shouldBe` Right 1)
+                reduced <- reduce solver (atomSubtyping solver) undecidedRepresentative
+                case reduced of
+                    Left err -> expectationFailure $ show err
+                    Right result -> denotationAtMost solver 4 result >>= (\terms -> fmap length terms `shouldBe` Right 1)
+
         it "applies a redirect that a guard reads only through a refinement it assumes" $
             withZ3 declarations $ \solver ->
                 checkMinimization (atomSubtyping solver) assumedChild $ \reduced -> do
@@ -381,6 +396,38 @@ assumedChild =
         [ Transition "checked" Fixpoint.PTrue [Node [unknownAtom]] $ semanticConstraint $ Satisfies (path [0]) Fixpoint.PTrue
         , wrap "use-natural" [naturalNode]
         ]
+
+-- | The natural representative rejects every term, so only the unknown child gives a term.
+rejectedRepresentative :: Automaton
+rejectedRepresentative =
+    Node
+        [ wrap
+            "f"
+            [ Node
+                [Transition "natural" (refinementFormula (\v -> v .>= 0)) [] $ semanticConstraint $ Satisfies (path []) Fixpoint.PFalse]
+            ]
+        , wrap "f" [Node [unknownAtom]]
+        ]
+
+-- | The natural representative rejects every term through a substitution that pruning cannot decide.
+undecidedRepresentative :: Automaton
+undecidedRepresentative =
+    Node
+        [ wrap
+            "f"
+            [ Node
+                [Transition "natural" (refinementFormula (\v -> v .>= 0)) [compound "u", compound "v", leaf "x", leaf "y"] rejecting]
+            ]
+        , wrap "f" [Node [unknownAtom]]
+        ]
+  where
+    compound symbol = Node [wrap "app" [leaf symbol]]
+    leaf symbol = Node [plain symbol]
+    rejecting =
+        semanticConstraint $
+            Substitute
+                [Substitution (path [0]) (path [2]), Substitution (path [1]) (path [3])]
+                (Satisfies (path []) Fixpoint.PFalse)
 
 -- | Three program nodes ordered exact-zero <: natural <: unknown.
 transitiveSimilarAtoms :: Automaton
