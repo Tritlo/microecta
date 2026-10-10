@@ -5,8 +5,9 @@
 The automata are random explicit automata over at most three states, with
 cycles and with equality constraints, some of which name a child that does
 not exist. Each property compares one component with the definition in
-"Data.CFTA.Simple": membership, enumeration, and the constructions. Terms
-are compared up to depth two, or three when the automaton has few trees.
+"Data.CFTA.Simple": membership, enumeration, the constructions, and the
+reductions. Terms are compared up to depth two, or three when the automaton
+has few trees.
 -}
 module Data.CFTA.SimpleSpec (spec) where
 
@@ -38,9 +39,16 @@ import Data.CFTA.Enumeration (
     termsPruneWith,
     truncatedTerms,
  )
-import Data.CFTA.Equality.Constraint (mkEqConstraints)
+import Data.CFTA.Equality (
+    accepts,
+    dropConstraints,
+    fixUnbounded,
+    mkEqConstraints,
+    reducePartially,
+    termsMatching,
+    withoutRedundantEdges,
+ )
 import Data.CFTA.Index (Depth)
-import Data.CFTA.Interned (acceptsWith, dropConstraints)
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Path (ChildIndex (..), path, unPath)
 import qualified Data.CFTA.Simple as Simple
@@ -152,6 +160,28 @@ spec = describe "the interned automata against Data.CFTA.Simple" $ do
                     (depth, [(term, accepts (Interned.boundDepth depth (Interned.fromFTA explicit)) term) | term <- candidates explicit])
                         `shouldBe` (depth, [(term, simpleAccepts bounded term) | term <- candidates explicit])
 
+    it "restrict to a template as filtering the terms by the template does" $
+        property $
+            forAll ((,) <$> automaton <*> template) $ \(explicit, shape) ->
+                forM_ [0 .. deepest explicit] $ \depth ->
+                    (depth, sort (terms (Interned.boundDepth depth (termsMatching shape (Interned.fromFTA explicit)))))
+                        `shouldBe` (depth, filter (matchesTemplate shape) (simpleTerms depth explicit))
+
+    it "keep the language through each reduction" $
+        -- Two states at most: the interned form nests a binder for each state
+        -- of a cycle on every path, so three mutually recursive states can make
+        -- withoutRedundantEdges, which intersects nodes, take seconds. The
+        -- limit reports such a case rather than hanging.
+        property $
+            forAll (automatonOf 2) $ \explicit -> within 20000000 $ do
+                let node = Interned.fromFTA explicit
+                forM_ reductions $ \(name, reduce) -> do
+                    let reduced = reduce node
+                    (name, [(term, accepts reduced term) | term <- candidates explicit])
+                        `shouldBe` (name, [(term, simpleAccepts explicit term) | term <- candidates explicit])
+                    forM_ [0 .. deepest explicit] $ \depth ->
+                        (name, depth, sort (terms (Interned.boundDepth depth reduced))) `shouldBe` (name, depth, simpleTerms depth explicit)
+
     it "drop the constraints to the underlying graph of the transitions that can accept" $
         -- An interned edge whose class names a child it does not have accepts
         -- nothing, and interning removes it, so dropping constraints cannot
@@ -163,8 +193,7 @@ spec = describe "the interned automata against Data.CFTA.Simple" $ do
                         `shouldBe` (depth, underlying depth (withoutMissingChildren explicit))
 
     it "unfold recursion to a part of the language that grows with the rounds" $
-        -- Two states at most, for the nesting of binders: the interned form
-        -- nests a binder for each state of a cycle on every path.
+        -- Two states at most, for the nesting of binders, as for the reductions.
         property $
             forAll (automatonOf 2) $ \explicit ->
                 forM_ [0 .. deepest explicit] $ \depth -> do
@@ -172,7 +201,11 @@ spec = describe "the interned automata against Data.CFTA.Simple" $ do
                         growing = [listed rounds | rounds <- [0 .. 3]] <> [Set.fromList (simpleTerms depth explicit)]
                     (depth, and (zipWith Set.isSubsetOf growing (drop 1 growing))) `shouldBe` (depth, True)
   where
-    accepts = acceptsWith equalitiesHold
+    reductions =
+        [ ("reducePartially" :: String, reducePartially)
+        , ("withoutRedundantEdges", withoutRedundantEdges)
+        , ("both to a fixpoint", fixUnbounded (withoutRedundantEdges . reducePartially))
+        ]
     sameSymbol left right = if left == right then Just left else Nothing
     treeDepth (Tree.Node _ []) = 0 :: Depth
     treeDepth (Tree.Node _ children) = 1 + maximum (map treeDepth children)
