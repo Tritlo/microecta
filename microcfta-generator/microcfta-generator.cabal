@@ -135,6 +135,25 @@ executable cfta-finite-languages
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
+executable cfta-draw-typed-expressions
+  import: warnings
+  main-is: DrawTypedExpressions.hs
+  hs-source-dirs:
+    common
+    examples
+
+  default-language: Haskell2010
+  other-modules:
+    Data.CFTA.Gen.TypedExpressionLanguage
+
+  build-depends:
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+    text >=2.1 && <2.2,
+
 test-suite gen-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
@@ -156,8 +175,10 @@ test-suite gen-tests
     Data.CFTA.Gen.Equality.RankDecodingSpec
     Data.CFTA.Gen.Equality.SimpleSpec
     Data.CFTA.Gen.Equality.TestSupport
+    Data.CFTA.Gen.Equality.TypedExpressionGenSpec
     Data.CFTA.Gen.Reference
     Data.CFTA.Gen.ReferenceSpec
+    Data.CFTA.Gen.TypedExpressionLanguage
     Data.CFTA.Gen.UntypedExpressionLanguage
     Data.CFTA.GenSpec
     Data.CFTA.RankedSpec
@@ -196,3 +217,27 @@ benchmark untyped-expression-speed
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
+
+benchmark typed-expression-speed
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: TypedExpressionSpeed.hs
+  hs-source-dirs:
+    benchmarks
+    common
+
+  ghc-options:
+    -rtsopts
+    -with-rtsopts=-T
+
+  other-modules:
+    Data.CFTA.Gen.TypedExpressionLanguage
+    GeneratorSpeedHarness
+
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta-generator,
+    process >=1.6 && <1.7,
+    QuickCheck >=2.14 && <2.19,
+    random >=1.2 && <1.4,
+    text >=2.1 && <2.2,
