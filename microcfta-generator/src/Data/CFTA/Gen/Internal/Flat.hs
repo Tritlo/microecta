@@ -217,13 +217,17 @@ every member of the combined language is equally likely when every alternative
 is uniform. An alternative with its own weights, such as a 'frequency', keeps
 them inside its share. If any alternative is recursive, this is 'oneof', whose
 recursive choice draws each alternative in proportion to its members at the
-drawn size. A member of several alternatives counts once for each.
+drawn size. A member of several alternatives counts once for each. When an
+alternative waits for 'Data.CFTA.Gen.Refinement.compile', so does the choice,
+and compile weighs the compiled alternatives in the same way.
 -}
 uniformly ::
     (Hashable symbol, Typeable symbol) => [Gen symbol a] -> Gen symbol a
 uniformly alternatives
     | any isRecursive alternatives = oneof alternatives
     | otherwise = case traverse liveCardinality alternatives of
+        -- The weights wait for compile, which counts the alternatives.
+        Left SourceRequiresCompilation -> withRecipe (Uniform alternatives) $ Transparent $ Left SourceRequiresCompilation
         Left err -> Transparent $ Left err
         Right counts ->
             frequency

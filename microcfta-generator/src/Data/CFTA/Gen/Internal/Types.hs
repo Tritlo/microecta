@@ -118,8 +118,9 @@ pattern Opaque generated <- Gen _ (OpaqueLanguage generated)
 Every combinator that a solver-backed compile step folds records itself
 here: a lifted value, a map, an application, a constructor closed over a
 child description with the constraint its edge carries, a weighted choice,
-and an automaton import with its depth bound. Everything else, sources
-and joins and recursion among them, is 'Built': its language is final.
+a uniform choice, and an automaton import with its depth bound. Everything
+else, sources and joins and recursion among them, is 'Built': its language
+is final.
 -}
 data Recipe symbol a where
     Built :: Recipe symbol a
@@ -130,6 +131,8 @@ data Recipe symbol a where
     -- | A constructor whose symbol is computed from the root symbols of its children.
     ClosedBy :: ([symbol] -> symbol) -> Constraint -> Gen symbol a -> Recipe symbol a
     Chosen :: [(Weight, Gen symbol a)] -> Recipe symbol a
+    -- | A choice weighted by the members of its alternatives, as 'uniformly' builds it, before compile counts them.
+    Uniform :: [Gen symbol a] -> Recipe symbol a
     -- | An imported automaton, its depth bound, and the key that orders its constructors.
     Imported ::
         (Ord key) => Maybe Depth -> (symbol -> key) -> Node symbol -> Recipe symbol (Tree.Tree symbol)

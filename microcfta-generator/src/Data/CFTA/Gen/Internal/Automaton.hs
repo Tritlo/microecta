@@ -19,8 +19,16 @@ miscounted.
 Ambiguity is not counted either. The union over a node's edges counts
 accepting runs, so a node with two edges that accept a common term counts that
 term twice; such an automaton is rejected rather than miscounted.
+
+The module also holds the rank key and the codec check that the ordinary and
+the refinement datatype imports share.
 -}
-module Data.CFTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton) where
+module Data.CFTA.Gen.Internal.Automaton (
+    automatonIndex,
+    finiteAutomaton,
+    declarationOrder,
+    undecodableConstructor,
+) where
 
 import qualified Control.Monad.State.Strict as State
 import qualified Data.CFTA as FTA
@@ -33,8 +41,10 @@ import Data.Hashable (Hashable)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (compareLength, partition, sort, sortOn, tails)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe (catMaybes, isNothing, listToMaybe)
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 
@@ -53,13 +63,14 @@ import Data.CFTA.Equality (
  )
 import Data.CFTA.Equality.Constraint (EqConstraints, subsumptionOrderedEclasses, unPathEClass)
 import Data.CFTA.Index (Arity (..), childIndexes)
-import Data.CFTA.Path (ChildIndex (..), unPath)
+import Data.CFTA.Path (ChildIndex (..), adjustAt, unPath)
 
 import Data.CFTA.Gen.Error (GenError (..))
 import Data.CFTA.Gen.Internal.Static (Static, termStatic)
 import Data.CFTA.Gen.Internal.Support (unconstrainedEdge)
 import Data.CFTA.Gen.Internal.Symbolic (symbolicRanked)
 import qualified Data.CFTA.Gen.Internal.Table as Ordinary
+import Data.CFTA.Generic (TypedFTA, constructorLabel, datatypeFTA)
 import qualified Data.CFTA.Ranked.Internal as Ranked
 import Data.CFTA.Ranked.Internal.Size (SizeIndex)
 import Data.CFTA.Refinement (AutomatonError (OpenAutomaton))
@@ -289,3 +300,71 @@ childGroups arity constraints = do
     merge groups positions =
         let (equal, other) = partition (any (`elem` positions)) groups
          in sortOn (take 1) (concat equal : other)
+
+{- | Order the constructor labels of a datatype by their position in the row
+of their type.
+
+The position is declaration order for constructors and domain order for
+atomic literals: the derived grammar builds a constructor row from the generic
+sum in order, and an atomic row from its domain without repeated values. A
+label holds the type of its row, so it is in one row. The label text breaks
+ties between rows. An unknown label has position zero. The positions are
+computed once for each application to a datatype.
+-}
+declarationOrder :: TypedFTA annotation a -> Text -> (Int, Text)
+declarationOrder datatype = \label -> (Map.findWithDefault 0 label positions, label)
+  where
+    positions =
+        Map.fromList
+            [ (Text.pack $ constructorLabel $ FTA.transitionSymbol transition, position)
+            | row <- Map.elems $ FTA.transitionTable $ datatypeFTA datatype
+            , (position, transition) <- zip [0 ..] row
+            ]
+
+{- | Find a constructor that is in a term the codec rejects.
+
+Each transition of a reachable state gets one term of the initial state that
+contains it. The other positions of that term hold one fixed term of their
+state. So the check decodes one term per transition and does not enumerate
+the language. An atomic literal whose 'Show' text 'Read' does not accept makes
+its term fail.
+-}
+undecodableConstructor :: (Ord state) => (Tree.Tree symbol -> Bool) -> FTA.FTA state symbol annotation -> Maybe symbol
+undecodableConstructor rejects automaton =
+    listToMaybe
+        [ symbol
+        | (state, context) <- Map.toList contexts
+        , FTA.Transition symbol children _ <- FTA.transitionsFrom automaton state
+        , Just arguments <- [traverse (`Map.lookup` witnesses) children]
+        , rejects $ context $ Tree.Node symbol arguments
+        ]
+  where
+    -- One term for each productive state, as a least fixed point.
+    witnesses = converge Map.empty
+    converge known =
+        let next = Map.foldrWithKey addWitness known $ FTA.transitionTable automaton
+         in if Map.size next == Map.size known then known else converge next
+    addWitness state transitions known
+        | Map.member state known = known
+        | otherwise =
+            case [ Tree.Node symbol arguments
+                 | FTA.Transition symbol children _ <- transitions
+                 , Just arguments <- [traverse (`Map.lookup` known) children]
+                 ] of
+                term : _ -> Map.insert state term known
+                [] -> known
+    -- One context for each state that a term of the initial state reaches.
+    contexts = reach (Map.singleton (FTA.initialState automaton) id) [FTA.initialState automaton]
+    reach found [] = found
+    reach found (state : pending) =
+        let added =
+                Map.fromList
+                    [ ( child
+                      , \hole -> (found Map.! state) $ Tree.Node symbol $ adjustAt position (const hole) arguments
+                      )
+                    | FTA.Transition symbol children _ <- FTA.transitionsFrom automaton state
+                    , Just arguments <- [traverse (`Map.lookup` witnesses) children]
+                    , (position, child) <- zip [0 ..] children
+                    ]
+                    `Map.difference` found
+         in reach (Map.union found added) (pending <> Map.keys added)
