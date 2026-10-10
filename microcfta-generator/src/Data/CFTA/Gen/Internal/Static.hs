@@ -39,6 +39,7 @@ module Data.CFTA.Gen.Internal.Static (
     frequencyStatic,
     mapStatic,
     atomicStatic,
+    resizedStatic,
     labelStatic,
     labelStaticMatching,
 
@@ -75,8 +76,10 @@ import Data.CFTA.Gen.Internal.Support (labelSupport, labelTerm, labelTermWith, l
 import Data.CFTA.Gen.Label (ChoiceIndex, Label (..))
 import Data.CFTA.Index (
     Cardinality (..),
+    ClassRank (..),
     Rank (..),
     RankOffset (..),
+    Size,
     Weight,
     everyRank,
     hasRank,
@@ -92,6 +95,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     RankedValue (RankedValue, rankedValue),
+    SizeClass (..),
     compilePlan,
     offsetRankedValue,
     sharedChoiceBound,
@@ -776,6 +780,32 @@ atomicStatic static =
         case compiledWeightedSampler outcomes of
             Just sampler -> sampler
             Nothing -> outcomeSampler outcomes
+
+{- | Give every outcome of a finite language one size.
+
+A language that is rebuilt from the terms of its members counts the source
+choices of the rebuilt terms, which need not be the choices that made the
+members. 'Data.CFTA.Gen.Refinement.Internal.Compile' rebuilds a member when a
+guard reads it, and gives the rebuilt member the size that it had.
+-}
+resizedStatic :: Size -> Static symbol a -> Static symbol a
+resizedStatic size static =
+    static
+        { staticOutcomes =
+            mkOutcomeIndex
+                count
+                (outcomeUniformMass outcomes)
+                (outcomeSelect outcomes)
+                (outcomeRanks outcomes)
+                (outcomeValueAt outcomes)
+                (outcomeSampler outcomes)
+                ( PlanSized
+                    [SizeClass size count (\(ClassRank rank) -> outcomeValueAt outcomes $ Rank rank) (outcomeValueAt outcomes . toEnum)]
+                )
+        }
+  where
+    outcomes = staticOutcomes static
+    count = outcomeCardinality outcomes
 
 {- | Close an applicative or grouped child layer with one user-facing node
 label.

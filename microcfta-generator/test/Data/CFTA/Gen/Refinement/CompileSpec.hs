@@ -152,6 +152,28 @@ spec = do
                 LTAGen.pmf (LTAGen.upToSize 1 compiled) `shouldBe` Right [(0, 1 % 2), (1, 1 % 2)]
                 map (LTAGen.smallerMembers compiled) [0, 1] `shouldBe` [[], []]
 
+        it "keeps the sizes of a built source whether or not a guard reads it" $
+            withZ3 declarations $ \solver -> do
+                -- Behind keyed and ungroup a language is a built source. A node
+                -- adds no source choice and a product adds the sizes of its
+                -- parts, so a member's size is not the number of its nodes.
+                let choice = LTAGen.oneof [LTAGen.leaf (0 :: Int) "a" (const true), LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true)]
+                    built = LTAGen.ungroup $ LTAGen.keyed () choice
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard built
+                    paired =
+                        LTAGen.ungroup
+                            $ LTAGen.keyed ()
+                            $ LTAGen.node "pair"
+                            $ (,) <$> LTAGen.atomic choice <*> LTAGen.leaf (7 :: Int) "c" (const true)
+                    outerPair guard = LTAGen.refinedNode "outer" (const true) guard paired
+                compiled <- compileOrFail solver $ outer (`requires` const true)
+                map (LTAGen.sizeOfRank compiled) [0, 1] `shouldBe` map (LTAGen.sizeOfRank built) [0, 1]
+                LTAGen.pmf (LTAGen.upToSize 1 compiled) `shouldBe` LTAGen.pmf (LTAGen.upToSize 1 $ outer noConstraint)
+                map (LTAGen.smallerMembers compiled) [0, 1] `shouldBe` [[], []]
+                compiledPair <- compileOrFail solver $ outerPair (`requires` const true)
+                map (LTAGen.sizeOfRank compiledPair) [0, 1] `shouldBe` map (LTAGen.sizeOfRank paired) [0, 1]
+                LTAGen.pmf (LTAGen.upToSize 2 compiledPair) `shouldBe` LTAGen.pmf (LTAGen.upToSize 2 $ outerPair noConstraint)
+
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do
                 let pairs =

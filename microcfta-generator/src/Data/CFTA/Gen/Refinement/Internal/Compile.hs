@@ -60,6 +60,7 @@ import Data.CFTA.Gen.Internal.Static (
     labelStaticMatching,
     mapStatic,
     pointsStatic,
+    resizedStatic,
  )
 import Data.CFTA.Gen.Internal.Types (Gen (..), Grouped (..), Language (..), Recipe (..))
 import Data.CFTA.Gen.Label (ChoiceIndex)
@@ -361,8 +362,7 @@ emptyGroups grouped = case sizes grouped of
 Without observations the language is one group, and so is a language whose
 members have no root, such as 'fromIndexed'. With observations every member
 is read back with its term; a member's term is the user's part of the
-engine's labelled term. A member keeps its mass, and a member of an 'atomic'
-source keeps its size of one.
+engine's labelled term. A member keeps its mass and its size.
 -}
 groupBuilt :: Set Path -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator
@@ -374,16 +374,24 @@ groupBuilt requested generator
     | otherwise = do
         total <- cardinality generator
         members <- traverse member $ everyRank total
-        let scale = foldr (\(mass, _, _) -> lcm (denominator mass)) 1 members
+        let scale = foldr (\(mass, _, _, _) -> lcm (denominator mass)) 1 members
         pure
             $ reposition keyObservations
             $ frequencies
-                [ (Weight $ numerator (mass * fromInteger scale), keyed (ObservationKey rank $ observe forest) (rebuild forest value))
-                | (rank, (mass, value, forest)) <- zip [0 ..] members
+                [ ( Weight $ numerator (mass * fromInteger scale)
+                  , keyed (ObservationKey rank $ observe forest) (rebuild size forest value)
+                  )
+                | (rank, (mass, size, value, forest)) <- zip [0 ..] members
                 ]
   where
-    -- Each member keeps its own mass, so an 'atomic' choice keeps its distribution.
-    member rank = (,,) <$> massAt rank <*> unrank generator rank <*> (surface <$> termAt generator rank)
+    -- Each member keeps its own mass and its own size, so an 'atomic' choice
+    -- keeps its distribution and every member keeps its size class.
+    member rank =
+        (,,,)
+            <$> massAt rank
+            <*> pure (sizeOfRank generator rank)
+            <*> unrank generator rank
+            <*> (surface <$> termAt generator rank)
     massAt rank = case genLanguage generator of
         TransparentLanguage result -> do
             static <- result
@@ -391,11 +399,18 @@ groupBuilt requested generator
         _ -> Left UnboundedGenerator
     observe [term] = Map.fromList [(target, observation) | target <- Set.toList requested, Just observation <- [labelAt target term]]
     observe _ = Map.empty
-    -- An atomic source counts each member as size one, and a rebuilt term
-    -- counts its nodes, so a member of an atomic source is rebuilt atomic.
-    rebuild forest value = (if atomicSource then atomic else id) $ case forest of
+    -- A rebuilt term counts the source choices of its own nodes, which need not
+    -- be the choices that made the member, so the member takes its own size. A
+    -- member of an atomic source is rebuilt atomic: inside a size class, a
+    -- choice weighs an atomic member by its mass and other members by count.
+    rebuild size forest value = keepSize size $ case forest of
         [Tree.Node label children] -> node label $ withChildren children value
         _ -> withChildren forest value
+    keepSize size rebuilt
+        | atomicSource = atomic rebuilt
+        | otherwise = case (size, genLanguage rebuilt) of
+            (Just original, TransparentLanguage result) -> Gen Built $ TransparentLanguage $ resizedStatic original <$> result
+            _ -> rebuilt
     atomicSource = case genLanguage generator of
         TransparentLanguage (Right static) -> staticAtomic static
         _ -> False
