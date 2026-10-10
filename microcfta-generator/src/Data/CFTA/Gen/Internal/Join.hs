@@ -15,9 +15,10 @@ module Data.CFTA.Gen.Internal.Join (
 import Data.CFTA.Constraint (equalityConstraint)
 import Data.Foldable (toList)
 import Data.Hashable (Hashable)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
-import Data.Sequence (Seq)
+import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Sequence
 import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
@@ -37,7 +38,6 @@ import Data.CFTA.Index (
     Cardinality,
     Rank (..),
     RankOffset (..),
-    hasRank,
     nextOffset,
     offsetRank,
     pairRank,
@@ -195,6 +195,7 @@ keyedOutcomes key static =
 
 -- | Count, select, and sample the matched groups of a two-way join.
 joinOutcomeIndex ::
+    (Eq symbol) =>
     Static symbol left ->
     Static symbol right ->
     [JoinGroup symbol left right] ->
@@ -217,6 +218,7 @@ joinOutcomeIndex left right groups = do
             totalOutcomes
             uniformMass
             select
+            (leafRanks pairRanks)
             selectValue
             rankSampler
             ( PlanChoice
@@ -245,8 +247,9 @@ joinOutcomeIndex left right groups = do
         withMass mass outcome = outcome{outcomeMass = mass}
     totalWeight = sum $ map joinGroupMass weightGroups
     weight index =
-        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroups index
+        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroupsByOffset index
          in toRational totalOutcomes * outcomeMass leftOutcome * outcomeMass rightOutcome / totalWeight
+    weightGroupsByOffset = joinGroupsByOffset weightGroups
 
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
@@ -281,9 +284,29 @@ joinOutcomeIndex left right groups = do
         let (_, leftOutcome, rightOutcome) = selectPair index
          in (outcomeValue leftOutcome, outcomeValue rightOutcome)
 
-    selectPair = selectPairIn groups
-    selectPairIn groups' index =
-        let (group, groupIndex) = selectJoinGroup index groups'
+    -- The key of a pair names its group, and each side is one enumerated outcome of its group.
+    pairRanks term = case term of
+        Tree.Node
+            Join
+            [ Tree.Node LeftKeyed [Tree.Node (Group (GroupIndex key)) [], leftTerm]
+                , Tree.Node RightKeyed [Tree.Node (Group (GroupIndex key')) [], rightTerm]
+                ]
+                | key == key' ->
+                    [ CheckedRank (offsetRank offset $ pairRank (toEnum $ Sequence.length $ joinGroupRight group) leftIndex rightIndex) True
+                    | Just (offset, group) <- [IntMap.lookup key groupsByIndex]
+                    , leftIndex <- positionsIn (joinGroupLeft group) leftTerm
+                    , rightIndex <- positionsIn (joinGroupRight group) rightTerm
+                    ]
+        _ -> []
+      where
+        positionsIn outcomes wanted = [index | (index, outcome) <- zip [0 ..] $ toList outcomes, outcomeTerm outcome == wanted]
+    groupsByIndex =
+        IntMap.fromList
+            [(index, entry) | entry@(_, group) <- offsetJoinGroups groups, let GroupIndex index = joinGroupIndex group]
+    groupsByOffset = joinGroupsByOffset groups
+    selectPair = selectPairIn groupsByOffset
+    selectPairIn byOffset index =
+        let (group, groupIndex) = selectJoinGroup index byOffset
             rightCardinality = toEnum $ Sequence.length $ joinGroupRight group
             (leftIndex, rightIndex) = splitRank rightCardinality groupIndex
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromEnum leftIndex
@@ -302,20 +325,21 @@ joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
 
+-- | The matched groups with pairs, by the first rank of each.
+joinGroupsByOffset :: [JoinGroup symbol left right] -> Map.Map RankOffset (JoinGroup symbol left right)
+joinGroupsByOffset groups = Map.fromList [entry | entry@(_, group) <- offsetJoinGroups groups, joinGroupCardinality group > 0]
+
 -- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Rank ->
-    [JoinGroup symbol left right] ->
+    Map.Map RankOffset (JoinGroup symbol left right) ->
     (JoinGroup symbol left right, Rank)
-selectJoinGroup _ [] =
-    error
-        "microcfta-generator bug in Data.CFTA.Gen.Internal.Join.selectJoinGroup: \
-        \rank outside the matched groups"
-selectJoinGroup index (group : remaining)
-    | hasRank groupSize index = (group, index)
-    | otherwise = selectJoinGroup (rebaseRank (nextOffset 0 groupSize) index) remaining
-  where
-    groupSize = joinGroupCardinality group
+selectJoinGroup index@(Rank rank) groups = case Map.lookupLE (RankOffset rank) groups of
+    Just (offset, group) -> (group, rebaseRank offset index)
+    Nothing ->
+        error
+            "microcfta-generator bug in Data.CFTA.Gen.Internal.Join.selectJoinGroup: \
+            \rank outside the matched groups"
 
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
@@ -384,6 +408,7 @@ joinNBucketStatic componentIndex operation arguments =
             totalOutcomes
             uniformMass
             select
+            joinRanks
             selectValue
             rankSampler
             (chainPlan (outcomePlan operationOutcomes) arguments)
@@ -445,6 +470,26 @@ joinNBucketStatic componentIndex operation arguments =
         let (operationIndex, argumentIndex) = splitRank argumentsCardinality index
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
 
+    -- A node label replaces the private n-way join label and keeps its children.
+    joinRanks view = case view of
+        WholeTerm (Tree.Node JoinN children) -> childrenRanks children
+        WholeTerm _ -> []
+        LabelledView children -> childrenRanks children
+        SpineView (term :<| Empty) -> joinRanks $ WholeTerm term
+        SpineView _ -> []
+      where
+        childrenRanks (Tree.Node CenterKeyed centre : argumentTerms) = case centre of
+            operationTerm : keys ->
+                let keysChecked = joinKeysMatch componentIndex keys argumentTerms
+                 in [ CheckedRank
+                        (pairRank argumentsCardinality operationRank argumentRank)
+                        (operationChecked && argumentsChecked && keysChecked)
+                    | CheckedRank operationRank operationChecked <- outcomeRanks operationOutcomes $ WholeTerm operationTerm
+                    , CheckedRank argumentRank argumentsChecked <- chainRanks arguments argumentTerms
+                    ]
+            [] -> []
+        childrenRanks _ = []
+
 {- | Apply an operation to every argument of a chain with 'applyStatic'.
 
 The plan of the result is 'chainPlan', so its ranks are the ranks of the
@@ -480,7 +525,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
-            Nothing
+            (recursiveTerm operationRecursive >>= \terms -> recursiveChainTerms componentIndex operationIndex terms arguments)
             (joinInspection componentIndex (recursiveInspection operationRecursive) $ recursiveInspections arguments)
         )
         joinedMasses

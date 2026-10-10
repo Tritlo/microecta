@@ -3,7 +3,6 @@
 -}
 module Data.CFTA.Gen.ReferenceSpec (spec) where
 
-import Control.Monad (when)
 import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
@@ -323,7 +322,7 @@ shrinkAutomaton = \case
                ]
 
 {- | An imported automaton gives every term that the core lists, once: the
-count, the values, and the term of each rank. A recursive import counts
+count, the values, and the inverse of each rank. A recursive import counts
 by size, the number of term nodes, and ranks by size first.
 -}
 importAgreement :: RandomAutomaton -> Property
@@ -349,7 +348,7 @@ importAgreement (RandomAutomaton automaton) =
                     : [fmap sort (Gen.values generator) === Right (sort found) | total <= listBound]
                         <> [ counterexample ("rank " <> show rank) $ case Gen.unrank generator rank of
                                 Left err -> counterexample (show err) False
-                                Right term -> counterexample (show term) $ term `elem` found
+                                Right term -> Gen.rankOfTerm generator term === Right rank .&&. term `elem` found
                            | rank <- take rankBound $ everyRank $ Cardinality total
                            ]
       where
@@ -366,6 +365,7 @@ importAgreement (RandomAutomaton automaton) =
                             Left err -> counterexample (show err) False
                             Right term ->
                                 Gen.sizeOfRank recursiveGenerator rank === Just (Size size)
+                                    .&&. Gen.rankOfTerm recursiveGenerator term === Right rank
                                     .&&. term `elem` termsOfSize automaton size
                               where
                                 size = toInteger $ length term
@@ -442,7 +442,6 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     _ -> []
 
     it "gives the distribution of the model" $ QC.property $ agreement $ \generator lang -> case langModel lang of
-        Right Model{modelFinite = Just _, modelTerms = False} -> Gen.pmf generator === Left CannotInspectRecursiveGenerator
         Right Model{modelFinite = Just (total, finite)}
             | total <= listBound ->
                 QC.conjoin $
@@ -487,6 +486,21 @@ spec = describe "the engine against the reference model" $ modifyMaxSuccess (con
                     ]
         _ -> QC.property True
 
+    it "ranks the term of each rank back" $ QC.property $ agreement $ \generator lang ->
+        QC.conjoin
+            [ counterexample ("rank " <> show rank) $ case Gen.termAt generator rank of
+                Left err -> counterexample ("termAt: " <> show err) False
+                Right term -> case Gen.ranksOf generator term of
+                    Left err -> counterexample ("ranksOf: " <> show err) False
+                    Right ranks ->
+                        counterexample ("ranks " <> show ranks) $
+                            rank `elem` ranks
+                                && ranks == sort ranks
+                                && Gen.rankOf generator term == Right (minimum ranks)
+                                && all ((== Right term) . Gen.termAt generator) ranks
+            | (rank, _) <- zip [0 ..] $ take rankBound $ members sizeBound lang
+            ]
+
     it "gives the sizes, the counts, and the key masses of a grouped model" $ QC.property familyAgreement
 
     it "imports every term of an automaton once" $ QC.property importAgreement
@@ -521,8 +535,6 @@ familyAgreement (ClosedFamily desc) =
                 else Map.filter (> 0) $ fmap (\group -> Cardinality $ modelCount (groupModel group) size) groups
     expectedMasses size = do
         groups <- familyGroups family'
-        when (size >= 1 && not (familyRecursive family') && not (all (modelTerms . groupModel) groups)) $
-            Left CannotInspectRecursiveGenerator
         let positive = Map.filter (> 0) $ fmap (massAt size) groups
             total = sum positive
         pure $ if size < 1 || total <= 0 then Map.empty else fmap (/ total) positive

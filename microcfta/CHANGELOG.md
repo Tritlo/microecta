@@ -44,8 +44,8 @@ remains a separate ECTA-only package.
   `definingTerm` reads the term of a formula `v .== t`, and `freeNames` lists
   the names of a formula.
 - `Data.CFTA.Refinement.Lattice`: the exact number of integer points of a
-  linear formula over bounded variables, and the point at each rank in
-  lexicographic order, without enumeration. The formula becomes a signed sum
+  linear formula over bounded variables, the point at each rank in
+  lexicographic order, and the rank of each point, without enumeration. The formula becomes a signed sum
   of conjunctions, and the variables are summed out with Faulhaber
   polynomials. `onlyPoint` reads the one integer that a formula admits.
   `latticeEntailment` is an `Entailment` without a solver: it counts the

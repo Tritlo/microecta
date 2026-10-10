@@ -54,9 +54,7 @@ import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (ComponentIndex)
 import Data.CFTA.Gen.Sig (Sig, sigResult)
 import Data.CFTA.Index (Cardinality, Size, Weight, countWeight)
-import Data.CFTA.Ranked.Internal.Sampler
 import Data.CFTA.Ranked.Internal.Shrink (planMemberSize)
-import Data.CFTA.Ranked.Internal.Size (mapIndex)
 import qualified Data.CFTA.Ranked.Internal.Size as Size
 
 -- | Declare that every member of an inspectable generator has one key.
@@ -130,20 +128,7 @@ mapWithKey :: (key -> a -> b) -> Grouped symbol key a -> Grouped symbol key b
 mapWithKey transform (CyclicGrouped result) =
     CyclicGrouped $ fmap (Map.mapWithKey mapGroup) result
   where
-    mapGroup key group =
-        KeyedRecursive
-            ( Recursive
-                (recursiveSupport recursive)
-                (mapIndex (transform key) $ recursiveIndex recursive)
-                (mapSampleIndex (transform key) $ recursiveSampling recursive)
-                (recursiveWeighted recursive)
-                Nothing
-                (recursiveInspection recursive)
-            )
-            (keyedRecursiveMasses group)
-            (keyedRecursiveMassWeighted group)
-      where
-        recursive = keyedRecursiveLanguage group
+    mapGroup key group = group{keyedRecursiveLanguage = mapRecursive (transform key) $ keyedRecursiveLanguage group}
 mapWithKey transform (Grouped result) =
     Grouped $ fmap (Map.mapWithKey mapBucket) result
   where

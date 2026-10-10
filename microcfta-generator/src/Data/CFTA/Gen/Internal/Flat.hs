@@ -33,9 +33,9 @@ import qualified Data.Tree as Tree
 import Data.Typeable (Typeable)
 import qualified Test.QuickCheck as QC
 
-import Data.CFTA.Equality (Edge (Edge), Node (Node))
+import Data.CFTA.Equality (Node)
 import Data.CFTA.Gen.Error
-import Data.CFTA.Gen.Internal.Automaton (automatonIndex, finiteAutomaton)
+import Data.CFTA.Gen.Internal.Automaton (automatonIndex, automatonTermPosition, finiteAutomaton)
 import Data.CFTA.Gen.Internal.Grouped (groupOn, relateGroupsM, ungroup)
 import Data.CFTA.Gen.Internal.Inspection
 import Data.CFTA.Gen.Internal.Join
@@ -50,7 +50,7 @@ import Data.CFTA.Index (Depth, Weight, countWeight)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
 import Data.CFTA.Ranked.Internal.Sampler (GenBackend (frequencyGen), choiceSampleIndex, uniformSampleIndex)
-import Data.CFTA.Ranked.Internal.Size (choiceIndex, mapIndex)
+import Data.CFTA.Ranked.Internal.Size (mapIndex)
 import Data.CFTA.Ranked.QuickCheck (QuickCheckBackend (..))
 
 -- | Interpret a reified condition as one key projection per side.
@@ -115,10 +115,14 @@ readAutomaton order root
                 index
                 (uniformSampleIndex index)
                 False
-                (Just $ mapIndex (fmap Label) index)
+                (Just $ RecursiveTerms (mapIndex (fmap Label) index) $ leafRanks positions)
                 (plainInspection supportNode)
   where
     supportNode = relabel Label root
+    -- The term of a member is the accepted user term under 'Label', and the
+    -- automaton checks every symbol of it.
+    position = automatonTermPosition order root
+    positions term = maybe [] (either (const []) (\found -> [CheckedRank found True]) . position) $ userTerm term
 
 -- | Choose uniformly from a finite non-empty list.
 elements :: (Hashable symbol, Typeable symbol) => [a] -> Gen symbol a
@@ -170,21 +174,10 @@ chooseLanguage weighted
             if allWeightsEqual alternatives
                 then
                     pure $
-                        Recursive
-                            ( Node
-                                [ Edge (Choice index) [recursiveSupport view]
-                                | (index, view) <- zip [0 ..] views
-                                ]
-                            )
-                            (choiceIndex $ map recursiveIndex views)
-                            ( choiceSampleIndex
-                                [ (recursiveIndex view, recursiveSampling view)
-                                | view <- views
-                                ]
-                            )
+                        choiceRecursive
+                            (choiceSampleIndex [(recursiveIndex view, recursiveSampling view) | view <- views])
                             (any recursiveWeighted views)
-                            Nothing
-                            (choiceInspection $ map recursiveInspection views)
+                            views
                 else Left WeightedRecursiveAlternatives
     | otherwise =
         Opaque $ case frequencyGen [(weight, QuickCheckBackend $ lower generator) | (weight, generator) <- alternatives] of

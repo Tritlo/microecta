@@ -2,6 +2,8 @@
 module Data.CFTA.Gen.Equality.TestSupport (
     aggregateRights,
     decodesEveryRankExactly,
+    ranksBack,
+    ranksEveryMemberBack,
     renameSymbols,
 ) where
 
@@ -13,7 +15,7 @@ import Test.Hspec (Expectation, expectationFailure, shouldBe)
 import qualified Data.CFTA as FTA
 import Data.CFTA.Equality (Node)
 import qualified Data.CFTA.Gen.Equality as ECTAGen
-import Data.CFTA.Index (everyRank)
+import Data.CFTA.Index (Rank, everyRank)
 import qualified Data.CFTA.Interned as Interned
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 
@@ -53,3 +55,22 @@ decodesEveryRankExactly generator =
                 `shouldBe` [ (1 / toRational total, fmap (ECTAGen.RankedValue rank) (ECTAGen.unrank generator rank))
                            | rank <- everyRank total
                            ]
+
+-- | Require that the member at each rank ranks back to that rank.
+ranksBack ::
+    (ECTAGen.Gen symbol a -> a -> Either ECTAGen.GenError Rank) ->
+    ECTAGen.Gen symbol a ->
+    [Rank] ->
+    Expectation
+ranksBack rank generator ranks =
+    (traverse (ECTAGen.unrank generator) ranks >>= traverse (rank generator)) `shouldBe` Right ranks
+
+-- | Require that the member at every rank of a finite generator ranks back to that rank.
+ranksEveryMemberBack ::
+    (ECTAGen.Gen symbol a -> a -> Either ECTAGen.GenError Rank) ->
+    ECTAGen.Gen symbol a ->
+    Expectation
+ranksEveryMemberBack rank generator =
+    case ECTAGen.cardinality generator of
+        Left err -> expectationFailure $ show err
+        Right total -> ranksBack rank generator $ everyRank total

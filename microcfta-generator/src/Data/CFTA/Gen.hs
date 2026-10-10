@@ -108,6 +108,10 @@ module Data.CFTA.Gen (
     smallest,
     unrank,
     termAt,
+    rankOf,
+    ranksOf,
+    rankOfTerm,
+    rankOfValue,
     sizeOfRank,
     smallerMembers,
     shrinkRank,
@@ -142,8 +146,16 @@ import Data.CFTA.Gen.Internal.Recur
 import Data.CFTA.Gen.Internal.Types
 import Data.CFTA.Gen.Label (Label (..), surface)
 import Data.CFTA.Gen.Sig (On (..), Sig (..), sigResult)
-import Data.CFTA.Generic (TypedFTA, constructorLabel, constructorName, datatypeDecode, datatypeFTA, decodeLabelledTerm)
-import Data.CFTA.Index (Depth)
+import Data.CFTA.Generic (
+    HasFTA (encodeTerm),
+    TypedFTA,
+    constructorLabel,
+    constructorName,
+    datatypeDecode,
+    datatypeFTA,
+    decodeLabelledTerm,
+ )
+import Data.CFTA.Index (Depth, Rank)
 import Data.CFTA.Interned (Node)
 import qualified Data.CFTA.Interned as Common
 import Data.CFTA.Ranked.Internal (Indexed (..))
@@ -212,6 +224,15 @@ for an atomic literal whose 'Show' text 'Read' does not accept.
 -}
 fromDatatype :: TypedFTA Constraint a -> Gen Symbol a
 fromDatatype datatype = importDatatype datatype Flat.fromAutomaton
+
+{- | The least rank of a datatype value in a generator from 'fromDatatype' or
+'fromDatatypeUpToDepth'. The codec of the type encodes the value as a
+constructor term. 'ranksOf' lists the ranks of a term in ascending order, so
+this is its first rank. A value that the generator does not give has
+'TermNotInLanguage'.
+-}
+rankOfValue :: (HasFTA a) => Gen Symbol a -> a -> Either GenError Rank
+rankOfValue generator = rankOfTerm generator . fmap (fromString . constructorLabel) . encodeTerm
 
 {- | Generate datatype values up to a constructor depth. A leaf has depth zero.
 

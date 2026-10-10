@@ -26,13 +26,17 @@ module Data.CFTA.Gen.Refinement.Internal.Compile (
 import Control.Applicative ((<|>))
 import Control.Exception (handle)
 import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (fromLeft)
+import Data.Foldable (toList)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List (isPrefixOf, mapAccumL, nub, sortOn)
+import Data.List (isPrefixOf, mapAccumL, sortOn, (!?))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import Data.Ratio (denominator, numerator)
+import qualified Data.Sequence as Sequence
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (fromString)
 import qualified Data.Text as Text
@@ -53,6 +57,7 @@ import Data.CFTA.Gen.Internal.Static (
     addRootCounts,
     commonRootCount,
     holeStatic,
+    labelStaticMatching,
     mapStatic,
     pointsStatic,
  )
@@ -82,7 +87,15 @@ import Data.CFTA.Refinement.Expression (
     (.&&),
     (.==),
  )
-import Data.CFTA.Refinement.Lattice (LatticeError (UnboundedVariable), Points, onlyPoint, pointAt, pointCount, points)
+import Data.CFTA.Refinement.Lattice (
+    LatticeError (UnboundedVariable),
+    Points,
+    onlyPoint,
+    pointAt,
+    pointCount,
+    pointRank,
+    points,
+ )
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..))
 
 -- | A generator over liquid tree automata.
@@ -211,10 +224,10 @@ type Memo f = IORef (IntMap.IntMap [Entry f])
 {- | One result for one generator. A stable name identifies one heap object,
 so the result has the type of that object.
 -}
-data Entry f = forall a. Entry !(StableName (LTAGen a)) ![Path] (f a)
+data Entry f = forall a. Entry !(StableName (LTAGen a)) !(Set Path) (f a)
 
 -- | The recorded result for a generator and requested paths, or the computed one, recorded.
-memoized :: Memo f -> [Path] -> LTAGen a -> IO (f a) -> IO (f a)
+memoized :: Memo f -> Set Path -> LTAGen a -> IO (f a) -> IO (f a)
 memoized memo requested generator compute = do
     name <- makeStableName $! generator
     known <- readIORef memo
@@ -252,10 +265,10 @@ compile uncachedEntailment generator
         closedMemo <- newIORef IntMap.empty
         openMemo <- newIORef IntMap.empty
         integersMemo <- newIORef IntMap.empty
-        fmap ungroup <$> compileGen (Compiler entailment closedMemo openMemo integersMemo) [path []] generator
+        fmap ungroup <$> compileGen (Compiler entailment closedMemo openMemo integersMemo) (Set.singleton $ path []) generator
 
 -- | Compile one generator, grouped by the observations its parent needs.
-compileGen :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGen :: Compiler -> Set Path -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
 compileGen compiler requested generator =
     fmap (\(ClosedGroups groups) -> groups) $
         memoized (compilerClosed compiler) requested generator $
@@ -266,7 +279,7 @@ compileGen compiler requested generator =
                     else compileGenOnce compiler requested generator
 
 -- | Compile one generator that the memo does not hold.
-compileGenOnce :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
+compileGenOnce :: Compiler -> Set Path -> LTAGen a -> IO (Either GenError (LTAGrouped ObservationKey a))
 compileGenOnce compiler requested generator
     | not (deferred generator) && null requested = pure $ Right $ keyed noObservations generator
     | otherwise = case genRecipe generator of
@@ -281,10 +294,10 @@ compileGenOnce compiler requested generator
             , all (`elem` [RootCount 0, RootCount 1]) counts
             , [position] <- [index | (index, RootCount 1) <- zip [0 ..] counts] ->
                 fmap (regroupOn (!! position))
-                    <$> compileSpine compiler [if index == position then requested else [] | index <- [0 .. length counts - 1]] generator
+                    <$> compileSpine compiler [if index == position then requested else Set.empty | index <- [0 .. length counts - 1]] generator
             | otherwise ->
                 fmap (regroupOn (const noObservations))
-                    <$> compileSpine compiler (replicate (fromEnum $ spineArity generator) []) generator
+                    <$> compileSpine compiler (replicate (fromEnum $ spineArity generator) Set.empty) generator
         Chosen alternatives -> do
             compiled <- traverse (compileGen compiler requested . snd) alternatives
             pure $ choose (map fst alternatives) <$> sequence compiled
@@ -350,7 +363,7 @@ members have no root, such as 'fromIndexed'. With observations every member
 is read back with its term; a member's term is the user's part of the
 engine's labelled term.
 -}
-groupBuilt :: [Path] -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
+groupBuilt :: Set Path -> LTAGen a -> Either GenError (LTAGrouped ObservationKey a)
 groupBuilt requested generator
     | deferred generator = Left SourceRequiresCompilation
     | null requested = Right $ keyed noObservations generator
@@ -375,7 +388,7 @@ groupBuilt requested generator
             static <- result
             outcomeMass <$> outcomeSelect (staticOutcomes static) rank
         _ -> Left UnboundedGenerator
-    observe [term] = Map.fromList [(target, observation) | target <- requested, Just observation <- [labelAt target term]]
+    observe [term] = Map.fromList [(target, observation) | target <- Set.toList requested, Just observation <- [labelAt target term]]
     observe _ = Map.empty
     rebuild [Tree.Node label children] value = node label $ withChildren children value
     rebuild forest value = withChildren forest value
@@ -385,9 +398,7 @@ groupBuilt requested generator
     labelAt target = go (unPath target)
       where
         go [] (Tree.Node label children) = Just $ Observed label $ leafnessOf children
-        go (ChildIndex index : rest) (Tree.Node _ children) = case drop index children of
-            child : _ -> go rest child
-            [] -> Nothing
+        go (ChildIndex index : rest) (Tree.Node _ children) = go rest =<< children !? index
 
 -- | A generator of one value whose term has the given children.
 withChildren :: [Tree.Tree Symbol] -> a -> LTAGen a
@@ -401,7 +412,7 @@ Each position of the applicative spine is compiled with the observations its
 parent requests at that position, and the positions are joined left to
 right. An empty position empties the product without compiling the rest.
 -}
-compileSpine :: Compiler -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
+compileSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (LTAGrouped [ObservationKey] a))
 compileSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure value
     Mapped transform inner -> fmap (mapWithKey (const transform)) <$> compileSpine compiler requirements inner
@@ -419,7 +430,7 @@ compileSpine compiler requirements generator = case genRecipe generator of
                         Right argumentGroups -> do
                             related <- relateGroupsM (\_ _ -> pure $ Right True) (<>) functionGroups argumentGroups
                             pure $ mapWithKey (\_ (function, argument) -> function argument) <$> related
-    _ -> fmap (regroupOn pure) <$> compileGen compiler (concat $ take 1 requirements) generator
+    _ -> fmap (regroupOn pure) <$> compileGen compiler (Set.unions $ take 1 requirements) generator
 
 {- | How a constructor gets its label: a fixed label, or a label that a
 function computes from the root labels of the children.
@@ -438,7 +449,7 @@ the parent's observations.
 -}
 compileNode ::
     Compiler ->
-    [Path] ->
+    Set Path ->
     Labelling ->
     Constraint ->
     LTAGen a ->
@@ -461,13 +472,13 @@ compileNode compiler requested labelling constraint child
         RootCount 0 -> Leaf
         RootCount _ -> Inner
         NoCommonCount -> Mixed
-    observed = nub $ requested <> constraintPaths constraint <> roots
+    observed = Set.unions [requested, constraintPaths constraint, roots]
       where
         roots = case labelling of
-            FixedLabel _ -> []
-            ComputedLabel _ -> [path [index] | index <- childIndexes arity]
+            FixedLabel _ -> Set.empty
+            ComputedLabel _ -> Set.fromList [path [index] | index <- childIndexes arity]
     childRequirements =
-        [ nub [path suffix | target <- observed, index : suffix <- [unPath target], index == childIndex]
+        [ Set.fromList [path suffix | target <- Set.toList observed, index : suffix <- [unPath target], index == childIndex]
         | childIndex <- childIndexes arity
         ]
     labelOf childKeys = case labelling of
@@ -495,7 +506,7 @@ automaton. Only such a generator compiles through open groups.
 containsIntegers :: Compiler -> LTAGen a -> IO Bool
 containsIntegers compiler generator =
     fmap (\(Contains found) -> found) $
-        memoized (compilerIntegers compiler) [] generator $
+        memoized (compilerIntegers compiler) Set.empty generator $
             Contains <$> case genRecipe generator of
                 Integers _ -> pure True
                 Mapped _ inner -> containsIntegers compiler inner
@@ -545,7 +556,7 @@ no variable. An integer leaf leaves its one variable open. A constructor joins
 the variables of its children, and closes them when its label names none of
 them.
 -}
-compileOpen :: Compiler -> [Path] -> LTAGen a -> IO (Either GenError (LTAGrouped OpenKey ([Integer] -> a)))
+compileOpen :: Compiler -> Set Path -> LTAGen a -> IO (Either GenError (LTAGrouped OpenKey ([Integer] -> a)))
 compileOpen compiler requested generator =
     fmap (\(OpenGroups groups) -> groups) $
         memoized (compilerOpen compiler) requested generator $
@@ -557,7 +568,7 @@ compileOpen compiler requested generator =
                         Integers constraint -> pure $ integerGroup constraint
                         Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpen compiler requested inner
                         Applied _ _ ->
-                            fmap joinPositioned <$> compileOpenSpine compiler (replicate (fromEnum $ spineArity generator) []) generator
+                            fmap joinPositioned <$> compileOpenSpine compiler (replicate (fromEnum $ spineArity generator) Set.empty) generator
                         Chosen alternatives -> do
                             compiled <-
                                 traverse (\(weight, alternative) -> fmap (weight,) <$> compileOpen compiler requested alternative) alternatives
@@ -712,7 +723,7 @@ repositionOpen grouped = regroupOn rekey grouped
 {- | Compile a child description of open groups as one group per tuple of child
 groups. The value of a tuple reads the variables of each position in turn.
 -}
-compileOpenSpine :: Compiler -> [[Path]] -> LTAGen a -> IO (Either GenError (LTAGrouped [OpenKey] ([Integer] -> a)))
+compileOpenSpine :: Compiler -> [Set Path] -> LTAGen a -> IO (Either GenError (LTAGrouped [OpenKey] ([Integer] -> a)))
 compileOpenSpine compiler requirements generator = case genRecipe generator of
     Lifted value -> pure $ Right $ keyed [] $ pure $ const value
     Mapped transform inner -> fmap (mapWithKey (const (transform .))) <$> compileOpenSpine compiler requirements inner
@@ -733,7 +744,7 @@ compileOpenSpine compiler requirements generator = case genRecipe generator of
                         Right argumentGroups -> do
                             related <- relateGroupsM (\_ _ -> pure $ Right True) (<>) functionGroups argumentGroups
                             pure $ mapWithKey applyReader <$> related
-    _ -> fmap (regroupOn pure) <$> compileOpen compiler (concat $ take 1 requirements) generator
+    _ -> fmap (regroupOn pure) <$> compileOpen compiler (Set.unions $ take 1 requirements) generator
 
 {- | Compile one constructor whose children can leave integer variables open.
 
@@ -750,7 +761,7 @@ the constructor leaves the variables open for its parent.
 -}
 compileOpenNode ::
     Compiler ->
-    [Path] ->
+    Set Path ->
     Labelling ->
     Constraint ->
     LTAGen a ->
@@ -763,7 +774,7 @@ compileOpenNode compiler requested labelling constraint child
             Left err -> pure $ Left err
             Right childGroups -> do
                 retained <- filterGroupsM decide childGroups
-                pure $ retained >>= settleGroups settle . nodeWithKey closeLabel
+                pure $ retained >>= settleGroups settle . labelGroups
   where
     arity = spineArity child
     -- The term of the constructor is a leaf when its child description gives no
@@ -773,24 +784,24 @@ compileOpenNode compiler requested labelling constraint child
         RootCount 0 -> Leaf
         RootCount _ -> Inner
         NoCommonCount -> Mixed
-    observed = nub $ requested <> constraintPaths constraint <> roots
+    observed = Set.unions [requested, constraintPaths constraint, roots]
       where
         roots = case labelling of
-            FixedLabel _ -> []
-            ComputedLabel _ -> [path [index] | index <- childIndexes arity]
+            FixedLabel _ -> Set.empty
+            ComputedLabel _ -> Set.fromList [path [index] | index <- childIndexes arity]
     childRequirements =
-        [ nub [path suffix | target <- observed, index : suffix <- [unPath target], index == childIndex]
+        [ Set.fromList [path suffix | target <- Set.toList observed, index : suffix <- [unPath target], index == childIndex]
         | childIndex <- childIndexes arity
         ]
     parts = conjuncts $ constraintGuard constraint
-    open childKeys (ChildIndex index) = maybe False ((> 0) . openCount) $ listToMaybe $ drop index childKeys
+    open childKeys (ChildIndex index) = maybe False ((> 0) . openCount) $ childKeys !? index
     -- A parent reads only the root of a child that leaves variables open.
     readsInsideOpen childKeys target = case unPath target of
         index : _ : _ -> open childKeys index
         _ -> False
     equalityPaths = constraintPaths $ equalityConstraint $ constraintEqualities constraint
     renamedRoot childKeys (ChildIndex index) = do
-        key <- listToMaybe $ drop index childKeys
+        key <- childKeys !? index
         Observed (RefinedSymbol symbol refinement) _ <- Map.lookup (path []) $ keyObservations $ openObservations key
         pure $ RefinedSymbol symbol $ renameFrom (offsets childKeys !! index) key refinement
     labelOf childKeys = case labelling of
@@ -834,6 +845,18 @@ compileOpenNode compiler requested labelling constraint child
             error
                 "microcfta-generator bug in Data.CFTA.Gen.Refinement.Internal.Compile.compileOpenNode: \
                 \an accepted group lost its label"
+    -- 'fillHoles' makes a label that names open variables exact and keeps
+    -- its name, so a filled term ranks under any label with that name.
+    -- 'settleGroups' refuses a cyclic group.
+    labelGroups (Grouped result) = Grouped $ Map.mapWithKey labelBucket <$> result
+    labelGroups cyclic = nodeWithKey closeLabel cyclic
+    labelBucket childKeys bucket =
+        bucket{keyedBucketStatic = labelStaticMatching (fills label) label $ keyedBucketStatic bucket}
+      where
+        label = closeLabel childKeys
+    fills label@(RefinedSymbol symbol _) found@(RefinedSymbol foundSymbol _)
+        | symbolic label = foundSymbol == symbol
+        | otherwise = found == label
     settle childKeys = do
         let label@(RefinedSymbol _ labelRefinement) = closeLabel childKeys
             total = sum $ map openCount childKeys
@@ -861,7 +884,7 @@ compileOpenNode compiler requested labelling constraint child
                         else
                             -- Children without open variables have no point to select, so
                             -- the constructor adds no source choice; closeOpen applies them.
-                            Just (closedKey observations, kept, if total == 0 then Nothing else Just (pointCount found, pointAt found))
+                            Just (closedKey observations, kept, if total == 0 then Nothing else Just found)
 
 {- | Settle each tuple of child groups: drop it, leave its variables open under
 a new key, or close them by the integer points of its formula. The mass of a
@@ -870,7 +893,7 @@ keeps the accepted tuples of pools. New keys are positioned by first
 appearance.
 -}
 settleGroups ::
-    ([OpenKey] -> Either GenError (Maybe (OpenKey, Rational, Maybe (Cardinality, Rank -> [Integer])))) ->
+    ([OpenKey] -> Either GenError (Maybe (OpenKey, Rational, Maybe Points))) ->
     LTAGrouped [OpenKey] ([Integer] -> a) ->
     Either GenError (LTAGrouped OpenKey ([Integer] -> a))
 settleGroups _ (CyclicGrouped _) = Right $ Grouped $ Left UnboundedGenerator
@@ -884,8 +907,7 @@ settleGroups settle (Grouped (Right buckets)) = do
   where
     one (childKeys, KeyedBucket mass static) = fmap (build mass static) <$> settle childKeys
     build mass static (key, kept, Nothing) = (key, mass * kept, static)
-    build mass static (key, kept, Just (count, decode)) =
-        (key, mass * kept, mapStatic const $ pointsStatic fillHoles (Indexed count decode) static)
+    build mass static (key, kept, Just found) = (key, mass * kept, mapStatic const $ closePoints found static)
 
 {- | Close every open group by the integer points of its formula, for a parent
 that reads no variable.
@@ -904,7 +926,20 @@ closeOpen (Grouped (Right buckets)) = do
             pure $
                 if pointCount found == 0
                     then Nothing
-                    else Just (openObservations key, mass, pointsStatic fillHoles (Indexed (pointCount found) (pointAt found)) static)
+                    else Just (openObservations key, mass, closePoints found static)
+
+{- | Apply the outcomes of an open group to the integer points of its formula.
+A term ranks by the integers at its placeholder leaves.
+-}
+closePoints :: Points -> Static Symbol ([Integer] -> a) -> Static Symbol a
+closePoints found = pointsStatic fillHoles rankPoint (Indexed (pointCount found) (pointAt found))
+  where
+    rankPoint symbols = do
+        point <- traverse leafValue symbols
+        rank <- pointRank found point
+        pure (rank, point)
+      where
+        leafValue (RefinedSymbol _ refinement) = onlyPoint valueName refinement
 
 {- | Replace the placeholder leaves of a term, in order, by the leaves of the
 integers of a point, and make each label that names open variables exact.
@@ -967,9 +1002,9 @@ constraintDecision entailment label leafness constraint childKeys = do
     decideWith entailment' = evaluateGuardWithShape entailment' (`Map.lookup` observations)
 
 -- | The observations a parent requests above one accepted node.
-parentObservations :: [Path] -> Symbol -> Leafness -> [ObservationKey] -> Observations
+parentObservations :: Set Path -> Symbol -> Leafness -> [ObservationKey] -> Observations
 parentObservations requested label leafness childKeys =
-    Map.restrictKeys (completeObservations label leafness childKeys) $ Set.insert (path []) $ Set.fromList requested
+    Map.restrictKeys (completeObservations label leafness childKeys) $ Set.insert (path []) requested
 
 {- | The root, with its label and leafness, plus the sparse observations
 retained by every direct child group.
@@ -994,7 +1029,7 @@ reported before any part is read.
 compileImport ::
     (Ord key) =>
     Entailment ->
-    [Path] ->
+    Set Path ->
     Maybe Depth ->
     (Symbol -> key) ->
     Automaton ->
@@ -1024,15 +1059,19 @@ Each part accepts exactly the terms with one tuple of observations, and the
 parts share their unobserved subgraphs. The parts are in the order of their
 first transition. A recursive node is unfolded once per requested level.
 -}
-splitByObservations :: [Path] -> Automaton -> [(Observations, Automaton)]
-splitByObservations [] root = [(Map.empty, root)]
-splitByObservations requested root = case root of
-    Node edges -> mergeParts $ concatMap splitEdge edges
-    Mu _ -> splitByObservations requested $ unfoldOuterRec root
-    _ -> []
+splitByObservations :: Set Path -> Automaton -> [(Observations, Automaton)]
+splitByObservations requested root
+    | Set.null requested = [(Map.empty, root)]
+    | otherwise = case root of
+        Node edges -> mergeParts $ concatMap splitEdge edges
+        Mu _ -> splitByObservations requested $ unfoldOuterRec root
+        _ -> []
   where
-    observesRoot = path [] `elem` requested
-    childRequests = Map.fromListWith (<>) [(index, [path rest]) | target <- requested, index : rest <- [unPath target]]
+    observesRoot = Set.member (path []) requested
+    childRequests =
+        Map.fromListWith
+            Set.union
+            [(index, Set.singleton $ path rest) | target <- Set.toList requested, index : rest <- [unPath target]]
 
     splitEdge (Transition symbol refinement children constraint) =
         [ (Map.unions (rootObservation : childObservations), Node [Transition symbol refinement parts constraint])
@@ -1045,7 +1084,7 @@ splitByObservations requested root = case root of
 
         splitChild index child =
             [ (Map.mapKeys (path . (index :) . unPath) observations, part)
-            | (observations, part) <- splitByObservations (Map.findWithDefault [] index childRequests) child
+            | (observations, part) <- splitByObservations (Map.findWithDefault Set.empty index childRequests) child
             ]
 
     combinations =
@@ -1055,10 +1094,9 @@ splitByObservations requested root = case root of
 
 -- | Merge the parts with equal observations, keeping the order of first appearance.
 mergeParts :: [(Observations, Automaton)] -> [(Observations, Automaton)]
-mergeParts parts =
-    [ (observations, union [part | (candidate, part) <- parts, candidate == observations])
-    | observations <- nub $ map fst parts
-    ]
+mergeParts parts = [(observations, union $ toList $ grouped Map.! observations) | observations <- nubOrd $ map fst parts]
+  where
+    grouped = Map.fromListWith (flip (<>)) [(observations, Sequence.singleton part) | (observations, part) <- parts]
 
 -- | Report a solver query that reached its time limit as 'SolverTimeLimit'.
 reportTimeLimit :: IO (Either GenError a) -> IO (Either GenError a)
@@ -1113,7 +1151,7 @@ candidatesOf entailment generator = case genRecipe generator of
     Closed label constraint child -> (>>= close (const $ Right label) constraint) <$> candidatesOf entailment child
     ClosedBy labelOf constraint child -> (>>= close (labelOf . map witnessLabel) constraint) <$> candidatesOf entailment child
     Imported bound order automaton -> do
-        imported <- compileImport entailment [] bound order automaton
+        imported <- compileImport entailment Set.empty bound order automaton
         pure $ imported >>= builtCandidates . ungroup
     Integers constraint -> pure $ integerCandidates constraint
   where

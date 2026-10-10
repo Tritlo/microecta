@@ -43,8 +43,8 @@ data GenError
       one, which has size classes rather than a cardinality.
       -}
       UnboundedGenerator
-    | {- | Something needing one term per member met a recursive language,
-      which retains its automaton rather than its members.
+    | {- | An operation that needs one term per member was applied to a
+      recursive language that keeps no term for its members.
       -}
       CannotInspectRecursiveGenerator
     | {- | Alternatives that choose recursive structure carried unequal
@@ -122,6 +122,8 @@ data GenError
       leaves and non-leaves.
       -}
       ChildNotOneTerm
+    | -- | A term to rank is not a member of the generator's language.
+      TermNotInLanguage
     deriving (Eq, Show)
 
 {- | Return the value, or fail with the 'explain' text of the error.
@@ -191,20 +193,20 @@ explain UnboundedGenerator =
         , "is recursive: it has a count per size class rather than a"
         , "cardinality."
         , "Fix: bound it first, with upToSize for a recursive generator or"
-        , "fromAutomatonUpToDepth for a recursive automaton. Grouping and mass"
-        , "inspection (groupOn, match, relate, pmf, countOn) additionally need"
-        , "one term per member, which only a language read with fromAutomaton"
-        , "retains. If every member has one known key, keyed enters the grouped"
-        , "layer without inspecting members."
+        , "fromAutomatonUpToDepth for a recursive automaton. The bounded"
+        , "language keeps one term per member, so grouping and mass inspection"
+        , "(groupOn, match, relate, pmf, countOn) work on it. termAt and rankOf"
+        , "work without a bound. If every member has one known key, keyed enters"
+        , "the grouped layer without inspecting members."
         ]
 explain CannotInspectRecursiveGenerator =
     guidance
-        [ "The members of this language carry no term. A recursive generator"
-        , "retains its automaton instead of a term per member, and a term per"
-        , "member is what groupOn, match, relate, pmf, and countOn read."
-        , "Fix: keep the layer that needs terms finite, or read the language"
-        , "from an automaton with fromAutomaton, whose members are terms."
-        , "If every member has one known key, use keyed instead of groupOn."
+        [ "The members of this recursive language carry no term, and a term per"
+        , "member is what termAt, rankOf, groupOn, match, relate, pmf, and"
+        , "countOn read. The combinators of this package keep a term for every"
+        , "member of a recursive language, so the language was built another way."
+        , "Fix: build the recursive language with recur, recurGrouped, or"
+        , "fromAutomaton."
         ]
 explain WeightedRecursiveAlternatives =
     guidance
@@ -437,6 +439,14 @@ explain (InexactMeasure (Symbol symbol)) =
         , "no one value."
         , "Fix: draw that child from elements, every, or a constructor built with"
         , "measured, or leave it out of the measure."
+        ]
+explain TermNotInLanguage =
+    guidance
+        [ "The term is not a member of the generator's language, so it has no rank."
+        , "rankOf reads the terms that termAt returns, with the private labels of"
+        , "the engine. rankOfTerm reads the terms that an imported automaton"
+        , "accepts, and rankOfValue encodes a datatype value with its codec."
+        , "Fix: rank a term that the generator produced."
         ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.

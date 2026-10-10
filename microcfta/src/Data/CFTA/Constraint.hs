@@ -276,21 +276,21 @@ instance Hashable Substitution
 The traversal always collects both positions of every substitution. The
 selector decides which positions of the atoms below it are collected.
 -}
-collectGuardPaths :: (Guard -> [Path]) -> Guard -> [Path]
+collectGuardPaths :: (Guard -> [Path]) -> Guard -> Set Path
 collectGuardPaths atomPaths = go
   where
     go (Substitute substitutions nested) =
-        concatMap substitutionPaths substitutions <> go nested
+        foldMap substitutionPaths substitutions <> go nested
     go (Not nested) = go nested
-    go (And guards) = concatMap go guards
-    go (Or guards) = concatMap go guards
-    go atom = atomPaths atom
+    go (And guards) = foldMap go guards
+    go (Or guards) = foldMap go guards
+    go atom = Set.fromList $ atomPaths atom
 
     substitutionPaths Substitution{substitutionActual, substitutionFormal} =
-        [substitutionActual, substitutionFormal]
+        Set.fromList [substitutionActual, substitutionFormal]
 
 -- | Every term position inspected by a guard, including substitutions.
-guardPaths :: Guard -> [Path]
+guardPaths :: Guard -> Set Path
 guardPaths = collectGuardPaths atomPaths
   where
     atomPaths (Same left right) = [left, right]
@@ -300,16 +300,16 @@ guardPaths = collectGuardPaths atomPaths
     atomPaths _ = []
 
 -- | Paths whose constructor symbol participates in substitution.
-symbolSensitivePaths :: Guard -> [Path]
+symbolSensitivePaths :: Guard -> Set Path
 symbolSensitivePaths = collectGuardPaths atomPaths
   where
     atomPaths (Same left right) = [left, right]
     atomPaths _ = []
 
 -- | Every term position inspected by either transition constraint theory.
-constraintPaths :: Constraint -> [Path]
+constraintPaths :: Constraint -> Set Path
 constraintPaths Constraint{constraintEqualities, constraintGuard} =
-    maybe [] (concatMap Set.toAscList) (equalityClasses constraintEqualities) <> guardPaths constraintGuard
+    maybe Set.empty Set.unions (equalityClasses constraintEqualities) <> guardPaths constraintGuard
 
 -- | Conjoin two complete guards.
 combineGuards :: Guard -> Guard -> Guard

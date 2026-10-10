@@ -121,7 +121,7 @@ validate root = do
             [ (edge, target)
             | (node, edges) <- alternativesOf
             , edge <- edges
-            , target <- constraintPaths (edgeConstraint edge)
+            , target <- Set.toList $ constraintPaths (edgeConstraint edge)
             , reached <- if null (unPath target) then [node] else nodesAt edge target
             , recursive reached
             ]

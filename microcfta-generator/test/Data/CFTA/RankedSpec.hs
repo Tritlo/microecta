@@ -19,11 +19,12 @@ import Test.QuickCheck (
     (===),
  )
 
-import Data.CFTA.Index (Rank (..), Size, Weight (..), everyRank)
+import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), everyRank)
 import qualified Data.CFTA.Ranked as Tree
 import Data.CFTA.Ranked.Internal (rankedPlan, share)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Ranked.Internal.Shrink (smallestPlanRank)
+import Data.CFTA.Ranked.Internal.Size (SizedRank (..), planPosition, sizeClassSelect, sizeIndex)
 
 spec :: Spec
 spec = do
@@ -61,6 +62,32 @@ spec = do
                                                         .&&. map (sizeAt . Tree.valueRank) smaller === sort (map (sizeAt . Tree.valueRank) smaller)
                                            | rank <- checked
                                            ]
+
+    describe "plan positions" $
+        it "find the size class and position of every rank of a finite plan" $ do
+            let languages = do
+                    bit <- Tree.fromIndexed (Tree.Indexed 2 ((: []))) :: Either Tree.RankedError (Tree.Ranked [Rank])
+                    let pair = (<>) <$> bit <*> bit
+                        triple = (\a b c -> a <> b <> c) <$> bit <*> bit <*> bit
+                    mixed <- Tree.oneof [triple, bit, pair]
+                    nested <- Tree.oneof [(<>) <$> mixed <*> bit, pair]
+                    pure [bit, pair, triple, mixed, nested]
+            case languages of
+                Left err -> expectationFailure $ show err
+                Right plans ->
+                    mapM_
+                        ( \language -> do
+                            let plan = rankedPlan language
+                                Cardinality count = Tree.cardinality language
+                            [ fmap
+                                (\(SizedRank size position) -> Tree.valueRank $ sizeClassSelect (sizeIndex plan) size position)
+                                (planPosition plan rank)
+                              | rank <- everyRank $ Tree.cardinality language
+                              ]
+                                `shouldBe` map Just (everyRank $ Tree.cardinality language)
+                            planPosition plan (Rank count) `shouldBe` Nothing
+                        )
+                        plans
 
     describe "structural shrinking" $ do
         it "never offers a member larger than the current one across choice branches" $ do

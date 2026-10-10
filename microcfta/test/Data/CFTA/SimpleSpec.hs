@@ -261,7 +261,7 @@ withoutMissingChildren explicit =
   where
     fits (Transition _ children constraint) =
         and
-            [0 <= index && index < length children | ChildIndex index : _ <- map unPath (constraintPaths constraint)]
+            [0 <= index && index < length children | ChildIndex index : _ <- map unPath (Set.toList $ constraintPaths constraint)]
 
 -- | The deepest depth to compare: three when the underlying graph has few trees of depth two.
 deepest :: FTA Int String Constraint -> Depth

@@ -57,9 +57,14 @@ module Data.CFTA.Ranked.Internal.Size (
     sizeIndex,
     countAtSize,
     sizeClassOf,
+    sizeMajorRank,
+    planPosition,
+    productPosition,
     ChoiceIndex (..),
+    choicePosition,
     constantIndex,
     mapIndex,
+    mapIndexWithRank,
     productIndex,
     choiceIndex,
     fixIndex,
@@ -70,8 +75,11 @@ module Data.CFTA.Ranked.Internal.Size (
     valueAtSize,
 ) where
 
+import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import qualified Data.IntSet as IntSet
+import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Sequence
 
 import Data.CFTA.Index (
     Cardinality (..),
@@ -80,9 +88,12 @@ import Data.CFTA.Index (
     RankOffset,
     Size (..),
     classMemberRank,
+    hasRank,
     nextOffset,
     offsetRank,
     pairRank,
+    rebaseRank,
+    splitRank,
  )
 import Data.CFTA.Ranked.Internal.Decoder (
     LargestSize (..),
@@ -92,6 +103,7 @@ import Data.CFTA.Ranked.Internal.Decoder (
     SizeClass (..),
     SizeCounts,
     SizeIndex (..),
+    planCardinality,
  )
 
 {- | A token that identifies the occurrence of one recursion in the probe
@@ -190,6 +202,75 @@ sizeClassOf index (Rank rank)
         | position < count = Just (SizedRank size (ClassRank position))
         | otherwise = go (position - count) rest
 
+-- | The size-major rank of one sized rank: the members of the smaller sizes come first.
+sizeMajorRank :: SizeIndex a -> SizedRank -> Rank
+sizeMajorRank index (SizedRank size position) = classMemberRank (countBelow (sizeClassCounts index) size) position
+
+-- | The first rank of one size class: the members of the smaller sizes come before it.
+countBelow :: SizeCounts -> Size -> RankOffset
+countBelow counts size = foldl' nextOffset 0 [count | (_, count) <- takeWhile ((< size) . fst) counts]
+
+{- | The size class and the position in it of one rank of a finite plan.
+
+This is the inverse of 'sizeClassSelect' on 'sizeIndex': the rank that
+'sizeClassSelect' returns for the size and position is the given rank.
+'Nothing' means that the rank is outside the plan.
+-}
+planPosition :: Plan a -> Rank -> Maybe SizedRank
+planPosition plan rank
+    | not $ hasRank (planCardinality plan) rank = Nothing
+    | otherwise = case plan of
+        -- A leaf has one size class, so a rank is its rank in that class.
+        PlanSelect _ _ -> Just (SizedRank 1 leafRank)
+        PlanSelectOnDemand _ _ -> Just (SizedRank 1 leafRank)
+        PlanShared _ _ _ inner -> planPosition inner rank
+        PlanMap _ inner -> planPosition inner rank
+        PlanChoice branches -> branchPosition Empty 0 branches
+        PlanAp radix planF planX -> do
+            let (rankF, rankX) = splitRank radix rank
+            positionF <- planPosition planF rankF
+            positionX <- planPosition planX rankX
+            pure $ productPosition (sizeIndex planF) (sizeIndex planX) positionF positionX
+        PlanSized classes -> classPosition 0 classes
+  where
+    leafRank = let Rank wide = rank in ClassRank wide
+    branchPosition _ _ [] = Nothing
+    branchPosition earlier offset ((count, branch) : rest)
+        | hasRank count remaining = do
+            SizedRank size position <- planPosition branch remaining
+            pure $
+                SizedRank size (choicePosition (map sizeIndex $ toList earlier) (ChoiceIndex $ Sequence.length earlier) size position)
+        | otherwise = branchPosition (earlier :|> branch) (nextOffset offset count) rest
+      where
+        remaining = rebaseRank offset rank
+    classPosition _ [] = Nothing
+    classPosition offset (SizeClass{classSize = size, classCardinality = count} : rest)
+        | hasRank count remaining = Just (SizedRank size (ClassRank position))
+        | otherwise = classPosition (nextOffset offset count) rest
+      where
+        remaining@(Rank position) = rebaseRank offset rank
+
+{- | The size and the position in its size class of a product member, from
+the size and position of its function and of its argument.
+
+Within a size class, splits come in ascending function size, and each split
+is ordered function-major, as 'productSplit' reads them.
+-}
+productPosition :: SizeIndex f -> SizeIndex x -> SizedRank -> SizedRank -> SizedRank
+productPosition indexF indexX (SizedRank sizeF (ClassRank positionF)) (SizedRank sizeX (ClassRank positionX)) =
+    SizedRank size
+        $ ClassRank
+        $ sum
+            [ functionCount * argumentCount (size - functionSize)
+            | (functionSize, Cardinality functionCount) <- takeWhile ((< sizeF) . fst) (sizeClassCounts indexF)
+            ]
+            + positionF * argumentCount sizeX
+            + positionX
+  where
+    size = sizeF + sizeX
+    argumentCount argumentSize = case countAtSize indexX argumentSize of
+        Cardinality count -> count
+
 {- | The zero-based index of an alternative in a choice.
 
 A choice of size indexes ('choiceIndex') and a generator choice
@@ -197,6 +278,15 @@ A choice of size indexes ('choiceIndex') and a generator choice
 -}
 newtype ChoiceIndex = ChoiceIndex Int
     deriving newtype (Eq, Ord, Show, Hashable, Num, Enum)
+
+{- | The position in one size class of a member of one alternative, from its
+position in that alternative's class. The alternatives before it come first,
+as 'partAt' reads them.
+-}
+choicePosition :: [SizeIndex a] -> ChoiceIndex -> Size -> ClassRank -> ClassRank
+choicePosition branches (ChoiceIndex branch) size (ClassRank position) =
+    case sum [countAtSize earlier size | earlier <- take branch branches] of
+        Cardinality before -> ClassRank $ before + position
 
 {- | The non-empty size classes up to a bound.
 
@@ -340,6 +430,24 @@ mapIndex transform index =
         let RankedValue rank value = sizeClassSelect index size position
          in RankedValue rank (transform value)
     selectInt size = transform . sizeClassValueInt index size
+
+{- | Map the values of an index with their ranks, keeping its counts and
+ranks.
+-}
+mapIndexWithRank :: (Rank -> a -> b) -> SizeIndex a -> SizeIndex b
+mapIndexWithRank transform index =
+    SizeIndex
+        (sizeClassCounts index)
+        select
+        (\size -> rankedValue . select size . ClassRank . toInteger)
+        (minimumMemberSize index)
+        (largestMemberSize index)
+        (unguardedOccurrences index)
+        (usedOccurrences index)
+  where
+    select size position =
+        let RankedValue rank value = sizeClassSelect index size position
+         in RankedValue rank (transform rank value)
 
 {- | The product of two indexes, ranked size-major.
 
