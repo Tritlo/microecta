@@ -18,6 +18,7 @@ import qualified Data.Text as Text
 import GHC.Clock (getMonotonicTime)
 
 import Data.CFTA.Refinement (Entailment, Verdict (..), entailmentWithBindings)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Smt.Interface as SMT
 import qualified Language.Fixpoint.Smt.Types as SMTTypes
 import qualified Language.Fixpoint.Types as Fixpoint
@@ -47,7 +48,7 @@ This models the surrounding Liquid typing environment. For example, an input
 named @bufferLength@ may be declared as an integer and assumed equal to three;
 position substitution can then prove that an index lies below that particular
 buffer length. Each query declares as an integer every free name that the
-declarations do not give a sort, including the value name @v@ and term symbols
+declarations do not give a sort, including 'valueName' and term symbols
 that become actual values in a position substitution. Declare a name to give
 it another sort.
 
@@ -84,10 +85,10 @@ withZ3Timeout milliseconds given assumptions action =
     bracket acquire release $ \contextVar ->
         action (entailmentWithBindings $ query contextVar)
   where
-    valueName = Fixpoint.symbol ("v" :: String)
+    valueSymbol = Fixpoint.symbol valueName
     declarations
-        | valueName `elem` map fst given = given
-        | otherwise = (valueName, Fixpoint.FInt) : given
+        | valueSymbol `elem` map fst given = given
+        | otherwise = (valueSymbol, Fixpoint.FInt) : given
     known = HashSet.fromList $ map fst declarations
 
     config = defConfig{solver = Z3, smtTimeout = Just milliseconds}

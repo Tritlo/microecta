@@ -38,29 +38,30 @@ import Data.CFTA.Refinement.Expression (
 import Data.CFTA.Refinement.Guard (argument, contract, notGuard, withActualFor)
 import Data.CFTA.Refinement.Lattice (latticeEntailment, pointAt, pointCount, pointRank, points)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec = do
     describe "semantic refinement comparison" $ do
         it "recognises strict subtyping" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver ->
                 refinementRelation solver (refinementFormula (\v -> v .== 0)) (refinementFormula (\v -> v .>= 0))
                     >>= (`shouldBe` StrictSubtype)
 
         it "recognises logical equivalence" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver ->
                 refinementRelation solver (refinementFormula (\v -> v .>= 0)) (refinementFormula (\v -> v .>= 0))
                     >>= (`shouldBe` Equivalent)
 
         it "does not merge incomparable refinements" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver ->
                 refinementRelation solver (refinementFormula (\v -> v .>= 0)) (refinementFormula (\v -> v ./= 0))
                     >>= (`shouldBe` Incomparable)
 
         it "answers each query after Z3 rejects one" $
             withZ3 [] $ \solver -> do
-                let applied = Fixpoint.EApp (Fixpoint.EVar "f") (Fixpoint.EVar "v")
+                let applied = Fixpoint.EApp (Fixpoint.EVar "f") (Fixpoint.EVar (Fixpoint.symbol valueName))
                 rejected <-
                     try $
                         entails
@@ -73,7 +74,7 @@ spec = do
 
         it "holds a negated contract only when the refinements refute it" $
             withZ3 [] $ \solver -> do
-                let v = variable "v"
+                let v = variable valueName
                     n = variable "n"
                     leaf name refinement = Tree.Node (RefinedSymbol name refinement) []
                     -- Only a knows that n is at least zero, and the contract names only b.
@@ -92,19 +93,19 @@ spec = do
                 evaluateConstraint solver (notGuard scoped) quad >>= (`shouldBe` No)
 
         it "retains the antecedent when semantic intersection succeeds" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
                 let exactZero = refinementFormula (\v -> v .== 0)
                 semanticIntersection solver exactZero (refinementFormula (\v -> v .>= 0))
                     >>= (`shouldBe` RetainedAntecedent exactZero)
 
         it "does not reverse a directional semantic intersection" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver -> do
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
                 let exactZero = refinementFormula (\v -> v .== 0)
                 semanticIntersection solver (refinementFormula (\v -> v .>= 0)) exactZero
                     >>= (`shouldBe` BottomIntersection)
 
         it "reduces incomparable semantic transitions to bottom" $
-            withZ3 [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)] $ \solver ->
+            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver ->
                 semanticIntersection solver (refinementFormula (\v -> v .>= 0)) (refinementFormula (\v -> v ./= 0))
                     >>= (`shouldBe` BottomIntersection)
 

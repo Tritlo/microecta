@@ -131,7 +131,7 @@ import Data.CFTA.Refinement.Guard (
  )
 import Data.CFTA.Refinement.Lattice (onlyPoint)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3Assuming)
-import Data.CFTA.Symbol (liquidOrder)
+import Data.CFTA.Symbol (liquidOrder, valueName)
 
 -- | A generator over liquid tree automata.
 type LTAGen = Gen Symbol
@@ -475,10 +475,10 @@ measuredNode symbol guardBuilder measure child
                 substitute
                     [ (contractTermName index, term)
                     | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
-                    , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                    , Just term <- [(literal <$> onlyPoint valueName refinement) <|> definingTerm refinement]
                     ]
                     (refinementFormula (.== measureTerm measure))
-         in case onlyPoint "v" formula of
+         in case onlyPoint valueName formula of
                 Just value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value)
                 Nothing
                     | any (`elem` map (contractTermName . ArgumentIndex) [0 .. fromEnum (measureArity measure) - 1]) (freeNames formula) ->

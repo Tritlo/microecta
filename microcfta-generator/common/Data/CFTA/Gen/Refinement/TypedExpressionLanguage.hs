@@ -26,6 +26,7 @@ import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Refinement (Formula, Symbol)
 import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, variable, (./=), (.==))
 import Data.CFTA.Refinement.Guard (allOf, descendant, isSubtypeOf, withActualFor)
+import Data.CFTA.Symbol (valueName)
 
 -- | Expressions used by the LTA capability examples.
 data Expression
@@ -52,7 +53,7 @@ nonZero v = v ./= 0
 solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
 solverDeclarations =
     [ (Fixpoint.symbol name, Fixpoint.FInt)
-    | name <- ["v", "x", "y", "p", "n"] :: [String]
+    | name <- [valueName, "x", "y", "p", "n"] :: [String]
     ]
 
 -- | Atoms ordered from least information to more useful concrete witnesses.

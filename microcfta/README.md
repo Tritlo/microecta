@@ -673,7 +673,9 @@ A refinement is a Haskell function of the refined value, as in
 take integer literals and arithmetic, the comparisons `.==`, `./=`, `.<`,
 `.<=`, `.>`, and `.>=`, and the connectives `.&&`, `.||`, and `lnot`. The
 `Transition` and `RefinedSymbol` patterns hold the formula of a refinement,
-stated about the variable `v`; `refinementFormula` gives it.
+stated about the value variable `valueName` from `Data.CFTA.Symbol`;
+`refinementFormula` gives it. The name has the reserved prefix `__microcfta_`,
+so a name that the caller makes with `variable` does not collide with it.
 
 An LTA uses the same `Constraint` type as every other automaton, so `union`, `intersect`, `boundDepth`, and the enumerator work on an LTA
 without conversion. Construction does not call the solver and does not
@@ -893,11 +895,11 @@ This program prints:
 ```text
 node @root
 |
-`- sqrt [refinement(0) entails v >= 0]
+`- sqrt [refinement(0) entails __microcfta_value >= 0]
    |
    `- node @0:0
       |
-      `- zero {v >= 0}
+      `- zero {__microcfta_value >= 0}
 ```
 
 `renderNode` and `renderTransition` are caller code. Change them to use domain

@@ -44,6 +44,7 @@ import Data.CFTA.Refinement (
  )
 import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, (.==))
 import Data.CFTA.Refinement.Guard (allOf, argument, requires)
+import Data.CFTA.Symbol (valueName)
 
 -- | Encode one ground type as an exact integer equality refinement.
 typeEquality :: Type -> Refinement
@@ -51,7 +52,7 @@ typeEquality type_ v = v .== fromIntegral (typeTag type_)
 
 -- | Free integer symbols used by the equality refinements.
 solverDeclarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-solverDeclarations = [(Fixpoint.symbol ("v" :: String), Fixpoint.FInt)]
+solverDeclarations = [(Fixpoint.symbol valueName, Fixpoint.FInt)]
 
 {- | Build the exact-depth typed-expression language as a guarded LTA.
 

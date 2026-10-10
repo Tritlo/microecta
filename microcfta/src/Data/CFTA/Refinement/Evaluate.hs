@@ -42,7 +42,7 @@ import Data.CFTA.Refinement.Verdict (
     negateVerdict,
     orM,
  )
-import Data.CFTA.Symbol (Formula, Symbol (RefinedSymbol, Symbol), liquidOrder)
+import Data.CFTA.Symbol (Formula, Symbol (RefinedSymbol, Symbol), liquidOrder, valueName)
 
 {- | What a guard reads at one path: the symbol, and whether the node there is
 a leaf.
@@ -368,9 +368,9 @@ resolveSubstitutionWith observedAt freshValues ambiguousValues Substitution{subs
             , resolvedIdentityKnown = Set.notMember substitutionActual ambiguousValues
             }
 
--- | Conventional value variable used by public microcfta refinements.
+-- | The solver symbol of 'valueName', the value variable of every refinement.
 refinementValueSymbol :: Fixpoint.Symbol
-refinementValueSymbol = Fixpoint.symbol ("v" :: String)
+refinementValueSymbol = Fixpoint.symbol valueName
 
 -- | Apply simultaneous scopes from the innermost scope to the outermost.
 applySubstitutions :: [[ResolvedSubstitution]] -> Formula -> Formula

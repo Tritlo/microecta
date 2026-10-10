@@ -36,7 +36,8 @@ remains a separate ECTA-only package.
   literals and arithmetic through `Num`; the comparisons are `.==`, `./=`,
   `.<`, `.<=`, `.>`, and `.>=`, and the connectives are `.&&`, `.||`, and
   `lnot`. `Formula` is the closed formula that the engine stores, and
-  `refinementFormula` gives the formula of a refinement about `v`. `Literal`
+  `refinementFormula` gives the formula of a refinement about the value
+  variable, the reserved name `valueName` of `Data.CFTA.Symbol`. `Literal`
   gives the integer that stands for each value of a type, the value of each
   integer, and the range of a bounded type. It has instances for integral
   types, `Bool`, `Char`, `Ordering`, and `()`, and for enumerations through

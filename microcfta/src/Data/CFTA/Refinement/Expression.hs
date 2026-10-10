@@ -45,6 +45,7 @@ import Data.Word (Word16, Word32, Word64, Word8)
 import Numeric.Natural (Natural)
 
 import Data.CFTA.Refinement (Formula)
+import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A term of the refinement logic. Its solver sort comes from declarations.
@@ -69,11 +70,11 @@ conditional condition (Expr yes) (Expr no) = Expr $ Fixpoint.EIte condition yes 
 {- | Values that integers stand for, so that the logic writes each value as a
 literal term.
 
-The solver declares @v@ as an integer, so each value stands for one integer:
-'toLiteral' gives the integer, and 'fromLiteral' gives the value back.
-'literalRange' gives the least and the greatest value of a bounded type. A
-generator infers the refinement @\\v -> v .== literal x@ for such a value,
-and @every@ draws every value of such a type.
+The solver declares the value 'valueName' as an integer, so each value stands
+for one integer: 'toLiteral' gives the integer, and 'fromLiteral' gives the
+value back. 'literalRange' gives the least and the greatest value of a
+bounded type. A generator infers the refinement @\\v -> v .== literal x@ for
+such a value, and @every@ draws every value of such a type.
 
 The instances write integral types as themselves, and 'Bool', 'Char',
 'Ordering', and @()@ as their positions, 'fromEnum'. Derive an instance for a
@@ -222,14 +223,16 @@ substitute replacements formula =
   where
     substitution = Fixpoint.mkSubst [(Fixpoint.symbol name, term) | (name, Expr term) <- replacements]
 
--- | The term @t@ of a formula @v .== t@ or @t .== v@ about the value @v@, if the formula has that form.
+{- | The term @t@ of a formula @v .== t@ or @t .== v@, where @v@ is the value
+'valueName', if the formula has that form.
+-}
 definingTerm :: Formula -> Maybe Expr
 definingTerm formula = case formula of
     Fixpoint.PAtom Fixpoint.Eq (Fixpoint.EVar name) term | name == valueSymbol -> Just $ Expr term
     Fixpoint.PAtom Fixpoint.Eq term (Fixpoint.EVar name) | name == valueSymbol -> Just $ Expr term
     _ -> Nothing
   where
-    valueSymbol = Fixpoint.symbol ("v" :: String)
+    valueSymbol = Fixpoint.symbol valueName
 
 -- | The names that occur free in a formula.
 freeNames :: Formula -> [String]
@@ -245,6 +248,6 @@ Write it as a function of the value, as in @\\v -> 0 .<= v .&& v .< n@.
 -}
 type Refinement = Expr -> Formula
 
--- | The formula of a refinement, stated about the value variable @v@.
+-- | The formula of a refinement, stated about the value variable 'valueName'.
 refinementFormula :: Refinement -> Formula
-refinementFormula refinement = refinement (variable "v")
+refinementFormula refinement = refinement (variable valueName)

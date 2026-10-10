@@ -97,6 +97,7 @@ import Data.CFTA.Refinement.Lattice (
     points,
  )
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..))
+import Data.CFTA.Symbol (valueName)
 
 -- | A generator over liquid tree automata.
 type LTAGen = Gen Symbol
@@ -322,10 +323,6 @@ compileGenOnce compiler requested generator
     uniformWeights groups
         | any recursiveGroup groups = map (const 1) groups
         | otherwise = map (either (const 1) (countWeight . sum) . sizes) groups
-
--- | The name of the value in a refinement.
-valueName :: String
-valueName = "v"
 
 -- | The leaf of one integer, refined as itself.
 integerSymbol :: Integer -> Symbol
