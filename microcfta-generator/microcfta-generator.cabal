@@ -73,6 +73,8 @@ library
   exposed-modules:
     Data.CFTA.Gen
     Data.CFTA.Gen.Do
+    Data.CFTA.Gen.Equality
+    Data.CFTA.Gen.Equality.QuickCheck
     Data.CFTA.Gen.Error
     Data.CFTA.Gen.Internal.Automaton
     Data.CFTA.Gen.Internal.Bucket
@@ -122,6 +124,17 @@ executable cfta-pairs
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
+executable cfta-finite-languages
+  import: warnings
+  main-is: FiniteLanguages.hs
+  hs-source-dirs: examples
+  default-language: Haskell2010
+  build-depends:
+    base >=4.22 && <4.23,
+    microcfta >=0.1.0.0 && <0.2,
+    microcfta-generator,
+    QuickCheck >=2.14 && <2.19,
+
 test-suite gen-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
@@ -138,6 +151,11 @@ test-suite gen-tests
     -Wno-partial-type-signatures
 
   other-modules:
+    Data.CFTA.Gen.Equality.DatatypeGenSpec
+    Data.CFTA.Gen.Equality.GenSpec
+    Data.CFTA.Gen.Equality.RankDecodingSpec
+    Data.CFTA.Gen.Equality.SimpleSpec
+    Data.CFTA.Gen.Equality.TestSupport
     Data.CFTA.Gen.Reference
     Data.CFTA.Gen.ReferenceSpec
     Data.CFTA.Gen.UntypedExpressionLanguage
