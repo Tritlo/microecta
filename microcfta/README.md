@@ -1070,6 +1070,10 @@ canonical identities. Removing a live node from its table can give a later
 copy of the same structure a different identity. Account for this retention
 when using the interned API in a long-running process.
 
+The tables are global because a pure API cannot give a table from one call to
+the next. The module documentation of `Data.CFTA.Interned.Cache` and
+`Data.CFTA.Interned.Memo` gives the reasons and the alternatives.
+
 ## Performance notes
 
 The core keeps the hash-consing, memoization, union-find, recursive-node, and

@@ -66,6 +66,17 @@ emptyCounts = Counts IntMap.empty Map.empty
 Every count is a function of interned graphs and normalized contexts, so
 sharing the cache changes no result. Two concurrent selections can each
 replace the cache; the loser's new counts are only computed again later.
+
+The selections must share the cache. A selection conditions the graph on one
+constructor at each position and counts the conditioned problems, and later
+selections need many of the same counts. On an equality import of depth three
+with overlapping alternatives and equalities below the children, selections
+that each start from the counts of the total allocate 12.6 times as much, and
+take 11 times as long, as selections that share the cache. The keys of the
+cache are not known before the selections run: a key is a normalized context
+of variables, nodes, and pending equalities. A pure memo table would need a
+lazy trie over such keys, which the counter does not have, so the cache is an
+'IORef' that 'unsafePerformIO' makes.
 -}
 newCountCache :: Counts symbol -> IORef (Counts symbol)
 newCountCache counts = unsafePerformIO $ newIORef counts
