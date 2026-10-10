@@ -119,9 +119,10 @@ pattern Opaque generated <- Gen _ (OpaqueLanguage generated)
 
 Every combinator that a solver-backed compile step folds records itself
 here: a lifted value, a map, an application, a constructor closed over a
-child description with the constraint its edge carries, a weighted choice,
-a uniform choice, an automaton import with its depth bound, and a leaf of
-integers that a constraint narrows. Everything else, sources and joins and
+child description with the constraint its edge carries, a constructor whose
+symbol comes from its children, a pay, a weighted choice, a uniform choice,
+an automaton import with its depth bound, and a leaf of integers that a
+constraint narrows. Everything else, sources and joins and
 recursion among them, is 'Built'. Its language is final, unless an input is
 deferred. Then the generator is 'Transparent' with a
 'SourceRequiresCompilation' error, and compile returns that error.

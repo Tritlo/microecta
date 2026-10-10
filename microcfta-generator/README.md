@@ -643,11 +643,12 @@ The convolution and the size measure are FEAT's ([Duregård, Jansson and Wang,
 size zero, `<*>` adds the sizes of its sides, and `fmap` and the choices keep
 sizes. `pay` adds one to every member. An atom (`elements`, `fromIndexed`,
 `every`, `atomic`) has size one, and a constructor (`node`, `leaf`, `guarded`,
-`measured`) pays one, so the size of a built tree is its number of nodes, as
-for an imported term. A join (`match`, `relate`) treats the member of each
-side as one atom, so every pair has size two. The tree above needs no pay:
-its leaves are atoms of size one, so each side of `Branch <$> self <*> self`
-guards the other.
+`measured`) pays one, so the size of a tree built with `node` is its number
+of nodes, as for an imported term. A join (`match`, `relate`) treats the
+member of each side as one atom, so every pair has size two. The tree above
+has no `node`, so its size is its number of leaves: each leaf is an atom of
+size one. Each side of `Branch <$> self <*> self` has no member of size zero,
+so each side guards the other, and the tree needs no pay.
 "Size-major rank" is this package's own term for the resulting order. [ADR
 2](../docs/adr/0002-sizes-count-pays.md) records the decision. Counting a family by a size recurrence and
 drawing from those counts is the recursive method of Nijenhuis and Wilf,
@@ -1136,10 +1137,11 @@ adjacent `node` or `guarded` supplies the constructor. A contract must take
 exactly one argument per child; write `_` for an unused child. An
 argument-count mismatch is a construction error, including when the source is
 empty. `satisfying` applies to the root of the generator it follows: a pool, a
-leaf, a node, a bounded import, a choice of these, or a mapped generator. A
-condition names only `v` and ambient names, and on `every` only `v` and
-constants; a relation between children belongs in a contract. Names that
-start with `__microcfta_` are reserved for the compiler.
+leaf, a node, an import, a choice of these, or a mapped or paid generator. On
+an import with a recursive root, it applies to the root only, not to the
+recursive occurrences. A condition names only `v` and ambient names, and on
+`every` only `v` and constants; a relation between children belongs in a
+contract. Names that start with `__microcfta_` are reserved for the compiler.
 
 `node` and `guarded` use the universal result refinement. `refinedNode`
 supplies a fixed result refinement, and `refinedNodeByRoots` computes one from
