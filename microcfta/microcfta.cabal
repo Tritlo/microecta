@@ -147,10 +147,7 @@ test-suite unit-tests
     Data.CFTA.Refinement.TestSupport
     Data.CFTA.SimpleSpec
     Data.CFTA.SymbolSpec
-    Data.CFTA.TermSearch.Dataset
-    Data.CFTA.TermSearch.TermSearch
-    Data.CFTA.TermSearch.Type
-    Data.CFTA.TermSearch.Utils
+    Data.CFTA.TermSearch
     Data.CFTA.TermSearchSpec
     Data.CFTASpec
     Test.Generators.Equality
@@ -193,12 +190,7 @@ benchmark micro-bench
     -rtsopts
     -with-rtsopts=-M512M
 
-  other-modules:
-    Data.CFTA.TermSearch.Dataset
-    Data.CFTA.TermSearch.TermSearch
-    Data.CFTA.TermSearch.Type
-    Data.CFTA.TermSearch.Utils
-
+  other-modules: Data.CFTA.TermSearch
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,

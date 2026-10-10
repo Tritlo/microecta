@@ -7,25 +7,15 @@ import Test.Hspec
 
 import Data.CFTA.Equality
 import Data.CFTA.Symbol
-import Data.CFTA.TermSearch.Dataset (typeToFta)
-import Data.CFTA.TermSearch.TermSearch (filterType, reduceFully)
-import Data.CFTA.TermSearch.Type (TypeSkeleton (..))
-import Data.CFTA.TermSearch.Utils (
-    arrowType,
-    constFunc,
-    genVar,
-    mkDatatype,
-    theArrowNode,
-    typeConst,
- )
+import Data.CFTA.TermSearch (constFunc, filterType, reduceFully, theArrowNode, typeNode)
 
 -----------------------------------------------------------------
 
 intType :: Node Symbol
-intType = typeConst "Int"
+intType = typeNode @Int
 
 boolType :: Node Symbol
-boolType = typeConst "Bool"
+boolType = typeNode @Bool
 
 {- | Two constants of different types, in the term-search encoding: a term
 symbol carries its type as its one child.
@@ -36,42 +26,20 @@ constants = Node [constFunc "one" intType, constFunc "true" boolType]
 spec :: Spec
 spec = do
     describe "type encoding" $ do
-        it "a nullary constructor is a leaf" $
-            typeToFta (TCons "Int" []) `shouldBe` intType
+        it "a nullary type constructor is a leaf" $
+            intType `shouldBe` Node [Edge "Int" []]
 
-        it "an applied constructor keeps its arguments" $
-            typeToFta (TCons "List" [TCons "Int" []])
-                `shouldBe` mkDatatype "List" [intType]
+        it "an applied type constructor keeps its arguments" $
+            typeNode @(Maybe [Int])
+                `shouldBe` Node [Edge "Maybe" [Node [Edge "List" [intType]]]]
 
         it "a function type is an arrow with the arrow marker first" $
-            typeToFta (TFun (TCons "Int" []) (TCons "Bool" []))
-                `shouldBe` arrowType intType boolType
-
-        it "the arrow encoding leads with theArrowNode" $
-            arrowType intType boolType
+            typeNode @(Int -> Bool)
                 `shouldBe` Node [Edge "->" [theArrowNode, intType, boolType]]
 
-        it "TCons \"Fun\" is the same encoding as TFun" $
-            typeToFta (TCons "Fun" [TCons "Int" [], TCons "Bool" []])
-                `shouldBe` typeToFta (TFun (TCons "Int" []) (TCons "Bool" []))
-
-    describe "type variables" $ do
-        it "the canonical names get the canonical nodes" $ do
-            genVar "a" `shouldBe` Node [Edge "var1" []]
-            genVar "b" `shouldBe` Node [Edge "var2" []]
-            genVar "c" `shouldBe` Node [Edge "var3" []]
-            genVar "d" `shouldBe` Node [Edge "var4" []]
-            genVar "acc" `shouldBe` Node [Edge "acc" []]
-
-        it "any other name gets a prefixed node of its own" $ do
-            genVar "zzz" `shouldBe` Node [Edge "__gen_var_zzz" []]
-            genVar "zzz" `shouldNotBe` genVar "yyy"
-
-        it "the prefix keeps a variable clear of the canonical nodes" $
-            genVar "var1" `shouldNotBe` genVar "a"
-
-        it "a variable type goes through genVar" $
-            typeToFta (TVar "a") `shouldBe` genVar "a"
+        it "a curried function type nests its arrows to the right" $
+            typeNode @(Int -> Bool -> Int)
+                `shouldBe` Node [Edge "->" [theArrowNode, intType, typeNode @(Bool -> Int)]]
 
     describe "filterType" $ do
         it "keeps only the terms of the requested type" $
@@ -83,7 +51,7 @@ spec = do
                 `shouldBe` [Tree.Node "filter" [Tree.Node "Bool" [], Tree.Node "true" [Tree.Node "Bool" []]]]
 
         it "an unrepresented type leaves nothing" $
-            reduceFully (filterType constants (typeConst "Char")) `shouldBe` EmptyNode
+            reduceFully (filterType constants (typeNode @Char)) `shouldBe` EmptyNode
 
         it "filtering by a type both terms could have keeps both" $
             length (terms (reduceFully (filterType (Node [constFunc "one" intType, constFunc "two" intType]) intType)))
