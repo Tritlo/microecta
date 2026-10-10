@@ -740,7 +740,7 @@ compileOpenSpine compiler requirements generator = case genRecipe generator of
 The children are grouped as for 'compileNode'. For each tuple of child groups,
 the variables of the children are renamed apart and joined. The solver decides
 the parts of the guard that read no open child, as in 'compileNode'. The other
-parts, the conditions of the constructor's own result, and the formulas of the
+parts, the conditions on the constructor's own measure, and the formulas of the
 children form one linear formula over the joined variables; a child names its
 value by its root label, as an exact integer or as a term of its variables.
 When the constructor's label names no variable, the constructor closes them:

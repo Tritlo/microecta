@@ -7,7 +7,7 @@ checks its guards one by one, which is the definition of the language.
 Random generators of integers are compiled and must give the same multiset
 of values. The leaves are pools, bounded integer leaves, and nodes over a
 choice of pure values; the nodes are choices, conditions, equalities of two
-leaves, and guarded constructors whose result is the sum of their children,
+leaves, and measured constructors whose measure is the sum of their children,
 so a parent guard reads integers. Both sides decide the queries with
 'latticeEntailment'. Every value is exact, so the description alone also
 gives the values, and 'LTAGen.validOutcomes' must agree with them.
@@ -310,7 +310,7 @@ generator depth
                 pure
                     ( "sum " <> contractName <> " (" <> leftName <> ") (" <> rightName <> ")"
                     , [x + y | x <- leftValues, y <- rightValues, holds x y]
-                    , (LTAGen.guarded "sum" contract `LTAGen.ensuring` (+)) ((+) <$> left <*> right)
+                    , LTAGen.measured "sum" contract (+) ((+) <$> left <*> right)
                     )
             , do
                 -- Equality of two leaves. A pool entry, a leaf of every, and a node over a
@@ -321,7 +321,7 @@ generator depth
                 pure
                     ( equalityName <> " (" <> leftName <> ") (" <> rightName <> ")"
                     , [x + y | x <- leftValues, y <- rightValues, holds x y]
-                    , (LTAGen.refinedNode "pair" (const true) equality `LTAGen.ensuring` (+)) ((+) <$> left <*> right)
+                    , LTAGen.measuredNode "pair" equality (+) ((+) <$> left <*> right)
                     )
             , do
                 -- Bounded recursion: a base, or the guarded sum of a step and the recursion. Both can recur.
@@ -335,7 +335,7 @@ generator depth
                     ( "recurUpTo " <> show bound <> " (oneof [" <> baseName <> ", sum " <> contractName <> " (" <> stepName <> ") self])"
                     , iterate unfold [] !! (bound + 1)
                     , LTAGen.recurUpTo (Depth bound) $ \self ->
-                        LTAGen.oneof [base, (LTAGen.guarded "sum" contract `LTAGen.ensuring` (+)) ((+) <$> step <*> self)]
+                        LTAGen.oneof [base, LTAGen.measured "sum" contract (+) ((+) <$> step <*> self)]
                     )
             ]
   where

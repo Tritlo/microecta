@@ -1,11 +1,9 @@
-{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QualifiedDo #-}
 
--- | Count red-black trees exactly by size and sample them, with black heights as results.
+-- | Count red-black trees exactly by size and sample them, with black heights as measures.
 module Main (main) where
 
--- A result names each child, as in \x _ -> x, as a contract does.
+-- A measure names each child, as in \leftHeight _ -> leftHeight, as a contract does.
 {- HLINT ignore "Use const" -}
 
 import Control.Monad (unless)
@@ -20,7 +18,7 @@ data Tree = Leaf | Black Tree Tree | Red Tree Tree
     deriving (Eq, Show)
 
 {- | Red-black trees with a black root, unfolded a bounded number of times.
-The refinement of a tree is its black height. The grammar keeps red children
+The measure of a tree is its black height. The grammar keeps red children
 black, and the contracts keep the black heights equal.
 -}
 redBlackTrees :: Depth -> LTAGen.LTAGen Tree
@@ -28,16 +26,23 @@ redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
     let anyRooted = LTAGen.oneof [blackRooted, red blackRooted]
      in LTAGen.oneof [leaf, black anyRooted]
   where
+    -- A leaf has black height zero.
     leaf = LTAGen.leaf Leaf "leaf" (.== 0)
     black, red :: LTAGen.LTAGen Tree -> LTAGen.LTAGen Tree
-    black child = LTAGen.guarded "black" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l + 1) $ LTAGen.do
-        l <- child
-        r <- child
-        LTAGen.pure (Black l r)
-    red child = LTAGen.guarded "red" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l) $ LTAGen.do
-        l <- child
-        r <- child
-        LTAGen.pure (Red l r)
+    -- The two subtrees have equal black heights, and a black node adds one.
+    black child =
+        LTAGen.measured
+            "black"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight + 1)
+            (Black <$> child <*> child)
+    -- A red node keeps the black height of its subtrees.
+    red child =
+        LTAGen.measured
+            "red"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight)
+            (Red <$> child <*> child)
 
 -- | Whether a tree is a red-black tree with a black root.
 valid :: Tree -> Bool

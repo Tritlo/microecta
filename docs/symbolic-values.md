@@ -78,9 +78,10 @@ on these integers is exact: `x + y` on two `Word8` values does not wrap around.
 On a symbolic leaf, `satisfying` narrows the values, where on a pool it tests
 each refinement with the solver. A contract of `guarded` keeps the tuples of values that it
 admits. The contract can also name a child from `elements`, whose refinement
-fixes one integer. With `ensuring`, a constructor's result is a term of its
-integer children, and a parent's contract reads that term. The
-[generator README](../microcfta-generator/README.md#results-and-bounded-recursion)
+fixes one integer. With `measured`, a constructor has a measure: a term of the
+measures of its children, which stays a term of its integer children, and a
+parent's contract reads it. The
+[generator README](../microcfta-generator/README.md#measures-and-bounded-recursion)
 shows sorted lists, where every element stays symbolic up to the end of the
 list.
 

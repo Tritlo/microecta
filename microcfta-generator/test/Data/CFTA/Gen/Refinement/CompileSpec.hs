@@ -391,15 +391,13 @@ spec = do
                 map symbols <$> traverse (LTAGen.unrank compiled) [0 .. 2]
                     `shouldBe` Right [["cons", "nil"], ["cons", "cons", "nil"], ["cons", "cons", "cons", "nil"]]
 
-        it "give a result through a mapped constructor, and no other generator" $
+        it "keep a measure through a mapped constructor" $
             withZ3 declarations $ \solver -> do
+                -- The measure is the child's 3, not the mapped value 6.
                 let three = LTAGen.elements [3 :: Integer]
-                    mapped = (fmap (* 2) . LTAGen.guarded "m" (const true)) `LTAGen.ensuring` id $ three
+                    mapped = fmap (* 2) $ LTAGen.measured "m" (const true) id three
                 compiled <- compileOrFail solver $ mapped `LTAGen.satisfying` (.== 3)
                 values compiled `shouldBe` [6]
-                LTAGen.cardinality
-                    (LTAGen.refinedNodeByRoots "r" (const $ const true) unconstrained `LTAGen.ensuring` id $ three)
-                    `shouldBe` Left LTAGen.ResultNeedsConstructor
   where
     isIntegerLeafRead err = case err of
         LTAGen.IntegerLeafRead _ -> True
@@ -417,8 +415,8 @@ integerCases =
         )
     , ("weighted choice", \leaf -> pure <$> LTAGen.frequency [(3, leaf 0 3), (1, LTAGen.elements [100])])
     ,
-        ( "result under a condition"
-        , \leaf -> LTAGen.guarded "sum" (\_ _ -> true) `LTAGen.ensuring` (+) $ (\a b -> [a, b]) <$> leaf 0 3 <*> leaf 0 3
+        ( "measure under a condition"
+        , \leaf -> LTAGen.measured "sum" (\_ _ -> true) (+) $ (\a b -> [a, b]) <$> leaf 0 3 <*> leaf 0 3
         )
     ,
         ( "sorted lists"
@@ -426,7 +424,7 @@ integerCases =
         )
     ]
   where
-    sortedCons element rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` const $ (:) <$> element <*> rest
+    sortedCons element rest = LTAGen.measured "cons" (\x t -> x .<= t) const $ (:) <$> element <*> rest
 
 -- | The exact sampling mass of each value of a small compiled language.
 massByValue :: (Ord a) => LTAGen.LTAGen a -> Map.Map a Rational

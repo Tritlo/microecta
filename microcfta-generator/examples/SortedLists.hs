@@ -5,7 +5,7 @@
 -- | Count and sample sorted lists of integers up to a million, without enumeration.
 module Main (main) where
 
--- A result names each child, as in \x _ -> x, as a contract does.
+-- A measure names each child, as in \element _ -> element, as a contract does.
 {- HLINT ignore "Use const" -}
 
 import Control.Monad (unless)
@@ -17,17 +17,23 @@ import Data.CFTA.Index (Cardinality (..))
 import Data.CFTA.Refinement.Expression ((.&&), (.<=), (.==))
 
 {- | Non-decreasing lists of integers from zero to a million, of length up to
-eight. The refinement of a list is its head. The head of the empty list is
+eight. The measure of a list is its head. The head of the empty list is
 above every element, so every element can come before it.
 -}
 sortedLists :: LTAGen.LTAGen [Integer]
 sortedLists = LTAGen.recurUpTo 8 $ \rest -> LTAGen.oneof [nil, cons rest]
   where
     nil = LTAGen.leaf [] "nil" (.== 1000001)
-    cons rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` (\x _ -> x) $ LTAGen.do
-        x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
-        xs <- rest
-        LTAGen.pure (x : xs)
+    -- The element is at most the head of the rest, and it is the head of the list.
+    cons rest =
+        LTAGen.measured
+            "cons"
+            (\element restHead -> element .<= restHead)
+            (\element _ -> element)
+            $ LTAGen.do
+                x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
+                xs <- rest
+                LTAGen.pure (x : xs)
 
 -- | The binomial coefficient.
 binomial :: Integer -> Integer -> Integer

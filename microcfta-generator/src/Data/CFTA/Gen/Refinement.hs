@@ -32,13 +32,14 @@ module Data.CFTA.Gen.Refinement (
     checkPool,
     minimizePoolOn,
 
-    -- * Conditions and contracts
+    -- * Conditions, contracts, and measures
     satisfying,
     node,
     guarded,
-    ensuring,
+    measured,
     recurUpTo,
     refinedNode,
+    measuredNode,
     refinedNodeByRoots,
 
     -- * Imported automata and datatypes
@@ -119,12 +120,12 @@ import Data.CFTA.Refinement.Expression (
 import Data.CFTA.Refinement.Guard (
     ContractBuilder (contractArity),
     GuardBuilder,
-    ResultBuilder (resultArity),
+    MeasureBuilder (measureArity),
     buildGuard,
     contract,
     guardArgumentCount,
+    measureTerm,
     requires,
-    resultTerm,
     root,
  )
 import Data.CFTA.Refinement.Lattice (onlyPoint)
@@ -323,7 +324,8 @@ With @ApplicativeDo@ and @QualifiedDo@:
 @node "divide" $ LTAGen.do ...@
 
 Put a condition on one child where it is drawn, with 'satisfying'. Use
-'guarded' for a contract that relates children.
+'guarded' for a contract that relates children, and 'measured' to give the
+constructed terms a measure that a parent's contract reads.
 -}
 node :: Symbol -> LTAGen a -> LTAGen a
 node symbol = refinedNode symbol (const true) noConstraint
@@ -344,53 +346,54 @@ guarded symbol builder child
   where
     arity = spineArity child
 
-{- | Give a constructor a result: a term of its children, one term for each
-child, in order.
+{- | Close a child description with a constructor that has a contract and a
+measure.
 
-Write it between the constructor and its children:
+A measure gives each generated term one integer that refinements can read,
+defined constructor by constructor. Liquid Haskell calls such a function a
+measure. The black height of a red-black tree is one:
 
-@guarded "black" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1) $ LTAGen.do ...@
+@
+-- The measure of a tree is its black height.
+leaf = LTAGen.leaf Leaf "leaf" (.== 0)
+black child =
+    LTAGen.measured "black"
+        (\\leftHeight rightHeight -> leftHeight .== rightHeight)
+        (\\leftHeight _ -> leftHeight + 1)
+        (Black \<$\> child \<*\> child)
+@
 
-The refinement of each constructed term is @\\v -> v .== result@, for the
-values of its children, so a parent's contract or condition reads the result.
-It replaces the refinement that 'refinedNode' gives the constructor.
-Each child that the result names must have a refinement that fixes one
-integer, as 'elements' gives, or be drawn by 'every', or be another result.
-The result of children from 'every' stays a term of their values, so a
-parent's contract relates it without enumerating them. A child without such a
-refinement makes 'compile' report 'InexactResult'. The constructor must be
-one that 'node', 'guarded', or 'refinedNode' closes, possibly mapped; another
-generator gives 'ResultNeedsConstructor'.
+The second argument is the contract, as for 'guarded'. The third argument is
+the measure of the constructed term. Both take one term for each child, in
+order, and each term is the measure of that child, not its Haskell value. The
+leaf above has the measure @0@, from its refinement @v == 0@, and a @black@
+term has the measure that its third argument gives. So the contract says that
+the two subtrees have equal black heights, and the measure says that the black
+height of the new term is one more than that of its left subtree.
+
+The refinement of each constructed term is @\\v -> v .== measure@, so the
+contract of a parent and a condition from 'satisfying' read the measure. A
+measure does not change the generated value.
+
+Each child that the measure names must have a measure of its own: a
+refinement that fixes one integer, as 'elements' and 'leaf' give, an integer
+from 'every', or a constructor from 'measured' or 'measuredNode'. The measure
+of children from 'every' stays a term of their integers, so a parent's
+contract relates it without enumerating them. A child without a measure makes
+'compile' report 'InexactMeasure'. The contract and the measure must each take
+one term for every child.
 -}
-ensuring :: (ResultBuilder result) => (LTAGen a -> LTAGen a) -> result -> LTAGen a -> LTAGen a
-ensuring close result = withResult . close
-  where
-    withResult :: LTAGen b -> LTAGen b
-    withResult closed = case genRecipe closed of
-        Closed (RefinedSymbol symbol _) constraint inner
-            | resultArity result /= spineArity inner ->
-                Transparent $ Left $ InvalidSupport $ GuardArityMismatch symbol (spineArity inner) (resultArity result)
-            | otherwise ->
-                withRecipe (ClosedBy (resultLabel symbol) constraint inner) $ Transparent $ Left SourceRequiresCompilation
-        Mapped transform inner -> transform <$> withResult inner
-        _ -> case closed of
-            Transparent (Left err) | err /= SourceRequiresCompilation -> closed
-            _ -> Transparent $ Left ResultNeedsConstructor
-      where
-        resultLabel symbol roots =
-            let formula =
-                    substitute
-                        [ (contractTermName index, term)
-                        | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
-                        , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
-                        ]
-                        (refinementFormula (.== resultTerm result))
-             in case onlyPoint "v" formula of
-                    Just value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value)
-                    Nothing
-                        | any (`elem` map (contractTermName . ArgumentIndex) [0 .. fromEnum (resultArity result) - 1]) (freeNames formula) ->
-                            Left $ InexactResult symbol
-                        | otherwise -> Right $ RefinedSymbol symbol formula
+measured ::
+    (ContractBuilder contract, MeasureBuilder measure) =>
+    Symbol ->
+    contract ->
+    measure ->
+    LTAGen a ->
+    LTAGen a
+measured symbol builder measure child
+    | contractArity builder /= spineArity child =
+        Transparent $ Left $ InvalidSupport $ GuardArityMismatch symbol (spineArity child) (contractArity builder)
+    | otherwise = measuredNode symbol (contract builder) measure child
 
 {- | A recursive description, unfolded a bounded number of times.
 
@@ -429,13 +432,49 @@ refinedNode symbol refinement guardBuilder child =
   where
     label = RefinedSymbol symbol $ refinementFormula refinement
 
+{- | Close a child description with a constructor that has a positional guard
+and a measure.
+
+This is 'refinedNode' with a measure in place of its refinement, and
+'measured' with a positional guard in place of a contract. The measure takes
+one term for each child, as for 'measured'.
+-}
+measuredNode ::
+    (GuardBuilder guard, MeasureBuilder measure) =>
+    Symbol ->
+    guard ->
+    measure ->
+    LTAGen a ->
+    LTAGen a
+measuredNode symbol guardBuilder measure child
+    | measureArity measure /= spineArity child =
+        Transparent $ Left $ InvalidSupport $ GuardArityMismatch symbol (spineArity child) (measureArity measure)
+    | otherwise = closeGuarded symbol guardBuilder child (ClosedBy labelOf) (const Nothing)
+  where
+    -- The children's measures replace their names in the measure. A measure
+    -- that fixes one integer is that integer.
+    labelOf roots =
+        let formula =
+                substitute
+                    [ (contractTermName index, term)
+                    | (index, RefinedSymbol _ refinement) <- zip [0 ..] roots
+                    , Just term <- [(literal <$> onlyPoint "v" refinement) <|> definingTerm refinement]
+                    ]
+                    (refinementFormula (.== measureTerm measure))
+         in case onlyPoint "v" formula of
+                Just value -> Right $ RefinedSymbol symbol $ refinementFormula (.== literal value)
+                Nothing
+                    | any (`elem` map (contractTermName . ArgumentIndex) [0 .. fromEnum (measureArity measure) - 1]) (freeNames formula) ->
+                        Left $ InexactMeasure symbol
+                    | otherwise -> Right $ RefinedSymbol symbol formula
+
 {- | Close a child description with a constructor whose refinement is computed
 from the labels of its children.
 
 'compile' can call the function more than once for one tuple of child groups, so
 the function must be pure. 'validOutcomes' calls it once per candidate. The
 function reads exact labels, so a child with values from 'every' gives
-'IntegerLeafRead'; use 'ensuring' for a result of such children.
+'IntegerLeafRead'; use 'measured' for a measure of such children.
 -}
 refinedNodeByRoots ::
     (GuardBuilder guard) =>

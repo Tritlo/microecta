@@ -29,7 +29,8 @@ remains a separate ECTA-only package.
   `Data.CFTA.Refinement.LiquidFixpoint`, which declares every free name as an
   integer. `Data.CFTA.Refinement.Guard` builds transitions from guards that
   name the constructor arguments, `contract` states a formula about the
-  children's values, and `resultTerm` reads a result term of the children.
+  children's values, and `measureTerm` reads the measure of a constructed
+  term from the measures of its children.
 - `Data.CFTA.Refinement.Expression`: the refinement logic. A refinement is a
   Haskell function of the value, as in `\v -> v ./= 0`. Terms take integer
   literals and arithmetic through `Num`; the comparisons are `.==`, `./=`,

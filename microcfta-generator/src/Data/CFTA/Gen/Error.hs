@@ -110,14 +110,12 @@ data GenError
       ConditionNeedsConstructor
     | -- | The conditions of an integer leaf do not give a countable set of integers.
       UncountableIntegers !LatticeError
-    | {- | A guard reads an integer leaf, or a result of integer leaves, in a
+    | {- | A guard reads an integer leaf, or a measure of integer leaves, in a
       form that compile cannot count.
       -}
       IntegerLeafRead !(Maybe Guard)
-    | -- | The result of the constructor names a child whose refinement does not fix one integer.
-      InexactResult !Symbol
-    | -- | A result from @ensuring@ was applied to a generator that is not a constructor that can take a result.
-      ResultNeedsConstructor
+    | -- | The measure of the constructor names a child that has no measure: a refinement that does not fix one integer.
+      InexactMeasure !Symbol
     | {- | A guard reads the children of a constructor, and one child gives a
       number of terms other than one, as a choice of products or a source
       without symbols does. Or an equality reads a node whose members are
@@ -276,9 +274,9 @@ explain BoundedRecursiveOccurrence =
 explain (InvalidSupport (GuardArityMismatch (Symbol symbol) childrenCount argumentCount)) =
     guidance
         [ "Constructor " <> show symbol <> " has " <> show childrenCount <> " children, but its"
-        , "named guard, contract, or result takes " <> show argumentCount <> " arguments."
-        , "Fix: give the guard, the contract, or the result of ensuring one argument"
-        , "per direct child, including unused children."
+        , "named guard, contract, or measure takes " <> show argumentCount <> " arguments."
+        , "Fix: give the guard, the contract, or the measure one argument per direct"
+        , "child, including unused children."
         ]
 explain (InvalidSupport err) =
     guidance
@@ -422,29 +420,23 @@ explain (IntegerLeafRead reader) =
         ]
             <> maybe [] (\guard -> ["The guard is " <> show guard <> "."]) reader
             <> [ "Compile counts an integer child through its own conditions, the"
-               , "contract of guarded, and the result of ensuring. Each other child that"
-               , "they name must have one exact integer refinement, as elements gives, or"
-               , "be an integer leaf or a result. An equality, a guard that reads below"
-               , "the root of such a child, and the function of refinedNodeByRoots, which"
-               , "reads exact labels, cannot read its integers."
+               , "contract of guarded or measured, and the measure of measured. Each"
+               , "other child that they name must have one exact integer refinement, as"
+               , "elements gives, or be an integer leaf or a constructor with a measure."
+               , "An equality, a guard that reads below the root of such a child, and"
+               , "the function of refinedNodeByRoots, which reads exact labels, cannot"
+               , "read its integers."
                , "Fix: state the relation as the contract of the constructor whose"
-               , "children it relates, or give the child a result with ensuring."
+               , "children it relates, or build the child with measured to give it a"
+               , "measure."
                ]
-explain (InexactResult (Symbol symbol)) =
+explain (InexactMeasure (Symbol symbol)) =
     guidance
-        [ "The result of the constructor " <> show symbol <> " names a child whose"
-        , "refinement does not fix one integer, so the result has no one value."
-        , "Fix: draw that child from elements, every, or a constructor with a"
-        , "result, or leave it out of the result."
-        ]
-explain ResultNeedsConstructor =
-    guidance
-        [ "ensuring gives a result to the constructor that node, guarded, or"
-        , "refinedNode closes. This generator is not such a constructor: it is a"
-        , "pool, a choice, a product, or a constructor from refinedNodeByRoots,"
-        , "which computes its own refinement."
-        , "Fix: write ensuring directly after node or guarded, as in"
-        , "guarded \"black\" (\\l r -> l .== r) `ensuring` (\\l _ -> l + 1)."
+        [ "The measure of the constructor " <> show symbol <> " names a child that has"
+        , "no measure: its refinement does not fix one integer, so the measure has"
+        , "no one value."
+        , "Fix: draw that child from elements, every, or a constructor built with"
+        , "measured, or leave it out of the measure."
         ]
 
 -- | Report a failure of the shared ranked engine as a generator failure.

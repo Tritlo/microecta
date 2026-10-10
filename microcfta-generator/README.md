@@ -12,7 +12,7 @@ one generator type, `Gen symbol a`, and one facade per kind of automaton:
 | `Data.CFTA.Gen.Error` | The one failure vocabulary, and `explain`. |
 | `Data.CFTA.Gen.Equality` | `ECTAGen`: equality-constrained generators, and imports ranked by symbol text. |
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
-| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, results with `ensuring`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
+| `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, measures with `measured`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
 | `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
 | `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
@@ -981,16 +981,24 @@ what `compile` can count, and how the counter works, and
 [`TypedValues.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/TypedValues.hs)
 relates a color, a brightness byte, and a flag in one contract.
 
-### Results and bounded recursion
+### Measures and bounded recursion
 
-`ensuring` gives a constructor a result: a term of its children, one term for
-each child, as a contract takes them. The refinement of each constructed term
-is then `\v -> v .== result`, so a parent's contract reads it. `recurUpTo`
-unfolds a recursive description a bounded number of times, from the empty
-generator, and `compile` compiles each unfolding once.
+`measured` closes a constructor with a contract and a measure. A measure gives
+each generated term one integer that refinements can read, defined
+constructor by constructor; Liquid Haskell calls such a function a measure.
+The second argument of `measured` is the contract, as for `guarded`, and the
+third is the measure of the new term. Both are functions with one term for
+each child, in order, and each term is the measure of that child, not the
+child's Haskell value. The refinement of each constructed term is then
+`\v -> v .== measure`, so the contract of a parent reads it. A measure does
+not change the generated value. `recurUpTo` unfolds a recursive description a
+bounded number of times, from the empty generator, and `compile` compiles each
+unfolding once.
 
-These two give red-black trees. The grammar keeps red children black, the
-contracts keep black heights equal, and the black height is the result:
+These two give red-black trees. The measure of a tree is its black height: a
+leaf has black height zero, a black node adds one, and a red node keeps the
+black height of its subtrees. The grammar keeps red children black, and the
+contracts keep the black heights of the two subtrees equal:
 
 ```haskell
 redBlackTrees :: Depth -> LTAGen.LTAGen Tree
@@ -998,36 +1006,54 @@ redBlackTrees bound = LTAGen.recurUpTo bound $ \blackRooted ->
     let anyRooted = LTAGen.oneof [blackRooted, red blackRooted]
      in LTAGen.oneof [leaf, black anyRooted]
   where
+    -- A leaf has black height zero.
     leaf = LTAGen.leaf Leaf "leaf" (.== 0)
     black, red :: LTAGen.LTAGen Tree -> LTAGen.LTAGen Tree
-    black child = LTAGen.guarded "black" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l + 1) $ LTAGen.do
-        l <- child
-        r <- child
-        LTAGen.pure (Black l r)
-    red child = LTAGen.guarded "red" (\l r -> l .== r) `LTAGen.ensuring` (\l _ -> l) $ LTAGen.do
-        l <- child
-        r <- child
-        LTAGen.pure (Red l r)
+    -- The two subtrees have equal black heights, and a black node adds one.
+    black child =
+        LTAGen.measured
+            "black"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight + 1)
+            (Black <$> child <*> child)
+    -- A red node keeps the black height of its subtrees.
+    red child =
+        LTAGen.measured
+            "red"
+            (\leftHeight rightHeight -> leftHeight .== rightHeight)
+            (\leftHeight _ -> leftHeight)
+            (Red <$> child <*> child)
 ```
+
+Read `black` as follows. The constructor `black` has two children. Its contract
+says that their measures, the black heights `leftHeight` and `rightHeight`, are
+equal. Its measure, the black height of the new tree, is `leftHeight + 1`. The
+leaf has the measure 0 from its refinement `v == 0`.
 
 With three unfoldings, the compiled generator has 25,728,160,405 trees.
 `countAtSize` gives the number of trees with n internal nodes at size 2n + 1:
 1, 1, 2, 2, 4, 8, 16, 33, 56, 90, and 164 for n up to ten. Compilation takes a
 few milliseconds, because each unfolding is compiled once.
 
-The result of children from `every` stays a term of their values. A sorted list
-takes its head as its result, and each `cons` relates its element to the head
-of its tail:
+The measure of children from `every` stays a term of their integers. The
+measure of a sorted list is its head, and each `cons` relates its element to
+the head of the rest:
 
 ```haskell
 sortedLists :: LTAGen.LTAGen [Integer]
 sortedLists = LTAGen.recurUpTo 8 $ \rest -> LTAGen.oneof [nil, cons rest]
   where
     nil = LTAGen.leaf [] "nil" (.== 1000001)
-    cons rest = LTAGen.guarded "cons" (\x t -> x .<= t) `LTAGen.ensuring` (\x _ -> x) $ LTAGen.do
-        x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
-        xs <- rest
-        LTAGen.pure (x : xs)
+    -- The element is at most the head of the rest, and it is the head of the list.
+    cons rest =
+        LTAGen.measured
+            "cons"
+            (\element restHead -> element .<= restHead)
+            (\element _ -> element)
+            $ LTAGen.do
+                x <- LTAGen.every `LTAGen.satisfying` (\v -> 0 .<= v .&& v .<= 1000000)
+                xs <- rest
+                LTAGen.pure (x : xs)
 ```
 
 The head of the empty list is above every element, so every element can come
@@ -1037,12 +1063,12 @@ list ends: C(1000009, 8), about 2.5 × 10^43 lists. Each rank decodes to a
 sorted list, and each term carries the exact integer of each element and the
 exact head of each `cons`.
 
-A child that a result names must have a refinement that fixes one integer, as
-`elements` gives, or be drawn by `every`, or be another result; otherwise
-`compile` reports `InexactResult`. A parent reads only the root of a child
-whose integers stay open. `ensuring` gives a result to a constructor that
-`node`, `guarded`, or `refinedNode` closes, also through `fmap`; on another
-generator it reports `ResultNeedsConstructor`.
+A child that a measure names must have a measure of its own: a refinement that
+fixes one integer, as `elements` and `leaf` give, an integer from `every`, or a
+constructor built with `measured`. Otherwise `compile` reports
+`InexactMeasure`. A parent reads only the root of a child whose integers stay
+open. `measuredNode` is `measured` with a positional guard, as `refinedNode`
+takes, in place of the contract.
 [`RedBlackTrees.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/RedBlackTrees.hs)
 and
 [`SortedLists.hs`](https://github.com/Tritlo/microecta/blob/main/microcfta-generator/examples/SortedLists.hs)

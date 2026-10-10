@@ -44,11 +44,12 @@ tree automata of `microcfta`, with QuickCheck integration.
   on `every` it narrows the values. The constructors are `node`; `guarded`,
   whose contract relates the children; and `refinedNode` and
   `refinedNodeByRoots` for the paper's positional guards and result
-  refinements. `ensuring` gives a constructor a result term of its children,
-  which becomes the constructor's refinement and stays a term of children from
-  `every`; on a generator that is not such a constructor it reports
-  `ResultNeedsConstructor`. `recurUpTo` unfolds a recursive description a bounded number of
-  times. The module also has liquid automaton and datatype imports,
+  refinements. `measured` closes a constructor with a contract and a measure:
+  the integer of each constructed term, as a term of the measures of its
+  children, which becomes the constructor's refinement and stays a term of
+  children from `every`. `measuredNode` takes a positional guard in place of
+  the contract. `recurUpTo` unfolds a recursive description a bounded number
+  of times. The module also has liquid automaton and datatype imports,
   `minimizePoolOn`, `compile` with Z3, `compileAssuming`, `compileWith`, and
   `validOutcomes`.
 - `compile` folds the recipe of a generator once with the solver. It groups
