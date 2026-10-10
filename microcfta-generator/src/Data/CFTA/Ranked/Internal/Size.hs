@@ -72,6 +72,7 @@ module Data.CFTA.Ranked.Internal.Size (
     sizeClasses,
     addSparse,
     mulSparse,
+    productSplitSizes,
     valueAtSize,
 ) where
 
@@ -671,7 +672,7 @@ productSplit ::
     Size ->
     ClassRank ->
     (Size, ClassRank, Size, ClassRank)
-productSplit indexF indexX size (ClassRank start) = go (takeWhile ((< size) . fst) (sizeClassCounts indexF)) start
+productSplit indexF indexX size (ClassRank start) = go (productSplitSizes indexF indexX size) start
   where
     go [] _ =
         error
@@ -693,7 +694,7 @@ productSplitInt ::
     Size ->
     Int ->
     (Size, Int, Size, Int)
-productSplitInt indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
+productSplitInt indexF indexX size = go $ productSplitSizes indexF indexX size
   where
     go [] _ =
         error
@@ -708,6 +709,18 @@ productSplitInt indexF indexX size = go $ takeWhile ((< size) . fst) (sizeClassC
         argumentCount = case countAtSize indexX (size - functionSize) of
             Cardinality wide -> fromInteger wide
         block = fromInteger functionCount * argumentCount
+
+{- | The size classes of the operation side at which a product of one size
+splits. The argument side takes at least size one, or size zero when it has
+members of size zero. Only the first count of the argument side is read, which
+a recursive language gives before it counts its products.
+-}
+productSplitSizes :: SizeIndex (a -> b) -> SizeIndex a -> Size -> SizeCounts
+productSplitSizes indexF indexX size = takeWhile ((< limit) . fst) $ sizeClassCounts indexF
+  where
+    limit = case sizeClassCounts indexX of
+        (0, _) : _ -> size + 1
+        _ -> size
 
 -- | Add two sparse counts, merging their sizes.
 addCounts :: SizeCounts -> SizeCounts -> SizeCounts

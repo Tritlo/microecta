@@ -415,7 +415,7 @@ pairBucket componentIndex leftBucket rightBucket
                 (keyedBucketStatic rightBucket)
                 paired
             )
-            (Just $ productMassIndex (bucketMassIndex leftBucket) (bucketMassIndex rightBucket))
+            (Just $ pairMassIndex (bucketMassIndex leftBucket) (bucketMassIndex rightBucket))
     | otherwise = KeyedBucket mass paired Nothing
   where
     weighted = isJust (keyedBucketMasses leftBucket) || isJust (keyedBucketMasses rightBucket)

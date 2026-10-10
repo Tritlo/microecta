@@ -20,6 +20,7 @@ module Data.CFTA.Gen.Internal.Bucket (
     atomicMassIndex,
     sumMassIndexes,
     productMassIndex,
+    pairMassIndex,
 ) where
 
 import Data.Foldable (toList)
@@ -207,3 +208,10 @@ smallest sizes before the product is computed, as for the size counts.
 -}
 productMassIndex :: MassIndex -> MassIndex -> MassIndex
 productMassIndex (MassIndex left) (MassIndex right) = MassIndex $ (1, 0) : mulSparse left right
+
+{- | Convolve the mass series of two finite groups: the sizes of a pair add, and
+the masses multiply. A part can have size zero, so the series does not start
+with the zero mass at size one that 'productMassIndex' gives a recursive knot.
+-}
+pairMassIndex :: MassIndex -> MassIndex -> MassIndex
+pairMassIndex (MassIndex left) (MassIndex right) = MassIndex $ mulSparse left right

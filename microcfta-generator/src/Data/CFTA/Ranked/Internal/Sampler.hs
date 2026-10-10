@@ -49,7 +49,7 @@ import Data.CFTA.Ranked.Internal.Decoder (RankedValue (..), SizeClass (..), offs
 import Data.CFTA.Ranked.Internal.Size (
     SizeIndex,
     countAtSize,
-    sizeClassCounts,
+    productSplitSizes,
     sizeClassSelect,
  )
 
@@ -344,7 +344,7 @@ productSampleParts ::
     SizeIndex a ->
     Size ->
     [ProductPart]
-productSampleParts indexF indexX size = go 0 $ takeWhile ((< size) . fst) (sizeClassCounts indexF)
+productSampleParts indexF indexX size = go 0 $ productSplitSizes indexF indexX size
   where
     go _ [] = []
     go offset ((functionSize, functionCount) : rest)

@@ -510,6 +510,23 @@ spec = do
             outer <- compileOrFail latticeEntailment $ LTAGen.node "q" closed
             map (LTAGen.sizeOfRank outer) [0, 1] `shouldBe` map (LTAGen.sizeOfRank inner) [0, 1]
 
+        it "count one source choice for each integer leaf, wherever a constructor closes it" $ do
+            -- A node without a result closes its leaf. A result keeps the leaf
+            -- open, so the parent closes the two leaves together. Each leaf is
+            -- one source choice, as a member of elements is.
+            let digit = LTAGen.every `LTAGen.satisfying` (\v -> 8 .<= v .&& v .<= 9) :: LTAGen.LTAGen Integer
+                closedAtOnce = LTAGen.node "m"
+                keptOpen = LTAGen.refinedNode "m" (const true) noConstraint `LTAGen.ensuring` id
+                pair inner leaf = LTAGen.node "n" $ (,) <$> inner leaf <*> inner leaf
+                sizes generator = map (LTAGen.sizeOfRank generator) [0 .. 3]
+            listed <- compileOrFail latticeEntailment $ pair closedAtOnce $ LTAGen.elements [8, 9]
+            atOnce <- compileOrFail latticeEntailment $ pair closedAtOnce digit
+            open <- compileOrFail latticeEntailment $ pair keptOpen digit
+            sizes atOnce `shouldBe` sizes listed
+            sizes open `shouldBe` sizes listed
+            LTAGen.pmf (LTAGen.upToSize 2 atOnce) `shouldBe` LTAGen.pmf (LTAGen.upToSize 2 listed)
+            LTAGen.pmf (LTAGen.upToSize 2 open) `shouldBe` LTAGen.pmf (LTAGen.upToSize 2 listed)
+
         it "compile uniformly over integer leaves, weighted by their points" $ do
             let leaves :: Integer -> Integer -> LTAGen.LTAGen Integer
                 leaves low high = LTAGen.every `LTAGen.satisfying` (\v -> literal low .<= v .&& v .<= literal high)

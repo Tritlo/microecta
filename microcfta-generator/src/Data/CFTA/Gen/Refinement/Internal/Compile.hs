@@ -49,9 +49,8 @@ import Data.CFTA.Gen
 import Data.CFTA.Gen.Internal.Bucket (
     KeyedBucket (..),
     MassIndex (..),
-    atomicMassIndex,
     mergeComponentsByKey,
-    productMassIndex,
+    pairMassIndex,
  )
 import qualified Data.CFTA.Gen.Internal.Flat as Flat
 import Data.CFTA.Gen.Internal.Grouped (groupKeys)
@@ -953,10 +952,15 @@ settleGroups settle (Grouped (Right buckets)) = do
         positioned key = key{openObservations = (openObservations key){keyPosition = positions Map.! identity key}}
     pure $ Grouped $ mergeComponentsByKey [(positioned key, bucket) | (key, bucket) <- settled]
   where
-    one (childKeys, bucket) = fmap (build bucket) <$> settle childKeys
-    build bucket (key, kept, Nothing) = (key, bucket{keyedBucketMass = keyedBucketMass bucket * kept})
-    build (KeyedBucket mass static masses) (key, kept, Just found) =
-        (key, KeyedBucket (mass * kept) (mapStatic const $ closePoints found static) (closedMasses found <$> masses))
+    one (childKeys, bucket) = fmap (build (sum $ map openCount childKeys) bucket) <$> settle childKeys
+    build _ bucket (key, kept, Nothing) = (key, bucket{keyedBucketMass = keyedBucketMass bucket * kept})
+    build variables (KeyedBucket mass static masses) (key, kept, Just found) =
+        ( key
+        , KeyedBucket
+            (mass * kept)
+            (mapStatic const $ closePoints variables found static)
+            (closedMasses variables found <$> masses)
+        )
 
 {- | Close every open group by the integer points of its formula, for a parent
 that reads no variable.
@@ -975,13 +979,19 @@ closeOpen (Grouped (Right buckets)) = do
             pure $
                 if pointCount found == 0
                     then Nothing
-                    else Just (openObservations key, KeyedBucket mass (closePoints found static) (closedMasses found <$> masses))
+                    else
+                        Just
+                            ( openObservations key
+                            , KeyedBucket mass (closePoints (openCount key) found static) (closedMasses (openCount key) found <$> masses)
+                            )
 
-{- | Apply the outcomes of an open group to the integer points of its formula.
-A term ranks by the integers at its placeholder leaves.
+{- | Apply the outcomes of an open group to the integer points of its formula,
+over the given number of variables. A term ranks by the integers at its
+placeholder leaves. Each integer of a point is one source choice, as each
+member of 'elements' is, so a point has one size for each variable.
 -}
-closePoints :: Points -> Static Symbol ([Integer] -> a) -> Static Symbol a
-closePoints found = pointsStatic fillHoles rankPoint (Indexed (pointCount found) (pointAt found))
+closePoints :: Int -> Points -> Static Symbol ([Integer] -> a) -> Static Symbol a
+closePoints variables found = pointsStatic (fromIntegral variables) fillHoles rankPoint (Indexed (pointCount found) (pointAt found))
   where
     rankPoint symbols = do
         point <- traverse leafValue symbols
@@ -990,11 +1000,12 @@ closePoints found = pointsStatic fillHoles rankPoint (Indexed (pointCount found)
       where
         leafValue (RefinedSymbol _ refinement) = onlyPoint valueName refinement
 
-{- | The weights of a group in each size class after 'closePoints'. Every
-member takes each point, and the choice of a point is one source choice.
+{- | The weights of a group in each size class after 'closePoints' over the
+given number of variables. Every member takes each point, and a point has one
+size for each variable.
 -}
-closedMasses :: Points -> MassIndex -> MassIndex
-closedMasses found masses = productMassIndex masses $ atomicMassIndex $ toRational $ pointCount found
+closedMasses :: Int -> Points -> MassIndex -> MassIndex
+closedMasses variables found masses = pairMassIndex masses $ MassIndex [(fromIntegral variables, toRational $ pointCount found)]
 
 {- | Replace the placeholder leaves of a term, in order, by the leaves of the
 integers of a point, and make each label that names open variables exact.
