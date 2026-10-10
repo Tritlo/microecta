@@ -139,6 +139,19 @@ spec = do
                     compiled <- compileOrFail solver generator
                     massesByRank compiled `shouldBe` [(0, 9 % 10), (1, 1 % 10)]
 
+        it "keeps the sizes of an atomic choice whether or not a guard reads it" $
+            withZ3 declarations $ \solver -> do
+                -- Each member of the atom has size one, also the member whose
+                -- term has two nodes.
+                let atom =
+                        LTAGen.atomic $
+                            LTAGen.oneof [LTAGen.leaf (0 :: Int) "a" (const true), LTAGen.node "wrap" $ LTAGen.leaf 1 "b" (const true)]
+                    outer guard = LTAGen.refinedNode "outer" (const true) guard atom
+                compiled <- compileOrFail solver $ outer (`requires` const true)
+                map (LTAGen.sizeOfRank compiled) [0, 1] `shouldBe` map (LTAGen.sizeOfRank $ outer noConstraint) [0, 1]
+                LTAGen.pmf (LTAGen.upToSize 1 compiled) `shouldBe` Right [(0, 1 % 2), (1, 1 % 2)]
+                map (LTAGen.smallerMembers compiled) [0, 1] `shouldBe` [[], []]
+
         it "refuses a guard that reads the children of a choice of products" $
             withZ3 declarations $ \solver -> do
                 let pairs =
