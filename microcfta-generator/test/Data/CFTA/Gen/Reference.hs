@@ -131,6 +131,8 @@ data GDesc
       Regroup Int GDesc
     | -- | @mapWithKey Tagged@
       MapWithKey GDesc
+    | -- | @node symbol@ on every group
+      GNode Text GDesc
     | -- | @frequencies@
       Frequencies [(Integer, GDesc)]
     | {- | @apply@ with one argument family. Each operation has an argument key,
@@ -194,6 +196,7 @@ closedGroupedIn flat grouped = \case
     GroupOn _ inner -> closedIn flat grouped inner
     Regroup _ family -> go family
     MapWithKey family -> go family
+    GNode _ family -> go family
     Frequencies alternatives -> all (go . snd) alternatives
     Apply1 operations argument ->
         all (\(_, _, operation) -> closedIn flat grouped operation) operations && go argument
@@ -247,6 +250,7 @@ buildGroupedIn env families = \case
     GroupOn n inner -> Gen.groupOn (groupKey n) $ flat inner
     Regroup n family -> Gen.regroupOn (`mod` max 1 n) $ go family
     MapWithKey family -> Gen.mapWithKey Tagged $ go family
+    GNode symbol family -> Gen.node symbol $ go family
     Frequencies alternatives -> Gen.frequencies [(Weight weight, go alternative) | (weight, alternative) <- alternatives]
     Apply1 operations argument ->
         Gen.apply
@@ -498,25 +502,39 @@ leafModel leafSize atomic weighted =
 termless.
 -}
 nodeLang :: Lang a -> Lang a
-nodeLang lang = Lang recursive $ (\model' -> model'{modelTermless = IntSet.empty}) <$> result
+nodeLang (Lang recursive result) = Lang recursive $ nodeModel <$> result
+
+-- | 'nodeLang' for every group of a family. The mass at each size of a group moves up by one.
+nodeFamily :: Family key a -> Family key a
+nodeFamily (Family recursive groups) = Family recursive $ fmap nodeGroup <$> groups
   where
-    Lang recursive result = payLang lang
+    nodeGroup group =
+        group
+            { groupModel = nodeModel $ groupModel group
+            , groupMassAt = \size -> if size < 1 then 0 else groupMassAt group (size - 1)
+            }
+
+-- | The model of 'nodeLang'.
+nodeModel :: Model a -> Model a
+nodeModel model' = (payModel model'){modelTermless = IntSet.empty}
 
 {- | A pay: every member is one larger, and no occurrence below it is
 unguarded.
 -}
 payLang :: Lang a -> Lang a
 payLang (Lang recursive result) = Lang recursive $ payModel <$> result
-  where
-    payModel model' =
-        model'
-            { modelFinite = fmap (map $ \member -> member{memberSize = memberSize member + 1}) <$> modelFinite model'
-            , modelCount = \size -> if size < 1 then 0 else modelCount model' (size - 1)
-            , modelClass = \size -> if size < 1 then [] else modelClass model' (size - 1)
-            , modelMinimum = (+ 1) <$> modelMinimum model'
-            , modelLargest = (+ 1) <$> modelLargest model'
-            , modelUnguarded = IntSet.empty
-            }
+
+-- | The model of 'payLang'.
+payModel :: Model a -> Model a
+payModel model' =
+    model'
+        { modelFinite = fmap (map $ \member -> member{memberSize = memberSize member + 1}) <$> modelFinite model'
+        , modelCount = \size -> if size < 1 then 0 else modelCount model' (size - 1)
+        , modelClass = \size -> if size < 1 then [] else modelClass model' (size - 1)
+        , modelMinimum = (+ 1) <$> modelMinimum model'
+        , modelLargest = (+ 1) <$> modelLargest model'
+        , modelUnguarded = IntSet.empty
+        }
 
 -- | The member count of a model as a weight for a choice in a size class.
 byCount :: Model a -> Integer -> Rational
@@ -722,17 +740,17 @@ uniformlyLang langs
 atomicLang :: Lang a -> Lang a
 atomicLang = \case
     Lang _ (Left err) -> Lang False $ Left err
-    Lang False (Right model') -> finiteLang $ atomicModel model'
+    Lang False (Right model') -> finiteLang $ atomicModel 1 model'
     Lang True (Right model')
         | not $ IntSet.null $ modelReaches model' -> Lang False $ Left BoundedRecursiveOccurrence
         -- A recursive language that holds no tied recursion has sizes that end.
         | Just largest <- modelLargest model' -> atomicLang $ boundLang largest $ Lang True $ Right model'
         | otherwise -> Lang False $ Left UnboundedGenerator
 
--- | Close a finite language as one atomic choice.
-atomicModel :: Model a -> Model a
-atomicModel model' = case modelFinite model' of
-    Just (_, finite) -> atomModel True [(memberValue member, memberMass member) | member <- finite]
+-- | Close a finite language as one atomic choice of the given size.
+atomicModel :: Integer -> Model a -> Model a
+atomicModel atomSize model' = case modelFinite model' of
+    Just (_, finite) -> leafModel atomSize True [(memberValue member, memberMass member) | member <- finite]
     Nothing -> error "Data.CFTA.Gen.Reference.atomicModel: a finite language without members"
 
 boundLang :: Integer -> Lang a -> Lang a
@@ -826,6 +844,7 @@ interpretGrouped env@(Env _ grouped) = \case
     GroupOn n inner -> groupOnFamily (groupKey n) $ flatten inner
     Regroup n family -> regroupFamily (`mod` max 1 n) $ go family
     MapWithKey family -> mapWithKeyFamily Tagged $ go family
+    GNode _ family -> nodeFamily $ go family
     Frequencies alternatives -> frequenciesFamily [(weight, go alternative) | (weight, alternative) <- alternatives]
     Apply1 operations argument ->
         applyFamily
@@ -906,7 +925,9 @@ regroupFamily regroup (Family recursive groups) =
             then Right $ fmap mergeRecursive together
             else traverse (mergeFinite . map (\group -> (groupMass group, groupModel group))) together
 
--- | Merge finite groups: one choice weighted by their masses, atomic when all of them are.
+{- | Merge finite groups: one choice weighted by their masses. Atomic groups of
+one size merge to one atom of that size.
+-}
 mergeFinite :: [(Rational, Model a)] -> Either GenError (Group a)
 mergeFinite [(mass, model')] | mass > 0 = Right $ Group model' mass noMassBySize
 mergeFinite alternatives
@@ -919,7 +940,10 @@ mergeFinite alternatives
                 noMassBySize
   where
     retainAtomic
-        | all (modelAtomic . snd) alternatives = atomicModel
+        | all (modelAtomic . snd) alternatives
+        , Just atomSize : rest <- map (modelMinimum . snd) alternatives
+        , all (== Just atomSize) rest =
+            atomicModel atomSize
         | otherwise = id
 
 -- | Merge recursive groups: one choice that selects by mass in a size class.

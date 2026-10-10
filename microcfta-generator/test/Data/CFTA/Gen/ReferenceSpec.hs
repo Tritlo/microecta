@@ -119,6 +119,7 @@ family depth grouped budget
             [ (3, leaf)
             , (2, Regroup <$> QC.chooseInt (1, 3) <*> inner)
             , (1, MapWithKey <$> inner)
+            , (1, GNode <$> QC.elements (map Text.pack ["a", "b"]) <*> inner)
             , (2, Frequencies <$> weighted (family depth grouped) budget)
             , (3, Apply1 <$> operations ((,,) <$> key <*> key) <*> inner)
             , (2, Apply2 <$> operations ((,,,) <$> key <*> key <*> key) <*> half <*> half)
@@ -147,13 +148,15 @@ family depth grouped budget
             , (2, description 0 0 (budget `div` 4))
             , (1, description depth grouped (budget `div` 4))
             ]
-    -- A grouped recursion with a keyed base case and an application to the family.
+    -- A grouped recursion with a keyed base case and an application to the
+    -- family. Paid operations or a node around the application guard it.
     productive = do
         base <- Keyed <$> key <*> description depth (grouped + 1) (budget `div` 3)
         count <- QC.chooseInt (1, 3)
-        -- A paid operation guards the family, as a node would.
-        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> (Pay <$> operation)
-        pure $ RecurGrouped $ Frequencies [(1, base), (1, Apply1 steps (GVar 0))]
+        noded <- QC.arbitrary
+        steps <- QC.vectorOf count $ (,,) <$> key <*> key <*> (if noded then operation else Pay <$> operation)
+        let step = Apply1 steps (GVar 0)
+        pure $ RecurGrouped $ Frequencies [(1, base), (1, if noded then GNode (Text.pack "n") step else step)]
 
 -- | Weighted alternatives, mostly with equal weights: unequal weights around a recursive alternative are an error.
 weighted :: (Int -> QC.Gen a) -> Int -> QC.Gen [(Integer, a)]
@@ -192,6 +195,7 @@ recursionDepth = \case
         GroupOn _ inner -> recursionDepth inner
         Regroup _ family' -> familyDepth family'
         MapWithKey family' -> familyDepth family'
+        GNode _ family' -> familyDepth family'
         Frequencies alternatives -> maximum $ 0 : map (familyDepth . snd) alternatives
         Apply1 operations argument -> maximum $ familyDepth argument : [recursionDepth operation | (_, _, operation) <- operations]
         Apply2 operations first second ->
@@ -240,6 +244,7 @@ shrinkFamily = \case
     GroupOn n inner -> [Keyed 0 inner] <> map (GroupOn n) (shrinkDesc inner)
     Regroup n family' -> family' : map (Regroup n) (shrinkFamily family')
     MapWithKey family' -> family' : map MapWithKey (shrinkFamily family')
+    GNode symbol family' -> family' : map (GNode symbol) (shrinkFamily family')
     Frequencies alternatives ->
         map snd alternatives
             <> map Frequencies (QC.shrinkList (shrinkWeighted shrinkFamily) alternatives)
