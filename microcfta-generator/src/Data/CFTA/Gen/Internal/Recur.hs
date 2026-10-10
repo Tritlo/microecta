@@ -73,7 +73,11 @@ atomic (Cyclic result) =
                 SizesDoNotEnd -> Left UnboundedGenerator
 atomic (Opaque _) = Transparent $ Left CannotInspectOpaqueGenerator
 
--- | Build a recursive generator from its own language.
+{- | Build a recursive generator from its own language.
+
+Each occurrence of the argument must be guarded, as the Haddock of 'pay'
+says. Otherwise the result is 'UnguardedRecursion'.
+-}
 recur ::
     (Hashable symbol, Typeable symbol) =>
     (Gen symbol a -> Gen symbol a) -> Gen symbol a

@@ -225,10 +225,17 @@ Symposium 2012).
 Sizes count pays. 'pure' has size zero, '<*>' adds the sizes of its sides, and
 'fmap' and the choices keep sizes. An atom ('elements', 'fromIndexed') has
 size one, and a constructor ('node', 'leaf') pays one. So the 'Functor' and
-'Applicative' laws hold for sizes. A recursion must reach its occurrence
-through a pay, or through a product whose other side has no member of size
-zero. A pay changes no term, rank, or value. An opaque generator has no sizes
-and is unchanged.
+'Applicative' laws hold for sizes. A join ('match', 'relate') treats the
+member of each side as one atom, so every pair has size two.
+
+A recursion must reach its occurrence through a pay, or through a product
+whose other side has no member of size zero. It must also reach it through a
+constructor or a product, because a pay adds no term node. So
+@recur (\\t -> oneof [elements [Leaf], pay t])@ is 'UnguardedRecursion', and
+@recur (\\t -> oneof [elements [Leaf], node \"s\" t])@ is guarded.
+
+A pay changes no term, rank, or value. An opaque generator has no sizes and
+is unchanged.
 -}
 pay :: Gen symbol a -> Gen symbol a
 pay generator =

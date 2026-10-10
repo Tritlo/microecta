@@ -151,7 +151,8 @@ explain EmptyGenerator =
         [ "The language has no members."
         , "Common causes: elements, fromIndexed, or pool over an empty list, a"
         , "match, relate, or apply whose keys never agree, a guard no candidate"
-        , "satisfies, a size bound below one, or a depth bound below zero."
+        , "satisfies, a size bound below the smallest member, or a depth bound"
+        , "below zero."
         ]
 explain (NonPositiveWeight weight) =
     guidance

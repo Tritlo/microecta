@@ -644,8 +644,10 @@ size zero, `<*>` adds the sizes of its sides, and `fmap` and the choices keep
 sizes. `pay` adds one to every member. An atom (`elements`, `fromIndexed`,
 `every`, `atomic`) has size one, and a constructor (`node`, `leaf`, `guarded`,
 `measured`) pays one, so the size of a built tree is its number of nodes, as
-for an imported term. The tree above needs no pay: its leaves are atoms of
-size one, so each side of `Branch <$> self <*> self` guards the other.
+for an imported term. A join (`match`, `relate`) treats the member of each
+side as one atom, so every pair has size two. The tree above needs no pay:
+its leaves are atoms of size one, so each side of `Branch <$> self <*> self`
+guards the other.
 "Size-major rank" is this package's own term for the resulting order. [ADR
 2](../docs/adr/0002-sizes-count-pays.md) records the decision. Counting a family by a size recurrence and
 drawing from those counts is the recursive method of Nijenhuis and Wilf,
@@ -840,12 +842,14 @@ generator that could not be built raises both together. `orFail` turns a
 
 ```
 >>> putStrLn (ECTAGen.explain ECTAGen.UnguardedRecursion)
-The recursive language reaches itself without passing through an
-application, so its members never get smaller and no size class can
-be counted.
-Fix: put every occurrence of the argument under <*>, as in
-Branch <$> self <*> self, or under apply in a grouped family. An
-alternative that is the argument itself, such as oneof [leaf, self],
+The recursive language reaches itself without passing through a
+constructor or a product that makes its members larger, so its size
+classes cannot be counted, or its terms do not grow.
+Fix: put every occurrence of the argument under node, as in
+node "branch" (Branch <$> self <*> self), or under a product whose
+other side has no member of size zero, such as Cons <$> elements xs
+<*> self, or under pay around a product. An alternative that is the
+argument itself, such as oneof [leaf, self] or oneof [leaf, pay self],
 is the shape to look for.
 ```
 
