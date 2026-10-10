@@ -14,6 +14,7 @@ import qualified Data.CFTA.Gen.Refinement.RecursiveGeneratorSpec
 import qualified Data.CFTA.Gen.Refinement.SafeBufferSpec
 import qualified Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec
 import qualified Data.CFTA.Gen.Refinement.SizedVectorSpec
+import qualified Data.CFTA.Gen.Refinement.StateMachineTraceSpec
 import qualified Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec
 
 main :: IO ()
@@ -32,5 +33,6 @@ main = do
         Data.CFTA.Gen.Refinement.SubsumptionTypedExpressionSpec.spec
         Data.CFTA.Gen.Refinement.SimilarityMinimizationSpec.spec
         Data.CFTA.Gen.Refinement.SizedVectorSpec.spec
+        Data.CFTA.Gen.Refinement.StateMachineTraceSpec.spec
         Data.CFTA.Gen.Refinement.DependentApplicationSpec.spec
         Data.CFTA.Gen.Refinement.OracleSpec.spec
