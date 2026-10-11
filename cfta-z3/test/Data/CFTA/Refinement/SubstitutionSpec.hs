@@ -2,8 +2,10 @@
 
 module Data.CFTA.Refinement.SubstitutionSpec (spec) where
 
+import Data.String (fromString)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
+import Data.CFTA.Formula (Name)
 import Data.CFTA.Refinement (
     Guard (Satisfies, Substitute),
     Substitution (Substitution),
@@ -17,7 +19,6 @@ import Data.CFTA.Refinement.LiquidFixpoint (withZ3, withZ3Assuming)
 import Data.CFTA.Symbol (valueName)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec =
@@ -122,20 +123,9 @@ spec =
                 evaluateGuard solver (guard $ variable "y" .== variable "w") term >>= (`shouldBe` No)
                 evaluateGuard solver (guard $ variable "y" .< variable "w") term >>= (`shouldBe` Yes)
 
-        it "renames quantified binders instead of capturing the actual variable" $
-            withZ3 declarations $ \solver -> do
-                let requirement =
-                        Fixpoint.PAll [(Fixpoint.symbol ("x" :: String), Fixpoint.FInt)] $
-                            variable "y" .== variable "x"
-                    guard =
-                        Substitute [Substitution (path [0]) (path [1])] $
-                            Satisfies (path []) requirement
-                    term = Term.Node (RefinedSymbol "pair" true) [Term.Node (RefinedSymbol "x" true) [], Term.Node (RefinedSymbol "y" true) []]
-                evaluateGuard solver guard term >>= (`shouldBe` No)
-
--- | Sorts for actual variables and constructor result values in these checks.
-declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-declarations = [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "app", "w", "x", "y", "z"] :: [String]]
+-- | Integer names for actual variables and constructor result values in these checks.
+declarations :: [Name]
+declarations = [fromString valueName, "app", "w", "x", "y", "z"]
 
 -- | Two different applications whose result refinements identify their values.
 collidingActuals :: Term Symbol

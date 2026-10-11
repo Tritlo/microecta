@@ -27,7 +27,6 @@ import Data.CFTA.Refinement.Guard (requires)
 import qualified Data.CFTA.Refinement.Guard as Guard
 import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec =
@@ -62,7 +61,7 @@ spec =
 
 -- | An unrefined, unconstrained leaf transition.
 plain :: Symbol -> Transition
-plain symbol = Transition symbol Fixpoint.PTrue [] noConstraint
+plain symbol = Transition symbol true [] noConstraint
 
 unknownAtom, naturalAtom :: Transition
 unknownAtom = plain "unknown"

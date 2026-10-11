@@ -31,13 +31,12 @@ import Data.CFTA.Refinement (
     transitionsAt,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (refinementFormula, variable, (.==), (.>=))
+import Data.CFTA.Refinement.Expression (refinementFormula, true, variable, (.==), (.>=))
 import qualified Data.CFTA.Refinement.Guard as Guard
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Refinement.TestSupport (declarations)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec =
@@ -62,7 +61,7 @@ spec =
             withZ3 declarations $ \solver ->
                 checkPrunedLanguage
                     solver
-                    (optionalDescendant $ Not $ Satisfies (path [0, 0]) Fixpoint.PTrue)
+                    (optionalDescendant $ Not $ Satisfies (path [0, 0]) true)
                     optionalDescendantTerms
                     1
 
@@ -70,7 +69,7 @@ spec =
             withZ3 declarations $ \solver ->
                 checkPrunedLanguage
                     solver
-                    (optionalDescendant $ Or [Top, Satisfies (path [0, 0]) Fixpoint.PTrue])
+                    (optionalDescendant $ Or [Top, Satisfies (path [0, 0]) true])
                     optionalDescendantTerms
                     2
 
@@ -86,20 +85,20 @@ spec =
                     leafA = Term.Node (RefinedSymbol "a" zero) []
                     leafB = Term.Node (RefinedSymbol "b" one) []
                     semantic =
-                        Node [Transition "f" Fixpoint.PTrue [atoms] $ semanticConstraint $ Satisfies (path [0]) zero]
+                        Node [Transition "f" true [atoms] $ semanticConstraint $ Satisfies (path [0]) zero]
                     syntactic =
-                        Node [Transition "pair" Fixpoint.PTrue [atoms, atoms] $ semanticConstraint $ Same (path [0]) (path [1])]
+                        Node [Transition "pair" true [atoms, atoms] $ semanticConstraint $ Same (path [0]) (path [1])]
                 checkPrunedLanguage
                     solver
                     semantic
-                    [ Term.Node (RefinedSymbol "f" Fixpoint.PTrue) [child]
-                    | child <- [leafA, leafB, Term.Node (RefinedSymbol "sentinel" Fixpoint.PTrue) []]
+                    [ Term.Node (RefinedSymbol "f" true) [child]
+                    | child <- [leafA, leafB, Term.Node (RefinedSymbol "sentinel" true) []]
                     ]
                     1
                 checkPrunedLanguage
                     solver
                     syntactic
-                    [Term.Node (RefinedSymbol "pair" Fixpoint.PTrue) [left, right] | left <- [leafA, leafB], right <- [leafA, leafB]]
+                    [Term.Node (RefinedSymbol "pair" true) [left, right] | left <- [leafA, leafB], right <- [leafA, leafB]]
                     2
 
         it "partitions substitution positions by their value-naming symbol" $
@@ -107,7 +106,7 @@ spec =
                 checkPrunedLanguage solver substitutedOutputs substitutionTerms 2
 
         it "retains guards whose compound actual identities need complete terms" $
-            withZ3 ([(Fixpoint.symbol name, Fixpoint.FInt) | name <- ["app", "known"] :: [String]] <> declarations) $ \solver -> do
+            withZ3 (["app", "known"] <> declarations) $ \solver -> do
                 before <- denotationAtMost solver 2 compoundActuals
                 fmap length before `shouldBe` Right 3
                 result <- prune solver compoundActuals
@@ -157,7 +156,7 @@ spec =
                 let requirements =
                         [ Guard.isSameTermAs (Guard.argument 0) (Guard.argument 1)
                         , Guard.isSameTermAs (Guard.argument 1) (Guard.argument 2)
-                        , Guard.requires (Guard.argument 0) (const Fixpoint.PTrue)
+                        , Guard.requires (Guard.argument 0) (const true)
                         ]
                     check order = do
                         let original = equalTriples $ Guard.allOf order
@@ -186,7 +185,7 @@ checkPrunedLanguage solver original terms expected = do
             afterDenotation <- denotationAtMost solver 3 reduced
             equivalentTermSets beforeDenotation afterDenotation `shouldBe` True
 
--- | Compare denotations as sets without requiring an ordering for Fixpoint expressions.
+-- | Compare denotations as sets without requiring an ordering for formulas.
 equivalentTermSets ::
     Either DenotationError [Term Symbol] ->
     Either DenotationError [Term Symbol] ->
@@ -197,7 +196,7 @@ equivalentTermSets _ _ = False
 
 -- | A node with one unrefined, unconstrained leaf.
 leafNode :: Symbol -> Automaton
-leafNode symbol = Node [Transition symbol Fixpoint.PTrue [] noConstraint]
+leafNode symbol = Node [Transition symbol true [] noConstraint]
 
 -- | The leaf @a@.
 atomA :: Automaton
@@ -207,34 +206,34 @@ atomA = leafNode "a"
 atomsAB :: Automaton
 atomsAB =
     Node
-        [ Transition "a" Fixpoint.PTrue [] noConstraint
-        , Transition "b" Fixpoint.PTrue [] noConstraint
+        [ Transition "a" true [] noConstraint
+        , Transition "b" true [] noConstraint
         ]
 
 -- | A descendant exists in only one alternative of the child node.
 optionalDescendant :: Guard -> Automaton
 optionalDescendant guard =
-    Node [Transition "f" Fixpoint.PTrue [choice] $ semanticConstraint guard]
+    Node [Transition "f" true [choice] $ semanticConstraint guard]
   where
     choice =
         Node
-            [ Transition "a" Fixpoint.PTrue [] noConstraint
-            , Transition "b" Fixpoint.PTrue [atomA] noConstraint
+            [ Transition "a" true [] noConstraint
+            , Transition "b" true [atomA] noConstraint
             ]
 
 -- | Both finite terms of 'optionalDescendant' before its guard is checked.
 optionalDescendantTerms :: [Term Symbol]
 optionalDescendantTerms =
-    [ Term.Node (RefinedSymbol "f" Fixpoint.PTrue) [leaf]
-    , Term.Node (RefinedSymbol "f" Fixpoint.PTrue) [Term.Node (RefinedSymbol "b" Fixpoint.PTrue) [leaf]]
+    [ Term.Node (RefinedSymbol "f" true) [leaf]
+    , Term.Node (RefinedSymbol "f" true) [Term.Node (RefinedSymbol "b" true) [leaf]]
     ]
   where
-    leaf = Term.Node (RefinedSymbol "a" Fixpoint.PTrue) []
+    leaf = Term.Node (RefinedSymbol "a" true) []
 
 -- | Three independent choices constrained by positive equalities and entailment.
 equalTriples :: Constraint -> Automaton
 equalTriples constraint =
-    Node [Transition "triple" Fixpoint.PTrue [atomsAB, atomsAB, atomsAB] constraint]
+    Node [Transition "triple" true [atomsAB, atomsAB, atomsAB] constraint]
 
 -- | Compare the values of two complete compound actual terms.
 compoundEqualityGuard :: Guard
@@ -247,14 +246,14 @@ compoundEqualityGuard =
 compoundActuals :: Automaton
 compoundActuals =
     Node
-        [ Transition "pair" Fixpoint.PTrue [known, known, leafNode "x", leafNode "y"] $
+        [ Transition "pair" true [known, known, leafNode "x", leafNode "y"] $
             semanticConstraint compoundEqualityGuard
         ]
   where
     known =
         Node
             [ Transition "known" (refinementFormula (\v -> v .== 0)) [] noConstraint
-            , Transition "app" Fixpoint.PTrue [atomsAB] noConstraint
+            , Transition "app" true [atomsAB] noConstraint
             ]
 
 {- | Figure 12's LTA: @f(phi1, phi2)@ where @phi1 => phi2@.
@@ -264,13 +263,13 @@ encodes that symbol as @RefinedSymbol "predicate" formula@; it is not metadata
 outside the automaton.
 -}
 semanticPairs :: Automaton
-semanticPairs = Node [Transition "pair" Fixpoint.PTrue [predicateNode, predicateNode] pairEntailment]
+semanticPairs = Node [Transition "pair" true [predicateNode, predicateNode] pairEntailment]
 
 -- | The same relation, with its left observation one constructor below the root.
 nestedPairs :: Automaton
-nestedPairs = Node [Transition "pair" Fixpoint.PTrue [box, predicateNode] nestedEntailment]
+nestedPairs = Node [Transition "pair" true [box, predicateNode] nestedEntailment]
   where
-    box = Node [Transition "box" Fixpoint.PTrue [predicateNode] noConstraint]
+    box = Node [Transition "box" true [predicateNode] noConstraint]
 
 -- | A substitution guard whose actual names select matching output refinements.
 substitutedOutputs :: Automaton
@@ -278,7 +277,7 @@ substitutedOutputs =
     Node
         [ Transition
             "application"
-            Fixpoint.PTrue
+            true
             [actuals, leafNode "n", outputs]
             substitutedRequirement
         ]
@@ -298,22 +297,22 @@ substitutedOutputs =
 leftOrShared :: Automaton
 leftOrShared =
     Node
-        [ Transition "left" Fixpoint.PTrue [] noConstraint
-        , Transition "shared" Fixpoint.PTrue [] noConstraint
+        [ Transition "left" true [] noConstraint
+        , Transition "shared" true [] noConstraint
         ]
 
 -- | The leaves @shared@ and @right@.
 sharedOrRight :: Automaton
 sharedOrRight =
     Node
-        [ Transition "shared" Fixpoint.PTrue [] noConstraint
-        , Transition "right" Fixpoint.PTrue [] noConstraint
+        [ Transition "shared" true [] noConstraint
+        , Transition "right" true [] noConstraint
         ]
 
 -- | Two overlapping structural languages tied by syntactic equality.
 syntacticPairs :: Automaton
 syntacticPairs =
-    Node [Transition "pair" Fixpoint.PTrue [leftOrShared, sharedOrRight] $ semanticConstraint $ Same (path [0]) (path [1])]
+    Node [Transition "pair" true [leftOrShared, sharedOrRight] $ semanticConstraint $ Same (path [0]) (path [1])]
 
 -- | One accepted equal pair followed by two rejected unequal pairs.
 syntacticPairTerms :: [Term Symbol]
@@ -325,38 +324,38 @@ syntacticPairTerms =
   where
     pair left right =
         Term.Node
-            (RefinedSymbol "pair" Fixpoint.PTrue)
-            [Term.Node (RefinedSymbol left Fixpoint.PTrue) [], Term.Node (RefinedSymbol right Fixpoint.PTrue) []]
+            (RefinedSymbol "pair" true)
+            [Term.Node (RefinedSymbol left true) [], Term.Node (RefinedSymbol right true) []]
 
 -- | The same structural overlap reached below a wrapper on the left.
 nestedSyntacticPairs :: Automaton
 nestedSyntacticPairs =
-    Node [Transition "pair" Fixpoint.PTrue [boxOrEmpty, sharedOrRight] $ semanticConstraint $ Same (path [0, 0]) (path [1])]
+    Node [Transition "pair" true [boxOrEmpty, sharedOrRight] $ semanticConstraint $ Same (path [0, 0]) (path [1])]
   where
     boxOrEmpty =
         Node
-            [ Transition "box" Fixpoint.PTrue [leftOrShared] noConstraint
-            , Transition "empty" Fixpoint.PTrue [] noConstraint
+            [ Transition "box" true [leftOrShared] noConstraint
+            , Transition "empty" true [] noConstraint
             ]
 
 -- | Negated equality is a valid LTA constraint but is not an equality class.
 negativeSyntacticPairs :: Automaton
 negativeSyntacticPairs =
-    Node [Transition "pair" Fixpoint.PTrue [leftOrShared, sharedOrRight] $ semanticConstraint negativeEquality]
+    Node [Transition "pair" true [leftOrShared, sharedOrRight] $ semanticConstraint negativeEquality]
 
 negativeEquality :: Guard
 negativeEquality = Not $ Same (path [0]) (path [1])
 
 -- | All concrete pairs from the heterogeneous atom node.
 pairTerms :: [Term Symbol]
-pairTerms = [Term.Node (RefinedSymbol "pair" Fixpoint.PTrue) [left, right] | left <- predicates, right <- predicates]
+pairTerms = [Term.Node (RefinedSymbol "pair" true) [left, right] | left <- predicates, right <- predicates]
 
 -- | All concrete pairs with the left atom below a box constructor.
 nestedPairTerms :: [Term Symbol]
 nestedPairTerms =
     [ Term.Node
-        (RefinedSymbol "pair" Fixpoint.PTrue)
-        [Term.Node (RefinedSymbol "box" Fixpoint.PTrue) [left], right]
+        (RefinedSymbol "pair" true)
+        [Term.Node (RefinedSymbol "box" true) [left], right]
     | left <- predicates
     , right <- predicates
     ]
@@ -365,8 +364,8 @@ nestedPairTerms =
 substitutionTerms :: [Term Symbol]
 substitutionTerms =
     [ Term.Node
-        (RefinedSymbol "application" Fixpoint.PTrue)
-        [actual, Term.Node (RefinedSymbol "n" Fixpoint.PTrue) [], output]
+        (RefinedSymbol "application" true)
+        [actual, Term.Node (RefinedSymbol "n" true) [], output]
     | actual <- namedActuals
     , output <-
         [ Term.Node (RefinedSymbol "output-x" (refinementFormula (\v -> v .== variable "x"))) []

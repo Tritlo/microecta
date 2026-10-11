@@ -7,10 +7,12 @@ module Data.CFTA.Refinement.TestSupport (
     declarations,
 ) where
 
+import Data.String (fromString)
+
+import Data.CFTA.Formula (Name)
 import Data.CFTA.Refinement (Entailment (Entailment), Verdict (..))
 import Data.CFTA.Refinement.Expression (true)
 import Data.CFTA.Symbol (valueName)
-import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A small decidable implication table that keeps syntax tests independent of Z3.
 tableEntailment :: Entailment
@@ -25,8 +27,5 @@ unusedEntailment :: Entailment
 unusedEntailment = Entailment $ \_ _ -> error "unusedEntailment: consulted"
 
 -- | Integer declarations shared by the pruning and minimization examples.
-declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-declarations =
-    [ (Fixpoint.symbol name, Fixpoint.FInt)
-    | name <- [valueName, "x", "y", "n"] :: [String]
-    ]
+declarations :: [Name]
+declarations = [fromString valueName, "x", "y", "n"]

@@ -31,7 +31,6 @@ import Data.CFTA.Refinement.Expression (refinementFormula, true, variable, (.==)
 import Data.CFTA.Refinement.Guard (anyOf, buildGuard, isSameTermAs, notGuard, requires, withActualFor)
 import Data.CFTA.Refinement.TestSupport (tableEntailment)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec =
@@ -221,25 +220,6 @@ spec =
             evaluateGuard tableEntailment missingActual term >>= (`shouldBe` No)
             evaluateGuard tableEntailment missingFormal term >>= (`shouldBe` No)
             evaluateGuard tableEntailment (Not missingActual) term >>= (`shouldBe` Yes)
-
-        it "does not capture a free refinement name when comparing quantified annotations" $ do
-            let quantified body = Fixpoint.PAll [(Fixpoint.symbol ("x" :: String), Fixpoint.FInt)] body
-                term =
-                    Term.Node
-                        ( RefinedSymbol
-                            "context"
-                            true
-                        )
-                        [ Term.Node (RefinedSymbol "x" true) []
-                        , Term.Node (RefinedSymbol "y" true) []
-                        , Term.Node (RefinedSymbol "predicate" (quantified $ variable "y" .== variable "x")) []
-                        , Term.Node (RefinedSymbol "predicate" (quantified $ variable "x" .== variable "x")) []
-                        ]
-                guard =
-                    Substitute
-                        [Substitution (path [0]) (path [1])]
-                        (Same (path [2]) (path [3]))
-            evaluateGuard tableEntailment guard term >>= (`shouldBe` No)
 
         it "checks scoped syntactic equality without comparing huge actual value identities" $ do
             let huge =

@@ -20,6 +20,7 @@ import Data.Either (isLeft)
 import Data.Functor.Identity (Identity (..))
 import Data.List (sort)
 import Data.Maybe (fromMaybe, isJust)
+import Data.String (fromString)
 import Test.Hspec (Spec, describe, it)
 import Test.QuickCheck (
     Gen,
@@ -48,6 +49,8 @@ import Data.CFTA.Constraint (
     noConstraint,
     semanticConstraint,
  )
+import Data.CFTA.Formula (Relation (..))
+import qualified Data.CFTA.Formula as Formula
 import Data.CFTA.Path (getPath, path)
 import Data.CFTA.Refinement (
     PruneError (PruneUnknown),
@@ -75,7 +78,6 @@ import qualified Data.CFTA.Simple as Simple
 import Data.CFTA.Symbol (Formula, valueName)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec = describe "liquid tree automata against Data.CFTA.Simple" $ do
@@ -200,23 +202,25 @@ domain = [-1 .. 6]
 -- | The truth of a comparison formula, with the value of each variable.
 truth :: [(String, Integer)] -> Formula -> Bool
 truth bindings formula = case formula of
-    Fixpoint.PAnd parts -> all (truth bindings) parts
-    Fixpoint.POr parts -> any (truth bindings) parts
-    Fixpoint.PNot inner -> not $ truth bindings inner
-    Fixpoint.PAtom relation left right -> compareBy relation (valueOf left) (valueOf right)
-    _ -> error $ "an unexpected formula: " <> show formula
+    Formula.Top -> True
+    Formula.And parts -> all (truth bindings) parts
+    Formula.Bottom -> False
+    Formula.Or parts -> any (truth bindings) parts
+    Formula.Not inner -> not $ truth bindings inner
+    Formula.Atom relation left right -> compareBy relation (valueOf left) (valueOf right)
   where
-    valueOf (Fixpoint.ECon (Fixpoint.I number)) = number
-    valueOf (Fixpoint.EVar name) = fromMaybe (error $ "an unbound variable: " <> show name) $ lookup (Fixpoint.symbolString name) bindings
+    valueOf (Formula.Lit number) = number
+    valueOf (Formula.Var name) =
+        fromMaybe (error $ "an unbound variable: " <> show name) $
+            lookup name [(fromString key, value) | (key, value) <- bindings]
     valueOf other = error $ "an unexpected expression: " <> show other
     compareBy relation = case relation of
-        Fixpoint.Eq -> (==)
-        Fixpoint.Ne -> (/=)
-        Fixpoint.Lt -> (<)
-        Fixpoint.Le -> (<=)
-        Fixpoint.Gt -> (>)
-        Fixpoint.Ge -> (>=)
-        _ -> error $ "an unexpected relation: " <> show relation
+        Eq -> (==)
+        Ne -> (/=)
+        Lt -> (<)
+        Le -> (<=)
+        Gt -> (>)
+        Ge -> (>=)
 
 {- | A random liquid automaton: at most three states, integer leaves, and
 guarded nodes. The root has nodes more often. An automaton whose guard reads

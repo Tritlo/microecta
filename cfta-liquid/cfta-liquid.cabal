@@ -4,8 +4,8 @@ version: 0.1.0.0
 synopsis: Liquid tree automata on the interned engine of cfta
 description:
   Liquid tree automata (LTA) after Mishra and Jagannathan: transitions with
-  Liquid Fixpoint refinements and guards over child positions, recognition,
-  pruning, similarity, minimization, the bounded denotation, and an exact
+  refinements and guards over child positions, recognition, pruning,
+  similarity, minimization, the bounded denotation, and an exact
   lattice entailment for bounded linear integer formulas. Implications go
   through the Entailment port; cfta-z3 has the Z3 adapter.
 
@@ -121,7 +121,6 @@ test-suite liquid-tests
     cfta-liquid,
     containers >=0.8 && <0.9,
     hspec >=2.11 && <2.12,
-    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     QuickCheck >=2.14 && <2.19,
 
 benchmark cross-layer-speed

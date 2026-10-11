@@ -5,6 +5,7 @@ module Data.CFTA.Refinement.RefinementRelationSpec (spec) where
 import Data.List (elemIndex)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
+import Data.CFTA.Formula (iff, implies)
 import Data.CFTA.Index (Cardinality (..), Rank (..), everyRank)
 import Data.CFTA.Refinement (
     Entailment (entails),
@@ -26,7 +27,6 @@ import Data.CFTA.Refinement.Expression (
     (.||),
  )
 import Data.CFTA.Refinement.Lattice (latticeEntailment, pointAt, pointCount, pointRank, points)
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec = do
@@ -89,13 +89,13 @@ pointCases :: [(Formula, Integer -> Integer -> Bool)]
 pointCases =
     [ (box $ x ./= y, (/=))
     , (box $ lnot (x .< y), (>=))
-    , (box $ Fixpoint.PImp (x .> 0) (y .> x), \a b -> a <= 0 || b > a)
-    , (box $ Fixpoint.PIff (x .>= 0) (y .<= 1), \a b -> (a >= 0) == (b <= 1))
+    , (box $ implies (x .> 0) (y .> x), \a b -> a <= 0 || b > a)
+    , (box $ iff (x .>= 0) (y .<= 1), \a b -> (a >= 0) == (b <= 1))
     , (box $ x .< -1 .|| y .== x + 1, \a b -> a < -1 || b == a + 1)
     , (box $ lnot (x .== 1 .|| y ./= 0), \a b -> not (a == 1 || b /= 0))
-    , (box $ lnot (Fixpoint.PImp (x + y .<= 2) (x ./= 0)), \a b -> a + b <= 2 && a == 0)
+    , (box $ lnot (implies (x + y .<= 2) (x ./= 0)), \a b -> a + b <= 2 && a == 0)
     , (lnot (x .< -3 .|| x .> 3 .|| y .< -3 .|| y .> 3) .&& x ./= y, (/=))
-    , (Fixpoint.PIff (x .>= -3) (x .<= 3) .&& Fixpoint.PImp (y .< -3 .|| y .> 3) false .&& x + y .> 0, \a b -> a + b > 0)
+    , (iff (x .>= -3) (x .<= 3) .&& implies (y .< -3 .|| y .> 3) false .&& x + y .> 0, \a b -> a + b > 0)
     ]
   where
     x = variable "x"

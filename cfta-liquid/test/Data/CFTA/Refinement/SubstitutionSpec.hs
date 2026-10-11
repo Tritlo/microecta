@@ -15,12 +15,11 @@ import Data.CFTA.Refinement (
     evaluateGuard,
     path,
  )
-import Data.CFTA.Refinement.Expression (false, fromExpr, toExpr, true, variable, (.==))
+import Data.CFTA.Refinement.Expression (false, true, variable, (.==))
 import Data.CFTA.Refinement.Guard (buildGuard, isSubtypeOf, withActualFor, withActualsFor)
 import Data.CFTA.Symbol (valueName)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 equalityEntailment :: Entailment
 equalityEntailment = Entailment $ \antecedent consequent ->
@@ -68,8 +67,8 @@ spec =
             evaluateConstraint equalityEntailment dependentGuard term >>= (`shouldBe` No)
 
         it "substitutes several actual arguments in one dependent result" $ do
-            let expected = variable valueName .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "x") (fromExpr $ variable "y"))
-                dependent = variable valueName .== toExpr (Fixpoint.EBin Fixpoint.Plus (fromExpr $ variable "n") (fromExpr $ variable "m"))
+            let expected = variable valueName .== variable "x" + variable "y"
+                dependent = variable valueName .== variable "n" + variable "m"
                 guard =
                     buildGuard $ \resultType functionOutput firstActual firstFormal secondActual secondFormal ->
                         withActualsFor

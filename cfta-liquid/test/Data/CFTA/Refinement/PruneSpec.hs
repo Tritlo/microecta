@@ -25,9 +25,9 @@ import Data.CFTA.Refinement (
     semanticConstraint,
     pattern Transition,
  )
+import Data.CFTA.Refinement.Expression (true)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec =
@@ -52,9 +52,9 @@ spec =
         it "removes a transition whose equalities need an absent descendant" $ do
             let solver = Entailment $ \_ _ -> pure Unknown
                 constraint = semanticConstraint $ And [Same (path [0]) (path [1]), Same (path [0, 0]) (path [1, 0])]
-                leaf = Term.Node (RefinedSymbol "a" Fixpoint.PTrue) []
-                original = Node [Transition "pair" Fixpoint.PTrue [atomA, atomA] constraint]
-            accepts solver original (Term.Node (RefinedSymbol "pair" Fixpoint.PTrue) [leaf, leaf]) >>= (`shouldBe` No)
+                leaf = Term.Node (RefinedSymbol "a" true) []
+                original = Node [Transition "pair" true [atomA, atomA] constraint]
+            accepts solver original (Term.Node (RefinedSymbol "pair" true) [leaf, leaf]) >>= (`shouldBe` No)
             prune solver original >>= (`shouldBe` Right EmptyNode)
 
         it "preserves scoped syntactic equality and its Boolean forms as residual LTA guards" $ do
@@ -66,17 +66,17 @@ spec =
                 differentPairs = filter (`notElem` equalPairs) allPairs
                 term (left, right) =
                     Term.Node
-                        (RefinedSymbol "scoped" Fixpoint.PTrue)
-                        [Term.Node (RefinedSymbol symbol Fixpoint.PTrue) [] | symbol <- ["x", "y", left, right]]
+                        (RefinedSymbol "scoped" true)
+                        [Term.Node (RefinedSymbol symbol true) [] | symbol <- ["x", "y", left, right]]
                 automaton guard =
                     Node
                         [ Transition
                             "scoped"
-                            Fixpoint.PTrue
+                            true
                             [leafNode "x", leafNode "y", xyz, xyz]
                             (semanticConstraint guard)
                         ]
-                xyz = Node [Transition symbol Fixpoint.PTrue [] noConstraint | symbol <- ["x", "y", "z"]]
+                xyz = Node [Transition symbol true [] noConstraint | symbol <- ["x", "y", "z"]]
                 check (guard, acceptedPairs) = do
                     let original = automaton guard
                     denotationAtMost solver 1 original
@@ -97,7 +97,7 @@ spec =
                 ]
 
         it "reports solver uncertainty when actual identities are known" $ do
-            result <- prune (Entailment $ \_ _ -> pure Unknown) $ optionalDescendant $ Satisfies (path [0]) Fixpoint.PTrue
+            result <- prune (Entailment $ \_ _ -> pure Unknown) $ optionalDescendant $ Satisfies (path [0]) true
             case result of
                 Left (PruneUnknown _) -> pure ()
                 other -> expectationFailure $ "expected an undecided guard, got " <> show other
@@ -117,7 +117,7 @@ checkPrunedLanguage solver original terms expected = do
             afterDenotation <- denotationAtMost solver 3 reduced
             equivalentTermSets beforeDenotation afterDenotation `shouldBe` True
 
--- | Compare denotations as sets without requiring an ordering for Fixpoint expressions.
+-- | Compare denotations as sets without requiring an ordering for formulas.
 equivalentTermSets ::
     Either DenotationError [Term Symbol] ->
     Either DenotationError [Term Symbol] ->
@@ -128,7 +128,7 @@ equivalentTermSets _ _ = False
 
 -- | A node with one unrefined, unconstrained leaf.
 leafNode :: Symbol -> Automaton
-leafNode symbol = Node [Transition symbol Fixpoint.PTrue [] noConstraint]
+leafNode symbol = Node [Transition symbol true [] noConstraint]
 
 -- | The leaf @a@.
 atomA :: Automaton
@@ -137,19 +137,19 @@ atomA = leafNode "a"
 -- | A descendant exists in only one alternative of the child node.
 optionalDescendant :: Guard -> Automaton
 optionalDescendant guard =
-    Node [Transition "f" Fixpoint.PTrue [choice] $ semanticConstraint guard]
+    Node [Transition "f" true [choice] $ semanticConstraint guard]
   where
     choice =
         Node
-            [ Transition "a" Fixpoint.PTrue [] noConstraint
-            , Transition "b" Fixpoint.PTrue [atomA] noConstraint
+            [ Transition "a" true [] noConstraint
+            , Transition "b" true [atomA] noConstraint
             ]
 
 -- | Both finite terms of 'optionalDescendant' before its guard is checked.
 optionalDescendantTerms :: [Term Symbol]
 optionalDescendantTerms =
-    [ Term.Node (RefinedSymbol "f" Fixpoint.PTrue) [leaf]
-    , Term.Node (RefinedSymbol "f" Fixpoint.PTrue) [Term.Node (RefinedSymbol "b" Fixpoint.PTrue) [leaf]]
+    [ Term.Node (RefinedSymbol "f" true) [leaf]
+    , Term.Node (RefinedSymbol "f" true) [Term.Node (RefinedSymbol "b" true) [leaf]]
     ]
   where
-    leaf = Term.Node (RefinedSymbol "a" Fixpoint.PTrue) []
+    leaf = Term.Node (RefinedSymbol "a" true) []
