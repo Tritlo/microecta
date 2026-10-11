@@ -29,10 +29,13 @@ module Data.CFTA.Formula (
     iff,
     freeNames,
     substitute,
+    renderFormula,
+    renderTerm,
 ) where
 
 import qualified Data.HashSet as HashSet
 import Data.Hashable (Hashable (..))
+import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.String (IsString (..))
@@ -229,3 +232,50 @@ substitute replacements = inFormula
         Mul left right -> Mul (inTerm left) (inTerm right)
         Ite condition yes no -> Ite (inFormula condition) (inTerm yes) (inTerm no)
         Lit _ -> term
+
+{- | A formula as text, in the notation of the operators of
+"Data.CFTA.Refinement.Expression", as in @__cfta_value >= 0 && x /= y@. A
+conjunction or a disjunction inside another formula gets parentheses, and so
+does an atom inside a negation.
+-}
+renderFormula :: Formula -> String
+renderFormula = go (0 :: Int)
+  where
+    go context formula = case formula of
+        Top -> "true"
+        Bottom -> "false"
+        Atom relation left right ->
+            parenthesize (context >= 2) $ renderTerm left <> " " <> operator relation <> " " <> renderTerm right
+        Not inner -> "not " <> go 2 inner
+        And [] -> "true"
+        And parts -> parenthesize (context >= 1) $ intercalate " && " $ map (go 1) parts
+        Or [] -> "false"
+        Or parts -> parenthesize (context >= 1) $ intercalate " || " $ map (go 1) parts
+    operator relation = case relation of
+        Eq -> "=="
+        Ne -> "/="
+        Gt -> ">"
+        Ge -> ">="
+        Lt -> "<"
+        Le -> "<="
+
+{- | A term as text: names, literals, @+@, @-@, @*@, and @if then else@, with
+the parentheses that the precedence of the operators needs.
+-}
+renderTerm :: Term -> String
+renderTerm = go (0 :: Int)
+  where
+    go context term = case term of
+        Lit value -> parenthesize (value < 0 && context > 0) $ show value
+        Var (Name name) -> Text.unpack name
+        Neg inner -> parenthesize (context > 6) $ "-" <> go 9 inner
+        Add left right -> parenthesize (context > 6) $ go 6 left <> " + " <> go 7 right
+        Sub left right -> parenthesize (context > 6) $ go 6 left <> " - " <> go 7 right
+        Mul left right -> parenthesize (context > 7) $ go 7 left <> " * " <> go 8 right
+        Ite condition yes no ->
+            parenthesize (context > 0) $ "if " <> renderFormula condition <> " then " <> go 0 yes <> " else " <> go 0 no
+
+-- | The text in parentheses when the condition holds.
+parenthesize :: Bool -> String -> String
+parenthesize True text = "(" <> text <> ")"
+parenthesize False text = text
