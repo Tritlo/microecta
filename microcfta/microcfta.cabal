@@ -82,8 +82,6 @@ library
     Data.CFTA.Index
     Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned
-    Data.CFTA.Interned.Cache
-    Data.CFTA.Interned.Memo
     Data.CFTA.Interned.Operations
     Data.CFTA.Interned.Type
     Data.CFTA.Path
@@ -112,6 +110,7 @@ library
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta-intern ==0.1.0.0,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
     transformers >=0.6 && <0.7,

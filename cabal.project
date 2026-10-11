@@ -2,6 +2,7 @@ with-compiler: ghc-9.14.1
 
 packages:
   microcfta
+  microcfta-intern
   microcfta-generator
   microecta
   microecta-generator
