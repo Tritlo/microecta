@@ -8,7 +8,7 @@ Constrained finite tree automata for Haskell, in five packages:
 | [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
 | `microcfta-rank` | Ranked languages: exact cardinalities, a bijection between ranks and members, sizes, weighted sampling, and shrinking, independent of automata. |
 | `microcfta-intern` | The process-global interning tables and memo tables of the engine. |
-| `microcfta-base` | The newtypes of indexes, ranks, counts, sizes, and weights, and the arithmetic of ranks. |
+| `microcfta-base` | Concrete terms and paths, the newtypes of indexes, ranks, counts, sizes, and weights, the arithmetic of ranks, the tree searches over rows, and a persistent union-find. |
 
 ```mermaid
 flowchart BT
@@ -192,12 +192,13 @@ source archives of its workspace dependencies. Publish `microcfta-base` and
 `microcfta-intern` first, then `microcfta` and `microcfta-rank`, then
 `microcfta-generator`.
 
-Code that imports `Data.CFTA.Index` must declare `microcfta-base`, code that
-imports `Data.CFTA.Interned.Cache` or `Data.CFTA.Interned.Memo` must declare
-`microcfta-intern`, and code that imports `Data.CFTA.Ranked` or
-`Data.CFTA.Ranked.Internal.*` must declare `microcfta-rank`. Other code that
-imports `Data.CFTA.*` must declare `microcfta`, and code that imports
-`Data.CFTA.Gen.*` or `Data.CFTA.Ranked.QuickCheck` must declare
-`microcfta-generator`.
+Code that imports `Data.CFTA.Index`, `Data.CFTA.Term`, `Data.CFTA.Path`,
+`Data.CFTA.Internal.Tree`, or `Data.CFTA.Internal.UnionFind` must declare
+`microcfta-base`, code that imports `Data.CFTA.Interned.Cache` or
+`Data.CFTA.Interned.Memo` must declare `microcfta-intern`, and code that imports
+`Data.CFTA.Ranked` or `Data.CFTA.Ranked.Internal.*` must declare
+`microcfta-rank`. Other code that imports `Data.CFTA.*` must declare
+`microcfta`, and code that imports `Data.CFTA.Gen.*` or
+`Data.CFTA.Ranked.QuickCheck` must declare `microcfta-generator`.
 Code that imports `Data.Tree` directly, for `drawTree`, must declare
 `containers`.

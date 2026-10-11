@@ -20,7 +20,8 @@ engine descends from the
 [`microecta`](https://hackage.haskell.org/package/microecta) package, which
 remains a separate, ECTA-only line. The refinement layer is the liquid tree
 automaton (LTA) of Mishra and Jagannathan, with Liquid Fixpoint refinements and
-Z3 entailment. Concrete terms are `Term symbol` from `Data.CFTA.Term`.
+Z3 entailment. Concrete terms are `Term symbol` from `Data.CFTA.Term` in
+`microcfta-base`.
 
 - Derive `HasFTA` for your datatype to get a grammar, constructor metadata, and
   codecs between Haskell values and constructor trees.
@@ -1039,7 +1040,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA` | Checked explicit-state graphs, recognition, depth bounds, product intersection, and enumeration. |
 | `Data.CFTA.Interned` | Shared nodes and edges, recursive languages, union, intersection, and views. |
 | `Data.CFTA.Template` | Patterns with holes and prefixes, and restriction of a grammar to a pattern. |
-| `Data.CFTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. |
+| `Data.CFTA.Path` | Child-index paths, and reading, editing, and requiring positions in a graph. The module is in `microcfta-base`. |
 | `Data.CFTA.Symbol` | Interned symbols (a text and a refinement) that compare and hash by identity, `RefinedSymbol`, and `eraseRefinements`. |
 | `Data.CFTA.Constraint` | The `Constraint` type: equalities and a guard, conjunction, `noConstraint`, known contradictions, and views of the constraint. |
 | `Data.CFTA.Equality` | Equality-constrained nodes and edges, reduction, membership, templates, and constrained enumeration. |
@@ -1052,7 +1053,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Refinement.Lattice` | Exact counting and lexicographic ranking of the integer points of a linear formula, without enumeration, and `latticeEntailment`, which decides bounded linear integer implications without a solver. |
 | `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
 | `Data.CFTA.Simple` | The automata defined as simply as possible, on explicit-state automata: membership by recursion on the term, the terms up to a depth by filtering every tree, and the textbook union, product, and depth bound. It is slow, and the tests check the other modules against it. |
-| `Data.CFTA.Term` | Concrete terms: `Term symbol`, built and matched with the pattern `Node symbol children`, with `child`, `arity`, `flatten`, and the conversions to and from `Data.Tree`. |
+| `Data.CFTA.Term` | Concrete terms: `Term symbol`, built and matched with the pattern `Node symbol children`, with `child`, `arity`, `flatten`, and the conversions to and from `Data.Tree`. The module is in `microcfta-base`. |
 | `Data.Tree` from `containers` | The automaton views of `toTree`, for `drawTree`. |
 
 The interned engine has a symbol type. Every edge carries a `Constraint`,

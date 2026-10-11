@@ -5,9 +5,9 @@
 
 A 'Path' names a position by the child index taken at each level. 'Pathable'
 reads and edits the value at a path. The instances for interned graphs are in
-"Data.CFTA.Interned.Operations". They follow every alternative, so reading a
-path from a node gives the union of the languages at that position. Constraint
-theories build their constraints over these paths.
+"Data.CFTA.Interned.Operations" of @microcfta@. They follow every alternative,
+so reading a path from a node gives the union of the languages at that
+position. Constraint theories build their constraints over these paths.
 -}
 module Data.CFTA.Path (
     Path (.., EmptyPath, ConsPath),

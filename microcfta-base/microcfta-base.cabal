@@ -1,10 +1,12 @@
 cabal-version: 3.0
 name: microcfta-base
 version: 0.1.0.0
-synopsis: Indexes, ranks, and counts shared by the microcfta packages
+synopsis: Terms, paths, indexes, and ranks shared by the microcfta packages
 description:
-  The newtypes of zero-based indexes, ranks, counts, sizes, and weights, and
-  the mixed-radix arithmetic of ranks in products and groups.
+  Concrete terms and child-index paths; the newtypes of zero-based indexes,
+  ranks, counts, sizes, and weights, and the mixed-radix arithmetic of ranks
+  in products and groups; the tree searches over rows of alternatives; and a
+  persistent union-find.
 
 homepage: https://github.com/Tritlo/microecta/tree/main/microcfta-base#readme
 bug-reports: https://github.com/Tritlo/microecta/issues
@@ -72,19 +74,40 @@ library
   hs-source-dirs: src
   exposed-modules:
     Data.CFTA.Index
+    Data.CFTA.Internal.Tree
+    Data.CFTA.Internal.UnionFind
+    Data.CFTA.Path
+    Data.CFTA.Term
 
   build-depends:
     base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
+    mtl >=2.3 && <2.4,
+    transformers >=0.6 && <0.7,
+    unordered-containers >=0.2 && <0.3,
 
 test-suite base-tests
   import: warnings, extensions
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  ghc-options: -rtsopts
+  ghc-options:
+    -rtsopts
+    -Wno-orphans
+
+  other-modules:
+    Data.CFTA.IndexSpec
+    Data.CFTA.Internal.TreeSpec
+    Data.CFTA.Internal.UnionFindSpec
+    Data.CFTA.TermSpec
+
   build-depends:
     base,
+    containers >=0.8 && <0.9,
+    equivalence >=0.4.1 && <0.5,
+    hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta-base,
+    mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
