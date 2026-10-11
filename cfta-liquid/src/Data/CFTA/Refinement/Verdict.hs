@@ -21,8 +21,7 @@ module Data.CFTA.Refinement.Verdict (
     orVerdicts,
 ) where
 
-import qualified Language.Fixpoint.Types as Fixpoint
-
+import Data.CFTA.Formula (Name)
 import Data.CFTA.Symbol (Formula)
 
 -- | A three-valued decision. Solver uncertainty is never silently made false.
@@ -37,7 +36,7 @@ Each binding pairs a fresh value name with a declared name of the same sort.
 The binding does not assert equality between the two values.
 -}
 newtype Entailment = ScopedEntailment
-    { entailsWithBindings :: [(Fixpoint.Symbol, Fixpoint.Symbol)] -> Formula -> Formula -> IO Verdict
+    { entailsWithBindings :: [(Name, Name)] -> Formula -> Formula -> IO Verdict
     -- ^ Decide whether the first refinement implies the second under the bindings.
     }
 
@@ -60,7 +59,7 @@ plainEntailment solver = entailsWithBindings solver []
 
 -- | Construct a solver that can declare fresh values with existing sorts.
 entailmentWithBindings ::
-    ([(Fixpoint.Symbol, Fixpoint.Symbol)] -> Formula -> Formula -> IO Verdict) ->
+    ([(Name, Name)] -> Formula -> Formula -> IO Verdict) ->
     Entailment
 entailmentWithBindings = ScopedEntailment
 

@@ -41,30 +41,33 @@ module Data.CFTA.Refinement.Expression (
 ) where
 
 import Data.Int (Int16, Int32, Int64, Int8)
+import Data.String (fromString)
+import qualified Data.Text as Text
 import Data.Word (Word16, Word32, Word64, Word8)
 import Numeric.Natural (Natural)
 
-import Data.CFTA.Symbol (Formula, valueName)
-import qualified Language.Fixpoint.Types as Fixpoint
+import Data.CFTA.Formula (Formula (..), Name (..), Relation (..), Term (..), conjunction, disjunction)
+import qualified Data.CFTA.Formula as Formula
+import Data.CFTA.Symbol (valueName)
 
--- | A term of the refinement logic. Its solver sort comes from declarations.
-newtype Expr = Expr Fixpoint.Expr
+-- | A term of the refinement logic: an integer.
+newtype Expr = Expr Term
     deriving (Eq, Show)
 
 -- | Integer literals and arithmetic build terms. A negative literal is one constant.
 instance Num Expr where
-    Expr left + Expr right = Expr $ Fixpoint.EBin Fixpoint.Plus left right
-    Expr left - Expr right = Expr $ Fixpoint.EBin Fixpoint.Minus left right
-    Expr left * Expr right = Expr $ Fixpoint.EBin Fixpoint.Times left right
-    negate (Expr (Fixpoint.ECon (Fixpoint.I constant))) = Expr $ Fixpoint.ECon $ Fixpoint.I $ negate constant
-    negate (Expr term) = Expr $ Fixpoint.ENeg term
+    Expr left + Expr right = Expr $ Add left right
+    Expr left - Expr right = Expr $ Sub left right
+    Expr left * Expr right = Expr $ Mul left right
+    negate (Expr (Lit constant)) = Expr $ Lit $ negate constant
+    negate (Expr term) = Expr $ Neg term
     abs term = conditional (term .>= 0) term (negate term)
     signum term = conditional (term .> 0) 1 (conditional (term .== 0) 0 (-1))
-    fromInteger = Expr . Fixpoint.expr
+    fromInteger = Expr . Lit
 
 -- | Choose between two terms by a formula.
 conditional :: Formula -> Expr -> Expr -> Expr
-conditional condition (Expr yes) (Expr no) = Expr $ Fixpoint.EIte condition yes no
+conditional condition (Expr yes) (Expr no) = Expr $ Ite condition yes no
 
 {- | Values that integers stand for, so that the logic writes each value as a
 literal term.
@@ -150,23 +153,23 @@ Names that start with @__cfta_@ are reserved for the solver names that
 the library makes. A user name with that prefix can collide with them.
 -}
 variable :: String -> Expr
-variable = Expr . Fixpoint.EVar . Fixpoint.symbol
+variable = Expr . Var . fromString
 
--- | The Liquid Fixpoint expression of a term.
-fromExpr :: Expr -> Fixpoint.Expr
+-- | The 'Term' of an expression.
+fromExpr :: Expr -> Term
 fromExpr (Expr term) = term
 
--- | Use a Liquid Fixpoint expression as a term.
-toExpr :: Fixpoint.Expr -> Expr
+-- | Use a 'Term' as an expression.
+toExpr :: Term -> Expr
 toExpr = Expr
 
 -- | The formula that every value satisfies.
 true :: Formula
-true = Fixpoint.PTrue
+true = Top
 
 -- | The formula that no value satisfies.
 false :: Formula
-false = Fixpoint.PFalse
+false = Bottom
 
 infix 4 .==, ./=, .<, .<=, .>, .>=
 infixr 3 .&&
@@ -174,72 +177,65 @@ infixr 2 .||
 
 -- | The two terms are equal.
 (.==) :: Expr -> Expr -> Formula
-(.==) = relation Fixpoint.Eq
+(.==) = relation Eq
 
 -- | The two terms are different.
 (./=) :: Expr -> Expr -> Formula
-(./=) = relation Fixpoint.Ne
+(./=) = relation Ne
 
 -- | The first term is less than the second.
 (.<) :: Expr -> Expr -> Formula
-(.<) = relation Fixpoint.Lt
+(.<) = relation Lt
 
 -- | The first term is less than or equal to the second.
 (.<=) :: Expr -> Expr -> Formula
-(.<=) = relation Fixpoint.Le
+(.<=) = relation Le
 
 -- | The first term is greater than the second.
 (.>) :: Expr -> Expr -> Formula
-(.>) = relation Fixpoint.Gt
+(.>) = relation Gt
 
 -- | The first term is greater than or equal to the second.
 (.>=) :: Expr -> Expr -> Formula
-(.>=) = relation Fixpoint.Ge
+(.>=) = relation Ge
 
 -- | Both formulas hold.
 (.&&) :: Formula -> Formula -> Formula
-left .&& right = Fixpoint.pAnd [left, right]
+left .&& right = conjunction [left, right]
 
 -- | At least one formula holds.
 (.||) :: Formula -> Formula -> Formula
-left .|| right = Fixpoint.pOr [left, right]
+left .|| right = disjunction [left, right]
 
 -- | The formula does not hold.
 lnot :: Formula -> Formula
-lnot = Fixpoint.PNot
+lnot = Not
 
 {- | Replace named values in a formula by terms, all at once.
 
-A quantifier renames its bound name when a term mentions that name, so no term
-is captured.
+For a name with more than one replacement, the first replacement applies.
 -}
 substitute :: [(String, Expr)] -> Formula -> Formula
-substitute replacements formula =
-    Fixpoint.rapierSubstExpr
-        (Fixpoint.exprSymbolsSet formula <> Fixpoint.substSymbolsSet substitution)
-        substitution
-        formula
-  where
-    substitution = Fixpoint.mkSubst [(Fixpoint.symbol name, term) | (name, Expr term) <- replacements]
+substitute replacements = Formula.substitute [(fromString name, term) | (name, Expr term) <- replacements]
 
 {- | The term @t@ of a formula @v .== t@ or @t .== v@, where @v@ is the value
 'valueName', if the formula has that form.
 -}
 definingTerm :: Formula -> Maybe Expr
 definingTerm formula = case formula of
-    Fixpoint.PAtom Fixpoint.Eq (Fixpoint.EVar name) term | name == valueSymbol -> Just $ Expr term
-    Fixpoint.PAtom Fixpoint.Eq term (Fixpoint.EVar name) | name == valueSymbol -> Just $ Expr term
+    Atom Eq (Var name) term | name == value -> Just $ Expr term
+    Atom Eq term (Var name) | name == value -> Just $ Expr term
     _ -> Nothing
   where
-    valueSymbol = Fixpoint.symbol valueName
+    value = fromString valueName
 
--- | The names that occur free in a formula.
+-- | The names that occur in a formula, each once, in the order of 'Formula.freeNames'.
 freeNames :: Formula -> [String]
-freeNames = map Fixpoint.symbolString . Fixpoint.syms
+freeNames formula = [Text.unpack text | Name text <- Formula.freeNames formula]
 
--- | The atom that compares two terms with a Liquid Fixpoint relation.
-relation :: Fixpoint.Brel -> Expr -> Expr -> Formula
-relation operator (Expr left) (Expr right) = Fixpoint.PAtom operator left right
+-- | The atom that compares two terms with a relation.
+relation :: Relation -> Expr -> Expr -> Formula
+relation operator (Expr left) (Expr right) = Atom operator left right
 
 {- | A refinement: a formula about the refined value.
 

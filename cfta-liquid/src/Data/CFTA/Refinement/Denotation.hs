@@ -17,10 +17,10 @@ import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Data.Containers.ListUtils (nubOrd)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Constraint (Constraint)
 import Data.CFTA.Enumeration (plainTermsAtMost, runs, unconstrained)
+import Data.CFTA.Formula (Formula (Top))
 import Data.CFTA.Index (Depth (..))
 import Data.CFTA.Internal.Tree (acceptsBy, andM)
 import Data.CFTA.Interned (boundDepth, edgeChildren, edgeConstraint, edgeSymbol, nodeEdges)
@@ -80,7 +80,7 @@ denotationAtMost entailment bound automaton
         pure $ nubOrd $ map fst accepted
   where
     bounded = boundDepth bound automaton
-    recursion = RefinedSymbol "Mu" Fixpoint.PTrue
+    recursion = RefinedSymbol "Mu" Top
     decide (constraint, term) = do
         verdict <- liftIO $ evaluateConstraint entailment constraint term
         case verdict of

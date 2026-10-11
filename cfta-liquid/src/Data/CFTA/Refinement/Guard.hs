@@ -39,6 +39,7 @@ import Data.CFTA.Constraint (
     noConstraint,
     semanticConstraint,
  )
+import qualified Data.CFTA.Formula as Formula
 import Data.CFTA.Index (ArgumentIndex (..), Arity (..))
 import Data.CFTA.Interned (Node (Node))
 import Data.CFTA.Path (ChildIndex (..), Path (EmptyPath), path, unPath)
@@ -49,10 +50,9 @@ import Data.CFTA.Refinement.Automaton (
     validate,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Expr, Refinement, refinementFormula, substitute, variable)
+import Data.CFTA.Refinement.Expression (Expr, Refinement, freeNames, refinementFormula, substitute, true, variable)
 import Data.CFTA.Symbol (Formula, Symbol)
 import Data.Maybe (fromMaybe)
-import qualified Language.Fixpoint.Types as Fixpoint
 import Numeric.Natural (Natural)
 
 -- | The root/result of the guarded transition.
@@ -178,15 +178,14 @@ contract builder =
     allOf
         [ semanticConstraint $ Holds (map argumentPath named) (renumbered named conjunct)
         | conjunct <- conjuncts $ contractFormulaFrom 0 builder
-        , conjunct /= Fixpoint.PTrue
-        , let named = [index | (index, name) <- terms, name `elem` Fixpoint.syms conjunct]
+        , conjunct /= true
+        , let named = [index | (index, name) <- terms, name `elem` freeNames conjunct]
         ]
   where
     Arity count = contractArity builder
-    terms = [(index, Fixpoint.symbol $ contractTermName index) | index <- map ArgumentIndex [0 .. count - 1]]
-    conjuncts (Fixpoint.PAnd parts) = concatMap conjuncts parts
+    terms = [(index, contractTermName index) | index <- map ArgumentIndex [0 .. count - 1]]
+    conjuncts (Formula.And parts) = concatMap conjuncts parts
     conjuncts formula = [formula]
-    -- A quantifier renames its bound name when the renaming uses that name, so no term is captured.
     renumbered named conjunct =
         substitute [(contractTermName old, variable $ contractTermName new) | (new, old) <- zip [0 ..] named] conjunct
 

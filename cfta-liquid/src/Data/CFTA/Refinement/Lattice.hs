@@ -40,24 +40,23 @@ import Data.List (elemIndex, partition)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ratio (denominator, numerator)
-import qualified Language.Fixpoint.Types as Fixpoint
+import Data.String (fromString)
+import qualified Data.Text as Text
 
+import Data.CFTA.Formula (Formula (..), Name (..), Relation (..), Term (..), freeNames)
 import Data.CFTA.Index (Cardinality (..), Rank (..), VarIndex (..))
 import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entailmentWithBindings)
-import Data.CFTA.Symbol (Formula)
 
 -- | Why the integer points of a formula cannot be counted.
 data LatticeError
-    = -- | A term multiplies two variables, divides, or applies a function.
-      NonLinearTerm !Formula
-    | -- | The formula uses a form other than linear atoms and connectives.
-      UnsupportedFormula !Formula
+    = -- | A term multiplies two variables or chooses a term by a formula.
+      NonLinearTerm !Term
     | -- | The formula names a variable that is not in the list of variables.
-      UnknownName !Fixpoint.Symbol
+      UnknownName !Name
     | -- | No bound limits the variable in one direction.
-      UnboundedVariable !Fixpoint.Symbol
+      UnboundedVariable !Name
     | -- | A bound has a coefficient other than one or minus one on the variable.
-      NonUnitCoefficient !Fixpoint.Symbol
+      NonUnitCoefficient !Name
     deriving (Eq, Show)
 
 {- | The integer points of a formula, ready to count and decode.
@@ -84,7 +83,7 @@ points names formula = do
     pure $ Points dimension levels $ Cardinality total
   where
     dimension = length names
-    symbols = map Fixpoint.symbol names
+    symbols = map fromString names
     variableOf name = VarIndex <$> elemIndex name symbols
     sumOut variable levels@(current : _)
         | variable < 0 = Right levels
@@ -120,12 +119,12 @@ the number of disjunctions and disequalities of the two formulas.
 -}
 latticeEntailment :: Entailment
 latticeEntailment = entailmentWithBindings $ \_ antecedent consequent ->
-    let counterexamples = Fixpoint.PAnd [antecedent, Fixpoint.PNot consequent]
-        names = nubOrd $ map Fixpoint.symbolString $ Fixpoint.syms counterexamples
+    let counterexamples = And [antecedent, Not consequent]
+        names = nubOrd [Text.unpack name | Name name <- freeNames counterexamples]
         attempt tries order = case points order counterexamples of
-            Left (NonUnitCoefficient name)
+            Left (NonUnitCoefficient (Name name))
                 | tries > 0
-                , moved <- Fixpoint.symbolString name
+                , moved <- Text.unpack name
                 , take 1 order /= [moved] ->
                     attempt (tries - 1 :: Int) (moved : filter (/= moved) order)
             result -> result
@@ -276,26 +275,25 @@ mentions :: VarIndex -> Linear -> Bool
 mentions variable (Linear coefficients _) = IntMap.member (fromEnum variable) coefficients
 
 -- | Read a term of the formula as a linear form.
-linearTerm :: (Fixpoint.Symbol -> Maybe VarIndex) -> Formula -> Either LatticeError Linear
+linearTerm :: (Name -> Maybe VarIndex) -> Term -> Either LatticeError Linear
 linearTerm variableOf = go
   where
     go term = case term of
-        Fixpoint.ECon (Fixpoint.I value) -> Right $ constant value
-        Fixpoint.EVar name ->
+        Lit value -> Right $ constant value
+        Var name ->
             maybe (Left $ UnknownName name) (\variable -> Right $ Linear (IntMap.singleton (fromEnum variable) 1) 0) $
                 variableOf name
-        Fixpoint.ENeg inner -> scale (-1) <$> go inner
-        Fixpoint.ECst inner _ -> go inner
-        Fixpoint.EBin Fixpoint.Plus left right -> plus <$> go left <*> go right
-        Fixpoint.EBin Fixpoint.Minus left right -> minus <$> go left <*> go right
-        Fixpoint.EBin Fixpoint.Times left right -> do
+        Neg inner -> scale (-1) <$> go inner
+        Add left right -> plus <$> go left <*> go right
+        Sub left right -> minus <$> go left <*> go right
+        Mul left right -> do
             leftForm <- go left
             rightForm <- go right
             case (leftForm, rightForm) of
                 (Linear leftCoefficients factor, _) | IntMap.null leftCoefficients -> Right $ scale factor rightForm
                 (_, Linear rightCoefficients factor) | IntMap.null rightCoefficients -> Right $ scale factor leftForm
                 _ -> Left $ NonLinearTerm term
-        _ -> Left $ NonLinearTerm term
+        Ite{} -> Left $ NonLinearTerm term
 
 -- Formulas
 
@@ -312,44 +310,36 @@ type Signed = Map [Linear] Integer
 Negation moves down to the atoms by De Morgan's laws. A negated atom has the
 opposite relation, so each bound under a negation stays a bound.
 -}
-signed :: (Fixpoint.Symbol -> Maybe VarIndex) -> Formula -> Either LatticeError Signed
+signed :: (Name -> Maybe VarIndex) -> Formula -> Either LatticeError Signed
 signed variableOf = go True
   where
     -- The first argument is False when the formula is negated.
     go positive formula = case formula of
-        Fixpoint.PAnd parts
+        Top -> Right $ if positive then always else never
+        And parts
             | positive -> foldr conjoin always <$> traverse (go positive) parts
             | otherwise -> foldr disjoin never <$> traverse (go positive) parts
-        Fixpoint.POr parts
+        Bottom -> Right $ if positive then never else always
+        Or parts
             | positive -> foldr disjoin never <$> traverse (go positive) parts
             | otherwise -> foldr conjoin always <$> traverse (go positive) parts
-        Fixpoint.PNot inner -> go (not positive) inner
-        Fixpoint.PImp premise conclusion -> go positive $ Fixpoint.POr [Fixpoint.PNot premise, conclusion]
-        Fixpoint.PIff left right
-            | positive ->
-                go True $ Fixpoint.POr [Fixpoint.PAnd [left, right], Fixpoint.PAnd [Fixpoint.PNot left, Fixpoint.PNot right]]
-            | otherwise ->
-                go True $ Fixpoint.POr [Fixpoint.PAnd [left, Fixpoint.PNot right], Fixpoint.PAnd [Fixpoint.PNot left, right]]
-        Fixpoint.ECst inner _ -> go positive inner
-        Fixpoint.PAtom relation left right -> do
+        Not inner -> go (not positive) inner
+        Atom relation left right -> do
             difference <- minus <$> linearTerm variableOf right <*> linearTerm variableOf left
             Right $ atom (if positive then relation else oppositeRelation relation) difference
-        _ -> Left $ UnsupportedFormula formula
       where
         {- The relation that holds exactly when the given relation does not.
 
         Over the integers, the opposite of @f >= 0@ is @-f - 1 >= 0@.
         -}
-        oppositeRelation :: Fixpoint.Brel -> Fixpoint.Brel
+        oppositeRelation :: Relation -> Relation
         oppositeRelation relation = case relation of
-            Fixpoint.Le -> Fixpoint.Gt
-            Fixpoint.Lt -> Fixpoint.Ge
-            Fixpoint.Ge -> Fixpoint.Lt
-            Fixpoint.Gt -> Fixpoint.Le
-            Fixpoint.Eq -> Fixpoint.Ne
-            Fixpoint.Ne -> Fixpoint.Eq
-            Fixpoint.Ueq -> Fixpoint.Une
-            Fixpoint.Une -> Fixpoint.Ueq
+            Le -> Gt
+            Lt -> Ge
+            Ge -> Lt
+            Gt -> Le
+            Eq -> Ne
+            Ne -> Eq
 
 -- | The formula that every point satisfies.
 always :: Signed
@@ -386,21 +376,19 @@ simplify terms =
             [(forms, sign) | (conjunction, sign) <- terms, Just forms <- [normalize conjunction], feasible forms]
 
 -- | An atom about the difference of its right side and its left side.
-atom :: Fixpoint.Brel -> Linear -> Signed
+atom :: Relation -> Linear -> Signed
 atom relation difference = case relation of
-    Fixpoint.Le -> single [difference]
-    Fixpoint.Lt -> single [difference `minus` constant 1]
-    Fixpoint.Ge -> single [scale (-1) difference]
-    Fixpoint.Gt -> single [scale (-1) difference `minus` constant 1]
-    Fixpoint.Eq -> equal
-    Fixpoint.Ueq -> equal
-    Fixpoint.Ne -> different
-    Fixpoint.Une -> different
+    Le -> single [difference]
+    Lt -> single [difference `minus` constant 1]
+    Ge -> single [scale (-1) difference]
+    Gt -> single [scale (-1) difference `minus` constant 1]
+    Eq -> equal
+    Ne -> different
   where
     single forms = simplify [(forms, 1)]
     equal = single [difference, scale (-1) difference]
     -- The two sides differ when one is less than the other.
-    different = disjoin (atom Fixpoint.Lt difference) (atom Fixpoint.Gt difference)
+    different = disjoin (atom Lt difference) (atom Gt difference)
 
 {- | Simplify a conjunction, or find that no point satisfies it.
 
@@ -475,7 +463,7 @@ For each choice of the largest lower bound and the smallest upper bound, the
 variable ranges over one interval, and the piece requires that choice. Ties go
 to the first bound, so the choices of one piece are disjoint.
 -}
-eliminate :: Fixpoint.Symbol -> VarIndex -> [Piece] -> Either LatticeError [Piece]
+eliminate :: Name -> VarIndex -> [Piece] -> Either LatticeError [Piece]
 eliminate name variable = fmap concat . traverse split
   where
     split (Piece constraints polynomial) = do

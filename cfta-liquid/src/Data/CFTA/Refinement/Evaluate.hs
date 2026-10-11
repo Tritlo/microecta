@@ -19,12 +19,12 @@ import Data.Containers.ListUtils (nubOrd)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as Set
+import Data.String (fromString)
 
 import Data.CFTA.Index (ArgumentIndex (..))
 import Data.CFTA.Path (Path, getPath)
 import Data.CFTA.Term (Term)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 import Data.CFTA.Constraint (
     Constraint (constraintGuard),
@@ -34,6 +34,8 @@ import Data.CFTA.Constraint (
     equalitiesHold,
     guardPaths,
  )
+import Data.CFTA.Formula (Name (..))
+import qualified Data.CFTA.Formula as Formula
 import Data.CFTA.Refinement.Verdict (
     Entailment,
     Verdict (..),
@@ -190,14 +192,14 @@ evaluateGuardWithSame entailment observedAt sameAt guard = go guard
     evaluateWith substitutions (Holds targets formula) =
         case traverse observedAt targets of
             Just observations ->
-                let formals = [Fixpoint.symbol (contractTermName index) | index <- map ArgumentIndex [0 .. length targets - 1]]
+                let formals = [fromString (contractTermName index) | index <- map ArgumentIndex [0 .. length targets - 1]]
                     assumed =
-                        Fixpoint.pAnd
-                            [ substituteRefinement [(refinementValueSymbol, Fixpoint.EVar formal)] refinement
+                        Formula.conjunction
+                            [ Formula.substitute [(refinementValueName, Formula.Var formal)] refinement
                             | (formal, Observed (RefinedSymbol _ refinement) _) <- zip formals observations
                             ]
                  in decideWith
-                        [(formal, refinementValueSymbol) | formal <- formals]
+                        [(formal, refinementValueName) | formal <- formals]
                         substitutions
                         (withActualAssumptions substitutions $ applySubstitutions substitutions assumed)
                         (applySubstitutions substitutions formula)
@@ -216,10 +218,10 @@ evaluateGuardWithSame entailment observedAt sameAt guard = go guard
         Or guards -> evaluateWith substitutions $ And $ map Not guards
         Satisfies target requirement
             | isJust (observedAt target) ->
-                evaluateWith substitutions $ Satisfies target $ Fixpoint.PNot requirement
+                evaluateWith substitutions $ Satisfies target $ Formula.Not requirement
         Holds targets formula
             | all (isJust . observedAt) targets ->
-                evaluateWith substitutions $ Holds targets $ Fixpoint.PNot formula
+                evaluateWith substitutions $ Holds targets $ Formula.Not formula
         Substitute additions inner
             | all (isJust . resolveSubstitutionWith observedAt freshValues ambiguousValues) additions ->
                 evaluateWith substitutions $ Substitute additions $ Not inner
@@ -242,10 +244,10 @@ Keep solver bookkeeping lazy. Structural comparisons need only the literal
 symbol mapping, so they must not inspect actual-term identity for solver names.
 -}
 data ResolvedSubstitution = ResolvedSubstitution
-    { resolvedReplacement :: (Fixpoint.Symbol, Fixpoint.Expr)
+    { resolvedReplacement :: (Name, Formula.Term)
     , resolvedSymbolReplacement :: !(Symbol, Symbol)
     , resolvedActualAssumption :: Formula
-    , resolvedDeclaration :: Maybe (Fixpoint.Symbol, Fixpoint.Symbol)
+    , resolvedDeclaration :: Maybe (Name, Name)
     , resolvedIdentityKnown :: Bool
     }
 
@@ -258,7 +260,7 @@ substitutionValues ::
     (Path -> Maybe Observed) ->
     (Path -> Path -> Maybe Bool) ->
     Guard ->
-    (Map.Map Path (Fixpoint.Symbol, Fixpoint.Symbol), Set.Set Path)
+    (Map.Map Path (Name, Name), Set.Set Path)
 substitutionValues observedAt sameAt guard =
     ( Map.fromList
         [ (target, binding)
@@ -270,7 +272,7 @@ substitutionValues observedAt sameAt guard =
   where
     leafAt target = observedLeaf <$> observedAt target
     actuals =
-        [ (target, Fixpoint.symbol name, refinement)
+        [ (target, Name name, refinement)
         | target <- Set.toAscList $ Set.fromList $ actualPaths guard
         , Just (Observed (RefinedSymbol (Symbol name) refinement) _) <- [observedAt target]
         ]
@@ -302,16 +304,16 @@ substitutionValues observedAt sameAt guard =
 
         available =
             filter (`Set.notMember` used) $
-                [Fixpoint.symbol $ "__cfta_actual_" <> show index | index <- [0 :: Integer ..]]
+                [fromString $ "__cfta_actual_" <> show index | index <- [0 :: Integer ..]]
 
         used =
             Set.fromList $
                 concat
-                    [ Fixpoint.symbol name : Fixpoint.syms refinement
+                    [ Name name : Formula.freeNames refinement
                     | target <- Set.toList $ guardPaths guard
                     , Just (Observed (RefinedSymbol (Symbol name) refinement) _) <- [observedAt target]
                     ]
-                    <> concatMap Fixpoint.syms (requirements guard)
+                    <> concatMap Formula.freeNames (requirements guard)
 
         requirements (Satisfies _ refinement) = [refinement]
         requirements (Holds _ formula) = [formula]
@@ -335,7 +337,7 @@ substitutionValues observedAt sameAt guard =
 -- | Resolve actual and formal positions within one simultaneous scope.
 resolveSubstitutionWith ::
     (Path -> Maybe Observed) ->
-    Map.Map Path (Fixpoint.Symbol, Fixpoint.Symbol) ->
+    Map.Map Path (Name, Name) ->
     Set.Set Path ->
     Substitution ->
     Maybe ResolvedSubstitution
@@ -343,21 +345,21 @@ resolveSubstitutionWith observedAt freshValues ambiguousValues Substitution{subs
     Observed (RefinedSymbol (Symbol actualName) actualRefinement) _ <- observedAt substitutionActual
     Observed (Symbol formalName) _ <- observedAt substitutionFormal
     let declaration = Map.lookup substitutionActual freshValues
-        actualSymbol = maybe (Fixpoint.symbol actualName) fst declaration
-        actualVariable = Fixpoint.EVar actualSymbol
+        actualSymbol = maybe (Name actualName) fst declaration
+        actualVariable = Formula.Var actualSymbol
     pure
         ResolvedSubstitution
-            { resolvedReplacement = (Fixpoint.symbol formalName, actualVariable)
+            { resolvedReplacement = (Name formalName, actualVariable)
             , resolvedSymbolReplacement = (Symbol formalName, Symbol actualName)
             , resolvedActualAssumption =
-                substituteRefinement [(refinementValueSymbol, actualVariable)] actualRefinement
+                Formula.substitute [(refinementValueName, actualVariable)] actualRefinement
             , resolvedDeclaration = declaration
             , resolvedIdentityKnown = Set.notMember substitutionActual ambiguousValues
             }
 
--- | The solver symbol of 'valueName', the value variable of every refinement.
-refinementValueSymbol :: Fixpoint.Symbol
-refinementValueSymbol = Fixpoint.symbol valueName
+-- | The name 'valueName', the value variable of every refinement.
+refinementValueName :: Name
+refinementValueName = fromString valueName
 
 -- | Apply simultaneous scopes from the innermost scope to the outermost.
 applySubstitutions :: [[ResolvedSubstitution]] -> Formula -> Formula
@@ -365,14 +367,14 @@ applySubstitutions scopes refinement =
     foldl apply refinement scopes
   where
     apply predicate scope =
-        substituteRefinement (map resolvedReplacement scope) predicate
+        Formula.substitute (map resolvedReplacement scope) predicate
 
 {- | Apply scoped symbol substitutions to one structural comparison operand.
 
 Each scope renames symbols simultaneously, including free names in refinement
-annotations. Refinement binders remain capture-avoiding. Constructor children
-stay in place: a name substitution does not splice in the actual subtree.
-Solver-generated value identities are not symbols in the structural alphabet.
+annotations. Constructor children stay in place: a name substitution does not
+splice in the actual subtree. Solver-generated value identities are not
+symbols in the structural alphabet.
 The first non-identity mapping for a repeated formal name takes precedence,
 matching refinement substitution.
 -}
@@ -387,25 +389,15 @@ substituteObservation scopes observation = foldl apply observation scopes
   where
     apply (symbol, refinement) scope =
         ( Map.findWithDefault symbol symbol replacements
-        , substituteRefinement refinementReplacements refinement
+        , Formula.substitute refinementReplacements refinement
         )
       where
         replacements =
             Map.fromList $ reverse $ filter (uncurry (/=)) $ map resolvedSymbolReplacement scope
         refinementReplacements =
-            [ (Fixpoint.symbol formal, Fixpoint.EVar $ Fixpoint.symbol actual)
+            [ (Name formal, Formula.Var $ Name actual)
             | (Symbol formal, Symbol actual) <- Map.toList replacements
             ]
-
--- | Substitute simultaneously and rename binders to prevent name capture.
-substituteRefinement :: [(Fixpoint.Symbol, Fixpoint.Expr)] -> Formula -> Formula
-substituteRefinement replacements refinement =
-    Fixpoint.rapierSubstExpr
-        (Fixpoint.exprSymbolsSet refinement <> Fixpoint.substSymbolsSet substitution)
-        substitution
-        refinement
-  where
-    substitution = Fixpoint.mkSubst replacements
 
 {- | Add the instantiated refinement of every actual argument to an entailment
 antecedent.
@@ -418,6 +410,6 @@ rename their value identities or their refinement assumptions.
 -}
 withActualAssumptions :: [[ResolvedSubstitution]] -> Formula -> Formula
 withActualAssumptions scopes predicate =
-    Fixpoint.pAnd $
+    Formula.conjunction $
         map resolvedActualAssumption (concat scopes)
             <> [predicate]

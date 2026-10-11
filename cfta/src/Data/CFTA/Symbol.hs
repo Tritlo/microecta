@@ -2,10 +2,10 @@
 
 {- | Interned symbols for automaton alphabets.
 
-A 'Symbol' is a text and a refinement: a Liquid Fixpoint formula about the
-value of the term node that the symbol labels. An ordinary symbol has the
-refinement 'Fixpoint.PTrue'. A liquid tree automaton labels a transition with
-a refined symbol, such as an integer constructor whose value is three.
+A 'Symbol' is a text and a refinement: a 'Formula' about the value of the
+term node that the symbol labels. An ordinary symbol has the refinement
+'Top'. A liquid tree automaton labels a transition with a refined symbol,
+such as an integer constructor whose value is three.
 
 Symbols are interned. Equal symbols share one identity, so equality compares
 identities and hashing reads a hash that was computed once. Ordering compares
@@ -27,14 +27,11 @@ import Data.CFTA.Term (Term)
 import Data.Hashable (Hashable (..))
 import Data.String (IsString (..))
 import Data.Text (Text)
-import qualified Language.Fixpoint.Types as Fixpoint
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (Read (..))
 
+import Data.CFTA.Formula (Formula (Top))
 import Data.CFTA.Interned.Cache (Cache, freshCacheWith, intern, newIdSupply)
-
--- | A logical refinement understood by Liquid Fixpoint.
-type Formula = Fixpoint.Expr
 
 {- | The solver name of the refined value in a refinement 'Formula'.
 
@@ -66,7 +63,7 @@ gives its text; the refinement is not part of the match.
 pattern Symbol :: Text -> Symbol
 pattern Symbol text <- InternedSymbol _ _ text _ _
   where
-    Symbol text = internSymbol text Fixpoint.PTrue
+    Symbol text = internSymbol text Top
 
 {-# COMPLETE Symbol #-}
 
@@ -90,7 +87,7 @@ refinedView symbol = (unrefined symbol, symbolRefinement symbol)
 symbolText :: Symbol -> Text
 symbolText (InternedSymbol _ _ text _ _) = text
 
--- | The refinement of a symbol; 'Fixpoint.PTrue' for an ordinary symbol.
+-- | The refinement of a symbol; 'Top' for an ordinary symbol.
 symbolRefinement :: Symbol -> Formula
 symbolRefinement (InternedSymbol _ _ _ refinement _) = refinement
 
@@ -110,7 +107,7 @@ internSymbol text refinement = intern symbols identify (text, refinement)
       where
         symbol = InternedSymbol (SymbolId identity) (hash key) text refinement ordinary
         ordinary
-            | refinement == Fixpoint.PTrue = symbol
+            | refinement == Top = symbol
             | otherwise = Symbol text
 
 -- | The process-global table of symbols.
@@ -133,7 +130,7 @@ instance Hashable Symbol where
 -- | An ordinary symbol shows as its text; a refined one also shows its refinement.
 instance Show Symbol where
     showsPrec precedence symbol@(InternedSymbol _ _ text refinement _)
-        | refinement == Fixpoint.PTrue = showsPrec precedence text
+        | refinement == Top = showsPrec precedence text
         | otherwise =
             showParen (precedence > 10) $
                 showString "RefinedSymbol " . showsPrec 11 (unrefined symbol) . showChar ' ' . showsPrec 11 refinement

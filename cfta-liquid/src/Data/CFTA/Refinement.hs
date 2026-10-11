@@ -1,6 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-{- | Liquid tree automata over Liquid Fixpoint refinements.
+{- | Liquid tree automata over refinements.
 
 An LTA is an interned graph whose symbols carry refinements. A transition has
 a ranked symbol, child nodes, and the paper's Boolean constraint language
@@ -10,8 +10,8 @@ requirement, avoiding phantom constant children.
 'Holds' states a formula about the terms at several paths, and assumes each
 term's refinement for its name. 'Substitute' applies the paper's
 actual-for-formal position substitutions before semantic checks and syntactic
-comparison. A stored refinement is a 'Formula', a Liquid Fixpoint expression
-about the value variable 'Data.CFTA.Symbol.valueName'.
+comparison. A stored refinement is a 'Formula' about the value variable
+'Data.CFTA.Symbol.valueName'.
 "Data.CFTA.Refinement.Expression" writes refinements as Haskell functions of
 the value.
 
