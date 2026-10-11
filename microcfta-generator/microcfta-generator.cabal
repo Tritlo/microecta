@@ -96,12 +96,6 @@ library
     Data.CFTA.Gen.Refinement
     Data.CFTA.Gen.Refinement.QuickCheck
     Data.CFTA.Gen.Sig
-    Data.CFTA.Ranked
-    Data.CFTA.Ranked.Internal
-    Data.CFTA.Ranked.Internal.Decoder
-    Data.CFTA.Ranked.Internal.Sampler
-    Data.CFTA.Ranked.Internal.Shrink
-    Data.CFTA.Ranked.Internal.Size
     Data.CFTA.Ranked.QuickCheck
 
   other-modules:
@@ -115,6 +109,7 @@ library
     hashable >=1.5 && <1.6,
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
+    microcfta-rank ==0.1.0.0,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -280,7 +275,6 @@ test-suite gen-tests
     Data.CFTA.Gen.TypedExpressionLanguage
     Data.CFTA.Gen.UntypedExpressionLanguage
     Data.CFTA.GenSpec
-    Data.CFTA.RankedSpec
 
   build-depends:
     base >=4.22 && <4.23,
@@ -290,6 +284,7 @@ test-suite gen-tests
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-generator,
+    microcfta-rank ==0.1.0.0,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
 
@@ -339,6 +334,7 @@ test-suite refinement-tests
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-generator,
+    microcfta-rank ==0.1.0.0,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
 

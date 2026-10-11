@@ -11,12 +11,10 @@ import qualified Data.CFTA.Gen.Equality.SimpleSpec
 import qualified Data.CFTA.Gen.Equality.TypedExpressionGenSpec
 import qualified Data.CFTA.Gen.ReferenceSpec
 import qualified Data.CFTA.GenSpec
-import qualified Data.CFTA.RankedSpec
 
 main :: IO ()
 main =
     hspec $ do
-        Data.CFTA.RankedSpec.spec
         Data.CFTA.GenSpec.spec
         Data.CFTA.Gen.Equality.DatatypeGenSpec.spec
         Data.CFTA.Gen.Equality.GenSpec.spec

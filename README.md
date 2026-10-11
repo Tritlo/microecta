@@ -1,15 +1,22 @@
 # microcfta
 
-Constrained finite tree automata for Haskell, in two packages:
+Constrained finite tree automata for Haskell, in five packages:
 
 | Package | Purpose |
 | --- | --- |
 | [`microcfta`](microcfta/README.md) | One interned automaton engine with one constraint type for three kinds of automaton: ordinary tree automata, equality-constrained tree automata (ECTA), and liquid tree automata (LTA) with Liquid Fixpoint refinements and Z3 entailment. |
 | [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
+| `microcfta-rank` | Ranked languages: exact cardinalities, a bijection between ranks and members, sizes, weighted sampling, and shrinking, independent of automata. |
+| `microcfta-intern` | The process-global interning tables and memo tables of the engine. |
+| `microcfta-base` | The newtypes of indexes, ranks, counts, sizes, and weights, and the arithmetic of ranks. |
 
 ```mermaid
 flowchart BT
   g["microcfta-generator"] --> c["microcfta"]
+  g --> r["microcfta-rank"]
+  c --> i["microcfta-intern"]
+  c --> b["microcfta-base"]
+  r --> b
 ```
 
 The original ECTA line stays in this repository as
@@ -41,8 +48,9 @@ positive path equalities, and an LTA has the full Boolean language of equality
 and entailment. An automaton with no constraints is enumerated by the
 plain level-by-level enumerator whatever layer built it.
 
-`microcfta-generator` owns `Data.CFTA.Ranked`, which provides exact finite
-ranks, backend-independent sampling, and shrinking. `Data.CFTA.Gen` compiles an
+`microcfta-rank` owns `Data.CFTA.Ranked`, which provides exact finite ranks,
+backend-independent sampling, and shrinking; `microcfta-generator` adds its
+QuickCheck backend, `Data.CFTA.Ranked.QuickCheck`. `Data.CFTA.Gen` compiles an
 acyclic ordinary automaton or builds one with the `FTAGen.node`/`FTAGen.do`
 syntax. `Data.CFTA.Gen.Equality` adds equality-constrained sources, equality
 and relational joins, retained key groups, and recursive generation.
@@ -180,9 +188,16 @@ cabal repl --with-repl=doctest lib:microcfta-generator
 ```
 
 `scripts/release.sh PACKAGE --check-only` validates one package and the local
-source archive of its workspace dependency. Publish `microcfta` first, then
+source archives of its workspace dependencies. Publish `microcfta-base` and
+`microcfta-intern` first, then `microcfta` and `microcfta-rank`, then
 `microcfta-generator`.
 
-Code that imports `Data.CFTA.*` must declare `microcfta`, and code that imports
-`Data.CFTA.Gen.*` or `Data.CFTA.Ranked.*` must declare `microcfta-generator`.
-Code that imports `Data.Tree` directly, for `drawTree`, must declare `containers`.
+Code that imports `Data.CFTA.Index` must declare `microcfta-base`, code that
+imports `Data.CFTA.Interned.Cache` or `Data.CFTA.Interned.Memo` must declare
+`microcfta-intern`, and code that imports `Data.CFTA.Ranked` or
+`Data.CFTA.Ranked.Internal.*` must declare `microcfta-rank`. Other code that
+imports `Data.CFTA.*` must declare `microcfta`, and code that imports
+`Data.CFTA.Gen.*` or `Data.CFTA.Ranked.QuickCheck` must declare
+`microcfta-generator`.
+Code that imports `Data.Tree` directly, for `drawTree`, must declare
+`containers`.

@@ -16,8 +16,8 @@ one generator type, `Gen symbol a`, and one facade per kind of automaton:
 | `Data.CFTA.Gen.Equality.QuickCheck` | Re-exports `Data.CFTA.Gen.Equality` with the QuickCheck functions. |
 | `Data.CFTA.Gen.Refinement` | `LTAGen`: inferred and refined pools, values without a pool with `every`, conditions with `satisfying`, contracts with `guarded`, measures with `measured`, bounded recursion with `recurUpTo`, liquid imports, `compile`, and `validOutcomes`. |
 | `Data.CFTA.Gen.Refinement.QuickCheck` | Re-exports `Data.CFTA.Gen.Refinement` with the QuickCheck functions. |
-| `Data.CFTA.Ranked`, `Data.CFTA.Ranked.QuickCheck` | Finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
-| `Data.CFTA.Gen.Internal.*`, `Data.CFTA.Ranked.Internal.*` | The engine: static and recursive languages, joins, symbolic counting, decoders, samplers, sizes, and shrinking; exposed for integration, not covered by the PVP contract. |
+| `Data.CFTA.Ranked.QuickCheck` | The QuickCheck backend of `Data.CFTA.Ranked`, which is in the package `microcfta-rank`: finite ranks, weighted sampling, replay, and structural shrinking, independent of automata. |
+| `Data.CFTA.Gen.Internal.*` | The engine: static and recursive languages, joins, and symbolic counting, on the decoders, samplers, sizes, and shrinking of `Data.CFTA.Ranked.Internal.*` in `microcfta-rank`; exposed for integration, not covered by the PVP contract. |
 
 An ordinary generator is `FTAGen symbol a`, that is `Gen symbol a`. The
 equality facade fixes the symbol in `ECTAGen a`, the refinement facade in

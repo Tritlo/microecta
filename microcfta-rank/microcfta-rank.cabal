@@ -1,0 +1,104 @@
+cabal-version: 3.0
+name: microcfta-rank
+version: 0.1.0.0
+synopsis: Ranked enumeration, sampling, and shrinking of applicative languages
+description:
+  Finite and recursive languages built from sources, choices, and products,
+  with exact cardinalities, a bijection between ranks and members, sizes that
+  count pays as in FEAT, weighted samplers, and structural shrinking. The
+  generators of microcfta-generator build on it; it does not depend on
+  automata.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microcfta-rank#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microcfta-rank
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wno-pattern-namespace-specifier
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    PatternGuards
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.CFTA.Ranked
+    Data.CFTA.Ranked.Internal
+    Data.CFTA.Ranked.Internal.Decoder
+    Data.CFTA.Ranked.Internal.Sampler
+    Data.CFTA.Ranked.Internal.Shrink
+    Data.CFTA.Ranked.Internal.Size
+
+  build-depends:
+    array >=0.5 && <0.6,
+    base >=4.22 && <4.23,
+    containers >=0.8 && <0.9,
+    hashable >=1.5 && <1.6,
+    microcfta-base ==0.1.0.0,
+
+test-suite rank-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  ghc-options: -rtsopts
+  other-modules:
+    Data.CFTA.RankedSpec
+
+  build-depends:
+    base,
+    containers,
+    hspec >=2.11 && <2.12,
+    microcfta-base,
+    microcfta-rank,
+    QuickCheck >=2.14 && <2.19,
