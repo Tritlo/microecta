@@ -9,13 +9,14 @@ kind of information:
 | ECTA | These paths contain the same term. | `ECTAGen.node "label" $ ECTAGen.do ...` |
 | LTA | These refinements logically imply one another. | `LTAGen.node "label" $ LTAGen.do ...`, with `satisfying` and `guarded` |
 
-`microcfta` owns ordinary terms, the common interned engine, and the FTA graph.
-`Node symbol` and `Edge symbol` carry a `Constraint` on every edge. An FTA
-edge has `noConstraint`, an ECTA edge has `equalityConstraint`, and an LTA edge
-has a guard (`semanticConstraint`). `Data.CFTA.Equality` and
-`Data.CFTA.Refinement` interpret the equalities and the guards. `microcfta-generator` owns the ranked layer and the three
-generators: `Data.CFTA.Gen`, `Data.CFTA.Gen.Equality`, and
-`Data.CFTA.Gen.Refinement`.
+`microcfta` owns the common interned engine and the FTA graph, and
+`microcfta-base` owns the concrete terms. `Node symbol` and `Edge symbol` carry
+a `Constraint` on every edge. An FTA edge has `noConstraint`, an ECTA edge has
+`equalityConstraint`, and an LTA edge has a guard (`semanticConstraint`).
+`Data.CFTA.Equality` interprets the equalities, and `Data.CFTA.Refinement`, in
+`microcfta-liquid`, interprets the guards. `microcfta-rank` owns the ranked
+layer, and `microcfta-generator` owns the three generators: `Data.CFTA.Gen`,
+`Data.CFTA.Gen.Equality`, and `Data.CFTA.Gen.Refinement`.
 
 ## The worked progression
 

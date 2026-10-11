@@ -4,7 +4,7 @@ Constrained finite tree automata for Haskell, in seven packages:
 
 | Package | Purpose |
 | --- | --- |
-| [`microcfta`](microcfta/README.md) | One interned automaton engine with one constraint type for three kinds of automaton: ordinary tree automata, equality-constrained tree automata (ECTA), and liquid tree automata (LTA) with Liquid Fixpoint refinements and Z3 entailment. |
+| [`microcfta`](microcfta/README.md) | One interned automaton engine with one constraint type for three kinds of automaton: ordinary tree automata, equality-constrained tree automata (ECTA), and the liquid tree automata (LTA) of `microcfta-liquid`. |
 | [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
 | `microcfta-liquid` | Liquid tree automata (LTA): refined transitions, guards, recognition, pruning, minimization, and the lattice entailment. |
 | `microcfta-z3` | The Z3 entailment of the liquid tree automata, through the SMT interface of Liquid Fixpoint. |

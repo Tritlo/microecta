@@ -1263,8 +1263,8 @@ cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3
 
 The library depends on `array`, `base`, `containers`, `hashable`,
 `liquid-fixpoint`, `microcfta-base`, `microcfta-intern`, `mtl`, `text`,
-`transformers`, and `unordered-containers`. The library needs no solver. The Z3 entailment is in the package
-`microcfta-z3`: put `z3` on `PATH` before using
+`transformers`, and `unordered-containers`. The library needs no solver. The Z3
+entailment is in the package `microcfta-z3`: put `z3` on `PATH` before using
 `Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint` is a heavy build
 dependency: the refinements are its formulas.
 
