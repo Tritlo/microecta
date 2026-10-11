@@ -1,11 +1,12 @@
 # microcfta
 
-Constrained finite tree automata for Haskell, in six packages:
+Constrained finite tree automata for Haskell, in seven packages:
 
 | Package | Purpose |
 | --- | --- |
 | [`microcfta`](microcfta/README.md) | One interned automaton engine with one constraint type for three kinds of automaton: ordinary tree automata, equality-constrained tree automata (ECTA), and liquid tree automata (LTA) with Liquid Fixpoint refinements and Z3 entailment. |
 | [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
+| `microcfta-liquid` | Liquid tree automata (LTA): refined transitions, guards, recognition, pruning, minimization, and the lattice entailment. |
 | `microcfta-z3` | The Z3 entailment of the liquid tree automata, through the SMT interface of Liquid Fixpoint. |
 | `microcfta-rank` | Ranked languages: exact cardinalities, a bijection between ranks and members, sizes, weighted sampling, and shrinking, independent of automata. |
 | `microcfta-intern` | The process-global interning tables and memo tables of the engine. |
@@ -15,8 +16,10 @@ Constrained finite tree automata for Haskell, in six packages:
 flowchart BT
   g["microcfta-generator"] --> c["microcfta"]
   g --> r["microcfta-rank"]
+  g --> l["microcfta-liquid"]
   g --> z["microcfta-z3"]
-  z --> c
+  z --> l
+  l --> c
   c --> i["microcfta-intern"]
   c --> b["microcfta-base"]
   r --> b
@@ -127,16 +130,17 @@ result-size refinements using the ordinary qualified-do syntax.
 
 ## Benchmarks
 
-The core package has three benchmarks. `micro-bench` covers path lookup,
+The core package has two benchmarks. `micro-bench` covers path lookup,
 constraint construction, intersection, reduction, and constrained enumeration.
 `enumeration-speed` times the shared enumerator on explicit-state and interned
-automata. `cross-layer-speed` enumerates the same languages through the
-ordinary, equality, and refinement layers so the three can be compared:
+automata. `cross-layer-speed`, in `microcfta-liquid`, enumerates the same
+languages through the ordinary, equality, and refinement layers so the three
+can be compared:
 
 ```sh
 cabal bench microcfta:micro-bench --enable-optimization=2
 cabal bench microcfta:enumeration-speed --enable-optimization=2
-cabal bench microcfta:cross-layer-speed --enable-optimization=2
+cabal bench microcfta-liquid:cross-layer-speed --enable-optimization=2
 ```
 
 The three flagship languages are benchmarked against naive recognition and
@@ -193,7 +197,7 @@ cabal repl --with-repl=doctest lib:microcfta-generator
 `scripts/release.sh PACKAGE --check-only` validates one package and the local
 source archives of its workspace dependencies. Publish `microcfta-base` and
 `microcfta-intern` first, then `microcfta` and `microcfta-rank`, then
-`microcfta-z3`, then `microcfta-generator`.
+`microcfta-liquid`, then `microcfta-z3`, then `microcfta-generator`.
 
 Code that imports `Data.CFTA.Index`, `Data.CFTA.Term`, `Data.CFTA.Path`,
 `Data.CFTA.Internal.Tree`, or `Data.CFTA.Internal.UnionFind` must declare
@@ -201,7 +205,9 @@ Code that imports `Data.CFTA.Index`, `Data.CFTA.Term`, `Data.CFTA.Path`,
 `Data.CFTA.Interned.Memo` must declare `microcfta-intern`, and code that imports
 `Data.CFTA.Ranked` or `Data.CFTA.Ranked.Internal.*` must declare
 `microcfta-rank`. Code that imports `Data.CFTA.Refinement.LiquidFixpoint` must
-declare `microcfta-z3`. Other code that imports `Data.CFTA.*` must declare
+declare `microcfta-z3`, and other code that imports `Data.CFTA.Refinement` or
+`Data.CFTA.Refinement.*`, except `Data.CFTA.Refinement.Expression`, must declare
+`microcfta-liquid`. Other code that imports `Data.CFTA.*` must declare
 `microcfta`, and code that imports `Data.CFTA.Gen.*` or
 `Data.CFTA.Ranked.QuickCheck` must declare `microcfta-generator`.
 Code that imports `Data.Tree` directly, for `drawTree`, must declare

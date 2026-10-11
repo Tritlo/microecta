@@ -78,6 +78,7 @@ library
     base >=4.22 && <4.23,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta ==0.1.0.0,
+    microcfta-liquid ==0.1.0.0,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
     unordered-containers >=0.2 && <0.3,
@@ -108,4 +109,5 @@ test-suite z3-tests
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta,
     microcfta-base,
+    microcfta-liquid,
     microcfta-z3,
