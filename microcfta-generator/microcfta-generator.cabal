@@ -114,6 +114,7 @@ library
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -127,6 +128,7 @@ executable cfta-pairs
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -138,6 +140,7 @@ executable cfta-finite-languages
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -156,6 +159,7 @@ executable cfta-draw-typed-expressions
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -170,6 +174,7 @@ executable cfta-liquid-pairs
     base >=4.22 && <4.23,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -181,6 +186,7 @@ executable cfta-safe-division
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -192,6 +198,7 @@ executable cfta-bounded-reads
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -203,6 +210,7 @@ executable cfta-red-black-trees
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -214,6 +222,7 @@ executable cfta-sorted-lists
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -225,6 +234,7 @@ executable cfta-typed-values
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -236,6 +246,7 @@ executable cfta-automaton-interop
   build-depends:
     base >=4.22 && <4.23,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
 
@@ -277,6 +288,7 @@ test-suite gen-tests
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -325,6 +337,7 @@ test-suite refinement-tests
     hspec >=2.11 && <2.12,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -349,6 +362,7 @@ benchmark untyped-expression-speed
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
@@ -402,6 +416,7 @@ benchmark state-machine-trace-speed
     containers >=0.8 && <0.9,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
@@ -432,6 +447,7 @@ benchmark typed-expression-constraint-cost
     containers >=0.8 && <0.9,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta >=0.1.0.0 && <0.2,
+    microcfta-base ==0.1.0.0,
     microcfta-generator,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,

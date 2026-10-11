@@ -79,7 +79,6 @@ library
     Data.CFTA.Equality.Constraint
     Data.CFTA.Equality.Operations
     Data.CFTA.Generic
-    Data.CFTA.Index
     Data.CFTA.Internal.UnionFind
     Data.CFTA.Interned
     Data.CFTA.Interned.Operations
@@ -110,6 +109,7 @@ library
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta-base ==0.1.0.0,
     microcfta-intern ==0.1.0.0,
     mtl >=2.3 && <2.4,
     text >=2.1 && <2.2,
@@ -162,6 +162,7 @@ test-suite unit-tests
     hspec >=2.11 && <2.12,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta,
+    microcfta-base,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -177,6 +178,7 @@ benchmark enumeration-speed
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microcfta,
+    microcfta-base,
     text >=2.1 && <2.2,
 
 benchmark micro-bench
@@ -197,6 +199,7 @@ benchmark micro-bench
     containers >=0.8 && <0.9,
     hashable >=1.5 && <1.6,
     microcfta,
+    microcfta-base,
     text >=2.1 && <2.2,
 
 benchmark cross-layer-speed
@@ -209,4 +212,5 @@ benchmark cross-layer-speed
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
     microcfta,
+    microcfta-base,
     text >=2.1 && <2.2,
