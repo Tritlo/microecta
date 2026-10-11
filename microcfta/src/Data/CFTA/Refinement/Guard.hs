@@ -29,30 +29,28 @@ module Data.CFTA.Refinement.Guard (
     notGuard,
 ) where
 
-import Data.CFTA.Index (ArgumentIndex (..), Arity (..))
-import Data.CFTA.Refinement (
-    Automaton,
-    AutomatonError (GuardArityMismatch),
-    ChildIndex (..),
+import Data.CFTA.Constraint (
     Constraint,
-    Formula,
     Guard (And, Entails, Holds, Not, Or, Same, Satisfies, Substitute),
-    Node (Node),
-    Path (EmptyPath),
     Substitution (Substitution),
-    Symbol,
-    Transition,
     conjoinConstraints,
     constraintAsGuard,
     contractTermName,
     noConstraint,
-    path,
     semanticConstraint,
-    unPath,
+ )
+import Data.CFTA.Index (ArgumentIndex (..), Arity (..))
+import Data.CFTA.Interned (Node (Node))
+import Data.CFTA.Path (ChildIndex (..), Path (EmptyPath), path, unPath)
+import Data.CFTA.Refinement.Automaton (
+    Automaton,
+    AutomatonError (GuardArityMismatch),
+    Transition,
     validate,
     pattern Transition,
  )
 import Data.CFTA.Refinement.Expression (Expr, Refinement, refinementFormula, substitute, variable)
+import Data.CFTA.Symbol (Formula, Symbol)
 import Data.Maybe (fromMaybe)
 import qualified Language.Fixpoint.Types as Fixpoint
 import Numeric.Natural (Natural)

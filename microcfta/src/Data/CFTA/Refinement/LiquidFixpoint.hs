@@ -16,7 +16,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as Text
 import GHC.Clock (getMonotonicTime)
 
-import Data.CFTA.Refinement (Entailment, Verdict (..), entailmentWithBindings)
+import Data.CFTA.Refinement.Verdict (Entailment, Verdict (..), entailmentWithBindings)
 import Data.CFTA.Symbol (valueName)
 import qualified Language.Fixpoint.Smt.Interface as SMT
 import qualified Language.Fixpoint.Smt.Types as SMTTypes

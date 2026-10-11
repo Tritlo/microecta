@@ -44,8 +44,7 @@ import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Word (Word16, Word32, Word64, Word8)
 import Numeric.Natural (Natural)
 
-import Data.CFTA.Refinement (Formula)
-import Data.CFTA.Symbol (valueName)
+import Data.CFTA.Symbol (Formula, valueName)
 import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | A term of the refinement logic. Its solver sort comes from declarations.
