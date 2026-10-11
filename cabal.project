@@ -5,6 +5,7 @@ packages:
   microcfta-rank
   microcfta-base
   microcfta-intern
+  microcfta-z3
   microcfta-generator
   microecta
   microecta-generator

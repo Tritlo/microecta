@@ -25,6 +25,7 @@ jobs:
             microcfta-intern/**/*.hs
             microcfta-base/**/*.hs
             microcfta-rank/**/*.hs
+            microcfta-z3/**/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -34,7 +35,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microcfta", "microcfta-generator", "microcfta-intern", "microcfta-base", "microcfta-rank"]'
+          path: '["microcfta", "microcfta-generator", "microcfta-intern", "microcfta-base", "microcfta-rank", "microcfta-z3"]'
           fail-on: warning
 
   build-test-bench:
@@ -89,6 +90,7 @@ jobs:
           (cd microcfta-intern && cabal check)
           (cd microcfta-base && cabal check)
           (cd microcfta-rank && cabal check)
+          (cd microcfta-z3 && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -143,6 +145,7 @@ jobs:
           scripts/release.sh microcfta-intern --check-only
           scripts/release.sh microcfta --check-only
           scripts/release.sh microcfta-rank --check-only
+          scripts/release.sh microcfta-z3 --check-only
           scripts/release.sh microcfta-generator --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only

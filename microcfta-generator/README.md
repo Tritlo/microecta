@@ -1779,8 +1779,9 @@ the details.
 
 ## Dependencies
 
-The library depends on `microcfta`, `QuickCheck`, `array`, `containers`,
-`hashable`, `mtl`, and `text`. The benchmarks also use `random`, `process`, and
+The library depends on `microcfta`, `microcfta-base`, `microcfta-rank`,
+`microcfta-z3`, `QuickCheck`, `array`, `containers`, `hashable`, `mtl`, and
+`text`. The benchmarks also use `random`, `process`, and
 `liquid-fixpoint`. The refinement generator and its tests need `z3` on `PATH`.
 
 ## Build

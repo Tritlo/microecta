@@ -1,7 +1,5 @@
 module Main (main) where
 
-import System.Directory (findExecutable)
-import System.Exit (die)
 import Test.Hspec (hspec)
 
 import qualified Data.CFTA.Equality.ConstraintSpec
@@ -22,11 +20,7 @@ import qualified Data.CFTA.TermSearchSpec
 import qualified Data.CFTASpec
 
 main :: IO ()
-main = do
-    z3 <- findExecutable "z3"
-    case z3 of
-        Nothing -> die "The test suite needs the z3 executable on PATH; enter nix-shell or install Z3."
-        Just _ -> pure ()
+main =
     hspec $ do
         Data.CFTASpec.spec
         Data.CFTA.Equality.ConstraintSpec.spec

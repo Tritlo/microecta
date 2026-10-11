@@ -6,7 +6,7 @@ usage() {
 Usage: $0 PACKAGE [--publish | --check-only]
 
 PACKAGE must be microcfta-base, microcfta-intern, microcfta, microcfta-rank,
-microcfta-generator, microecta, or microecta-generator.
+microcfta-z3, microcfta-generator, microecta, or microecta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
 --check-only validates the exact artifacts without uploading them.
@@ -26,7 +26,8 @@ case "$package" in
   microcfta-base|microcfta-intern|microecta) dependencies=() ;;
   microcfta) dependencies=(microcfta-base microcfta-intern) ;;
   microcfta-rank) dependencies=(microcfta-base) ;;
-  microcfta-generator) dependencies=(microcfta-base microcfta-intern microcfta microcfta-rank) ;;
+  microcfta-z3) dependencies=(microcfta-base microcfta-intern microcfta) ;;
+  microcfta-generator) dependencies=(microcfta-base microcfta-intern microcfta microcfta-rank microcfta-z3) ;;
   microecta-generator) dependencies=(microecta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac

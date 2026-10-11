@@ -669,9 +669,9 @@ Boolean constraint language over child positions. The pattern
 Syntactic `Same` and semantic `Entails` are LTA atoms. Guards support
 substitution, negation, conjunction, and disjunction. Refinement implication
 is discharged through the small `Entailment` boundary;
-`Data.CFTA.Refinement.LiquidFixpoint.withZ3` supplies the reusable Z3
-implementation. It declares every free name as an integer unless the caller
-gives the name another sort. Each query has a time limit of ten seconds
+`Data.CFTA.Refinement.LiquidFixpoint.withZ3`, in the package `microcfta-z3`,
+supplies the reusable Z3 implementation. It declares every free name as an
+integer unless the caller gives the name another sort. Each query has a time limit of ten seconds
 (`defaultTimeLimit`). A query that reaches it raises `TimeLimitReached`, so a
 timeout is not taken for an undecided query; `withZ3Timeout` sets another limit.
 
@@ -1051,7 +1051,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, contracts over the children's values, and `transition` and `automaton`, which check a named guard against the children. |
 | `Data.CFTA.Refinement.Expression` | The refinement logic: terms with integer arithmetic, comparisons, connectives, and refinements as functions of the value. |
 | `Data.CFTA.Refinement.Lattice` | Exact counting and lexicographic ranking of the integer points of a linear formula, without enumeration, and `latticeEntailment`, which decides bounded linear integer implications without a solver. |
-| `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. |
+| `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. The module is in `microcfta-z3`. |
 | `Data.CFTA.Simple` | The automata defined as simply as possible, on explicit-state automata: membership by recursion on the term, the terms up to a depth by filtering every tree, and the textbook union, product, and depth bound. It is slow, and the tests check the other modules against it. |
 | `Data.CFTA.Term` | Concrete terms: `Term symbol`, built and matched with the pattern `Node symbol children`, with `child`, `arity`, `flatten`, and the conversions to and from `Data.Tree`. The module is in `microcfta-base`. |
 | `Data.Tree` from `containers` | The automaton views of `toTree`, for `drawTree`. |
@@ -1261,18 +1261,21 @@ cabal bench microcfta:micro-bench --enable-optimization=2 --benchmark-options='3
 
 The library depends on `array`, `base`, `containers`, `hashable`,
 `liquid-fixpoint`, `mtl`, `text`, `transformers`, and `unordered-containers`.
-Only the refinement layer needs a solver: put `z3` on `PATH` before using
+The library needs no solver. The Z3 entailment is in the package
+`microcfta-z3`: put `z3` on `PATH` before using
 `Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint` is a heavy build
-dependency, and it is included so that the three layers are in one package.
+dependency: the refinements are its formulas.
 
 ## Development
 
-Build and test from the workspace root. The test suite needs `z3` on `PATH`;
-enter `nix-shell` to get it:
+Build and test from the workspace root. The tests of `microcfta` need no
+solver. The tests that decide guards with Z3 are in `microcfta-z3`, and need
+`z3` on `PATH`; enter `nix-shell` to get it:
 
 ```sh
 cabal build microcfta
 cabal test microcfta:unit-tests
+cabal test microcfta-z3:z3-tests
 ```
 
 To reproduce the compile-time memory budget CI enforces:

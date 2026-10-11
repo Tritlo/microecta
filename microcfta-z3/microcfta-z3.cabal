@@ -1,0 +1,111 @@
+cabal-version: 3.0
+name: microcfta-z3
+version: 0.1.0.0
+synopsis: A Z3 entailment for the liquid tree automata of microcfta
+description:
+  The Entailment of Data.CFTA.Refinement, decided by Z3 through the SMT
+  interface of Liquid Fixpoint: one reusable Z3 process, declarations of the
+  free names, and a time limit for each query.
+
+homepage: https://github.com/Tritlo/microecta/tree/main/microcfta-z3#readme
+bug-reports: https://github.com/Tritlo/microecta/issues
+category: Data
+author: Jimmy Koppel, Matthias Pall Gissurarson
+maintainer: mpg@mpg.is
+copyright: 2021-2024 Jimmy Koppel, 2026 Matthias Pall Gissurarson
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with: ghc ==9.14.1
+extra-doc-files:
+  CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/Tritlo/microecta.git
+  subdir: microcfta-z3
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wno-pattern-namespace-specifier
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    MultiWayIf
+    NamedFieldPuns
+    PatternGuards
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import: warnings, extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Data.CFTA.Refinement.LiquidFixpoint
+
+  build-depends:
+    base >=4.22 && <4.23,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta ==0.1.0.0,
+    mtl >=2.3 && <2.4,
+    text >=2.1 && <2.2,
+    unordered-containers >=0.2 && <0.3,
+
+test-suite z3-tests
+  import: warnings, extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  other-modules:
+    Data.CFTA.Refinement.GuardSpec
+    Data.CFTA.Refinement.MinimizeSpec
+    Data.CFTA.Refinement.PruneSpec
+    Data.CFTA.Refinement.RefinementRelationSpec
+    Data.CFTA.Refinement.SubstitutionSpec
+    Data.CFTA.Refinement.TestSupport
+
+  build-depends:
+    base,
+    containers >=0.8 && <0.9,
+    directory >=1.3 && <1.4,
+    hspec >=2.11 && <2.12,
+    liquid-fixpoint >=0.9.6.3.7 && <0.10,
+    microcfta,
+    microcfta-base,
+    microcfta-z3,

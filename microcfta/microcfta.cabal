@@ -89,7 +89,6 @@ library
     Data.CFTA.Refinement.Expression
     Data.CFTA.Refinement.Guard
     Data.CFTA.Refinement.Lattice
-    Data.CFTA.Refinement.LiquidFixpoint
     Data.CFTA.Refinement.Minimize
     Data.CFTA.Refinement.Prune
     Data.CFTA.Refinement.Verdict
@@ -148,13 +147,11 @@ test-suite unit-tests
   build-depends:
     base >=4.22 && <4.23,
     containers >=0.8 && <0.9,
-    directory >=1.3 && <1.4,
     hashable >=1.5 && <1.6,
     hspec >=2.11 && <2.12,
     liquid-fixpoint >=0.9.6.3.7 && <0.10,
     microcfta,
     microcfta-base,
-    mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
     unordered-containers >=0.2 && <0.3,

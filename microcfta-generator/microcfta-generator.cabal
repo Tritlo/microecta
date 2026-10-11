@@ -110,6 +110,7 @@ library
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-rank ==0.1.0.0,
+    microcfta-z3 ==0.1.0.0,
     mtl >=2.3 && <2.4,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
@@ -171,6 +172,7 @@ executable cfta-liquid-pairs
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-generator,
+    microcfta-z3 ==0.1.0.0,
     QuickCheck >=2.14 && <2.19,
 
 executable cfta-safe-division
@@ -335,6 +337,7 @@ test-suite refinement-tests
     microcfta-base ==0.1.0.0,
     microcfta-generator,
     microcfta-rank ==0.1.0.0,
+    microcfta-z3 ==0.1.0.0,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
 
@@ -414,6 +417,7 @@ benchmark state-machine-trace-speed
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-generator,
+    microcfta-z3 ==0.1.0.0,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
@@ -445,6 +449,7 @@ benchmark typed-expression-constraint-cost
     microcfta >=0.1.0.0 && <0.2,
     microcfta-base ==0.1.0.0,
     microcfta-generator,
+    microcfta-z3 ==0.1.0.0,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,

@@ -1,11 +1,12 @@
 # microcfta
 
-Constrained finite tree automata for Haskell, in five packages:
+Constrained finite tree automata for Haskell, in six packages:
 
 | Package | Purpose |
 | --- | --- |
 | [`microcfta`](microcfta/README.md) | One interned automaton engine with one constraint type for three kinds of automaton: ordinary tree automata, equality-constrained tree automata (ECTA), and liquid tree automata (LTA) with Liquid Fixpoint refinements and Z3 entailment. |
 | [`microcfta-generator`](microcfta-generator/README.md) | Ranked generation, random sampling, replay, shrinking, and QuickCheck integration for all three. |
+| `microcfta-z3` | The Z3 entailment of the liquid tree automata, through the SMT interface of Liquid Fixpoint. |
 | `microcfta-rank` | Ranked languages: exact cardinalities, a bijection between ranks and members, sizes, weighted sampling, and shrinking, independent of automata. |
 | `microcfta-intern` | The process-global interning tables and memo tables of the engine. |
 | `microcfta-base` | Concrete terms and paths, the newtypes of indexes, ranks, counts, sizes, and weights, the arithmetic of ranks, the tree searches over rows, and a persistent union-find. |
@@ -14,6 +15,8 @@ Constrained finite tree automata for Haskell, in five packages:
 flowchart BT
   g["microcfta-generator"] --> c["microcfta"]
   g --> r["microcfta-rank"]
+  g --> z["microcfta-z3"]
+  z --> c
   c --> i["microcfta-intern"]
   c --> b["microcfta-base"]
   r --> b
@@ -190,14 +193,15 @@ cabal repl --with-repl=doctest lib:microcfta-generator
 `scripts/release.sh PACKAGE --check-only` validates one package and the local
 source archives of its workspace dependencies. Publish `microcfta-base` and
 `microcfta-intern` first, then `microcfta` and `microcfta-rank`, then
-`microcfta-generator`.
+`microcfta-z3`, then `microcfta-generator`.
 
 Code that imports `Data.CFTA.Index`, `Data.CFTA.Term`, `Data.CFTA.Path`,
 `Data.CFTA.Internal.Tree`, or `Data.CFTA.Internal.UnionFind` must declare
 `microcfta-base`, code that imports `Data.CFTA.Interned.Cache` or
 `Data.CFTA.Interned.Memo` must declare `microcfta-intern`, and code that imports
 `Data.CFTA.Ranked` or `Data.CFTA.Ranked.Internal.*` must declare
-`microcfta-rank`. Other code that imports `Data.CFTA.*` must declare
+`microcfta-rank`. Code that imports `Data.CFTA.Refinement.LiquidFixpoint` must
+declare `microcfta-z3`. Other code that imports `Data.CFTA.*` must declare
 `microcfta`, and code that imports `Data.CFTA.Gen.*` or
 `Data.CFTA.Ranked.QuickCheck` must declare `microcfta-generator`.
 Code that imports `Data.Tree` directly, for `drawTree`, must declare
