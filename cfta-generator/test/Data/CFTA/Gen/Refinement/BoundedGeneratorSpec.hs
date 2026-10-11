@@ -11,6 +11,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (nub, sort)
 import Data.Proxy (Proxy (Proxy))
 import Data.Ratio ((%))
+import Data.String (fromString)
 import Data.Typeable (typeRep)
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldMatchList, shouldSatisfy)
@@ -41,10 +42,9 @@ import Data.CFTA.Refinement (
     semanticConstraint,
     pattern Transition,
  )
-import Data.CFTA.Refinement.Expression (Expr, refinementFormula, toExpr, true, (.==), (.>))
+import Data.CFTA.Refinement.Expression (refinementFormula, true, variable, (.==), (.>))
 import Data.CFTA.Refinement.LiquidFixpoint (TimeLimitReached (..), withZ3)
 import Data.CFTA.Symbol (valueName)
-import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | Fail if an unconstrained fixture unexpectedly calls the solver.
 unusedEntailment :: Entailment
@@ -136,7 +136,7 @@ spec :: Spec
 spec = do
     describe "liquid annotations on a derived datatype" $ do
         it "keeps the datatype codec and shrinks within the guarded language" $
-            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
+            withZ3 [fromString valueName] $ \solver -> do
                 datatype <- either (fail . show) pure $ Datatype.deriveFTAWith @(Maybe (Int, Int)) $ Datatype.domain @Int [0, 1, 2]
                 let annotate constructor
                         | Datatype.constructorType constructor == typeRep (Proxy @Int) =
@@ -237,7 +237,7 @@ spec = do
                     (result >>= LTAGen.cardinality) `shouldBe` Left LTAGen.EmptyGenerator
 
         it "checks root, nested, and missing observations across an imported boundary" $
-            withZ3 [(Fixpoint.symbol valueName, Fixpoint.FInt)] $ \solver -> do
+            withZ3 [fromString valueName] $ \solver -> do
                 let zero = variable valueName .== 0
                     boxed =
                         Node
@@ -416,7 +416,7 @@ spec = do
                 denotationAtMost solver 2 automaton `shouldDenote` termsOf compiled
 
         it "reports unavailable compound actual identities without changing the core language" $
-            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "x", "y", "app", "known"] :: [String]] $ \solver -> do
+            withZ3 [fromString valueName, "x", "y", "app", "known"] $ \solver -> do
                 let guard =
                         Substitute
                             [Substitution (path [0]) (path [2]), Substitution (path [1]) (path [3])]
@@ -472,8 +472,6 @@ spec = do
   where
     same = Same (path [0]) (path [1])
     missing = Satisfies (path [0, 0]) true
-    variable :: String -> Expr
-    variable name = toExpr $ Fixpoint.EVar $ Fixpoint.symbol (name :: String)
     fork :: Int -> Term Symbol
     fork 0 = Term.Node (RefinedSymbol "a" true) []
     fork height = Term.Node (RefinedSymbol "fork" true) [fork (height - 1), fork (height - 1)]

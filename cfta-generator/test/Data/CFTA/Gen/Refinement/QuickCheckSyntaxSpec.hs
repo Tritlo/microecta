@@ -1,6 +1,7 @@
 module Data.CFTA.Gen.Refinement.QuickCheckSyntaxSpec (spec) where
 
 import Control.Monad (forM_, void)
+import Data.String (fromString)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 import qualified Data.CFTA.Gen.Refinement as LTAGen
@@ -16,7 +17,7 @@ import Data.CFTA.Refinement (
     path,
     semanticConstraint,
  )
-import Data.CFTA.Refinement.Expression (Expr, false, refinementFormula, toExpr, true, (.<), (.==))
+import Data.CFTA.Refinement.Expression (false, refinementFormula, true, variable, (.<), (.==))
 import Data.CFTA.Refinement.Guard (
     anyOf,
     argument,
@@ -32,7 +33,6 @@ import Data.CFTA.Refinement.Guard (
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Symbol (valueName)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 spec :: Spec
 spec = do
@@ -90,10 +90,8 @@ spec = do
             (compiled >>= LTAGen.cardinality) `shouldBe` Right (2 ^ (50 :: Int))
 
         it "preserves fresh value declarations through the compilation cache" $
-            withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "app", "x", "y"] :: [String]] $ \solver -> do
-                let variable :: String -> Expr
-                    variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
-                    actual :: Int -> LTAGen.LTAGen Int
+            withZ3 [fromString valueName, "app", "x", "y"] $ \solver -> do
+                let actual :: Int -> LTAGen.LTAGen Int
                     actual integer =
                         LTAGen.refinedNode "app" (const $ variable valueName .== fromIntegral integer) Top $
                             LTAGen.leaf integer "input" (const true)
@@ -129,9 +127,7 @@ spec = do
 
     describe "structural equality under explicit substitution" $ do
         it "compares renamed symbols and refinements while preserving source values and witnesses" $ do
-            let variable :: String -> Expr
-                variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
-                annotation name = const (variable valueName .== variable name)
+            let annotation name = const (variable valueName .== variable name)
                 actuals =
                     LTAGen.namedPool
                         [ LTAGen.Refined (10 :: Int) "a" $ annotation "a"
@@ -200,10 +196,8 @@ compileActualEquality ::
     LTAGen.LTAGen Int ->
     IO (Either LTAGen.GenError Cardinality)
 compileActualEquality left right =
-    withZ3 [(Fixpoint.symbol name, Fixpoint.FInt) | name <- [valueName, "shared", "app", "x", "y"] :: [String]] $ \solver -> do
-        let variable :: String -> Expr
-            variable = toExpr . Fixpoint.EVar . Fixpoint.symbol
-            forest =
+    withZ3 [fromString valueName, "shared", "app", "x", "y"] $ \solver -> do
+        let forest =
                 (\actualLeft actualRight _ _ -> (actualLeft, actualRight))
                     <$> left
                     <*> right

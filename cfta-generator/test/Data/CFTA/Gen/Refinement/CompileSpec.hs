@@ -12,6 +12,7 @@ import Data.String (fromString)
 import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
+import Data.CFTA.Formula (Name)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.Refinement.TestSupport (compileOrFail, massesByRank, rightOrFail, values)
 import Data.CFTA.Gen.Refinement.TypedExpressionLanguage (nonNegative)
@@ -52,7 +53,6 @@ import Data.CFTA.Refinement.Lattice (latticeEntailment)
 import Data.CFTA.Refinement.LiquidFixpoint (withZ3)
 import Data.CFTA.Symbol (valueName)
 import qualified Data.CFTA.Term as Term
-import qualified Language.Fixpoint.Types as Fixpoint
 
 -- | Exact refinement attached to one integer.
 exact :: Int -> Refinement
@@ -500,6 +500,6 @@ homogeneousBits width = foldr (\_ rest -> prepend rest) ((: []) <$> bit) [2 .. w
     firstRefinement [] = error "a homogeneous vector node has no children"
     equivalent left right = allOf [left `isSubtypeOf` right, right `isSubtypeOf` left]
 
--- | Liquid Fixpoint declarations needed by the exact integer refinements.
-declarations :: [(Fixpoint.Symbol, Fixpoint.Sort)]
-declarations = [(Fixpoint.symbol valueName, Fixpoint.FInt)]
+-- | Integer names needed by the exact integer refinements.
+declarations :: [Name]
+declarations = [fromString valueName]

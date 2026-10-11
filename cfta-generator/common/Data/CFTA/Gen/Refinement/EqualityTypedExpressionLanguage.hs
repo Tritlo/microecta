@@ -4,9 +4,9 @@
 {- | The typed expressions of "Data.CFTA.Gen.TypedExpressionLanguage", written
 as an LTA.
 
-Each ground type is an equality refinement on the value variable of Liquid
-Fixpoint. An application has one candidate transition for each tuple of ground
-child states. The guard requires that each child implies the input type of the
+Each ground type is an equality refinement on the value variable. An
+application has one candidate transition for each tuple of ground child
+states. The guard requires that each child implies the input type of the
 operation. So Z3 pruning does the same check as the path equalities of the
 ECTA, and the language of accepted expressions is the same.
 -}

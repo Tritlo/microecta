@@ -65,9 +65,9 @@ import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (fromString)
-import qualified Language.Fixpoint.Types as Fixpoint
 import qualified Test.QuickCheck as QC
 
+import Data.CFTA.Formula (conjunction, disjunction)
 import qualified Data.CFTA.Gen.Refinement.QuickCheck as LTAGen
 import Data.CFTA.Gen.TypedExpressionLanguage (frequencyInteger)
 import Data.CFTA.Refinement (
@@ -681,7 +681,7 @@ stacksStartingWith prefix = oneOfStates (prefix `isPrefixOf`)
 -- | Describe a non-empty subset of the bounded abstract state space.
 oneOfStates :: (StackState -> Bool) -> Formula
 oneOfStates predicate =
-    Fixpoint.pOr
+    disjunction
         [ refinementFormula (.== fromIntegral (encodeState state))
         | state <- stackStates
         , predicate state
@@ -690,7 +690,7 @@ oneOfStates predicate =
 -- | The bounded range accepted at the command's formal state position.
 stateRange :: Formula
 stateRange =
-    Fixpoint.pAnd
+    conjunction
         [ refinementFormula (.>= 0)
         , refinementFormula (.<= fromIntegral maximumEncodedState)
         ]

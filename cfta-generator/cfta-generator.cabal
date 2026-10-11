@@ -173,7 +173,6 @@ executable cfta-liquid-pairs
     cfta-base ==0.1.0.0,
     cfta-generator,
     cfta-z3 ==0.1.0.0,
-    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     QuickCheck >=2.14 && <2.19,
 
 executable cfta-safe-division
@@ -340,7 +339,6 @@ test-suite refinement-tests
     containers >=0.8 && <0.9,
     directory >=1.3 && <1.4,
     hspec >=2.11 && <2.12,
-    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     QuickCheck >=2.14 && <2.19,
     text >=2.1 && <2.2,
 
@@ -421,7 +419,6 @@ benchmark state-machine-trace-speed
     cfta-liquid ==0.1.0.0,
     cfta-z3 ==0.1.0.0,
     containers >=0.8 && <0.9,
-    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
@@ -454,7 +451,6 @@ benchmark typed-expression-constraint-cost
     cfta-liquid ==0.1.0.0,
     cfta-z3 ==0.1.0.0,
     containers >=0.8 && <0.9,
-    liquid-fixpoint >=0.9.6.3.7 && <0.10,
     process >=1.6 && <1.7,
     QuickCheck >=2.14 && <2.19,
     random >=1.2 && <1.4,
