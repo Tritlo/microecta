@@ -2,6 +2,7 @@ module Data.CFTA.RankedSpec (spec) where
 
 import Data.List (genericLength, sort)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import Data.Ratio ((%))
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
 import Test.QuickCheck (
@@ -19,12 +20,20 @@ import Test.QuickCheck (
     (===),
  )
 
-import Data.CFTA.Index (Cardinality (..), Rank (..), Size, Weight (..), everyRank)
+import Data.CFTA.Index (Cardinality (..), ClassRank (..), Rank (..), Size, Weight (..), everyRank)
 import qualified Data.CFTA.Ranked as Ranked
 import Data.CFTA.Ranked.Internal (rankedPlan, share)
 import Data.CFTA.Ranked.Internal.Sampler (Exact (..))
 import Data.CFTA.Ranked.Internal.Shrink (smallestPlanRank)
-import Data.CFTA.Ranked.Internal.Size (SizedRank (..), planPosition, sizeClassSelect, sizeIndex)
+import Data.CFTA.Ranked.Internal.Size (
+    SizedRank (..),
+    countAtSize,
+    planPosition,
+    sizeClassOf,
+    sizeClassSelect,
+    sizeIndex,
+    sizeMajorRank,
+ )
 
 spec :: Spec
 spec = do
@@ -62,6 +71,33 @@ spec = do
                                                         .&&. map (sizeAt . Ranked.valueRank) smaller === sort (map (sizeAt . Ranked.valueRank) smaller)
                                            | rank <- checked
                                            ]
+
+    describe "size classes" $
+        it "count the members of each size, and give each rank one position in its class" $
+            property $
+                forAllShow (sized $ \size -> described (min 3 (size `div` 25))) show $ \description ->
+                    case build description of
+                        Left err -> counterexample (show err) False
+                        Right ranked ->
+                            let plan = rankedPlan ranked
+                                index = sizeIndex plan
+                                sizes = [size | (_, _, size) <- members description]
+                                ranks = everyRank $ Ranked.cardinality ranked
+                                classes = [0 .. maximum sizes + 1]
+                                count size = genericLength (filter (== size) sizes)
+                                -- Every size and position of a member, in size-major order.
+                                positions = [SizedRank size (ClassRank position) | size <- classes, position <- [0 .. count size - 1]]
+                             in conjoin
+                                    [ map (countAtSize index) classes === map (Cardinality . count) classes
+                                    , map (fmap rankSize . planPosition plan) ranks === map Just sizes
+                                    , sort (mapMaybe (planPosition plan) ranks) === positions
+                                    , [ Ranked.valueRank (sizeClassSelect index size position)
+                                      | Just (SizedRank size position) <- map (planPosition plan) ranks
+                                      ]
+                                        === ranks
+                                    , map (sizeMajorRank index) positions === ranks
+                                    , map (sizeClassOf index . sizeMajorRank index) positions === map Just positions
+                                    ]
 
     describe "plan positions" $
         it "find the size class and position of every rank of a finite plan" $ do
@@ -189,6 +225,8 @@ data Described
     | Oneof [Described]
     | Pair Described Described
     | Mapped Described
+    | -- | Each member one larger, by 'Ranked.pay'.
+      Paid Described
     deriving (Show)
 
 -- | The members of a described language.
@@ -206,6 +244,7 @@ described depth
             , Oneof <$> some (described (depth - 1))
             , Pair <$> described (depth - 1) <*> described (depth - 1)
             , Mapped <$> described (depth - 1)
+            , Paid <$> described (depth - 1)
             ]
   where
     source =
@@ -218,8 +257,8 @@ described depth
 {- | The members of a described language in rank order, with their masses and
 sizes. A choice lists its branches in order, and a product varies its right
 side fastest. A choice selects a branch by its weight, and a product selects
-its sides independently. A source member has size one, and a product adds
-the sizes of its sides.
+its sides independently. A source member has size one, a product adds the
+sizes of its sides, and a pay adds one.
 -}
 members :: Described -> [(Rational, Value, Size)]
 members description = case description of
@@ -237,6 +276,7 @@ members description = case description of
         , (rightMass, rightValue, rightSize) <- members right
         ]
     Mapped inner -> [(mass, Wrapped value, size) | (mass, value, size) <- members inner]
+    Paid inner -> [(mass, value, size + 1) | (mass, value, size) <- members inner]
 
 build :: Described -> Either Ranked.RankedError (Ranked.Ranked Value)
 build description = case description of
@@ -255,3 +295,4 @@ build description = case description of
     Oneof branches -> Ranked.oneof =<< traverse build branches
     Pair left right -> (\leftRanked rightRanked -> Both <$> leftRanked <*> rightRanked) <$> build left <*> build right
     Mapped inner -> fmap Wrapped <$> build inner
+    Paid inner -> Ranked.pay <$> build inner
