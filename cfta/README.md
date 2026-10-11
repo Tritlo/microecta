@@ -19,8 +19,8 @@ ACM Program. Lang. 6(ICFP), 2022](https://doi.org/10.1145/3547622); its
 engine descends from the
 [`microecta`](https://hackage.haskell.org/package/microecta) package, which
 remains a separate, ECTA-only line. The refinement layer is the liquid tree
-automaton (LTA) of Mishra and Jagannathan, with Liquid Fixpoint refinements and
-Z3 entailment. Concrete terms are `Term symbol` from `Data.CFTA.Term` in
+automaton (LTA) of Mishra and Jagannathan, with refinements in the integer
+logic of `Data.CFTA.Formula` and Z3 entailment. Concrete terms are `Term symbol` from `Data.CFTA.Term` in
 `cfta-base`. The refinement layer, `Data.CFTA.Refinement` and its modules
 except `Data.CFTA.Refinement.Expression`, is in the package
 `cfta-liquid`, and its Z3 entailment is in `cfta-z3`.
@@ -665,15 +665,15 @@ the label and the list of children, and the children stay lazy. `eraseRefinement
 maps each label to its ordinary symbol.
 
 A transition is an edge whose symbol is a refined `Symbol`, a ranked constructor
-with its Liquid Fixpoint refinement, and whose constraint is the paper's
+with its refinement formula, and whose constraint is the paper's
 Boolean constraint language over child positions. The pattern
 `Transition symbol refinement children constraint` builds and matches one.
 Syntactic `Same` and semantic `Entails` are LTA atoms. Guards support
 substitution, negation, conjunction, and disjunction. Refinement implication
 is discharged through the small `Entailment` boundary;
 `Data.CFTA.Refinement.LiquidFixpoint.withZ3`, in the package `cfta-z3`,
-supplies the reusable Z3 implementation. It declares every free name as an
-integer unless the caller gives the name another sort. Each query has a time limit of ten seconds
+supplies the reusable Z3 implementation. It translates each formula to Liquid
+Fixpoint and declares every name as an integer. Each query has a time limit of ten seconds
 (`defaultTimeLimit`). A query that reaches it raises `TimeLimitReached`, so a
 timeout is not taken for an undecided query; `withZ3Timeout` sets another limit.
 
@@ -820,20 +820,20 @@ toTree ::
 `Left` contains a node definition or reference. `Right` contains the complete
 transition, including its refinement and constraint. An open graph gives
 `OpenNode`. Map these labels to strings before using `drawTree` from
-`containers`. This example defines its own renderer and uses Liquid Fixpoint's
-`showpp` for refinement formulas:
+`containers`. This example defines its own renderer and uses `renderFormula`
+from `Data.CFTA.Formula` for refinement formulas:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
+import Data.CFTA.Formula (renderFormula)
 import Data.CFTA.Refinement
 import Data.CFTA.Refinement.Expression (Refinement, refinementFormula, true, (.>=))
 import Data.List (intercalate)
 import qualified Data.Text as Text
 import Data.Tree (drawTree)
-import Language.Fixpoint.Types (showpp)
 
 -- | A square root whose argument must have a nonnegative refinement.
 graph :: Automaton
@@ -872,14 +872,14 @@ renderTransition transition =
     refinement = transitionRefinement transition
     refinementLabel
         | refinement == true = ""
-        | otherwise = " {" ++ showpp refinement ++ "}"
+        | otherwise = " {" ++ renderFormula refinement ++ "}"
     guardLabel = case constraintAsGuard (edgeConstraint transition) of
         Top -> ""
         Satisfies position predicate ->
             " [refinement("
                 ++ intercalate "." (map show (unPath position))
                 ++ ") entails "
-                ++ showpp predicate
+                ++ renderFormula predicate
                 ++ "]"
         guard -> " [" ++ show guard ++ "]"
 
@@ -890,13 +890,13 @@ main = do
     putStr $ drawTree $ fmap (either renderNode renderTransition) tree
 ```
 
-Add `cfta`, `containers`, `text`, and `liquid-fixpoint` to the component's
+Add `cfta`, `cfta-liquid`, `containers`, and `text` to the component's
 `build-depends`. To run the example in this checkout, save it as `Main.hs` at
 the workspace root:
 
 ```sh
-cabal build cfta
-cabal exec -- ghc -package cfta -package liquid-fixpoint -e main Main.hs
+cabal build cfta-liquid
+cabal exec -- ghc -package cfta -package cfta-liquid -e main Main.hs
 ```
 
 This program prints:
@@ -1051,6 +1051,7 @@ productivity; they do not prove that arbitrary transition guards are satisfiable
 | `Data.CFTA.Equality.Operations` | Reduction, membership, and template restriction; exposed for lower-level callers. |
 | `Data.CFTA.Refinement` | Liquid tree automata: refined transitions, guards, recognition, pruning, similarity, minimization, and the bounded denotation. The module is in `cfta-liquid`. |
 | `Data.CFTA.Refinement.Guard` | Guard syntax over named child positions, contracts over the children's values, and `transition` and `automaton`, which check a named guard against the children. The module is in `cfta-liquid`. |
+| `Data.CFTA.Formula` | The refinement logic: names, integer terms, six comparisons, and the connectives, without quantifiers; simplifying conjunction and disjunction, free names, substitution, and `renderFormula`. |
 | `Data.CFTA.Refinement.Expression` | The refinement logic: terms with integer arithmetic, comparisons, connectives, and refinements as functions of the value. |
 | `Data.CFTA.Refinement.Lattice` | Exact counting and lexicographic ranking of the integer points of a linear formula, without enumeration, and `latticeEntailment`, which decides bounded linear integer implications without a solver. The module is in `cfta-liquid`. |
 | `Data.CFTA.Refinement.LiquidFixpoint` | The Z3-backed `Entailment`. The module is in `cfta-z3`. |
@@ -1261,12 +1262,12 @@ cabal bench cfta:micro-bench --enable-optimization=2 --benchmark-options='3 +RTS
 
 ## Dependencies
 
-The library depends on `array`, `base`, `containers`, `hashable`,
-`liquid-fixpoint`, `cfta-base`, `cfta-intern`, `mtl`, `text`,
-`transformers`, and `unordered-containers`. The library needs no solver. The Z3
-entailment is in the package `cfta-z3`: put `z3` on `PATH` before using
-`Data.CFTA.Refinement.LiquidFixpoint`. `liquid-fixpoint` is a heavy build
-dependency: the refinements are its formulas.
+The library depends on `array`, `base`, `containers`, `hashable`, `cfta-base`,
+`cfta-intern`, `mtl`, `text`, `transformers`, and `unordered-containers`. It
+needs no solver and no `liquid-fixpoint`: the refinements are formulas of
+`Data.CFTA.Formula`. The Z3 entailment is in the package `cfta-z3`, which
+depends on `liquid-fixpoint`, a heavy build dependency: put `z3` on `PATH`
+before using `Data.CFTA.Refinement.LiquidFixpoint`.
 
 ## Development
 

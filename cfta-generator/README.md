@@ -1781,8 +1781,8 @@ the details.
 
 The library depends on `cfta`, `cfta-base`, `cfta-liquid`,
 `cfta-rank`, `cfta-z3`, `QuickCheck`, `array`, `containers`,
-`hashable`, `mtl`, and `text`. The benchmarks also use `random`, `process`, and
-`liquid-fixpoint`. The refinement generator and its tests need `z3` on `PATH`.
+`hashable`, `mtl`, and `text`. The benchmarks also use `random` and `process`.
+The refinement generator and its tests need `z3` on `PATH`.
 
 ## Build
 

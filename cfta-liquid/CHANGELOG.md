@@ -7,4 +7,7 @@ Initial release. The refinement layer of `cfta` moves here:
 `Data.CFTA.Refinement.Expression`, which builds the formulas of a `Symbol`
 and stays in `cfta`. The specs of the refinement layer and the
 `cross-layer-speed` benchmark move along. The specs decide guards without
-Z3; the specs that run Z3 are in `cfta-z3`.
+Z3; the specs that run Z3 are in `cfta-z3`. Guards and entailment queries use
+the formulas and names of `Data.CFTA.Formula`, so the package does not depend
+on `liquid-fixpoint`, and `LatticeError` has no case for an unsupported
+formula.
