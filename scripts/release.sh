@@ -5,8 +5,8 @@ usage() {
   cat <<EOF
 Usage: $0 PACKAGE [--publish | --check-only]
 
-PACKAGE must be microcfta-base, microcfta-intern, microcfta, microcfta-rank,
-microcfta-liquid, microcfta-z3, microcfta-generator, microecta, or
+PACKAGE must be cfta-base, cfta-intern, cfta, cfta-rank,
+cfta-liquid, cfta-z3, cfta-generator, microecta, or
 microecta-generator.
 Without an option, validates and uploads a package candidate.
 --publish validates and publishes the release.
@@ -24,12 +24,12 @@ package="$1"
 shift
 
 case "$package" in
-  microcfta-base|microcfta-intern|microecta) dependencies=() ;;
-  microcfta) dependencies=(microcfta-base microcfta-intern) ;;
-  microcfta-rank) dependencies=(microcfta-base) ;;
-  microcfta-liquid) dependencies=(microcfta-base microcfta-intern microcfta) ;;
-  microcfta-z3) dependencies=(microcfta-base microcfta-intern microcfta microcfta-liquid) ;;
-  microcfta-generator) dependencies=(microcfta-base microcfta-intern microcfta microcfta-rank microcfta-liquid microcfta-z3) ;;
+  cfta-base|cfta-intern|microecta) dependencies=() ;;
+  cfta) dependencies=(cfta-base cfta-intern) ;;
+  cfta-rank) dependencies=(cfta-base) ;;
+  cfta-liquid) dependencies=(cfta-base cfta-intern cfta) ;;
+  cfta-z3) dependencies=(cfta-base cfta-intern cfta cfta-liquid) ;;
+  cfta-generator) dependencies=(cfta-base cfta-intern cfta cfta-rank cfta-liquid cfta-z3) ;;
   microecta-generator) dependencies=(microecta) ;;
   *) echo "Error: unknown package '$package'" >&2; usage 1 ;;
 esac
@@ -98,7 +98,7 @@ if [[ ${#sdists[@]} -ne 1 || ${#docs[@]} -ne 1 ]]; then
   exit 1
 fi
 
-release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/microcfta-release.XXXXXX")"
+release_tmp="$(mktemp -d "${TMPDIR:-/tmp}/cfta-release.XXXXXX")"
 trap 'rm -rf "$release_tmp"' EXIT
 tar -xzf "${sdists[0]}" -C "$release_tmp"
 

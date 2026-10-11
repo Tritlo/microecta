@@ -1,13 +1,13 @@
 with-compiler: ghc-9.14.1
 
 packages:
-  microcfta
-  microcfta-rank
-  microcfta-base
-  microcfta-intern
-  microcfta-liquid
-  microcfta-z3
-  microcfta-generator
+  cfta
+  cfta-rank
+  cfta-base
+  cfta-intern
+  cfta-liquid
+  cfta-z3
+  cfta-generator
   microecta
   microecta-generator
 

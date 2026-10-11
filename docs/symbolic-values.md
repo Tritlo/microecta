@@ -15,7 +15,7 @@ counter serves every type.
 
 ## A first example
 
-[`TypedValues.hs`](../microcfta-generator/examples/TypedValues.hs) draws a
+[`TypedValues.hs`](../cfta-generator/examples/TypedValues.hs) draws a
 color, a brightness byte, and a flag, and relates two of them with a contract:
 
 ```haskell
@@ -81,7 +81,7 @@ admits. The contract can also name a child from `elements`, whose refinement
 fixes one integer. With `measured`, a constructor has a measure: a term of the
 measures of its children, which stays a term of its integer children, and a
 parent's contract reads it. The
-[generator README](../microcfta-generator/README.md#measures-and-bounded-recursion)
+[generator README](../cfta-generator/README.md#measures-and-bounded-recursion)
 shows sorted lists, where every element stays symbolic up to the end of the
 list.
 

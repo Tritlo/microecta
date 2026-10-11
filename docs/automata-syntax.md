@@ -9,25 +9,25 @@ kind of information:
 | ECTA | These paths contain the same term. | `ECTAGen.node "label" $ ECTAGen.do ...` |
 | LTA | These refinements logically imply one another. | `LTAGen.node "label" $ LTAGen.do ...`, with `satisfying` and `guarded` |
 
-`microcfta` owns the common interned engine and the FTA graph, and
-`microcfta-base` owns the concrete terms. `Node symbol` and `Edge symbol` carry
+`cfta` owns the common interned engine and the FTA graph, and
+`cfta-base` owns the concrete terms. `Node symbol` and `Edge symbol` carry
 a `Constraint` on every edge. An FTA edge has `noConstraint`, an ECTA edge has
 `equalityConstraint`, and an LTA edge has a guard (`semanticConstraint`).
 `Data.CFTA.Equality` interprets the equalities, and `Data.CFTA.Refinement`, in
-`microcfta-liquid`, interprets the guards. `microcfta-rank` owns the ranked
-layer, and `microcfta-generator` owns the three generators: `Data.CFTA.Gen`,
+`cfta-liquid`, interprets the guards. `cfta-rank` owns the ranked
+layer, and `cfta-generator` owns the three generators: `Data.CFTA.Gen`,
 `Data.CFTA.Gen.Equality`, and `Data.CFTA.Gen.Refinement`.
 
 ## The worked progression
 
 The repository builds one running example through the three layers:
 
-1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../microcfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs)
+1. [`Data.CFTA.Gen.UntypedExpressionLanguage`](../cfta-generator/common/Data/CFTA/Gen/UntypedExpressionLanguage.hs)
    generates integer syntax. Constructor shape is the only constraint.
-2. [`Data.CFTA.Gen.TypedExpressionLanguage`](../microcfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs)
+2. [`Data.CFTA.Gen.TypedExpressionLanguage`](../cfta-generator/common/Data/CFTA/Gen/TypedExpressionLanguage.hs)
    adds Boolean expressions. Equality constraints connect an operation's
    signature with the result types of its children.
-3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../microcfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)
+3. [`Data.CFTA.Gen.Refinement.StateMachineTraceLanguage`](../cfta-generator/common/Data/CFTA/Gen/Refinement/StateMachineTraceLanguage.hs)
    turns those values and operations into a typed stack machine. The result
    refinement of a trace prefix is the next command's input state, so command
    admissibility and the next stack type are dependent on the whole prefix.
@@ -185,7 +185,7 @@ interned automaton into the same source syntax. It preserves graph sharing
 until compilation. Each distinct accepted annotated term contributes one rank.
 Repeated ordinary pool draws keep their separate ranks and weights. A leaf has
 depth zero, and an empty bound is an empty source. The standalone
-[`AutomatonInterop.hs`](../microcfta-generator/examples/AutomatonInterop.hs)
+[`AutomatonInterop.hs`](../cfta-generator/examples/AutomatonInterop.hs)
 imports a derived recursive natural-number grammar with
 `fromDatatypeUpToDepth` and composes it with a refined pool.
 

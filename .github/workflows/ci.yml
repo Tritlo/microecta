@@ -20,13 +20,13 @@ jobs:
         with:
           version: "0.20.1.0"
           pattern: |
-            microcfta/**/*.hs
-            microcfta-generator/**/*.hs
-            microcfta-intern/**/*.hs
-            microcfta-base/**/*.hs
-            microcfta-rank/**/*.hs
-            microcfta-liquid/**/*.hs
-            microcfta-z3/**/*.hs
+            cfta/**/*.hs
+            cfta-generator/**/*.hs
+            cfta-intern/**/*.hs
+            cfta-base/**/*.hs
+            cfta-rank/**/*.hs
+            cfta-liquid/**/*.hs
+            cfta-z3/**/*.hs
 
       - name: Set up hlint
         uses: haskell-actions/hlint-setup@v2
@@ -36,7 +36,7 @@ jobs:
       - name: Run hlint
         uses: haskell-actions/hlint-run@v2
         with:
-          path: '["microcfta", "microcfta-generator", "microcfta-intern", "microcfta-base", "microcfta-rank", "microcfta-liquid", "microcfta-z3"]'
+          path: '["cfta", "cfta-generator", "cfta-intern", "cfta-base", "cfta-rank", "cfta-liquid", "cfta-z3"]'
           fail-on: warning
 
   build-test-bench:
@@ -86,13 +86,13 @@ jobs:
 
       - name: Check package metadata
         run: |
-          (cd microcfta && cabal check)
-          (cd microcfta-generator && cabal check)
-          (cd microcfta-intern && cabal check)
-          (cd microcfta-base && cabal check)
-          (cd microcfta-rank && cabal check)
-          (cd microcfta-liquid && cabal check)
-          (cd microcfta-z3 && cabal check)
+          (cd cfta && cabal check)
+          (cd cfta-generator && cabal check)
+          (cd cfta-intern && cabal check)
+          (cd cfta-base && cabal check)
+          (cd cfta-rank && cabal check)
+          (cd cfta-liquid && cabal check)
+          (cd cfta-z3 && cabal check)
           (cd microecta && cabal check)
           (cd microecta-generator && cabal check)
 
@@ -105,7 +105,7 @@ jobs:
       # cap is not baked into the library's ghc-options.
       - name: Guard compile-time memory of the optimized core
         run: |
-          cabal v2-build lib:microcfta \
+          cabal v2-build lib:cfta \
             --enable-optimization=2 \
             --ghc-options='-Werror +RTS -K512M -M512M -RTS'
           cabal v2-build lib:microecta \
@@ -120,8 +120,8 @@ jobs:
         run: |
           cabal install doctest --ignore-project --overwrite-policy=always \
             --install-method=copy --installdir="$HOME/.local/bin"
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta
-          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microcfta-generator
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:cfta
+          cabal repl --with-repl="$HOME/.local/bin/doctest" lib:cfta-generator
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta
           cabal repl --with-repl="$HOME/.local/bin/doctest" lib:microecta-generator
 
@@ -143,13 +143,13 @@ jobs:
       - name: Validate release artifacts
         if: github.base_ref == 'main'
         run: |
-          scripts/release.sh microcfta-base --check-only
-          scripts/release.sh microcfta-intern --check-only
-          scripts/release.sh microcfta --check-only
-          scripts/release.sh microcfta-rank --check-only
-          scripts/release.sh microcfta-liquid --check-only
-          scripts/release.sh microcfta-z3 --check-only
-          scripts/release.sh microcfta-generator --check-only
+          scripts/release.sh cfta-base --check-only
+          scripts/release.sh cfta-intern --check-only
+          scripts/release.sh cfta --check-only
+          scripts/release.sh cfta-rank --check-only
+          scripts/release.sh cfta-liquid --check-only
+          scripts/release.sh cfta-z3 --check-only
+          scripts/release.sh cfta-generator --check-only
           scripts/release.sh microecta --check-only
           scripts/release.sh microecta-generator --check-only
 
