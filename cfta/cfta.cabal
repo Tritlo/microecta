@@ -78,6 +78,7 @@ library
     Data.CFTA.Equality
     Data.CFTA.Equality.Constraint
     Data.CFTA.Equality.Operations
+    Data.CFTA.Formula
     Data.CFTA.Generic
     Data.CFTA.Interned
     Data.CFTA.Interned.Operations
