@@ -31,6 +31,7 @@ module Data.ECTA.Internal.Paths (
     combineEqConstraints,
     eqConstraintsDescend,
     constraintsAreContradictory,
+    fitsArity,
     constraintsImply,
     subsumptionOrderedEclasses,
     unsafeSubsumptionOrderedEclasses,
@@ -510,6 +511,18 @@ rawMkEqConstraints = EqConstraints . map PathEClass
 -- | Check whether a constraint set is already contradictory.
 constraintsAreContradictory :: EqConstraints -> Bool
 constraintsAreContradictory = (== EqContradiction)
+
+{- | Whether an edge with this many children can meet the classes. The
+classes must not be contradictory, no path can have a negative index, and
+every path must start at an existing child. A deeper index is checked where
+the path meets the edges of the child.
+-}
+fitsArity :: Int -> EqConstraints -> Bool
+fitsArity _ EqContradiction = False
+fitsArity count constraints = all (all fits . unPathEClass) (unsafeGetEclasses constraints)
+  where
+    fits (Path []) = True
+    fits (Path indices@(first : _)) = first < count && all (>= 0) indices
 
 --------- Construction
 

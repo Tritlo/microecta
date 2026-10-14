@@ -642,10 +642,16 @@ isEmptyEdge = any (== EmptyNode) . edgeChildren
 removeEmptyEdges :: [Edge symbol] -> [Edge symbol]
 removeEmptyEdges = filter (not . isEmptyEdge)
 
--- | Build an edge with equality constraints.
+{- | Build an edge with equality constraints.
+
+The edge is empty when no term can meet its constraints: when they are
+contradictory, or when a path names a child that the edge does not have (see
+'fitsArity'). Enumeration and 'Data.ECTA.nodeRepresents' rely on this: they
+read the equality classes of an edge without checking them.
+-}
 mkEdge :: (Hashable symbol, Typeable symbol) => symbol -> [Node symbol] -> EqConstraints -> Edge symbol
 mkEdge s ns ecs
-    | constraintsAreContradictory ecs = emptyEdge s
+    | constraintsAreContradictory ecs || not (fitsArity (length ns) ecs) = emptyEdge s
     | otherwise = internEdge $ UninternedEdge s ns ecs
 
 -------------------

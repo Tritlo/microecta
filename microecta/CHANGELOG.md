@@ -41,6 +41,21 @@ reduces them, or enumerates them needs no migration.
   gave only `p(f(a), f(a))` while `nodeRepresents` also accepted `p(a, a)`.
   A class is now satisfied only when every path exists and all its subterms
   are equal.
+* Fix `intersect` and `withoutRedundantEdges` on a symbol that has edges of
+  two arities. The edge intersection zipped the two child lists, which drops
+  the extra children of the longer one. So `intersect` of `f(a | b)` and
+  `f(a | b, a | b)` accepted `f(a)` and `f(b)`, which the second operand
+  rejects, and `withoutRedundantEdges` read `f(a)` as implied by `f(a, b)` and
+  removed it. Edges with different numbers of children now have an empty
+  intersection, and `intersectEdge` returns `Nothing` for them.
+* Fix enumeration of an edge whose equality class names a child that the edge
+  does not have. `mkEdge` kept the constraint, and enumeration checks the
+  highest child index only for constraints that an ancestor passes down, not
+  for the edge's own classes. So for `p(a | b)` with `0 = 1`, `getAllTerms`
+  gave `p(a)` and `p(b)`, while `nodeRepresents` rejected both and
+  `reducePartially` gave `EmptyNode`. `mkEdge` now gives the empty edge when a
+  path starts at a missing child or has a negative index, as it does for a
+  contradiction. `Data.ECTA.Internal.Paths` exports the check as `fitsArity`.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
