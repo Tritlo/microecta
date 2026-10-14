@@ -464,6 +464,28 @@ spec = do
             numNestedMu nested `shouldBe` 2
             nested `shouldNotBe` shared
 
+        it "a Mu whose body is only a variable is empty, at any nesting depth" $ do
+            -- The language of a Mu is the least fixpoint of its body, so
+            -- Mu (\r -> r) has no terms. Nested binders are built from the
+            -- inside out, and an unused binder gives its body, so a chain of
+            -- binders that ends in a variable reduces to that case.
+            let empty =
+                    [ Mu id -- Mu (\r -> r)
+                    , Mu (Mu . const) -- Mu (\r -> Mu (\_ -> r))
+                    , Mu (const (Mu id)) -- Mu (\_ -> Mu (\s -> s))
+                    , Mu (Mu . const . Mu . const) -- Mu (\r -> Mu (\_ -> Mu (\_ -> r)))
+                    , Mu (const (Mu (Mu . const))) -- Mu (\_ -> Mu (\s -> Mu (\_ -> s)))
+                    , Mu (const (Node [Edge "f" [Mu id]])) -- f of an empty child
+                    ] ::
+                        [Node Symbol]
+            empty `shouldBe` map (const EmptyNode) empty
+            termsMatching (TemplateNode "f" []) (Mu id :: Node Symbol) `shouldBe` EmptyNode
+            -- A variable under a constructor is guarded, so these keep their binders.
+            (Mu (\r -> Node [Edge "a" [], Edge "f" [Mu (const r)]]) :: Node Symbol)
+                `shouldBe` Mu (\r -> Node [Edge "a" [], Edge "f" [r]])
+            numNestedMu (Mu (\r -> Mu (\s -> Node [Edge "f" [r, s], Edge "a" []])) :: Node Symbol)
+                `shouldBe` 2
+
         it "keeping a redundant Mu is what createMuDontCleanup is for" $
             numNestedMu (createMuDontCleanup (\_r -> Node [Edge "f" []]) :: Node Symbol) `shouldBe` 1
 

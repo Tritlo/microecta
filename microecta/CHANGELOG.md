@@ -56,6 +56,14 @@ reduces them, or enumerates them needs no migration.
   `reducePartially` gave `EmptyNode`. `mkEdge` now gives the empty edge when a
   path starts at a missing child or has a negative index, as it does for a
   contradiction. `Data.ECTA.Internal.Paths` exports the check as `fitsArity`.
+* Fix `createMu id`, a binder whose body is its own variable. It accepts no
+  term, but `createMu` kept it as a `Mu` whose unfolding is the node itself,
+  so `nodeRepresents`, `termsMatching`, `union`, and `nodeEdges` did not
+  return on it, and `getAllTerms` listed the recursion marker `Mu` as one of
+  its terms. `createMu` now gives `EmptyNode` for it, also when it appears
+  only after an unused inner binder is dropped, as in
+  `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
+  the node.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
