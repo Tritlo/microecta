@@ -139,7 +139,7 @@ pathsMatching _ (Rec _) = error $ "pathsMatching: unexpected Rec"
 mapNodes :: forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
 mapNodes f = go
   where
-    -- \| Memoized separately for each mapNodes invocation
+    -- Memoized separately for each mapNodes invocation
     go :: Node symbol -> Node symbol
     go = memo (NameTag "mapNodes") (mapNodesStep go f)
     {-# NOINLINE go #-}
@@ -203,7 +203,7 @@ nodeEdges (InternedNode node) = internedNodeEdges node
 nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
 nodeEdges _ = []
 
--- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
+-- | Memo tables for 'refold'.
 symbolRefoldCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolRefoldCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolRefoldCache #-}
@@ -212,6 +212,7 @@ genericRefoldCache :: TypeableMemoCache
 genericRefoldCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericRefoldCache #-}
 
+-- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
 refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 refold node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memoWith symbolRefoldCache go node
@@ -340,7 +341,7 @@ terms. Use it only when equality constraints are deliberately irrelevant.
 dropEdgeConstraints :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol
 dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
 
--- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
+-- | Memo tables for 'dropConstraints'.
 symbolDropConstraintsCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolDropConstraintsCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolDropConstraintsCache #-}
@@ -349,6 +350,7 @@ genericDropConstraintsCache :: TypeableMemoCache
 genericDropConstraintsCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericDropConstraintsCache #-}
 
+-- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
 dropConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 dropConstraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memoWith symbolDropConstraintsCache go node
@@ -658,7 +660,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symb
 ------ Reduction
 ------------------------------------
 
--- | Remove alternatives represented by another alternative in the same node.
+-- | Memo tables for 'withoutRedundantEdges'.
 symbolWithoutRedundantEdgesCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolWithoutRedundantEdgesCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolWithoutRedundantEdgesCache #-}
@@ -732,7 +734,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     reduceChildren :: EqConstraints -> Edge symbol -> Edge symbol
     reduceChildren inheritedEcs e = setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeEcs e) (edgeChildren e)
 
-    -- \| Reduce children with inherited constraints
+    -- Reduce children with inherited constraints.
     --
     -- This function is used to avoid infinite unfolding of recursive nodes,
     -- and we do this by passing constraints from the current edge and ancestors to descendants.
@@ -742,8 +744,8 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- > let n2 = Node [ Edge "Pair" [tau, tau] ]
     -- > let n  = Node [ mkEdge "Pair" [n1, n2]   (mkEqConstraints [[path [0, 0], path [0, 1], path [1]]])]
     --
-    -- We notice that, if we call `reducePartially n` without propagating constraints down to its children `n1` or `n2`,
-    -- the `tau` can be infinitely expanded between rounds of reduction.
+    -- If `reducePartially n` does not propagate constraints down to its children `n1` or `n2`,
+    -- the reduction can expand `tau` without end between rounds.
     --
     -- To break such cycles, we actively pass constraints down to children.
     -- In this example, we first call `reducePartially' EmptyConstraints n` at the top level, where the inherited constraint is empty,
@@ -764,7 +766,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
 
--- | Reduce an edge's children using inherited constraints from ancestors.
+-- | Memo tables for 'reduceEdgeIntersection'.
 symbolReduceEdgeIntersectionCache :: MemoCache (EqConstraints, Edge Symbol) (Edge Symbol)
 symbolReduceEdgeIntersectionCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolReduceEdgeIntersectionCache #-}
@@ -773,6 +775,9 @@ genericReduceEdgeIntersectionCache :: TypeableMemoCache
 genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReduceEdgeIntersectionCache #-}
 
+{- | Narrow an edge's children by its own equality constraints. The edge becomes
+empty when its constraints contradict the inherited constraints.
+-}
 reduceEdgeIntersection :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
 reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
@@ -786,7 +791,8 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
             (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
-{- | Apply local and inherited equality constraints to a child list.
+{- | Apply the local equality classes to a child list. Make every child empty
+when the local and inherited classes contradict each other.
 
 One pass over the classes is not always enough: the intersection for one class
 can narrow a node that a class earlier in the pass already read. The reduction
@@ -813,7 +819,7 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
       where
         eclasses = filter (not . any (meetsConstrainedMu origNs) . unPathEClass) (unsafeSubsumptionOrderedEclasses ecs)
 
-        -- \| TODO: Replace with a "requirePathTrie"
+        -- TODO: Replace with a "requirePathTrie"
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
 
         intersectList :: [Node symbol] -> Node symbol
@@ -833,7 +839,7 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
         toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
         toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
 
-        -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
+        -- dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
         dropOnes :: [a] -> [[a]]
         dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
 

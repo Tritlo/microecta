@@ -686,7 +686,7 @@ modifyNode _ _ = error "modifyNode: unexpected empty, recursive, or unresolved n
 
 ------ Mu
 
-{- | Pattern only a Mu constructor
+{- | Build or match a recursive node.
 
 When we go underneath a Mu constructor, we need to bind the corresponding Rec node to something: that's why pattern
 matching on 'Mu' yields a function. Code that wants to traverse the term as-is should match on the interned
@@ -702,7 +702,7 @@ will run in O(1) time:
 >   -- { expand view patern }
 > foo node | Just f <- matchMu node = createMu f
 >   -- { case for @InternedMu mu@ }
-> foo (InternedMu mu) | Just f <- matchMu (InternedMu m) = createMu f
+> foo (InternedMu mu) | Just f <- matchMu (InternedMu mu) = createMu f
 >   -- { definition of matchMu }
 > foo (InternedMu mu) = let f = \n' ->
 >                          if | n' == Rec (RecUnint (numNestedMu (internedMuBody mu))) ->
@@ -710,7 +710,7 @@ will run in O(1) time:
 >                            | n' == Rec RecDepth ->
 >                                internedMuShape mu
 >                            | otherwise ->
->                                substFree (internedMuId mu) n' (internedMuBody mu)
+>                                substFree (RecInt (internedMuId mu)) n' (internedMuBody mu)
 >                       in createMu f
 >   -- { definition of createMu }
 > foo (InternedMu mu) =
@@ -718,8 +718,8 @@ will run in O(1) time:
 >       bodyAtDepth = g RecDepth
 >   in internNode $ UninternedMu bodyAtDepth (g (RecUnint (numNestedMu bodyAtDepth))) g
 
-Before calling `intern`, `createMu` computes and stores both the body at
-`RecDepth` and its ordinary shape in the `UninternedMu`. The stored depth probe
+Before calling 'intern', 'createMu' computes and stores both the body at
+'RecDepth' and its ordinary shape in the 'UninternedMu'. The stored depth probe
 is reused to choose the shape placeholder, so the body function is evaluated
 twice in total. 'matchMu' reuses both forms, so rebuilding an unchanged 'Mu'
 stays @O(1)@. Equality, hashing, and identification do not invoke the function
@@ -838,14 +838,7 @@ sequenceSubstitutionPlans = SubstitutionPlan . go []
     go acc [] = let fs = reverse acc in \env -> map ($ env) fs
     go acc (SubstitutionPlan !f : fs) = go (f : acc) fs
 
-{- | Extract the shape from a term
-
-Any free variables in the original node become holes that the resulting
-plan fills from its environment.
-
-We do not use the pattern synonyms here, because 'substitutionPlan' is used
-through 'substFree' to /define/ those pattern synonyms.
--}
+-- | Memo tables for 'substitutionPlan'.
 symbolSubstitutionPlanCache :: MemoCache (Node Symbol) (SubstitutionPlan Symbol (Node Symbol))
 symbolSubstitutionPlanCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolSubstitutionPlanCache #-}
@@ -854,6 +847,14 @@ genericSubstitutionPlanCache :: TypeableMemoCache
 genericSubstitutionPlanCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericSubstitutionPlanCache #-}
 
+{- | Extract the shape from a term
+
+Any free variables in the original node become holes that the resulting
+plan fills from its environment.
+
+We do not use the pattern synonyms here, because 'substitutionPlan' is used
+through 'substFree' to /define/ those pattern synonyms.
+-}
 substitutionPlan :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> SubstitutionPlan symbol (Node symbol)
 {-# NOINLINE substitutionPlan #-}
 substitutionPlan inputNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
@@ -870,7 +871,7 @@ substitutionPlan inputNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
                 SubstitutionPlan !f -> \env -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r env)
             Rec i -> \env -> fromMaybe n (Map.lookup i env)
 
--- | Prepare substitution for an edge's children.
+-- | Memo tables for 'edgeSubstitutionPlan'.
 symbolEdgeSubstitutionPlanCache :: MemoCache (Edge Symbol) (SubstitutionPlan Symbol (Edge Symbol))
 symbolEdgeSubstitutionPlanCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolEdgeSubstitutionPlanCache #-}
@@ -879,6 +880,7 @@ genericEdgeSubstitutionPlanCache :: TypeableMemoCache
 genericEdgeSubstitutionPlanCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericEdgeSubstitutionPlanCache #-}
 
+-- | Prepare substitution for an edge's children.
 edgeSubstitutionPlan :: forall symbol. (Hashable symbol, Typeable symbol) => Edge symbol -> SubstitutionPlan symbol (Edge symbol)
 {-# NOINLINE edgeSubstitutionPlan #-}
 edgeSubstitutionPlan inputEdge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of

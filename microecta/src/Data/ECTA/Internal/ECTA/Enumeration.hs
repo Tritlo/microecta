@@ -650,10 +650,13 @@ supplies the callbacks and the means to read a partial term
 
 A check that cannot be settled because the fragment still holds an unexpanded
 'TermFragmentUVar' does not need help from this module either. Park it in the
-oracle's own state under that hole's representative
-('getUVarRepresentative'), and settle it when the oracle is called with
-@Left fragment@ for that UVar, which is guaranteed to happen before the branch
-completes. 'getAllTermsPruneWith' can bring that moment forward.
+oracle's own state under that hole's UVar. The oracle is called with
+@Left fragment@ for every UVar that enumeration expands, and that UVar is always
+a current representative. Enumeration can merge a parked UVar into another one,
+and then no call names the parked UVar. So at each call, look up the current
+representative of each parked UVar with 'getUVarRepresentative', and settle the
+checks whose representative is the UVar of the call. A UVar that holds an
+unconstrained 'Mu' gets no call. 'getAllTermsPruneWith' can bring a call forward.
 
 Truncated recursion is reported as the @Mu@ marker in the caller's alphabet;
 'getAllTermsPruneWith' takes that symbol explicitly, so an alphabet without an
