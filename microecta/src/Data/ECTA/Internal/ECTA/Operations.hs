@@ -392,10 +392,11 @@ dropRedundantEdges origEs = concatMap reduceCluster clusters
                             let (res, notRuledOut) = ruleOut e xs
                              in (res, x : notRuledOut)
 
--- | Intersect two edges when they have the same symbol.
+-- | Intersect two edges when they have the same symbol and the same number of children.
 intersectEdge :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol -> Maybe (Edge symbol)
 intersectEdge e1 e2
     | edgeSymbol e1 /= edgeSymbol e2 = Nothing
+    | length (edgeChildren e1) /= length (edgeChildren e2) = Nothing
     | otherwise = Just $ intersectEdgeSameSymbol e1 e2
 
 symbolIntersectEdgeSameSymbolCache :: MemoCache (Edge Symbol, Edge Symbol) (Edge Symbol)
@@ -413,6 +414,7 @@ intersectEdgeSameSymbol left right = case eqTypeRep (typeRep @symbol) (typeRep @
   where
     go e1 e2
         | e2 < e1 = intersectEdgeSameSymbol e2 e1
+        | length (edgeChildren e1) /= length (edgeChildren e2) = emptyEdge (edgeSymbol e1)
     go e1 e2 =
         mkEdge
             (edgeSymbol e1)
@@ -550,6 +552,7 @@ intersectOpenEdge input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     worker (dom, left, right) = onEdge dom left right
 
     onEdge :: IntersectionDom symbol -> Edge symbol -> Edge symbol -> Edge symbol
+    onEdge _ l r | length (edgeChildren l) /= length (edgeChildren r) = emptyEdge (edgeSymbol l)
     onEdge !dom l r =
         mkEdge
             (edgeSymbol l)
