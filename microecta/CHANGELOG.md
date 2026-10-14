@@ -67,6 +67,16 @@ reduces them, or enumerates them needs no migration.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
+* Fix `withoutRedundantEdges` raising "compare: unexpected RecDepth" on a
+  recursive node whose body has two edges of one symbol, such as
+  `createMu (\t -> Node [a, pair(t, t), pair(t, a)])`. It rebuilt the body of
+  a `Mu` under a placeholder variable and intersected the open alternatives,
+  and intersection cannot compare or resolve a placeholder. So the README's
+  `fixUnbounded (withoutRedundantEdges . reducePartially)` failed on such
+  inputs. Now only a node without free recursive variables is changed. A
+  closed `Mu` compares the alternatives of its unfolding, where every child is
+  closed, and keeps the body alternatives whose unfolding remains. A node that
+  refers to an enclosing binder keeps all of its alternatives.
 * Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
   returns, and the idiomatic way to write a recursive automaton.
   `getAllTerms` returned `[]`, claiming the language was empty, and

@@ -3,6 +3,7 @@
 module ECTASpec (spec) where
 
 import Control.Exception (evaluate)
+import Control.Monad (forM_)
 import qualified Data.HashSet as HashSet
 import Data.Hashable (Hashable)
 import Data.IORef (modifyIORef, newIORef, readIORef)
@@ -277,6 +278,21 @@ spec = do
                             , n1 <- getAllAtPath p1 ns
                             , let n2 = getPath p2 ns
                             ]
+
+        it "removes a subsumed alternative of a recursive node and keeps its language" $ do
+            let leaf = Node [Edge "a" []] :: Node Symbol
+                -- The last pair accepts a subset of the terms of the first pair.
+                subsumed = createMu $ \self ->
+                    Node [Edge "a" [], Edge "pair" [self, self], Edge "pair" [self, leaf]]
+                -- The two pairs share only some terms, so both stay.
+                overlapping = createMu $ \self ->
+                    Node [Edge "a" [], Edge "pair" [leaf, self], Edge "pair" [self, leaf]]
+                reduced = withoutRedundantEdges subsumed
+            reduced `shouldBe` createMu (\self -> Node [Edge "a" [], Edge "pair" [self, self]])
+            withoutRedundantEdges overlapping `shouldBe` overlapping
+            forM_ [0 .. 4] $ \rounds ->
+                Set.fromList (getAllTerms (unfoldBounded rounds reduced))
+                    `shouldBe` Set.fromList (getAllTerms (unfoldBounded rounds subsumed))
 
     describe "(un)folding" $ do
         it "unfolding a mu node once unfolds it once" $
