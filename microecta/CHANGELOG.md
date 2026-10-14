@@ -34,6 +34,13 @@ reduces them, or enumerates them needs no migration.
   the result was not a fixpoint. The reduction now repeats the pass until the
   children stop changing. The fixture for this bug, open since 2021-06-29,
   now passes.
+* Fix `nodeRepresents` accepting a term in which every path of an equality
+  class is missing. The class compared the missing subterms, and `Nothing`
+  equals `Nothing`. Enumeration and reduction require every path of a class,
+  so for `p(x, y)` with `x.0 = y.0` over `x, y` in `{a, f(a)}`, `getAllTerms`
+  gave only `p(f(a), f(a))` while `nodeRepresents` also accepted `p(a, a)`.
+  A class is now satisfied only when every path exists and all its subterms
+  are equal.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
