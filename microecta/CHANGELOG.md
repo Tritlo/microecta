@@ -88,6 +88,12 @@ reduces them, or enumerates them needs no migration.
   with constraints. Reduction only narrows, and enumeration and
   `nodeRepresents` still check every class, so the language does not change.
   A `Mu` without constraints still unfolds as before.
+* Fix `crush` folding a shared `Mu` once for each path to it. The visited set
+  held only ordinary nodes, so a recursive node reachable from two places was
+  folded twice, with its body. `nodeCount`, `edgeCount`, `maxIndegree`, and
+  `refold` were not affected, but a fold that counts or collects `Mu` nodes
+  was. Recursive and ordinary nodes draw identities from one counter, so one
+  visited set now covers both.
 * Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
   returns, and the idiomatic way to write a recursive automaton.
   `getAllTerms` returned `[]`, claiming the language was empty, and
