@@ -77,6 +77,17 @@ reduces them, or enumerates them needs no migration.
   closed `Mu` compares the alternatives of its unfolding, where every child is
   closed, and keeps the body alternatives whose unfolding remains. A node that
   refers to an enclosing binder keeps all of its alternatives.
+* Fix `reducePartially` not returning when an equality class reaches into a
+  recursive node whose body has constraints too, such as `g(y, y)` with
+  `0.0 = 1.0` over `y = b | h(x, y)` inside `x`. Reading or editing a path
+  through such a `Mu` unfolds it, the unfolding carries the constrained edges
+  of the body, and the descent into the edited child reduces those edges,
+  which unfold the `Mu` again. `termsMatching` and the README's
+  `fixUnbounded (withoutRedundantEdges . reducePartially)` inherited this.
+  Reduction now leaves a class unreduced when one of its paths meets a `Mu`
+  with constraints. Reduction only narrows, and enumeration and
+  `nodeRepresents` still check every class, so the language does not change.
+  A `Mu` without constraints still unfolds as before.
 * Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
   returns, and the idiomatic way to write a recursive automaton.
   `getAllTerms` returned `[]`, claiming the language was empty, and

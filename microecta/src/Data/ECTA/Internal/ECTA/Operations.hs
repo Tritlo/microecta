@@ -64,7 +64,7 @@ import Data.List (inits, tails)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
-import Data.Monoid (First (..), Sum (..))
+import Data.Monoid (All (..), First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -688,7 +688,13 @@ withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
 --- Reducing Equality Constraints
 ---------------
 
--- | Propagate equality constraints through one reduction pass.
+{- | Propagate equality constraints through one reduction pass.
+
+The pass does not unfold a recursive node that has constraints. A class that
+reaches into such a node stays unreduced (see 'reduceEqConstraints'). The
+language does not change, because enumeration and 'nodeRepresents' still check
+that class.
+-}
 reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 reducePartially = reducePartially' EmptyConstraints
 
@@ -737,7 +743,12 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- At this node, we will have to combine the inherited constraints `0=1` and the local constraints `0.0=0.1=1`.
     -- Now, we can see that these two constraints contain a contradiction that requires `0=0.0=0.1`, so we can drop the edge.
     --
-    -- TODO: this approach does not solve every recursive cycle.
+    -- This does not stop every recursive cycle. A cycle through a recursive
+    -- node with constraints stops because 'reduceEqConstraints' does not
+    -- unfold that node. 'go' returns a recursive node unchanged, so one pass
+    -- visits a finite part of the input, and only the fixpoint in
+    -- 'reduceEqConstraints' can repeat. No proof shows that this fixpoint, or
+    -- a repetition of passes, ends on every input.
     reduceWithInheritedEcs :: EqConstraints -> [Node symbol] -> [Node symbol]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
@@ -771,6 +782,12 @@ One pass over the classes is not always enough: the intersection for one class
 can narrow a node that a class earlier in the pass already read. The reduction
 repeats the pass until the children stop changing, so the result is a
 fixpoint.
+
+A class stays unreduced when one of its paths meets a recursive node with
+constraints, at the end of the path or before it. Unfolding such a node shows
+its constrained edges again, and their reduction unfolds the node again. A
+recursive node without constraints can unfold, because its unfolding has no
+constraints to reduce.
 -}
 reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
 reduceEqConstraints local inherited = fixUnbounded (go local inherited)
@@ -784,7 +801,7 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
         | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
         | otherwise = propagateEmptyNodes $ foldr reduceEClass withNeededChildren eclasses
       where
-        eclasses = unsafeSubsumptionOrderedEclasses ecs
+        eclasses = filter (not . any (meetsConstrainedMu origNs) . unPathEClass) (unsafeSubsumptionOrderedEclasses ecs)
 
         -- \| TODO: Replace with a "requirePathTrie"
         withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
@@ -809,6 +826,47 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
         -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
         dropOnes :: [a] -> [[a]]
         dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
+
+    -- Whether a path meets a recursive node with constraints, at the end of
+    -- the path or before it. A free recursive reference counts as such a
+    -- node, because its edges are not known there. So does a node with free
+    -- references at the end of the path, and an unconstrained recursive node
+    -- with free references is followed through its unfolding.
+    meetsConstrainedMu :: [Node symbol] -> Path -> Bool
+    meetsConstrainedMu ns (ConsPath index rest) = maybe False (nodeMeetsConstrainedMu rest) (atMay index ns)
+    meetsConstrainedMu _ EmptyPath = False
+
+    nodeMeetsConstrainedMu :: Path -> Node symbol -> Bool
+    nodeMeetsConstrainedMu _ (Rec _) = True
+    nodeMeetsConstrainedMu _ n | numNestedMu n == 0 && null (freeVars n) = False
+    nodeMeetsConstrainedMu p n@(InternedMu _)
+        | not (unconstrained n) = True
+        | null (freeVars n) = False
+        | otherwise = nodeMeetsConstrainedMu p (unfoldOuterRec n)
+    nodeMeetsConstrainedMu EmptyPath n = not (null (freeVars n))
+    nodeMeetsConstrainedMu p (Node es) = any (\e -> meetsConstrainedMu (edgeChildren e) p) es
+    nodeMeetsConstrainedMu _ _ = False
+
+-- | Memo tables for 'unconstrained'.
+symbolUnconstrainedCache :: MemoCache (Node Symbol) Bool
+symbolUnconstrainedCache = unsafePerformIO newMemoCache
+{-# NOINLINE symbolUnconstrainedCache #-}
+
+genericUnconstrainedCache :: TypeableMemoCache
+genericUnconstrainedCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericUnconstrainedCache #-}
+
+{- | Whether no edge reachable from the node carries an equality constraint.
+Such an automaton is an ordinary tree automaton, recursive or not.
+-}
+unconstrained :: forall symbol. (Typeable symbol) => Node symbol -> Bool
+unconstrained node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> memoWith symbolUnconstrainedCache go node
+    Nothing -> memoTypeableWith genericUnconstrainedCache go node
+  where
+    go = getAll . crush free
+    free (Node es) = All (all ((== EmptyConstraints) . edgeEcs) es)
+    free _ = All True
 
 ---------------
 --- Debugging

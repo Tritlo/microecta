@@ -4,10 +4,12 @@ module ECTASpec (spec) where
 
 import Control.Exception (evaluate)
 import Control.Monad (forM_)
+import Control.Monad.State.Strict (State, evalState, get, modify')
 import qualified Data.HashSet as HashSet
 import Data.Hashable (Hashable)
 import Data.IORef (modifyIORef, newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -24,6 +26,7 @@ import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (intToUVar)
+import Utility.Fixpoint (fixUnbounded)
 
 import Test.Generators.ECTA ()
 
@@ -36,6 +39,31 @@ instance Hashable ArithmeticSymbol
 
 constTerms :: [Symbol] -> Node Symbol
 constTerms ss = Node (map (\s -> Edge s []) ss)
+
+{- | Keep the terms whose leaves are at most the given depth from the root, as
+cfta's @boundDepth@ does. A leaf has depth zero. A recursive node unfolds
+until the depth is spent, so the result is finite for a cyclic input.
+-}
+boundDepth :: Int -> Node Symbol -> Node Symbol
+boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
+  where
+    go :: Int -> Node Symbol -> State (Map.Map (Int, Int) (Node Symbol)) (Node Symbol)
+    go _ EmptyNode = pure EmptyNode
+    go _ (Rec _) = error "boundDepth: unexpected Rec"
+    go remaining node
+        | remaining < 0 = pure EmptyNode
+        | otherwise = do
+            known <- get
+            case Map.lookup (remaining, nodeIdentity node) known of
+                Just bounded -> pure bounded
+                Nothing -> do
+                    bounded <- case node of
+                        Mu _ -> go remaining (unfoldOuterRec node)
+                        _ -> Node <$> traverse edge (filter (\e -> remaining > 0 || null (edgeChildren e)) (nodeEdges node))
+                    modify' (Map.insert (remaining, nodeIdentity node) bounded)
+                    pure bounded
+      where
+        edge e = setChildren e <$> traverse (go (remaining - 1)) (edgeChildren e)
 
 ex1 :: Node Symbol
 ex1 = Node [mkEdge "f" [constTerms ["1", "2"], Node [Edge "g" [constTerms ["1", "2"]]]] (mkEqConstraints [[path [0], path [1, 0]]])]
@@ -278,6 +306,25 @@ spec = do
                             , n1 <- getAllAtPath p1 ns
                             , let n2 = getPath p2 ns
                             ]
+
+        it "reduction ends and keeps the terms when constraints reach into a recursive node" $ do
+            let equalChildren = mkEqConstraints [[path [0, 0], path [1, 0]]]
+                -- x = g(y, y) with 0.0 = 1.0, where y = b | h(x, y)
+                outer :: Node Symbol
+                outer = Mu $ \x ->
+                    let inner = Mu $ \y -> Node [Edge "b" [], Edge "h" [x, y]]
+                     in Node [mkEdge "g" [inner, inner] equalChildren]
+                -- The same, with a constrained alternative inside y too.
+                nested :: Node Symbol
+                nested = Mu $ \x ->
+                    let inner = Mu $ \y -> Node [Edge "b" [], mkEdge "h" [x, y] equalChildren, Edge "h" [x, y]]
+                     in Node [mkEdge "g" [inner, inner] equalChildren]
+                reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
+                termsTo depth n = Set.fromList (getAllTerms (boundDepth depth n))
+            forM_ [outer, nested, unfoldOuterRec outer, unfoldOuterRec nested] $ \n ->
+                forM_ [0 .. 4] $ \depth -> do
+                    termsTo depth (fixUnbounded reducePartially n) `shouldBe` termsTo depth n
+                    termsTo depth (reduceFully n) `shouldBe` termsTo depth n
 
         it "removes a subsumed alternative of a recursive node and keeps its language" $ do
             let leaf = Node [Edge "a" []] :: Node Symbol
