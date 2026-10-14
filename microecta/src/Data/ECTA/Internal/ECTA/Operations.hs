@@ -657,6 +657,13 @@ genericWithoutRedundantEdgesCache :: TypeableMemoCache
 genericWithoutRedundantEdgesCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericWithoutRedundantEdgesCache #-}
 
+{- | Remove alternatives implied by another alternative at each node.
+
+Only a node without free recursive variables is changed, because the
+comparison intersects alternatives. A recursive node compares the alternatives
+of its unfolding, and keeps the alternatives of its body that remain. A node
+that refers to an enclosing recursive node keeps all of its alternatives.
+-}
 withoutRedundantEdges :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memoWith symbolWithoutRedundantEdgesCache go node
@@ -664,8 +671,18 @@ withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
   where
     go = mapNodesStep withoutRedundantEdges dropReds
 
-    dropReds (Node es) = Node (dropRedundantEdges es)
-    dropReds x = x
+    dropReds n@(Node es) | Set.null (freeVars n) = Node (dropRedundantEdges es)
+    dropReds n@(InternedMu mu)
+        | Set.null (freeVars n)
+        , InternedNode body <- internedMuBody mu =
+            let self = RecInt (internedMuId mu)
+                kept = Set.fromList (dropRedundantEdges (nodeEdges n))
+                -- The alternative of the unfolding that a body alternative becomes.
+                unfolded e = setChildren e (map (substFree self n) (edgeChildren e))
+                es = internedNodeEdges body
+                es' = filter ((`Set.member` kept) . unfolded) es
+             in if length es' == length es then n else Mu $ \r -> substFree self r (Node es')
+    dropReds n = n
 
 ---------------
 --- Reducing Equality Constraints
