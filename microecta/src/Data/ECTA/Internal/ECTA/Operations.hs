@@ -303,6 +303,9 @@ edgeRepresents e = \t@(Term s ts) ->
 {- | Whether a term agrees with itself everywhere an edge's constraints say it
 must.
 
+Every path of a class must exist in the term, as in enumeration. A class
+whose paths are all missing from the term is not satisfied.
+
 'unsafeGetEclasses' is safe here: 'mkEdge' collapses a contradictory
 constraint set to 'emptyEdge', so no interned edge carries 'EqContradiction'.
 -}
@@ -310,7 +313,7 @@ edgeEcsSatisfied :: (Eq symbol) => Edge symbol -> Term symbol -> Bool
 edgeEcsSatisfied e t = all eclassSatisfied (unsafeGetEclasses $ edgeEcs e)
   where
     eclassSatisfied :: PathEClass -> Bool
-    eclassSatisfied pec = allTheSame $ map (`getPath` t) $ unPathEClass pec
+    eclassSatisfied pec = maybe False allTheSame $ traverse (`getPath` t) $ unPathEClass pec
 
     allTheSame :: (Eq a) => [a] -> Bool
     allTheSame [] = True

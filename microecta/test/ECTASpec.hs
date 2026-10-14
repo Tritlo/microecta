@@ -114,6 +114,13 @@ spec = do
             nodeRepresents n (Term "f" [Term "a" []]) `shouldBe` False
             nodeRepresents n (Term "f" [Term "a" [], Term "b" [], Term "c" []]) `shouldBe` False
 
+        it "nodeRepresents accepts only terms that have every path of a class, as enumeration does" $ do
+            let child = Node [Edge "a" [], Edge "f" [constTerms ["a"]]]
+                pairs = Node [mkEdge "p" [child, child] (mkEqConstraints [[path [0, 0], path [1, 0]]])]
+                candidates = getAllTerms (dropConstraints pairs)
+            length candidates `shouldBe` 4
+            filter (nodeRepresents pairs) candidates `shouldBe` getAllTerms pairs
+
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do
             let values = Node [Edge "a" [], Edge "b" []] :: Node Symbol
