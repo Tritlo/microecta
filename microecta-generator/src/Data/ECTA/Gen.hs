@@ -421,6 +421,15 @@ recur build
     -- occurrence of this size, so that build has the shape of the probe.
     occurrenceMinimum = either (const Nothing) (minimumMemberSize . recursiveIndex) probed
 
+    -- Whether the body reaches the occurrence of an enclosing definition.
+    -- Built around an unmarked occurrence of this one, the body is marked
+    -- only through such an occurrence. A bound or an atom around the
+    -- finished language would then count the enclosing definition, so the
+    -- mark stays.
+    reachesEnclosing =
+        either (const False) recursiveOccurrence $
+            bodyOf (Cyclic $ Right $ Recursive EmptyNode (closedProbe occurrenceMinimum) emptySampleIndex False False Nothing)
+
     result = do
         body <- probed
         case (isUnguarded $ recursiveIndex body, minimumMemberSize $ recursiveIndex body) of
@@ -433,7 +442,7 @@ recur build
                         tied
                         tiedSampling
                         (recursiveWeighted body)
-                        False
+                        reachesEnclosing
                         Nothing
 
 {- | Read an ECTA as a generator of the terms it accepts.
@@ -561,13 +570,21 @@ recurGrouped build
             (Map.lookup key minimumSizes)
             (Map.findWithDefault (choiceIndex []) key closedIndexes)
             (rawIndexAt key)
-    closedIndexes =
-        either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
-            bodyGroups $
-                Map.fromList
-                    [ (key, placeholder EmptyNode (closedProbe $ Map.lookup key minimumSizes) emptySampleIndex noMass)
-                    | key <- keys
-                    ]
+    closedIndexes = either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) closedBodies
+    -- The closed occurrences are unmarked, so a key is marked here only
+    -- through the occurrence of an enclosing definition, as in 'recur'.
+    closedBodies =
+        bodyGroups $
+            Map.fromList
+                [ ( key
+                  , KeyedRecursive
+                        (Recursive EmptyNode (closedProbe $ Map.lookup key minimumSizes) emptySampleIndex False False Nothing)
+                        noMass
+                        False
+                  )
+                | key <- keys
+                ]
+    reachesEnclosing = either (const False) (any (recursiveOccurrence . keyedRecursiveLanguage)) closedBodies
 
     -- A key is live when its body can close using finite branches or keys
     -- already known to be live. Repeating this over the settled finite key set
@@ -678,7 +695,7 @@ recurGrouped build
                             (indexAt key)
                             (samplingAt key)
                             familyWeighted
-                            False
+                            reachesEnclosing
                             Nothing
                         )
                         (massAt key)

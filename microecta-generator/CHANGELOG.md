@@ -88,8 +88,11 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   alternative, finite or recursive. A finished recursion can sit anywhere in
   the body of another one, before its occurrence too: a tied language takes
   its occurrence flags from a build around a closed occurrence, not from its
-  own knot. `upToSize` and `atomic` cannot be applied
-  to the occurrence itself, or to anything built from it, and say so with
+  own knot. A nested recursion whose finite members all go through the
+  enclosing occurrence is kept: the probe assumes a smallest member for the
+  occurrence until the body agrees. `upToSize` and `atomic` cannot be applied
+  to the occurrence itself, or to anything built from it, including a
+  finished recursion that reaches it, and say so with
   `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and
   equality constraints meet in one cycle. The key set is solved by a monotone
