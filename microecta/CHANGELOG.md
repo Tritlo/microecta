@@ -64,6 +64,12 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Decide `nodeRepresents` once for each node at each position of the term.
+  It tried every edge of a node with the term's root symbol and then every
+  child, so a rejected term below nodes with two edges of one symbol took time
+  exponential in its depth. Below such a subterm, a table now keeps the
+  result of each node at each position. The edges and children are tried in
+  the same order, and the answer is the same.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
