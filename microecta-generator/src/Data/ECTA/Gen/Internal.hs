@@ -33,6 +33,7 @@ module Data.ECTA.Gen.Internal (
     mapStatic,
     boundedStatic,
     recursiveFromStatic,
+    queryRecursive,
     staticSampling,
     bucketFromOutcomes,
     mergeBucketGroup,
@@ -179,6 +180,14 @@ data ECTAGenError
       definition is still computing.
       -}
       BoundedRecursiveOccurrence
+    | {- | A query read the argument of a @recur@ or @recurGrouped@ body, or a
+      language built from it, while the definition was still being built.
+      -}
+      QueriedRecursiveOccurrence
+    | {- | The final body of a @recurGrouped@ has other keys or other minimum
+      sizes than the passes that found them.
+      -}
+      InconsistentRecursiveFamily
     deriving (Eq, Show)
 
 {- | What one failure means, and what to do about it.
@@ -316,6 +325,20 @@ explain BoundedRecursiveOccurrence =
         , "Fix: bound or close the language outside the knot, as in"
         , "upToSize n (recur ...), and keep only finite atomic choices inside the"
         , "body."
+        ]
+explain QueriedRecursiveOccurrence =
+    guidance
+        [ "A query read a recursive occurrence while its language was still being built."
+        , "Its temporary support, counts, and sampling are incomplete."
+        , "Fix: compose the occurrence inside the body and query the completed"
+        , "result of recur or recurGrouped outside the body."
+        ]
+explain InconsistentRecursiveFamily =
+    guidance
+        [ "A recursive family changed its keys or minimum sizes after discovery."
+        , "The accumulated discovery table does not describe the final body."
+        , "Fix: construct each key with the same generator operations in every"
+        , "body evaluation. Query the completed family outside recurGrouped."
         ]
 
 -- | One guidance message, one line per element.
@@ -455,9 +478,11 @@ data Recursive a = Recursive
     {- ^ Whether this language is, or is built from, the argument of a
     @recur@ or @recurGrouped@ body that is still being defined. Bounding such
     a language is ill-founded — its size classes are what the definition is
-    computing — so 'boundedStatic' must not be reached through it. The flag is
-    set on the placeholders and cleared on the finished result, and is
-    therefore not the Boolean knot @usedOccurrence@ is.
+    computing — so 'boundedStatic' must not be reached through it. A query of
+    such a language reports @QueriedRecursiveOccurrence@, through
+    'queryRecursive'. The flag is set on the placeholders and cleared on the
+    finished result, and is therefore not the Boolean knot @usedOccurrence@
+    is.
     -}
     , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
@@ -466,6 +491,18 @@ data Recursive a = Recursive
     support.
     -}
     }
+
+{- | Reject a query of a language that reaches the argument of a recursive
+definition that is not finished.
+
+The body of a definition is built several times, against different
+placeholders. A query of a placeholder can give another answer in each build,
+and then the builds describe different languages.
+-}
+queryRecursive :: Recursive a -> Either ECTAGenError (Recursive a)
+queryRecursive recursive
+    | recursiveOccurrence recursive = Left QueriedRecursiveOccurrence
+    | otherwise = Right recursive
 
 -- | View a finite language as one size-stratified recursive component.
 recursiveFromStatic :: Static a -> Recursive a

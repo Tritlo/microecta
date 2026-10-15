@@ -110,6 +110,27 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   choice that is not atomic become member counts there. An acyclic
   automaton read with `fromECTA` can therefore close its whole finite language
   without enumerating it or taking an inner size prefix.
+* Breaking: `ECTAGenError` has two new constructors,
+  `QueriedRecursiveOccurrence` and `InconsistentRecursiveFamily`. A `recur`
+  or `recurGrouped` body is built several times, against different
+  placeholders, so a body that queried its argument could choose another body
+  in each build. For example,
+  `recur $ \self -> case support self of Right EmptyNode -> oneof [elements [0], (+) <$> elements [1] <*> self]; _ -> elements [99]`
+  gave the values 0, 1, and 2 under `upToSize 3`, but its support came from
+  `elements [99]`. Now `support`, `countAtSize`, `minimumSize`, `unrank`,
+  `smallest`, `pmfAtSize`, `countsAtSize`, and `massesAtSize` of the argument,
+  or of a language built from it, report `QueriedRecursiveOccurrence`, and
+  `sizeOfRank` and `smallerMembers` give no answer. The example gives the one
+  value 99. A `recurGrouped` body whose final build has other keys or other
+  minimum sizes than the passes that found them reports
+  `InconsistentRecursiveFamily`. Before, such a family kept a minimum size
+  that it had no member of. A recursive body that `recur` or `recurGrouped`
+  hands back keeps the mark of an enclosing occurrence only, so
+  `upToSize 4 (recur (\outer -> atKey False (recurGrouped ...)))`, where only
+  the key `True` reaches `outer`, gives its members and not
+  `BoundedRecursiveOccurrence`. A body that chooses its shape from a count or
+  a rank of its argument can still fail with an internal error: the build
+  that finds the enclosing occurrences answers that query.
 
 ### Inspection
 

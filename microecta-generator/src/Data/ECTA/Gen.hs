@@ -76,6 +76,7 @@ module Data.ECTA.Gen (
 ) where
 
 import qualified Data.Array as Array
+import Data.Foldable (traverse_)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 
@@ -341,6 +342,14 @@ Both shapes are rejected with 'BoundedRecursiveOccurrence'. Bound the finished
 language from outside instead, as in @upToSize n (recur ...)@, and keep only
 finite atomic choices inside the body.
 
+Compose the argument with generator operations, and query the finished
+result outside the body. The body is built several times, against different
+placeholders, so a query of the argument would give another answer in each
+build. 'support', 'countAtSize', 'minimumSize', 'unrank', 'smallest',
+'pmfAtSize', 'countsAtSize', and 'massesAtSize' of the argument, or of
+anything built from it, report 'QueriedRecursiveOccurrence'. 'sizeOfRank'
+and 'smallerMembers' give no answer for it.
+
 Two rules apply inside the knot. The recursion must be guarded — every
 occurrence of the argument under at least one '<*>' — or the language has no
 smallest member; an unguarded definition is rejected with
@@ -367,10 +376,14 @@ recur build
     -- looking inside, masking what actually went wrong.
     | Left err <- probed = Transparent $ Left err
     -- A body that never reaches its own occurrence is an ordinary language,
-    -- and handing it back keeps everything a finite generator can do.
+    -- and handing it back keeps everything a finite generator can do. A
+    -- recursive body keeps the mark only when it reaches the occurrence of an
+    -- enclosing definition, so a query of it is not rejected for this one.
     | Right viewed <- probed
     , not $ usesOccurrence $ recursiveIndex viewed =
-        probeBody
+        case probeBody of
+            Cyclic (Right body) -> Cyclic $ Right body{recursiveOccurrence = reachesEnclosing}
+            _ -> probeBody
     | otherwise = Cyclic result
   where
     -- The body is built against placeholders to tie counts and sampling, to
@@ -424,7 +437,9 @@ recur build
     -- Built around an unmarked occurrence of this one, the body is marked
     -- only through such an occurrence. A bound or an atom around the
     -- finished language would then count the enclosing definition, so the
-    -- mark stays.
+    -- mark stays. In this build a query of the occurrence is not rejected. A
+    -- body that chooses its shape from such a query can choose another shape
+    -- here, and a count or a rank of the closed occurrence fails.
     reachesEnclosing =
         either (const False) recursiveOccurrence $
             bodyOf (Cyclic $ Right $ Recursive EmptyNode (closedProbe occurrenceMinimum) emptySampleIndex False False Nothing)
@@ -509,7 +524,11 @@ recursive node is not sound.
 The rules of 'recur' apply here too: the recursion must be guarded by an
 'apply', every live key must eventually reach a finite base member, and
 alternatives around a recursive occurrence must carry equal weights, which is
-what 'oneofGrouped' gives without asking for them.
+what 'oneofGrouped' gives without asking for them. A query of the family
+inside the body reports 'QueriedRecursiveOccurrence'. The final body must
+have the keys and the minimum sizes that the passes found. A body that
+changes them, for example because it reads the family, reports
+'InconsistentRecursiveFamily'.
 -}
 recurGrouped ::
     (Ord key) =>
@@ -521,7 +540,9 @@ recurGrouped build
     | Left err <- probed = Grouped $ Left err
     | Right groups <- probed
     , not $ any (usesOccurrence . recursiveIndex . keyedRecursiveLanguage) groups =
-        probeBody
+        case probeBody of
+            CyclicGrouped (Right bodies) -> CyclicGrouped $ Right $ fmap closeGroup bodies
+            _ -> probeBody
     | otherwise = CyclicGrouped result
   where
     bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
@@ -561,7 +582,8 @@ recurGrouped build
             (rawIndexAt key)
     closedIndexes = either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) closedBodies
     -- The closed occurrences are unmarked, so a key is marked here only
-    -- through the occurrence of an enclosing definition, as in 'recur'.
+    -- through the occurrence of an enclosing definition, as in 'recur'. As
+    -- there, a query of a closed occurrence is not rejected in this build.
     closedBodies =
         bodyGroups $
             Map.fromList
@@ -574,6 +596,10 @@ recurGrouped build
                 | key <- keys
                 ]
     reachesEnclosing = either (const False) (any (recursiveOccurrence . keyedRecursiveLanguage)) closedBodies
+    -- A family that is handed back keeps only the mark of an enclosing
+    -- occurrence, as in 'recur'.
+    closeGroup group =
+        group{keyedRecursiveLanguage = (keyedRecursiveLanguage group){recursiveOccurrence = reachesEnclosing}}
 
     -- The keys and the least minimum of each, from the empty family upward.
     -- Each pass builds the body around a probe of each key found so far, with
@@ -673,6 +699,9 @@ recurGrouped build
         probedBodies <- probed
         if any (isUnguarded . recursiveIndex . keyedRecursiveLanguage) probedBodies
             then Left UnguardedRecursion
+            else Right ()
+        if fmap minimumOfGroup probedBodies /= keyMinimums
+            then Left InconsistentRecursiveFamily
             else Right ()
         if Map.null minimumSizes
             then Left EmptyGenerator
@@ -857,18 +886,13 @@ can therefore give two keys equal counts and unequal probability masses.
 countsAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Integer)
 countsAtSize (CyclicGrouped result) size = do
     groups <- result
+    languages <- traverse (queryRecursive . keyedRecursiveLanguage) groups
     if size < 1
         then pure Map.empty
         else
             pure $
                 Map.filter (> 0) $
-                    fmap
-                        ( \group ->
-                            Size.countAtSize
-                                (recursiveIndex $ keyedRecursiveLanguage group)
-                                size
-                        )
-                        groups
+                    fmap (\language -> Size.countAtSize (recursiveIndex language) size) languages
 countsAtSize (Grouped result) size = do
     buckets <- result
     if size < 1
@@ -897,6 +921,7 @@ on size. A size with no members returns an empty map.
 massesAtSize :: Grouped gen key a -> Int -> Either ECTAGenError (Map.Map key Rational)
 massesAtSize (CyclicGrouped result) size = do
     groups <- result
+    traverse_ (queryRecursive . keyedRecursiveLanguage) groups
     if size < 1
         then pure Map.empty
         else do
@@ -1345,7 +1370,7 @@ every size: a size bound restricts the rank space, not the automaton.
 -}
 support :: ECTAGen gen a -> Either ECTAGenError (Node Symbol)
 support (Transparent result) = staticSupport <$> result
-support (Cyclic result) = recursiveSupport <$> result
+support (Cyclic result) = recursiveSupport <$> (result >>= queryRecursive)
 support (Opaque _) = Left CannotInspectOpaqueGenerator
 
 {- | Return the exact number of ranks in a transparent generator.
@@ -1368,7 +1393,7 @@ finite even when the language is not.
 -}
 countAtSize :: ECTAGen gen a -> Int -> Either ECTAGenError Integer
 countAtSize generator size =
-    flip Size.countAtSize size . recursiveIndex <$> recursiveView generator
+    flip Size.countAtSize size . recursiveIndex <$> (recursiveView generator >>= queryRecursive)
 
 {- | The smallest structural size in an inspectable language.
 
@@ -1376,7 +1401,7 @@ Size is the number of source choices in a member. 'Nothing' means the language
 is empty. Opaque generators cannot be inspected.
 -}
 minimumSize :: ECTAGen gen a -> Either ECTAGenError (Maybe Int)
-minimumSize generator = case recursiveView generator of
+minimumSize generator = case recursiveView generator >>= queryRecursive of
     Left EmptyGenerator -> Right Nothing
     Left err -> Left err
     Right recursive -> Right $ minimumMemberSize $ recursiveIndex recursive
@@ -1394,7 +1419,7 @@ unrank (Transparent result) index = do
     checkIndex (outcomeCardinality outcomes) index
     pure $ outcomeValueAt outcomes index
 unrank (Cyclic result) index = do
-    recursive <- result
+    recursive <- result >>= queryRecursive
     let recursiveIndex' = recursiveIndex recursive
     case (minimumMemberSize recursiveIndex', sizeClassOf recursiveIndex' index) of
         (Nothing, _) -> Left $ SelectionOutOfRange index 0
@@ -1466,7 +1491,8 @@ smallerMembers (Transparent (Right static)) rank
 -- 'sizeClassSelect' reports is the plan's own, and the two differ whenever a
 -- size class came from a finite bucket.
 smallerMembers (Cyclic (Right recursive)) rank
-    | Just (size, _) <- sizeClassOf index rank =
+    | Right _ <- queryRecursive recursive
+    , Just (size, _) <- sizeClassOf index rank =
         [ (offset + position, snd $ sizeClassSelect index smallerSize position)
         | (smallerSize, offset) <- zip [1 .. size - 1] (scanl (+) 0 (sizeClassCounts index))
         , position <- [0 .. Size.countAtSize index smallerSize - 1]
@@ -1480,8 +1506,9 @@ smallerMembers _ _ = []
 'Nothing' for opaque generators and out-of-range ranks.
 -}
 sizeOfRank :: ECTAGen gen a -> Integer -> Maybe Int
-sizeOfRank (Cyclic (Right recursive)) rank =
-    fst <$> sizeClassOf (recursiveIndex recursive) rank
+sizeOfRank (Cyclic (Right recursive)) rank
+    | Right ready <- queryRecursive recursive =
+        fst <$> sizeClassOf (recursiveIndex ready) rank
 sizeOfRank (Transparent (Right static)) rank
     | rank >= 0
     , rank < outcomeCardinality outcomes =
@@ -1549,7 +1576,7 @@ pmfAtSize (Transparent result) size = do
                         Map.toAscList $
                             Map.fromListWith (+) [(value, mass) | (mass, value) <- normalized]
 pmfAtSize (Cyclic result) size = do
-    recursive <- result
+    recursive <- result >>= queryRecursive
     if Size.countAtSize (recursiveIndex recursive) size <= 0
         then Right []
         else Right $ exactPmfAtSize (recursiveSampling recursive) size

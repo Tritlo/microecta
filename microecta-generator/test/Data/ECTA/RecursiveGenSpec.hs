@@ -6,6 +6,7 @@ module Data.ECTA.RecursiveGenSpec (spec) where
 import Control.Exception (evaluate)
 import Data.List (sort)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Ratio ((%))
 import qualified Data.Set as Set
 import System.Timeout (timeout)
@@ -17,7 +18,7 @@ import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (
     Edge (Edge),
-    Node (Node),
+    Node (EmptyNode, Node),
     createMu,
     getAllTerms,
     mkEdge,
@@ -397,6 +398,75 @@ spec = do
             ECTAGen.cardinality notRecursive `shouldBe` Right 3
             fmap numNestedMu (ECTAGen.support notRecursive) `shouldBe` Right 0
             fmap length (ECTAGen.pmf notRecursive) `shouldBe` Right 3
+
+        it "rejects queries of an unfinished recursive occurrence" $ do
+            let blocked :: Either ECTAGenError b -> Bool
+                blocked = either (== QueriedRecursiveOccurrence) (const False)
+                step :: ECTAGen Int -> ECTAGen Int
+                step self = (+) <$> ECTAGen.elements [1] <*> self
+                -- A member decodes to 0 only when the check held in the
+                -- build that decodes it.
+                observeSelf checks =
+                    ECTAGen.recur $ \self -> ECTAGen.oneof [pure (if checks self then 0 else 100), step self]
+                observations =
+                    [ blocked . ECTAGen.support
+                    , \self -> blocked $ ECTAGen.countAtSize self 1
+                    , blocked . ECTAGen.minimumSize
+                    , \self -> blocked $ ECTAGen.unrank self 0
+                    , blocked . ECTAGen.smallest
+                    , \self -> blocked $ ECTAGen.pmfAtSize self 1
+                    , \self -> blocked $ ECTAGen.countsAtSize (ECTAGen.keyed () self) 1
+                    , \self -> blocked $ ECTAGen.massesAtSize (ECTAGen.keyed () self) 1
+                    , \self -> isNothing (ECTAGen.sizeOfRank self 0) && null (ECTAGen.smallerMembers self 0)
+                    , \self ->
+                        blocked $ ECTAGen.support $ ECTAGen.recur $ \inner ->
+                            ECTAGen.oneof [pure 0, step inner, (+) <$> ECTAGen.elements [2] <*> self]
+                    , \self -> ECTAGen.cardinality (ECTAGen.upToSize 1 self) == Left BoundedRecursiveOccurrence
+                    , \self -> ECTAGen.cardinality (ECTAGen.atomic self) == Left BoundedRecursiveOccurrence
+                    ]
+                changing :: ECTAGen Int
+                changing = ECTAGen.recur $ \self -> case ECTAGen.support self of
+                    Right EmptyNode -> ECTAGen.oneof [pure 0, step self]
+                    _ -> ECTAGen.elements [99]
+                -- Only the key True reaches the outer occurrence.
+                selected :: ECTAGen Int
+                selected = ECTAGen.recur $ \outer -> ECTAGen.atKey False $ ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False (pure 0)
+                        , ECTAGen.keyed True (step outer)
+                        , ECTAGen.keyed True (step $ ECTAGen.atKey True self)
+                        ]
+            map (\checks -> traverse (ECTAGen.unrank $ ECTAGen.upToSize 3 $ observeSelf checks) [0 .. 2]) observations
+                `shouldBe` replicate (length observations) (Right [0, 1, 2])
+            (ECTAGen.cardinality changing, ECTAGen.unrank changing 0) `shouldBe` (Right 1, Right 99)
+            ECTAGen.countAtSize selected 1 `shouldBe` Right 1
+            ECTAGen.minimumSize selected `shouldBe` Right (Just 1)
+            traverse (ECTAGen.unrank $ ECTAGen.upToSize 4 selected) [0] `shouldBe` Right [0]
+
+        it "rejects a family whose final body changes its discovered minimum sizes" $ do
+            -- The key search builds the body once for each pass. A body that
+            -- reads its family can change its base between the passes.
+            let counted :: ECTAGen.Grouped Bool Int
+                counted = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False $ case ECTAGen.countsAtSize self 1 of
+                            Right counts | null counts -> pure 0
+                            _ -> (+) <$> ECTAGen.elements [1] <*> ECTAGen.elements [0]
+                        , ECTAGen.keyed False $ (+) <$> ECTAGen.elements [1] <*> ECTAGen.atKey False self
+                        ]
+                measured :: ECTAGen.Grouped Bool Int
+                measured = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False $
+                            if ECTAGen.minimumSize (ECTAGen.atKey False self) == Right Nothing
+                                then pure 0
+                                else (+) <$> ECTAGen.elements [1] <*> ECTAGen.elements [0]
+                        , ECTAGen.keyed False $ (+) <$> ECTAGen.elements [1] <*> ECTAGen.atKey False self
+                        ]
+            ECTAGen.minimumSize (ECTAGen.atKey False counted) `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.countsAtSize counted 1 `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.minimumSize (ECTAGen.atKey False measured) `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.countAtSize (ECTAGen.atKey False measured) 1 `shouldBe` Left InconsistentRecursiveFamily
 
         it "shrinks a failing member to the smallest of its size" $ do
             let containsOne (Leaf value) = value == 1

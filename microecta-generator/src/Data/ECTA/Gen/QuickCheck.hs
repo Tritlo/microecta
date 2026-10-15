@@ -266,7 +266,9 @@ otherwise it is an empty generator.
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
 being built. 'upToSize' and 'atomic' cannot be applied to the argument, or to
-anything built from it; bound the finished language from outside instead.
+anything built from it; bound the finished language from outside instead. A
+query of the argument, such as 'support' or 'unrank', reports
+'QueriedRecursiveOccurrence'; query the finished language instead.
 
 The guard check is per definition, so inside a nested 'recur' an occurrence of
 the /outer/ language must also sit under an application within the inner body.
@@ -288,7 +290,9 @@ alternatives around a recursive occurrence must carry equal weights.
 The generated language may be infinite, but it must use only finitely many
 distinct keys. 'recurGrouped' discovers those keys before tying the recursive
 languages, so a definition that creates a fresh key on every pass cannot
-finish construction.
+finish construction. A query of the family inside the body reports
+'QueriedRecursiveOccurrence', and a body whose keys or minimum sizes change
+after discovery reports 'InconsistentRecursiveFamily'.
 -}
 recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
 recurGrouped = ECTA.recurGrouped
