@@ -346,21 +346,29 @@ one 'productIndex' — so that counting a size only consults smaller sizes.
 Callers check that with 'probeIndex' first, because an unguarded knot
 diverges rather than failing.
 
-The occurrence flags of the tied index come from a build around
-'closedProbe', not from the knot. A flag of the knot would be defined by
-itself, so a later read of it, such as the probe of an enclosing or a later
+The minimum and the occurrence flags of the tied index come from one build
+around 'closedProbe', not from the knot. A flag of the knot would be defined
+by itself, so a later read of it, such as the probe of an enclosing or a later
 definition that uses this one, would not return.
--}
-fixIndex :: (SizeIndex a -> SizeIndex a) -> SizeIndex a
-fixIndex build = index
-  where
-    index = withKnotMetadata (minimumMemberSize $ build probeIndex) (build closedProbe) (build index)
 
-{- | An occurrence of a definition that is already tied. No probe is reached
-through it: the definition answered its own probe when it was tied.
+The closed occurrence has the given smallest member size: the minimum that
+the probe of the recursion converged to. A nested definition whose finite
+members all go through the occurrence is then not empty in the closed build,
+so the flags of the index keep the occurrences that the nested definition
+reaches.
 -}
-closedProbe :: SizeIndex a
-closedProbe = probeIndex{unguardedOccurrence = False, usedOccurrence = False}
+fixIndex :: Maybe Int -> (SizeIndex a -> SizeIndex a) -> SizeIndex a
+fixIndex minimumSize' build = index
+  where
+    closed = build $ closedProbe minimumSize'
+    index = withKnotMetadata (minimumMemberSize closed) closed (build index)
+
+{- | An occurrence of a definition that is already tied, with the smallest
+size of its members. No probe is reached through it: the definition answered
+its own probe when it was tied.
+-}
+closedProbe :: Maybe Int -> SizeIndex a
+closedProbe minimumSize' = (probeIndexWithMinimum minimumSize'){unguardedOccurrence = False, usedOccurrence = False}
 
 {- | Give a tied index a minimum and the occurrence flags of a build that does
 not read the knot.

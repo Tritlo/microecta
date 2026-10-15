@@ -71,7 +71,7 @@ automatonIndex root
     nodeIndex node =
         withKnotMetadata
             (Map.lookup (nodeIdentity node) minima)
-            (closedProbe :: SizeIndex ())
+            (closedProbe Nothing :: SizeIndex ())
             (choiceIndex $ map edgeIndex $ sortOn edgeKey $ nodeEdges node)
 
     -- A node keeps its edges in interning order, which depends on what the

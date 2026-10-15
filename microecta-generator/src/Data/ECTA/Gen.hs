@@ -384,7 +384,7 @@ recur build
     placeholder node index sampling =
         Recursive node index sampling False True Nothing
 
-    tied = fixIndex $ \self ->
+    tied = fixIndex occurrenceMinimum $ \self ->
         either (const emptyIndex) recursiveIndex $
             bodyOf (Cyclic $ Right $ placeholder EmptyNode self emptySampleIndex)
     emptyIndex = choiceIndex []
@@ -400,13 +400,26 @@ recur build
     -- Built against a probe rather than the knot: reading whether the
     -- occurrence is used, and whether it is guarded, must not count
     -- anything, or an unguarded definition would hang here instead of being
-    -- reported.
-    probeBody =
-        build $
-            Cyclic $
-                Right $
-                    placeholder EmptyNode probeIndex emptySampleIndex
+    -- reported. The probe assumes a smallest member for the occurrence, first
+    -- none, then the one the body gives, until the two agree. A nested
+    -- recursion whose finite members all go through this occurrence is then
+    -- not empty in the probe.
+    probeBody = converge Nothing
+      where
+        converge assumed =
+            let body = build $ Cyclic $ Right $ placeholder EmptyNode (probeIndexWithMinimum assumed) emptySampleIndex
+                reached = either (const Nothing) (minimumMemberSize . recursiveIndex) $ recursiveView body
+                next = case (assumed, reached) of
+                    (Just smallest', Just size) -> Just $ min smallest' size
+                    (Nothing, size) -> size
+                    (smallest', Nothing) -> smallest'
+             in if next == assumed then body else converge next
     probed = recursiveView probeBody
+
+    -- The smallest member of the occurrence: the minimum that the probe
+    -- converged to. The knots read their flags from a build around a closed
+    -- occurrence of this size, so that build has the shape of the probe.
+    occurrenceMinimum = either (const Nothing) (minimumMemberSize . recursiveIndex) probed
 
     result = do
         body <- probed
@@ -539,7 +552,10 @@ recurGrouped build
             bodyGroups indexPlaceholders
     rawIndexAt key = Map.findWithDefault (choiceIndex []) key rawIndexes
     -- The occurrence flags of each key come from a build around closed
-    -- placeholders, not from the knot, as in 'fixIndex'.
+    -- placeholders, not from the knot, as in 'fixIndex'. Each occurrence has
+    -- the least minimum of its key, as in the probe, so a nested definition
+    -- whose finite members all go through the family is not empty in this
+    -- build.
     indexAt key =
         withKnotMetadata
             (Map.lookup key minimumSizes)
@@ -548,7 +564,10 @@ recurGrouped build
     closedIndexes =
         either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
             bodyGroups $
-                Map.fromList [(key, placeholder EmptyNode closedProbe emptySampleIndex noMass) | key <- keys]
+                Map.fromList
+                    [ (key, placeholder EmptyNode (closedProbe $ Map.lookup key minimumSizes) emptySampleIndex noMass)
+                    | key <- keys
+                    ]
 
     -- A key is live when its body can close using finite branches or keys
     -- already known to be live. Repeating this over the settled finite key set
