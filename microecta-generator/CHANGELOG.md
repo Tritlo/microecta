@@ -80,7 +80,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   hand back a body that failed to build with its own error rather than as a
   recursive language. Every query of a recursion that failed reports that
   error, not `UnboundedGenerator`, and a choice reports its first failed
-  alternative, finite or recursive. `upToSize` and `atomic` cannot be applied
+  alternative, finite or recursive. A finished recursion can sit anywhere in
+  the body of another one, before its occurrence too: a tied language takes
+  its occurrence flags from a build around a closed occurrence, not from its
+  own knot. `upToSize` and `atomic` cannot be applied
   to the occurrence itself, or to anything built from it, and say so with
   `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and

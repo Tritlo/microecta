@@ -35,10 +35,11 @@ import Data.ECTA.Gen.Internal (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex,
     choiceIndex,
+    closedProbe,
     constantIndex,
     mapIndex,
     productIndex,
-    withMinimumMemberSize,
+    withKnotMetadata,
  )
 
 {- | Count and index the terms an automaton accepts, by size.
@@ -59,9 +60,11 @@ automatonIndex root
     -- One lazy entry per reachable identity, referring to each other: a
     -- recursive automaton becomes a recursive index with no extra work.
     table = Map.fromList [(nodeIdentity node, nodeIndex node) | node <- reachable]
+    -- The rows are closed, so they reach no probe of an enclosing definition.
     nodeIndex node =
-        withMinimumMemberSize
+        withKnotMetadata
             (Map.lookup (nodeIdentity node) minima)
+            (closedProbe :: SizeIndex ())
             (choiceIndex $ map edgeIndex $ nodeEdges node)
 
     -- A node with no minimum size accepts nothing, and its table entry counts

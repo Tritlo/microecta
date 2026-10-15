@@ -25,6 +25,8 @@ module Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
     probeIndex,
     probeIndexWithMinimum,
+    closedProbe,
+    withKnotMetadata,
     isUnguarded,
     usesOccurrence,
     sizeIndex,
@@ -343,12 +345,39 @@ The recursion must be guarded — every recursive occurrence under at least
 one 'productIndex' — so that counting a size only consults smaller sizes.
 Callers check that with 'probeIndex' first, because an unguarded knot
 diverges rather than failing.
+
+The occurrence flags of the tied index come from a build around
+'closedProbe', not from the knot. A flag of the knot would be defined by
+itself, so a later read of it, such as the probe of an enclosing or a later
+definition that uses this one, would not return.
 -}
 fixIndex :: (SizeIndex a -> SizeIndex a) -> SizeIndex a
 fixIndex build = index
   where
-    index = withMinimumMemberSize closedMinimum $ build index
-    closedMinimum = minimumMemberSize $ build probeIndex
+    index = withKnotMetadata (minimumMemberSize $ build probeIndex) (build closedProbe) (build index)
+
+{- | An occurrence of a definition that is already tied. No probe is reached
+through it: the definition answered its own probe when it was tied.
+-}
+closedProbe :: SizeIndex a
+closedProbe = probeIndex{unguardedOccurrence = False, usedOccurrence = False}
+
+{- | Give a tied index a minimum and the occurrence flags of a build that does
+not read the knot.
+
+The record is built field by field, so the knot is not forced to give it:
+in a nested recursion, forcing the body of the knot can read the knot.
+-}
+withKnotMetadata :: Maybe Int -> SizeIndex b -> SizeIndex a -> SizeIndex a
+withKnotMetadata minimumSize' closed index =
+    SizeIndex
+        { sizeClassCounts = sizeClassCounts index
+        , sizeClassSelect = sizeClassSelect index
+        , sizeClassValueInt = sizeClassValueInt index
+        , minimumMemberSize = minimumSize'
+        , unguardedOccurrence = unguardedOccurrence closed
+        , usedOccurrence = usedOccurrence closed
+        }
 
 -- | Replace only the cached minimum, leaving counts and decoding unchanged.
 withMinimumMemberSize :: Maybe Int -> SizeIndex a -> SizeIndex a
