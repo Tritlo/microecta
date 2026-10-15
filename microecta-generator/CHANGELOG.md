@@ -22,8 +22,12 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   accepts. Nodes become choices, edges become products under a size-one symbol,
   and interning ties `Mu` nodes into the same recursive size index `recur`
   uses. The generated values are the accepted terms, so a bounded one still
-  supports `pmf`, `countBy`, and `groupBy`. Automata whose edges carry equality
-  constraints are rejected with `CannotCountConstrainedEdges`: a constrained
+  supports `pmf`, `countBy`, and `groupBy`. Within a size class, ranks order
+  the edges of a node by arity, then by the symbol text, then by the structure
+  of their children, so they do not depend on the order in which the process
+  interned the automaton. Automata whose
+  edges carry equality constraints are rejected with
+  `CannotCountConstrainedEdges`: a constrained
   edge's count is the size of an intersection rather than a product of its
   children's counts. Ambiguous automata are rejected with
   `AmbiguousAutomaton`: a node's count sums over its edges, which counts

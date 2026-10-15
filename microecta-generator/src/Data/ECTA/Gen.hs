@@ -439,6 +439,10 @@ Ambiguity is not counted either. A node's count sums over its edges, which
 counts accepting runs, so a node with two edges accepting a common term would
 count that term twice and report it at two ranks. Such an automaton is
 rejected with 'AmbiguousAutomaton'.
+
+Within a size class, ranks order the edges of a node by arity, then by the
+text of the symbol, then by the structure of their children, so they do not
+depend on the order in which the process interned the automaton.
 -}
 fromECTA :: Node Symbol -> ECTAGen gen (Term Symbol)
 fromECTA node =

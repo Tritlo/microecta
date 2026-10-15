@@ -28,7 +28,7 @@ import Data.ECTA (
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol, Term (Term))
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
@@ -280,6 +280,42 @@ spec = do
                 _ -> expectationFailure "expected the property to fail"
 
     describe "generators read from an automaton" $ do
+        it "ranks imported alternatives in symbol order, not in interning order" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let expected = [Term "order-a" [], Term "order-b" []] :: [Term Symbol]
+                flat = Node [Edge "order-a" [], Edge "order-b" []] :: Node Symbol
+                recursive = createMu (\self -> Node [Edge "order-b" [], Edge "order-a" [], Edge "order-s" [self]]) :: Node Symbol
+            -- Intern the later symbol first.
+            _ <- evaluate $ nodeCount (Node [Edge "order-b" []] :: Node Symbol)
+            traverse (ECTAGen.unrank (ECTAGen.fromECTA flat)) [0, 1] `shouldBe` Right expected
+            traverse (ECTAGen.unrank (ECTAGen.upToSize 1 $ ECTAGen.fromECTA recursive)) [0, 1] `shouldBe` Right expected
+
+        it "ranks alternatives with one symbol by their children, not in interning order" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let leaf symbol = Node [Edge symbol []] :: Node Symbol
+                pair symbol = Edge "canonical-pair" [leaf symbol]
+                flat = Node [pair "canonical-a", pair "canonical-b"]
+            -- Intern the later alternative first.
+            _ <- evaluate $ nodeCount (Node [pair "canonical-b"])
+            traverse (ECTAGen.unrank (ECTAGen.fromECTA flat)) [0, 1]
+                `shouldBe` Right [Term "canonical-pair" [Term symbol []] | symbol <- ["canonical-a", "canonical-b"]]
+
+        it "ranks alternatives with one symbol in a cyclic automaton by their children" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let leaf symbol = Node [Edge symbol []] :: Node Symbol
+                pair symbol = Edge "cyclic-pair" [leaf symbol]
+                cyclic = createMu $ \self -> Node [Edge "cyclic-end" [], Edge "cyclic-wrap" [self], pair "cyclic-a", pair "cyclic-b"]
+                paired symbol = Term "cyclic-pair" [Term symbol []]
+            -- Intern the later alternative first.
+            _ <- evaluate $ nodeCount (Node [pair "cyclic-b"])
+            traverse (ECTAGen.unrank (ECTAGen.upToSize 2 $ ECTAGen.fromECTA cyclic)) [0 .. 3]
+                `shouldBe` Right
+                    [ Term "cyclic-end" []
+                    , paired "cyclic-a"
+                    , paired "cyclic-b"
+                    , Term "cyclic-wrap" [Term "cyclic-end" []]
+                    ]
+
         it "accepts exactly the language of a finite automaton" $
             let generator = ECTAGen.fromECTA finiteAutomaton
              in case ECTAGen.cardinality (ECTAGen.upToSize 2 generator) of
