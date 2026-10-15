@@ -65,7 +65,7 @@ import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.List (compareLength)
+import Data.List (compareLength, partition)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -121,6 +121,7 @@ nodeMapChildren :: (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge sy
 nodeMapChildren _ EmptyNode = EmptyNode
 nodeMapChildren f n@(Mu _) = nodeMapChildren f (constructorRows n)
 nodeMapChildren f (Node es) = Node (map f es)
+nodeMapChildren f node@(InternedUnion _) = Node (map f $ nodeEdges node)
 nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
 {- | Warning: Linear in number of paths, exponential in size of graph.
@@ -129,6 +130,7 @@ nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 pathsMatching :: (Node symbol -> Bool) -> Node symbol -> [Path]
 pathsMatching _ EmptyNode = []
 pathsMatching _ (InternedMu _) = [] -- Unsound!
+pathsMatching _ (InternedUnion _) = []
 pathsMatching f n@(InternedNode node) =
     (concat $ map pathsMatchingEdge es)
         ++ if f n then [EmptyPath] else []
@@ -159,6 +161,7 @@ mapNodesStep _ _ EmptyNode = EmptyNode
 mapNodesStep recurse f (Node es) =
     f $ Node $ map (\edge -> setChildren edge (map recurse (edgeChildren edge))) es
 mapNodesStep recurse f (Mu body) = f $ Mu (recurse . body)
+mapNodesStep recurse f (InternedUnion alternatives) = f $ createUnion $ map recurse $ internedUnionMembers alternatives
 mapNodesStep _ f (Rec recId) = f $ Rec recId
 
 {- | Fold over all reachable nodes, visiting each shared node once.
@@ -185,6 +188,7 @@ crush f = \n -> evalState (go n) IntSet.empty
 
     children (InternedMu mu) = [internedMuBody mu]
     children (InternedNode node) = [child | edge <- internedNodeEdges node, child <- edgeChildren edge]
+    children (InternedUnion alternatives) = internedUnionMembers alternatives
     children _ = []
 
 -- | Run a fold function only on normal non-recursive nodes.
@@ -215,33 +219,46 @@ unfoldOuterRec node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     go n@(Mu x) = x n
     go _ = error "unfoldOuterRec: Must be called on a Mu node"
 
-{- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
+{- | Outgoing alternatives after finite closure of recursive and union references.
 
-A 'Mu' can unfold to another 'Mu'. A chain of such unfoldings that comes
-back to a node of the chain, as the unfolding of @createMuDontCleanup id@
-does, has no constructor row, so it has no alternatives.
+An ordinary node and a 'Mu' that unfolds to one give their edges directly.
+Other nodes take the closure through unfoldings and union operands, with a
+visited set, so an epsilon cycle such as the unfolding of
+@createMuDontCleanup id@ gives the least fixed point: no edges. An open union
+must be bound before this view can expose its alternatives. An unresolved
+union reference is an error, not an empty language.
 -}
 nodeEdges :: (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
 nodeEdges (InternedNode node) = internedNodeEdges node
-nodeEdges n@(Mu _)
-    | InternedNode unfolded <- unfoldOuterRec n = internedNodeEdges unfolded
-    | otherwise = go (IntSet.singleton $ nodeIdentity n) (unfoldOuterRec n)
+nodeEdges EmptyNode = []
+nodeEdges (Rec _) = []
+nodeEdges node@(InternedMu _)
+    | InternedNode unfolded <- unfoldOuterRec node = internedNodeEdges unfolded
+nodeEdges root = Set.toList $ Set.fromList $ collect IntSet.empty [root]
   where
-    go seen m@(Mu _)
-        | IntSet.member (nodeIdentity m) seen = []
-        | otherwise = go (IntSet.insert (nodeIdentity m) seen) (unfoldOuterRec m)
-    go _ m = nodeEdges m
-nodeEdges _ = []
+    collect _ [] = []
+    collect seen (EmptyNode : rest) = collect seen rest
+    collect _ (Rec reference : _) = error $ "nodeEdges: unresolved union reference " <> show reference
+    collect seen (InternedNode node : rest) = internedNodeEdges node ++ collect seen rest
+    collect seen (node : rest)
+        | IntSet.member identity seen = collect seen rest
+        | otherwise = collect (IntSet.insert identity seen) (members node ++ rest)
+      where
+        identity = nodeIdentity node
 
-{- | The constructor rows of a 'Mu' as a node: its unfolding when that is an
-ordinary node, and otherwise a node of its 'nodeEdges'. So a retained cycle
-of binders, such as @createMuDontCleanup id@, gives 'EmptyNode' and not an
-unfolding that does not end.
+    members node@(InternedMu _) = [unfoldOuterRec node]
+    members (InternedUnion alternatives) = internedUnionMembers alternatives
+    members _ = []
+
+{- | The constructor rows of a 'Mu' or a union as a node: the unfolding of a
+'Mu' when that is an ordinary node, and otherwise a node of its 'nodeEdges'.
+So a retained cycle of binders, such as @createMuDontCleanup id@, gives
+'EmptyNode' and not an unfolding that does not end.
 -}
 constructorRows :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-constructorRows n = case unfoldOuterRec n of
-    unfolded@(InternedNode _) -> unfolded
-    _ -> Node $ nodeEdges n
+constructorRows n@(InternedMu _)
+    | unfolded@(InternedNode _) <- unfoldOuterRec n = unfolded
+constructorRows n = Node $ nodeEdges n
 
 -- | Memo tables for 'refold'.
 symbolRefoldCache :: MemoCache (Node Symbol) (Node Symbol)
@@ -633,6 +650,8 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
             (InternedMu l', InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(i, l), (j, r)], internedMuBody l', internedMuBody r')
             (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
             (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
+            (InternedUnion alternatives, _) -> createUnion [intersectOpen (dom, member, r) | member <- internedUnionMembers alternatives]
+            (_, InternedUnion alternatives) -> createUnion [intersectOpen (dom, l, member) | member <- internedUnionMembers alternatives]
             -- When encountering a free variable, look up the corresponding value in the environment.
             -- (Recall that the case for already-seen intersection problems is are handled above.)
             (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
@@ -702,19 +721,24 @@ intersectOpenEdge input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
 ------ Union
 ------------
 
-{- | Union a list of ECTAs by concatenating their alternatives.
+{- | Union automata without discarding open recursive references.
 
-'EmptyNode' and 'Rec' contribute no alternatives, and the @Node@ constructor
-maps an empty alternative list back to 'EmptyNode', so the empty cases need no
-special handling. Inside a binder, the union with the binder's own reference is
-the least fixed point, which is correct. The union with a reference to an
-enclosing binder also loses that binder's terms, because a node holds only
-edges and a reference has none. To keep them, put the union under the edges
-that use it: @Node [Edge "wrap" [o], Edge "wrap" [b]]@ in place of
-@Node [Edge "wrap" [union [o, b]]]@.
+A closed operand and an ordinary node give their outgoing alternatives, and
+the union concatenates them. A reference, and an open operand that is not an
+ordinary node, has no alternatives until its binder closes. The union keeps
+such operands in a union node until substitution supplies the referenced
+automata. A binder drops a reference to itself at the root of its body, as
+the least fixed point does. A union does not add a constructor to any
+accepted term.
 -}
 union :: (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
-union = Node . concatMap nodeEdges
+union nodes
+    | all hasEdges nodes = Node (concatMap nodeEdges nodes)
+    | otherwise = createUnion (Node (concatMap nodeEdges ready) : deferred)
+  where
+    (ready, deferred) = partition hasEdges nodes
+    hasEdges (InternedNode _) = True
+    hasEdges node = Set.null (freeVars node)
 
 -- | Union the nodes a partial function produces; see 'union'.
 unionMapMaybe :: (Hashable symbol, Typeable symbol) => (a -> Maybe (Node symbol)) -> [a] -> Node symbol
@@ -729,6 +753,7 @@ requirePath :: (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node
 requirePath EmptyPath n = n
 requirePath _ EmptyNode = EmptyNode
 requirePath p n@(Mu _) = requirePath p (constructorRows n)
+requirePath p n@(InternedUnion _) = requirePath p (constructorRows n)
 requirePath (ConsPath p ps) (Node es) =
     Node $
         map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))) $
@@ -748,6 +773,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
     getPath p n@(Mu _) = getPath p (constructorRows n)
+    getPath p n@(InternedUnion _) = getPath p (constructorRows n)
     getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -757,6 +783,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     getAllAtPath _ EmptyNode = []
     getAllAtPath EmptyPath n = [n]
     getAllAtPath p n@(Mu _) = getAllAtPath p (constructorRows n)
+    getAllAtPath p n@(InternedUnion _) = getAllAtPath p (constructorRows n)
     getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -766,6 +793,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
     modifyAtPath f EmptyPath n = f n
     modifyAtPath _ _ EmptyNode = EmptyNode
     modifyAtPath f p n@(Mu _) = modifyAtPath f p (constructorRows n)
+    modifyAtPath f p n@(InternedUnion _) = modifyAtPath f p (constructorRows n)
     modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
       where
         goEdge :: Edge symbol -> Edge symbol
@@ -863,6 +891,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     go :: EqConstraints -> Node symbol -> Node symbol
     go _ EmptyNode = EmptyNode
     go _ (Mu n) = Mu n
+    go _ n@(InternedUnion _) = n
     go inheritedEcs n@(Node _) = modifyNode n $ \es ->
         map (reduceChildren inheritedEcs) $
             map (reduceEdgeIntersection inheritedEcs) es
@@ -986,6 +1015,7 @@ reduceEqConstraints = go
 
     nodeMeetsConstrainedMu :: Path -> Node symbol -> Bool
     nodeMeetsConstrainedMu _ (Rec _) = True
+    nodeMeetsConstrainedMu _ (InternedUnion _) = True
     nodeMeetsConstrainedMu _ n | numNestedMu n == 0 && null (freeVars n) = False
     nodeMeetsConstrainedMu p n@(InternedMu _)
         | not (unconstrained n) = True
@@ -1018,6 +1048,7 @@ requireAll paths = requireList (foldr insertNeeded (Needed IntMap.empty) paths)
     requireNode (Needed children) n | IntMap.null children = n
     requireNode _ EmptyNode = EmptyNode
     requireNode needed n@(Mu _) = requireNode needed (constructorRows n)
+    requireNode needed n@(InternedUnion _) = requireNode needed (constructorRows n)
     requireNode needed@(Needed children) (Node es) =
         Node
             [ setChildren e (requireList needed (edgeChildren e))
@@ -1053,6 +1084,7 @@ editAll edits = editList (foldr (uncurry insertEdit) (EditBelow IntMap.empty) ed
     editNode (EditAt f) n = f n
     editNode _ EmptyNode = EmptyNode
     editNode below n@(Mu _) = editNode below (constructorRows n)
+    editNode below n@(InternedUnion _) = editNode below (constructorRows n)
     editNode below (Node es) = Node (map (\e -> setChildren e (editList below (edgeChildren e))) es)
     editNode _ (Rec _) = error "editAll: unexpected Rec"
 

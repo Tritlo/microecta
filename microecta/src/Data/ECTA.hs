@@ -119,6 +119,7 @@ module Data.ECTA (
     edgeCount,
     maxIndegree,
     union,
+    createUnion,
     intersect,
     withoutRedundantEdges,
     reducePartially,

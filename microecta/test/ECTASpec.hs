@@ -65,8 +65,9 @@ simpleRepresents node term@(Term symbol children) =
         _ -> False
 
 {- | Keep the terms whose leaves are at most the given depth from the root, as
-cfta's @boundDepth@ does. A leaf has depth zero. A recursive node unfolds
-until the depth is spent, so the result is finite for a cyclic input.
+cfta's @boundDepth@ does. A leaf has depth zero. A recursive node or a union
+gives the rows of its closure through 'nodeEdges', so the result is finite for
+a cyclic input, and an epsilon cycle gives no rows.
 -}
 boundDepth :: Int -> Node Symbol -> Node Symbol
 boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
@@ -81,9 +82,7 @@ boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
             case Map.lookup (remaining, nodeIdentity node) known of
                 Just bounded -> pure bounded
                 Nothing -> do
-                    bounded <- case node of
-                        Mu _ -> go remaining (unfoldOuterRec node)
-                        _ -> Node <$> traverse edge (filter (\e -> remaining > 0 || null (edgeChildren e)) (nodeEdges node))
+                    bounded <- Node <$> traverse edge (filter (\e -> remaining > 0 || null (edgeChildren e)) (nodeEdges node))
                     modify' (Map.insert (remaining, nodeIdentity node) bounded)
                     pure bounded
       where
@@ -229,6 +228,47 @@ spec = do
                 mapSize (min 3) $ \(template :: Template Symbol) (node :: Node Symbol) ->
                     HashSet.fromList (getAllTerms $ termsMatching template node)
                         `shouldBe` HashSet.fromList (filter (matchesTemplate template) $ getAllTerms node)
+
+    describe "recursive union" $ do
+        it "retains an enclosing reference through a nested binder" $ do
+            let grammar :: Node Symbol
+                grammar = Mu $ \outer ->
+                    Node [Edge "a" [], Edge "wrap" [Mu $ \_ -> union [outer, Node [Edge "b" []]]]]
+                wrap term = Term "wrap" [term]
+                a = Term "a" []
+                b = Term "b" []
+                expected = a : concat [map (!! depth) [iterate wrap a, iterate wrap b] | depth <- [1 .. 4]]
+            Set.fromList (getAllTerms $ boundDepth 4 grammar) `shouldBe` Set.fromList expected
+            nodeRepresents grammar (wrap a) `shouldBe` True
+            nodeRepresents grammar b `shouldBe` False
+            freeVars grammar `shouldBe` Set.empty
+
+        it "drops a binder's own reference at the root of its body" $ do
+            let leaf = Node [Edge "a" []] :: Node Symbol
+                step child = Node [Edge "f" [child]]
+            Mu (\r -> union [leaf, step r, r]) `shouldBe` Mu (\r -> union [leaf, step r])
+
+        it "takes the least fixed point through epsilon cycles" $ do
+            let a = Node [Edge "a" []] :: Node Symbol
+                self = Mu $ \r -> union [r, a]
+                nested = Mu $ \outer -> Mu $ \inner -> union [outer, inner, a]
+                empty = Mu (\outer -> Mu $ \inner -> union [outer, inner]) :: Node Symbol
+            completed <-
+                timeout 5000000
+                    $ evaluate
+                    $ getAllTerms (boundDepth 3 self) == [Term "a" []]
+                        && getAllTerms (boundDepth 3 nested) == [Term "a" []]
+                        && null (getAllTerms (boundDepth 3 empty))
+            completed `shouldBe` Just True
+
+        it "intersects and restricts terms without adding a union constructor" $ do
+            let grammar :: Node Symbol
+                grammar = Mu $ \outer -> Node [Edge "a" [], Edge "wrap" [union [outer, Node [Edge "b" []]]]]
+                onlyA = Mu $ \self -> Node [Edge "a" [], Edge "wrap" [self]]
+                expected = take 5 $ iterate (\term -> Term "wrap" [term]) (Term "a" [])
+            Set.fromList (getAllTerms $ boundDepth 4 $ intersect grammar onlyA) `shouldBe` Set.fromList expected
+            Set.fromList (getAllTerms $ boundDepth 4 $ termsMatching (TemplateNode "wrap" [Hole]) grammar)
+                `shouldBe` Set.fromList (filter (matchesTemplate $ TemplateNode "wrap" [Hole]) $ getAllTerms $ boundDepth 4 grammar)
 
     describe "intersection" $ do
         it "intersection commutes with getAllTerms" $
@@ -388,6 +428,27 @@ spec = do
                 ns'' = reduceEqConstraints ecs EmptyConstraints ns'
                 f = \n -> Node [Edge "f" [n]]
              in (ns' == ns'') && ns' == [f $ f $ f $ f infiniteFNode, f $ f $ f $ infiniteFNode] `shouldBe` True
+
+        it "reduction stops on a domain with an epsilon reference to its binder" $ do
+            let leaf = Node [Edge "a" []] :: Node Symbol
+                step child = Node [Edge "f" [child]]
+                withEpsilon = Mu $ \r -> union [leaf, step r, r]
+                withoutEpsilon = Mu $ \r -> union [leaf, step r]
+                children = [withEpsilon, withoutEpsilon, withEpsilon]
+                direct = [path [0], path [1], path [2]]
+                below = [path [0, 0], path [1, 0], path [2, 0]]
+                shallowTerms depth n = HashSet.fromList (getAllTerms (boundDepth depth n))
+            forM_ [(children, direct), (map step children, direct), (children, below), (map step children, below)] $ \(domains, paths) -> do
+                let original = Node [mkEdge "triple" domains (mkEqConstraints [paths])]
+                result <- timeout 2000000 $ do
+                    let reduced = fixUnbounded reducePartially original
+                    _ <- evaluate (nodeCount reduced)
+                    pure reduced
+                case result of
+                    Nothing -> expectationFailure "recursive equality narrowing did not finish"
+                    Just reduced ->
+                        forM_ [0 .. 4] $ \depth ->
+                            shallowTerms depth reduced `shouldBe` shallowTerms depth original
 
         it "refold folds the simplest unrolled input" $
             refold (Node [Edge "f" [infiniteFNode]]) `shouldBe` infiniteFNode
@@ -594,6 +655,16 @@ spec = do
                     , createMuDontCleanup $ \outer -> createMuDontCleanup $ const outer
                     ] ::
                         [Node Symbol]
+                leaf = Node [Edge "a" []] :: Node Symbol
+                productive = Mu $ \outer -> Mu $ \inner -> union [outer, inner, leaf, Node [Edge "f" [outer], Edge "g" [inner]]]
+                expected depth
+                    | depth < 0 = []
+                    | otherwise = Term "a" [] : [Term symbol [child] | symbol <- ["f", "g"], child <- expected (depth - 1)]
+            forM_ [-1 .. 2] $ \depth -> do
+                forM_ empty $ \node -> do
+                    freeVars node `shouldBe` Set.empty
+                    timeout 2000000 (evaluate $ boundDepth depth node) `shouldReturn` Just EmptyNode
+                getAllTerms (boundDepth depth productive) `shouldMatchList` expected depth
             forM_ empty $ \node -> do
                 timeout 2000000 (evaluate $ null $ nodeEdges node) `shouldReturn` Just True
                 timeout 2000000 (evaluate $ nodeMapChildren id node) `shouldReturn` Just EmptyNode
@@ -630,6 +701,8 @@ spec = do
                             , Set.union (collectAllIds (internedMuBody mu)) (collectAllIds (internedMuShape mu))
                             ]
                     collectAllIds (Rec _) = Set.empty
+                    collectAllIds (InternedUnion group) =
+                        Set.insert (internedUnionId group) $ Set.unions $ map collectAllIds $ internedUnionMembers group
 
                 Set.intersection (collectAllIds n) (collectAllIds m) `shouldBe` Set.empty
 

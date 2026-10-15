@@ -15,6 +15,7 @@ module Data.ECTA.Internal.ECTA.Type (
     Node (.., Node, Mu),
     InternedNode (..),
     InternedMu (..),
+    InternedUnion (..),
     UninternedNode (..),
     IntersectId,
     pattern IntersectId,
@@ -25,12 +26,15 @@ module Data.ECTA.Internal.ECTA.Type (
     modifyNode,
     createMu,
     createMuDontCleanup,
+    createUnion,
+    recursiveBoundary,
     shape,
     matchMu,
 ) where
 
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -211,6 +215,18 @@ data InternedNode symbol = MkInternedNode
     }
     deriving (Show)
 
+-- | A disjunction that retains unresolved recursive operands.
+data InternedUnion symbol = MkInternedUnion
+    { internedUnionId :: {-# UNPACK #-} !Id
+    -- ^ The 'Id' of the node itself
+    , internedUnionMembers :: ![Node symbol]
+    -- ^ The operands, with no nested union, no empty node, and no repetition
+    , internedUnionNumNestedMu :: !Int
+    -- ^ Maximum Mu nesting depth in the operands
+    , internedUnionFree :: !(Set RecNodeId)
+    -- ^ Free variables in the operands
+    }
+
 -- | ECTA node.
 data Node symbol
     = -- | Interned node with one or more outgoing alternatives.
@@ -219,12 +235,15 @@ data Node symbol
       EmptyNode
     | -- | Interned recursive node.
       InternedMu {-# UNPACK #-} !(InternedMu symbol)
+    | -- | Alternatives joined without consuming a term constructor.
+      InternedUnion {-# UNPACK #-} !(InternedUnion symbol)
     | -- | Recursive reference used inside a 'Mu'.
       Rec !RecNodeId
 
 instance Eq (Node symbol) where
     InternedNode l == InternedNode r = internedNodeId l == internedNodeId r
     InternedMu l == InternedMu r = internedMuId l == internedMuId r
+    InternedUnion l == InternedUnion r = internedUnionId l == internedUnionId r
     Rec l == Rec r = l == r
     EmptyNode == EmptyNode = True
     _ == _ = False
@@ -233,20 +252,29 @@ instance (Show symbol) => Show (Node symbol) where
     show (InternedNode node) = "(Node " <> show (internedNodeEdges node) <> ")"
     show EmptyNode = "EmptyNode"
     show (InternedMu mu) = "(Mu " <> show (internedMuId mu) <> " " <> show (internedMuBody mu) <> ")"
+    show (InternedUnion alternatives) = "(Union " <> show (internedUnionMembers alternatives) <> ")"
     show (Rec n) = "(Rec " <> show n <> ")"
 
+{- | Order nodes by their identity, and by their kind within one identity.
+
+Nodes, recursive nodes, and unions draw identities from one counter, so the
+identity orders nodes of different kinds too.
+-}
 instance Ord (Node symbol) where
     compare n1 n2 = compare (nodeDescriptorInt n1) (nodeDescriptorInt n2)
       where
         nodeDescriptorInt :: Node symbol -> Int
         nodeDescriptorInt EmptyNode = -1
-        nodeDescriptorInt (InternedNode node) = 3 * i
+        nodeDescriptorInt (InternedNode node) = 4 * i
           where
             i = internedNodeId node
-        nodeDescriptorInt (InternedMu mu) = 3 * i + 1
+        nodeDescriptorInt (InternedMu mu) = 4 * i + 1
           where
             i = internedMuId mu
-        nodeDescriptorInt (Rec recId) = 3 * i + 2
+        nodeDescriptorInt (InternedUnion alternatives) = 4 * i + 2
+          where
+            i = internedUnionId alternatives
+        nodeDescriptorInt (Rec recId) = 4 * i + 3
           where
             i = case recId of
                 RecInt nid -> nid
@@ -258,6 +286,7 @@ instance Hashable (Node symbol) where
       where
         i = internedMuId mu
     hashWithSalt s (Rec i) = s `hashWithSalt` (-3 :: Int) `hashWithSalt` i
+    hashWithSalt s (InternedUnion alternatives) = s `hashWithSalt` (-4 :: Int) `hashWithSalt` internedUnionId alternatives
     hashWithSalt s (InternedNode node) = s `hashWithSalt` i
       where
         i = internedNodeId node
@@ -270,6 +299,7 @@ numNestedMu :: Node symbol -> Int
 numNestedMu EmptyNode = 0
 numNestedMu (InternedNode node) = internedNodeNumNestedMu node
 numNestedMu (InternedMu mu) = 1 + numNestedMu (internedMuBody mu)
+numNestedMu (InternedUnion alternatives) = internedUnionNumNestedMu alternatives
 numNestedMu (Rec _) = 0
 
 {- | Free variables in the term
@@ -282,6 +312,7 @@ freeVars :: Node symbol -> Set RecNodeId
 freeVars EmptyNode = Set.empty
 freeVars (InternedNode node) = internedNodeFree node
 freeVars (InternedMu mu) = Set.delete (RecInt (internedMuId mu)) (freeVars (internedMuBody mu))
+freeVars (InternedUnion alternatives) = internedUnionFree alternatives
 freeVars (Rec i) = Set.singleton i
 
 ----------------------
@@ -292,6 +323,7 @@ freeVars (Rec i) = Set.singleton i
 nodeIdentity :: Node symbol -> Id
 nodeIdentity (InternedMu mu) = internedMuId mu
 nodeIdentity (InternedNode node) = internedNodeId node
+nodeIdentity (InternedUnion alternatives) = internedUnionId alternatives
 nodeIdentity (Rec (RecInt i)) = i
 nodeIdentity _ = error "nodeIdentity: unexpected empty or unresolved node"
 
@@ -307,6 +339,7 @@ setChildren e ns = mkEdge (edgeSymbol e) ns (edgeEcs e)
 data UninternedNode symbol
     = UninternedNode ![Edge symbol]
     | UninternedEmptyNode
+    | UninternedUnion ![Node symbol]
     | {- | Recursive node, carrying its shape alongside the function.
 
       The function should be parametric in the Id:
@@ -334,6 +367,7 @@ data UninternedNode symbol
 instance Eq (UninternedNode symbol) where
     UninternedNode es == UninternedNode es' = es == es'
     UninternedEmptyNode == UninternedEmptyNode = True
+    UninternedUnion members == UninternedUnion members' = members == members'
     UninternedMu depthShape s _ == UninternedMu depthShape' s' _ = depthShape == depthShape' && s == s'
     _ == _ = False
 
@@ -343,6 +377,7 @@ instance Hashable (UninternedNode symbol) where
         go :: UninternedNode symbol -> Int
         go UninternedEmptyNode = salt `hashWithSalt` (0 :: Int)
         go (UninternedNode es) = salt `hashWithSalt` (1 :: Int) `hashWithSalt` es
+        go (UninternedUnion members) = salt `hashWithSalt` (3 :: Int) `hashWithSalt` members
         go (UninternedMu depthShape s _) =
             salt
                 `hashWithSalt` (2 :: Int)
@@ -448,6 +483,9 @@ identifyNode i (UninternedNode es) =
             , internedNodeFree = Set.unions (concatMap (map freeVars . edgeChildren) es)
             }
 identifyNode _ UninternedEmptyNode = EmptyNode
+identifyNode i (UninternedUnion members) =
+    InternedUnion $
+        MkInternedUnion i members (maximum $ 0 : map numNestedMu members) (Set.unions $ map freeVars members)
 identifyNode i (UninternedMu depthShape s n) =
     InternedMu $
         MkInternedMu
@@ -642,7 +680,7 @@ mkEdge s ns ecs
 ------ Node constructors
 -------------------
 
-{-# COMPLETE Node, EmptyNode, Mu, Rec #-}
+{-# COMPLETE Node, EmptyNode, Mu, Rec, InternedUnion #-}
 
 -- | Build or match a non-empty node from outgoing alternatives.
 pattern Node :: (Typeable symbol) => [Edge symbol] -> Node symbol
@@ -654,6 +692,32 @@ mkNode :: (Typeable symbol) => [Edge symbol] -> Node symbol
 mkNode es = case removeEmptyEdges es of
     [] -> EmptyNode
     es' -> internNode $ UninternedNode $ Set.toList $ Set.fromList es'
+
+{- | Retain every operand of an open union until its references are bound.
+
+Flatten nested unions and remove empty or repeated operands. A union of
+ordinary nodes uses the ordinary edge representation.
+-}
+createUnion :: (Typeable symbol) => [Node symbol] -> Node symbol
+createUnion nodes = case nub (concatMap members nodes) of
+    [] -> EmptyNode
+    [node] -> node
+    alternatives
+        | Just edges <- traverse ordinary alternatives -> mkNode $ concat edges
+        | otherwise -> internNode $ UninternedUnion alternatives
+  where
+    members EmptyNode = []
+    members (InternedUnion alternatives) = internedUnionMembers alternatives
+    members node = [node]
+
+    ordinary (InternedNode node) = Just $ internedNodeEdges node
+    ordinary _ = Nothing
+
+-- | A node where finite diagnostic enumeration can stop before unfolding recursion.
+recursiveBoundary :: Node symbol -> Bool
+recursiveBoundary (InternedMu _) = True
+recursiveBoundary (InternedUnion _) = True
+recursiveBoundary _ = False
 
 {- | An optimized Node constructor that avoids the interning/preprocessing of the Node constructor
   when nothing changes
@@ -744,6 +808,9 @@ The interning shape is the body applied to the placeholder that 'muPlaceholder' 
 Its level is at least the depth of that probe and exceeds every free ordinary level in it, so it does not alias a
 placeholder of an enclosing binder that the body captures. The stored depth observation determines the ordinary
 placeholder for construction and readback.
+
+A union at the root of the body loses an operand that is the binder's own reference, so the shape does not depend on
+that operand.
 -}
 createMuDontCleanup :: (Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol
 createMuDontCleanup f =
@@ -753,8 +820,18 @@ createMuDontCleanup f =
             (g (muPlaceholder bodyAtDepth))
             g
   where
-    g = f . Rec
+    g variable = withoutSelfReference (Rec variable) (f (Rec variable))
     bodyAtDepth = g RecDepth
+
+    -- A union at the root of the body that names the binder adds no term,
+    -- because the binder accepts the least fixed point. Dropping the operand
+    -- gives the same body, and so the same node, as the union without it.
+    withoutSelfReference self body@(InternedUnion payload)
+        | self `elem` members = createUnion (filter (/= self) members)
+        | otherwise = body
+      where
+        members = internedUnionMembers payload
+    withoutSelfReference _ body = body
 
 -- | Choose a probe outside the depth observation's free ordinary references.
 muPlaceholder :: Node symbol -> RecNodeId
@@ -884,6 +961,8 @@ substitutionPlan inputNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
                         muSubstitution
                             (\(_, bindings) -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r (Map.fromDistinctAscList bindings)))
                             (n, Map.toAscList $ Map.restrictKeys env $ freeVars n)
+            InternedUnion alternatives -> case sequenceSubstitutionPlans $ map substitutionPlan (internedUnionMembers alternatives) of
+                SubstitutionPlan !f -> createUnion . f
             Rec i -> \env -> fromMaybe n (Map.lookup i env)
 
     muSubstitution :: ((Node symbol, [(RecNodeId, Node symbol)]) -> Node symbol) -> (Node symbol, [(RecNodeId, Node symbol)]) -> Node symbol

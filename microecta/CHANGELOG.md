@@ -76,6 +76,22 @@ reduces them, or enumerates them needs no migration.
   such a cycle, and the other operations read the rows of a `Mu` through it,
   so the node reads as `EmptyNode`. Every other `Mu` reads as its unfolding,
   as before.
+* Breaking: keep the operands of an open union. `union` concatenated the
+  alternatives of its operands, and a reference has none, so a union inside a
+  nested binder lost a reference to an enclosing binder:
+  `Mu (\o -> Node [Edge "a" [], Edge "wrap" [Mu (\_ -> union [o, b])]])`
+  rejected `wrap(a)`. A union with such an operand is now a node of its own,
+  the new `Node` constructor `InternedUnion`, which keeps its operands until
+  substitution binds the reference. `createUnion` builds it and is exported
+  from `Data.ECTA`; a union of ordinary nodes is still an ordinary node.
+  `nodeEdges` takes the closure through union operands and `Mu` unfoldings
+  with a visited set, so an epsilon cycle such as `Mu (\r -> union [r, a])`
+  gives the least fixed point, and an unresolved reference in that closure is
+  an error. A binder drops its own reference from a union at the root of its
+  body, so `Mu (\r -> union [a, f r, r])` and `Mu (\r -> union [a, f r])` are
+  one node. Enumeration stops at an unconstrained union as at an
+  unconstrained `Mu`. A match on `Node` needs a case for `InternedUnion`, and
+  the `COMPLETE` set now lists it.
 * Share the unfolding of each recursive node. `unfoldOuterRec` substituted
   the binder into the body on every call, so every operation that reads the
   edges of a `Mu` rebuilt the same interned nodes. The unfolding is now

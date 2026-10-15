@@ -71,6 +71,7 @@ restrictNode Hole node = node
 restrictNode (AnyPrefix []) node = node
 restrictNode _ EmptyNode = EmptyNode
 restrictNode template node@(Mu _) = restrictNode template (Node $ nodeEdges node)
+restrictNode template node@(InternedUnion _) = restrictNode template (Node $ nodeEdges node)
 restrictNode template (Node edges) = Node (mapMaybe (restrictEdge template) edges)
 restrictNode _ (Rec _) = error "termsMatching: unexpected free recursive reference"
 

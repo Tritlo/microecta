@@ -348,6 +348,7 @@ enumerateNode scs n =
      in case hereConstraints of
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
+                InternedUnion _ -> TermFragmentUVar <$> addUVarValue (Just n)
                 Node es -> enumerateEdge scs =<< lift es
                 Rec recId ->
                     error $
@@ -418,10 +419,12 @@ findExpandableUVars = do
         UVarUnenumerated mbContents scs ->
             let (ruledOut', uf') = Foldable.foldl' resolve (ruledOut, uf) scs
                 candidates' = case mbContents of
-                    -- An unconstrained Mu is the recursive base case: expanding
-                    -- it would unfold forever with nothing to stop it.
-                    Just (InternedMu _)
-                        | Sequence.null scs -> candidates
+                    -- An unconstrained Mu or union is the recursive base case:
+                    -- expanding it would unfold forever with nothing to stop it.
+                    Just node
+                        | recursiveBoundary node
+                        , Sequence.null scs ->
+                            candidates
                     Just _ -> IntSet.insert i candidates
                     Nothing -> candidates
              in (candidates', ruledOut', uf')
@@ -488,6 +491,7 @@ enumerateOutUVar uv =
 
         t <- case n of
             Mu _ -> enumerateNode scs (unfoldOuterRec n)
+            InternedUnion _ -> enumerateNode scs (Node $ nodeEdges n)
             _ -> enumerateNode scs n
 
         setUVarValue (uvarToInt uv') (UVarEnumerated t)
@@ -572,7 +576,7 @@ expandPartialTermFrag (TermFragmentUVar uv) = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandPartialTermFrag fragment
-        UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Term TruncatedRecursion []
+        UVarUnenumerated (Just node) Sequence.Empty | recursiveBoundary node -> return $ Term TruncatedRecursion []
         _ -> return $ Term (UVarHole uv) []
 
 -- | Expand a complete term fragment into a concrete term.
@@ -588,7 +592,7 @@ expandTermFragWith recursionSymbol = go
         val <- getUVarValue uv
         case val of
             UVarEnumerated t -> go t
-            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+            UVarUnenumerated (Just node) _ | recursiveBoundary node -> return $ Term recursionSymbol []
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
@@ -607,7 +611,7 @@ expandUVarWith recursionSymbol uv = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandTermFragWith recursionSymbol fragment
-        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+        UVarUnenumerated (Just node) _ | recursiveBoundary node -> return $ Term recursionSymbol []
         _ -> mzero
 
 ---------------------
