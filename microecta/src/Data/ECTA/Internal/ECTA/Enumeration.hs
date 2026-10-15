@@ -505,7 +505,7 @@ enumerateOutFirstExpandableUVar = do
 -- | Expand the root UVar until it represents a complete term.
 enumerateFully :: (Hashable symbol, Typeable symbol) => EnumerateM symbol ()
 enumerateFully =
-    void $ enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
+    enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
 
 {- | Enumerate until the root term is complete, with optional oracle pruning.
 
@@ -532,12 +532,12 @@ enumerateFully' ::
     a ->
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    EnumerateM symbol Bool
+    EnumerateM symbol ()
 enumerateFully' ost order oracle = do
     muv <- nextExpandableUVar (order ost)
     case muv of
         ExpansionStuck -> mzero
-        ExpansionDone -> return True
+        ExpansionDone -> return ()
         ExpansionNext uv ->
             let continue ost' = do
                     tf <- enumerateOutUVar uv
@@ -546,12 +546,9 @@ enumerateFully' ost order oracle = do
                         then mzero
                         else enumerateFully' ost'' order oracle
              in do
-                    UVarUnenumerated (Just n) scs <- getUVarValue uv
-                    case n of
-                        Mu _ | scs == Sequence.empty -> return True
-                        _ -> do
-                            (should_prune, ost') <- oracle ost uv (Right n)
-                            if should_prune then mzero else continue ost'
+                    UVarUnenumerated (Just n) _ <- getUVarValue uv
+                    (should_prune, ost') <- oracle ost uv (Right n)
+                    if should_prune then mzero else continue ost'
 
 ---------------------
 -------- Expanding an enumerated term fragment into a term
@@ -716,8 +713,8 @@ enumPruneWith ::
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol (Term symbol)
 enumPruneWith recursionSymbol a order oracle = do
-    finished <- enumerateFully' a order oracle
-    if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
+    enumerateFully' a order oracle
+    expandUVarWith recursionSymbol (intToUVar 0)
 
 {- | Enumerate the terms an ECTA accepts, truncating at recursion.
 
