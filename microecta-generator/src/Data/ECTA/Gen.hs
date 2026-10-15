@@ -93,6 +93,7 @@ import Data.ECTA.Gen.Internal.Shrink (
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect),
     choiceIndex,
+    closedProbe,
     fixIndex,
     isUnguarded,
     mapIndex,
@@ -102,7 +103,7 @@ import Data.ECTA.Gen.Internal.Size (
     productIndex,
     sizeClassOf,
     usesOccurrence,
-    withMinimumMemberSize,
+    withKnotMetadata,
  )
 import qualified Data.ECTA.Gen.Internal.Size as Size
 import Data.ECTA.Gen.Sig (On (..), Sig (..), sigResult)
@@ -533,10 +534,17 @@ recurGrouped build
         either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
             bodyGroups indexPlaceholders
     rawIndexAt key = Map.findWithDefault (choiceIndex []) key rawIndexes
+    -- The occurrence flags of each key come from a build around closed
+    -- placeholders, not from the knot, as in 'fixIndex'.
     indexAt key =
-        withMinimumMemberSize
+        withKnotMetadata
             (Map.lookup key minimumSizes)
+            (Map.findWithDefault (choiceIndex []) key closedIndexes)
             (rawIndexAt key)
+    closedIndexes =
+        either (const Map.empty) (fmap $ recursiveIndex . keyedRecursiveLanguage) $
+            bodyGroups $
+                Map.fromList [(key, placeholder EmptyNode closedProbe emptySampleIndex noMass) | key <- keys]
 
     -- A key is live when its body can close using finite branches or keys
     -- already known to be live. Repeating this over the settled finite key set

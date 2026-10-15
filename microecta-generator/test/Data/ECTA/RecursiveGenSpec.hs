@@ -37,6 +37,9 @@ data Tree = Leaf Int | Branch Tree Tree
 data Coin = Heads | Tails
     deriving (Eq, Ord, Show)
 
+data Call = NoCall | Call [Call]
+    deriving (Eq, Ord, Show)
+
 trees :: ECTAGen Tree
 trees = ECTAGen.recur $ \self ->
     ECTAGen.oneof
@@ -190,6 +193,16 @@ spec = do
             it "samples within the size parameter" $
                 QC.forAll (QC.resize 4 $ ECTAGen.toGen trees) $ \member ->
                     QC.counterexample (show member) $ QC.property $ leaves member <= 4
+
+        it "counts a recursion that reads a tied recursion before its own occurrence" $ do
+            let forest = ECTAGen.recur $ \rest -> ECTAGen.oneof [pure [], (:) <$> trees <*> rest]
+                calls :: ECTAGen Call
+                calls =
+                    ECTAGen.recur $ \self ->
+                        ECTAGen.oneof [pure NoCall, Call <$> ECTAGen.recur (\rest -> ECTAGen.oneof [pure [], (:) <$> self <*> rest])]
+                counts = (ECTAGen.countAtSize forest 1, map (ECTAGen.countAtSize calls) [1 .. 4])
+            counted <- timeout 10000000 $ counts <$ evaluate (length $ show counts)
+            counted `shouldBe` Just (Right 1, [Right 2, Right 2, Right 6, Right 22])
 
         it "reports the exact atomic distribution inside one recursive size" $ do
             let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
