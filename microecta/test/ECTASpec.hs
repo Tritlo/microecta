@@ -16,6 +16,7 @@ import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 
 import Test.Hspec
 import Test.QuickCheck
@@ -39,6 +40,29 @@ instance Hashable ArithmeticSymbol
 
 constTerms :: [Symbol] -> Node Symbol
 constTerms ss = Node (map (\s -> Edge s []) ss)
+
+{- | Whether a node accepts a term, from the definition and with no table, as
+cfta's reference @Data.CFTA.Simple.accepts@ decides it. An edge of the node
+has the symbol and the arity of the term, each child of the edge accepts the
+subterm at its position, and every path of each equality class of the edge
+exists in the term, with one subterm at all of them. It decides a subterm
+again for each edge above it, so on a node with two edges of one symbol its
+time is exponential in the depth of a rejected term.
+-}
+simpleRepresents :: Node Symbol -> Term Symbol -> Bool
+simpleRepresents node term@(Term symbol children) =
+    or
+        [ and (zipWith simpleRepresents (edgeChildren edge) children) && classesHold (edgeEcs edge)
+        | edge <- nodeEdges node
+        , edgeSymbol edge == symbol
+        , length (edgeChildren edge) == length children
+        ]
+  where
+    classesHold EqContradiction = False
+    classesHold constraints = all (sameSubterm . unPathEClass) (unsafeGetEclasses constraints)
+    sameSubterm paths = case map (`getPath` term) paths of
+        first@(Just _) : rest -> all (== first) rest
+        _ -> False
 
 {- | Keep the terms whose leaves are at most the given depth from the root, as
 cfta's @boundDepth@ does. A leaf has depth zero. A recursive node unfolds
@@ -149,6 +173,18 @@ spec = do
                 candidates = getAllTerms (dropConstraints pairs)
             length candidates `shouldBe` 4
             filter (nodeRepresents pairs) candidates `shouldBe` getAllTerms pairs
+
+        it "decides a deep term in linear time when a node has two edges with one symbol" $ do
+            -- A search with no table tries both "f" edges again at each level
+            -- of a rejected term, so its time is exponential in the depth.
+            let ambiguous =
+                    createMu $ \q ->
+                        Node [Edge "a" [], Edge "f" [q], Edge "f" [Node [Edge "a" [], Edge "f" [q]]]]
+                chain depth leaf = iterate (\term -> Term "f" [term]) (Term leaf []) !! depth
+            forM_ [chain depth leaf | depth <- [0 .. 10 :: Int], leaf <- ["a", "b"]] $ \term ->
+                (term, nodeRepresents ambiguous term) `shouldBe` (term, simpleRepresents ambiguous term)
+            finished <- timeout 10000000 $ map (nodeRepresents ambiguous . chain 60) ["a", "b"] `shouldBe` [True, False]
+            finished `shouldBe` Just ()
 
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do
