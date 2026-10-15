@@ -728,6 +728,7 @@ groupBy key (Transparent (Right static)) =
                 [ (key $ outcomeValue outcome, outcome)
                 | outcome <- outcomes
                 ]
+groupBy _ (Cyclic (Left err)) = Grouped $ Left err
 groupBy _ (Cyclic _) = Grouped $ Left UnboundedGenerator
 groupBy _ (Opaque _) = Grouped $ Left CannotInspectOpaqueGenerator
 
@@ -793,6 +794,7 @@ mapWithKey transform (Grouped result) =
 
 -- | Return the exact cardinality of each retained group in O(number of groups).
 sizes :: Grouped gen key a -> Either ECTAGenError (Map.Map key Integer)
+sizes (CyclicGrouped (Left err)) = Left err
 sizes (CyclicGrouped _) = Left UnboundedGenerator
 sizes (Grouped result) =
     fmap (fmap $ outcomeCardinality . staticOutcomes . keyedBucketStatic) result
@@ -918,6 +920,7 @@ apply ::
     Grouped gen resultKey result
 -- Which components an application has is decided by the operation signatures,
 -- so the operation family has to be finite; only arguments may recurse.
+apply (CyclicGrouped (Left err)) _ = Grouped $ Left err
 apply (CyclicGrouped _) _ = Grouped $ Left RecursiveOperationFamily
 apply (Grouped (Left err)) _ = Grouped $ Left err
 apply (Grouped (Right operations)) arguments
@@ -946,6 +949,7 @@ apply (Grouped (Right operations)) arguments
 argsMaps :: Args gen argKeys operation result -> Either ECTAGenError (ArgMaps KeyedBucket argKeys operation result)
 argsMaps ANil = Right MapsNil
 argsMaps (Grouped family :& rest) = MapsCons <$> family <*> argsMaps rest
+argsMaps (CyclicGrouped (Left err) :& _) = Left err
 argsMaps (CyclicGrouped _ :& _) = Left UnboundedGenerator
 
 {- | Apply an operation family to argument families of which at least one is
@@ -1214,6 +1218,8 @@ match ::
     ECTAGen gen (left, right)
 match _ (Transparent (Left err)) _ = Transparent $ Left err
 match _ _ (Transparent (Left err)) = Transparent $ Left err
+match _ (Cyclic (Left err)) _ = Transparent $ Left err
+match _ _ (Cyclic (Left err)) = Transparent $ Left err
 match _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
 match _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
 match condition (Transparent (Right left)) (Transparent (Right right)) =
@@ -1245,6 +1251,8 @@ relate ::
     ECTAGen gen (left, right)
 relate _ _ _ (Transparent (Left err)) _ = Transparent $ Left err
 relate _ _ _ _ (Transparent (Left err)) = Transparent $ Left err
+relate _ _ _ (Cyclic (Left err)) _ = Transparent $ Left err
+relate _ _ _ _ (Cyclic (Left err)) = Transparent $ Left err
 relate _ _ _ (Cyclic _) _ = Transparent $ Left UnboundedGenerator
 relate _ _ _ _ (Cyclic _) = Transparent $ Left UnboundedGenerator
 relate leftKey rightKey relation (Transparent (Right left)) (Transparent (Right right)) =
@@ -1274,6 +1282,7 @@ for one size class with 'countAtSize'.
 cardinality :: ECTAGen gen a -> Either ECTAGenError Integer
 cardinality (Transparent result) =
     outcomeCardinality . staticOutcomes <$> result
+cardinality (Cyclic (Left err)) = Left err
 cardinality (Cyclic _) = Left UnboundedGenerator
 cardinality (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -1415,6 +1424,7 @@ countBy key (Transparent result) = do
         Map.fromListWith
             (+)
             [(key $ outcomeValue outcome, 1) | outcome <- outcomes]
+countBy _ (Cyclic (Left err)) = Left err
 countBy _ (Cyclic _) = Left UnboundedGenerator
 countBy _ (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -1426,6 +1436,7 @@ pmf (Transparent result) = do
     pure $
         Map.toAscList $
             Map.fromListWith (+) [(value, mass) | (mass, value) <- outcomes]
+pmf (Cyclic (Left err)) = Left err
 pmf (Cyclic _) = Left UnboundedGenerator
 pmf (Opaque _) = Left CannotInspectOpaqueGenerator
 
@@ -1473,6 +1484,7 @@ pmfAtSize (Opaque _) _ = Left CannotInspectOpaqueGenerator
 lower :: (GenBackend gen) => ECTAGen gen a -> gen (Either ECTAGenError a)
 lower (Transparent (Left err)) = pure $ Left err
 lower (Transparent (Right static)) = sampleStatic static
+lower (Cyclic (Left err)) = pure $ Left err
 lower (Cyclic _) = pure $ Left UnboundedGenerator
 lower (Opaque generated) = generated
 
@@ -1483,6 +1495,7 @@ lowerWithRank ::
     gen (Either ECTAGenError (Integer, a))
 lowerWithRank (Transparent (Left err)) = pure $ Left err
 lowerWithRank (Transparent (Right static)) = sampleStaticWithRank static
+lowerWithRank (Cyclic (Left err)) = pure $ Left err
 lowerWithRank (Cyclic _) = pure $ Left UnboundedGenerator
 lowerWithRank (Opaque _) = pure $ Left CannotInspectOpaqueGenerator
 
