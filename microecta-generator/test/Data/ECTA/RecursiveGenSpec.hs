@@ -25,6 +25,7 @@ import Data.ECTA (
     nodeRepresents,
     numNestedMu,
  )
+import qualified Data.ECTA.Gen as Core
 import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
@@ -203,6 +204,45 @@ spec = do
                 counts = (ECTAGen.countAtSize forest 1, map (ECTAGen.countAtSize calls) [1 .. 4])
             counted <- timeout 10000000 $ counts <$ evaluate (length $ show counts)
             counted `shouldBe` Just (Right 1, [Right 2, Right 2, Right 6, Right 22])
+
+        it "keeps a nested recursion whose finite members all use the outer occurrence" $ do
+            -- A @pure f <*> x@ is a product, so it guards the occurrence. A
+            -- @f <$> x@ does not.
+            let calls :: ECTAGen Call
+                calls =
+                    ECTAGen.recur $ \self ->
+                        ECTAGen.oneof
+                            [ pure NoCall
+                            , pure Call <*> ECTAGen.recur (\rest -> ECTAGen.oneof [pure (: []) <*> self, (:) <$> self <*> rest])
+                            ]
+            Core.isRecursive calls `shouldBe` True
+            map (ECTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
+
+        it "keeps the outer occurrence through a recursion whose finite members all use the middle occurrence" $ do
+            -- The outer recursion reaches its own occurrence only through the
+            -- inner recursion. The inner recursion has finite members only
+            -- through a product of the middle occurrence and the outer one.
+            let pair a b = (+) <$> a <*> b
+                inner m o = ECTAGen.recur $ \n -> ECTAGen.oneof [pair m o, pair n n]
+                middle o = ECTAGen.recur $ \m -> ECTAGen.oneof [pure 1, inner m o]
+                outer :: ECTAGen Int
+                outer = ECTAGen.recur $ \o -> ECTAGen.oneof [pure 0, middle o]
+                bounded :: ECTAGen Int
+                bounded = ECTAGen.recur $ \o -> ECTAGen.oneof [pure 0, ECTAGen.upToSize 3 $ middle o]
+                grouped :: ECTAGen Int
+                grouped =
+                    ECTAGen.recur $ \o ->
+                        ECTAGen.oneof
+                            [ pure 0
+                            , ECTAGen.atKey () $ ECTAGen.recurGrouped $ \m ->
+                                ECTAGen.keyed () $ ECTAGen.oneof [pure 1, inner (ECTAGen.atKey () m) o]
+                            ]
+            -- In each language, O = 0 | M, M = 1 | N, and N = M * O | N * N.
+            map (ECTAGen.countAtSize outer) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            traverse (ECTAGen.unrank outer) [0 .. 3] `shouldBe` Right [0, 1, 1, 2]
+            map (ECTAGen.countAtSize grouped) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            -- A bound around the middle recursion reaches the outer occurrence.
+            ECTAGen.cardinality bounded `shouldBe` Left BoundedRecursiveOccurrence
 
         it "reports the exact atomic distribution inside one recursive size" $ do
             let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
