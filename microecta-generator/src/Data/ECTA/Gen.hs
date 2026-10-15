@@ -1432,9 +1432,10 @@ smallest (Opaque _) = Left CannotInspectOpaqueGenerator
 
 {- | Structural shrink candidates for one rank of a transparent generator.
 
-Candidates decode to values from the same language: earlier alternatives at
-their minimal ranks come first, then each product component shrinks
-independently. Opaque generators and out-of-range ranks have no candidates.
+Candidates decode to values from the same language and are never larger than
+the current member: earlier alternatives at their smallest members come
+first, then each product component shrinks independently. Opaque generators
+and out-of-range ranks have no candidates.
 -}
 shrinkRank :: ECTAGen gen a -> Integer -> [Integer]
 shrinkRank (Cyclic _) _ = []

@@ -6,8 +6,9 @@ those decisions instead of the number. Two mechanisms build on the same
 factoring:
 
 * 'shrinkPlanRank' produces structural shrink candidates: jump to an
-  earlier alternative at its minimal rank, or shrink the operation and each
-  argument component independently.
+  earlier alternative at its smallest member, or shrink the operation and
+  each argument component independently. No candidate decodes to a member
+  larger than the current one.
 
 * 'smallerPlanMembers' streams every member structurally smaller than a
   rank's member, in size order, where size ('planMemberSize') is the number
@@ -44,7 +45,11 @@ may contain only larger members than a later branch, so rank zero is not a
 general finite minimum.
 -}
 smallestPlanRank :: Plan a -> Maybe Integer
-smallestPlanRank = fmap snd . minimumMember
+smallestPlanRank = fmap snd . smallestPlanMember
+
+-- | The size and rank of a structurally smallest member; see 'smallestPlanRank'.
+smallestPlanMember :: Plan a -> Maybe (Int, Integer)
+smallestPlanMember = minimumMember
   where
     minimumMember :: Plan b -> Maybe (Int, Integer)
     minimumMember (PlanSelect cardinality _) =
@@ -82,12 +87,15 @@ smallestPlanRank = fmap snd . minimumMember
 {- | Shrink candidates for one rank, guided by the plan structure.
 
 The rank factors into a choice branch and mixed-radix product components,
-so shrinking is structural: jump to the minimal rank of an earlier
+so shrinking is structural: jump to the smallest member of an earlier
 alternative first (in layered generators with base alternatives first, this
 replaces a whole subtree with an atom), then shrink each product component
 independently, recursing into operation and argument sub-ranks. Every
 candidate is a valid rank of the same plan, so shrinking never leaves the
-language.
+language, and every candidate is a strictly smaller rank whose member is no
+larger than the current member, so a shrink loop terminates without growing
+its counterexample. An earlier alternative whose smallest member is larger
+than the current member is skipped.
 -}
 shrinkPlanRank :: Plan a -> Integer -> [Integer]
 shrinkPlanRank = go
@@ -98,8 +106,13 @@ shrinkPlanRank = go
     go (PlanChoice branches) index =
         case break (holdsRank index) (withOffsets branches) of
             (earlier, (offset, _, branch) : _) ->
-                [offset' | (offset', _, _) <- earlier]
-                    <> [offset + inner | inner <- go branch (index - offset)]
+                let currentSize = planMemberSize branch (index - offset)
+                 in [ offset' + smallest
+                    | (offset', _, earlierBranch) <- earlier
+                    , Just (size, smallest) <- [smallestPlanMember earlierBranch]
+                    , size <= currentSize
+                    ]
+                        <> [offset + inner | inner <- go branch (index - offset)]
             (_, []) -> []
     -- Size-major ranks: a smaller rank is never a larger member, so the
     -- ordinary integral shrink sequence is already a structural one.

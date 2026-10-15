@@ -811,6 +811,21 @@ spec = do
                 pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
              in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
 
+        it "never offers a member larger than the current one across choice branches" $ do
+            let small = (: []) <$> Core.elements [0, 1] :: Core.ECTAGen Exact [Int]
+                big = (\a b c -> a <> b <> c) <$> small <*> small <*> small
+                bigFirst = Core.oneof [big, small]
+                smallFirst = Core.oneof [small, big]
+            -- Rank 8 is the size-one member [0] in the second branch.
+            Core.unrank bigFirst 8 `shouldBe` Right [0]
+            Core.shrinkRank bigFirst 8 `shouldBe` []
+            Core.smallerMembers bigFirst 8 `shouldBe` []
+            -- Rank 9 shrinks within its branch, never into the size-three branch.
+            Core.shrinkRank bigFirst 9 `shouldBe` [8]
+            -- A size-three member shrinks to the size-one branch when that branch comes first.
+            Core.unrank smallFirst 2 `shouldBe` Right [0, 0, 0]
+            take 1 (Core.shrinkRank smallFirst 2) `shouldBe` [0]
+
         modifyMaxSuccess (const 200) $
             it "replays sampled ranks below the Int cardinality boundary" $
                 let chunk = ECTAGen.elements [0 :: Int .. 199]

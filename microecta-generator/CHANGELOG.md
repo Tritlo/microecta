@@ -110,7 +110,9 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 * `support`, `cardinality`, `sizes`, `countAtSize`, `minimumSize`, `countBy`,
   `pmf`, `unrank`, `sizeOfRank`, `smallest`, `smallerMembers`, and `shrinkRank`
   report exact structure. `unrank` is deterministic replay; ranks are stable
-  while the generator definition and its finite sources are.
+  while the generator definition and its finite sources are. A `shrinkRank`
+  candidate is never larger than the current member: an earlier alternative
+  gives its smallest member, and only when that member is no larger.
 * `countsAtSize` reports how a grouped language's members divide among retained
   keys, and `massesAtSize` reports the sampling distribution over those keys,
   which differs from the counts under weighted atomic choices. `pmfAtSize`

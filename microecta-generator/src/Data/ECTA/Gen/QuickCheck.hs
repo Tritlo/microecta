@@ -554,8 +554,8 @@ smallest failing member.
 Shrink candidates first search every member of strictly smaller size, in size
 order, capped at 'smallerMemberLimit', so the result is the globally smallest
 failing member whenever the search reaches one. Component shrinking through
-'shrinkRank' follows as a fallback, restricted to candidates of at most the
-current size. For a recursive generator that fallback reads the candidates
+'shrinkRank' follows as a fallback; its candidates are never larger than
+the current member. For a recursive generator that fallback reads the candidates
 from the form bounded at the current size, since a recursive generator has no
 component shrinks of its own; bounding preserves ranks, so the candidates
 replay against the unbounded generator unchanged. Every candidate is a member
@@ -594,23 +594,15 @@ forAllWithLimit limit generator prop
     shrinkCandidates (rank, _) = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
-        currentSize = sizeOfRank generator rank
         -- 'shrinkRank' has no candidates for a recursive generator, so the
         -- structural candidates come from the form bounded at the current
         -- size, whose shrinking is size-major halving. Bounding preserves
-        -- ranks, and leaves a finite generator alone.
-        bounded = maybe generator (`ECTA.upToSize` generator) currentSize
-        -- Every 'shrinkRank' candidate already has a strictly smaller rank, so
-        -- this guard only stops a candidate from growing in size; it is not
-        -- what makes shrinking terminate. A candidate whose size cannot be
-        -- read is out of range and is dropped by the 'unrank' guard below.
-        notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
-            (Just candidateSize, Just size) -> candidateSize <= size
-            _ -> True
+        -- ranks, and leaves a finite generator alone. Every candidate has a
+        -- strictly smaller rank and a member no larger than the current one.
+        bounded = maybe generator (`ECTA.upToSize` generator) (sizeOfRank generator rank)
         structural =
             [ (candidate, value)
             | candidate <- shrinkRank bounded rank
-            , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
 
