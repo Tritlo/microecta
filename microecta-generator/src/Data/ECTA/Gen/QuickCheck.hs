@@ -375,9 +375,9 @@ oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped = ECTA.oneofGrouped
 
 {- | Choose among grouped generators so that every member of the combined
-language is equally likely: finite alternatives are combined in proportion to
-their exact cardinalities, and alternatives around a recursive family with
-equal weights.
+language is equally likely when each alternative is uniform: finite
+alternatives are combined in proportion to their exact cardinalities, and
+alternatives around a recursive family with equal weights.
 -}
 uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 uniformlyGrouped = ECTA.uniformlyGrouped
@@ -400,8 +400,9 @@ oneof :: [ECTAGen a] -> ECTAGen a
 oneof = ECTA.oneof
 
 {- | Choose among generators so that every member of the combined language is
-equally likely: finite alternatives are combined in proportion to their
-cardinalities, and alternatives around a recursive one with equal weights.
+equally likely when each alternative is uniform: finite alternatives are
+combined in proportion to their cardinalities, and alternatives around a
+recursive one with equal weights.
 -}
 uniformly :: [ECTAGen a] -> ECTAGen a
 uniformly = ECTA.uniformly
