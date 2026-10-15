@@ -793,9 +793,15 @@ matchMu _otherwise = Nothing
 and assume that all occurrences of @i@ must be free (in other words, that any occurrences of 'Mu' will have a
 /different/ identifier).
 
-Postcondition:
+Postcondition, when 'createMu' made each 'Mu' of the node:
 
 > substFree i (Rec i) == id
+
+The rebuild makes each open 'Mu' again with 'createMu', which removes a
+binder that its body does not use. So a 'Mu' that 'createMuDontCleanup'
+made with an unused binder does not survive the substitution, also when
+@n@ is @Rec i@: the result has the same free names and the same language,
+but it is another node, with fewer nested 'Mu's.
 -}
 substFree :: (Hashable symbol, Typeable symbol) => RecNodeId -> Node symbol -> Node symbol -> Node symbol
 substFree old new = substFree' (Map.singleton old new)
@@ -820,7 +826,8 @@ correctly:
 
 Preparing the plan therefore does the expensive traversal once, independently
 of the substitution environment. Applying it still rebuilds the graph for each
-environment. See @intersect@ for an operation that can avoid an environment
+environment, except a subgraph without free variables, which it returns
+unchanged. See @intersect@ for an operation that can avoid an environment
 altogether; substitution cannot, because the environment is part of its input.
 -}
 data SubstitutionPlan symbol a = SubstitutionPlan (Map RecNodeId (Node symbol) -> a)
@@ -864,12 +871,37 @@ substitutionPlan inputNode = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
     onNode :: Node symbol -> SubstitutionPlan symbol (Node symbol)
     onNode n = SubstitutionPlan $
         case n of
+            -- A node without free variables has nothing to substitute.
+            _ | Set.null (freeVars n) -> const n
             EmptyNode -> \_ -> EmptyNode
             InternedNode node -> case sequenceSubstitutionPlans $ map edgeSubstitutionPlan (internedNodeEdges node) of
                 SubstitutionPlan !f -> \env -> mkNode (f env)
+            -- 'createMu' applies its function more than once, and each
+            -- application substitutes into the nested binders again. So the
+            -- result for each binder and the bindings of its free variables is
+            -- kept: without it, a chain of nested binders costs time
+            -- exponential in its depth.
             InternedMu mu -> case onNode (internedMuBody mu) of
-                SubstitutionPlan !f -> \env -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r env)
+                SubstitutionPlan !f ->
+                    \env ->
+                        muSubstitution
+                            (\(_, bindings) -> createMu $ \r -> f (Map.insert (RecInt (internedMuId mu)) r (Map.fromDistinctAscList bindings)))
+                            (n, Map.toAscList $ Map.restrictKeys env $ freeVars n)
             Rec i -> \env -> fromMaybe n (Map.lookup i env)
+
+    muSubstitution :: ((Node symbol, [(RecNodeId, Node symbol)]) -> Node symbol) -> (Node symbol, [(RecNodeId, Node symbol)]) -> Node symbol
+    muSubstitution = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+        Just HRefl -> memoWith symbolMuSubstitutionCache
+        Nothing -> memoTypeableWith genericMuSubstitutionCache
+
+-- | The memo tables of the substitution into one binder, by its free bindings.
+symbolMuSubstitutionCache :: MemoCache (Node Symbol, [(RecNodeId, Node Symbol)]) (Node Symbol)
+symbolMuSubstitutionCache = unsafePerformIO newMemoCache
+{-# NOINLINE symbolMuSubstitutionCache #-}
+
+genericMuSubstitutionCache :: TypeableMemoCache
+genericMuSubstitutionCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericMuSubstitutionCache #-}
 
 -- | Memo tables for 'edgeSubstitutionPlan'.
 symbolEdgeSubstitutionPlanCache :: MemoCache (Edge Symbol) (SubstitutionPlan Symbol (Edge Symbol))

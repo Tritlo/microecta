@@ -71,6 +71,14 @@ reduces them, or enumerates them needs no migration.
   the binder into the body on every call, so every operation that reads the
   edges of a `Mu` rebuilt the same interned nodes. The unfolding is now
   memoized per recursive node.
+* Substitute into a recursive node in time that does not grow exponentially
+  with its nested binders. `createMu` applies its body more than once, and
+  substitution into a binder calls `createMu`, so substitution under nested
+  binders applied each inner binder again for each application of the outer
+  one, and it rebuilt closed subgraphs too. Substitution now returns a node
+  without free variables unchanged, and keeps the result for each binder and
+  the bindings of its free variables. The `substFree` Haddock now says that
+  its identity postcondition holds for binders that `createMu` made.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
