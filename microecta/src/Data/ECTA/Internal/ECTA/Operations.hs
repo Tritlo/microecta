@@ -119,7 +119,7 @@ symbols or equality constraints, say - without touching the node's children.
 -}
 nodeMapChildren :: (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
 nodeMapChildren _ EmptyNode = EmptyNode
-nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
+nodeMapChildren f n@(Mu _) = nodeMapChildren f (constructorRows n)
 nodeMapChildren f (Node es) = Node (map f es)
 nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
@@ -215,11 +215,33 @@ unfoldOuterRec node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     go n@(Mu x) = x n
     go _ = error "unfoldOuterRec: Must be called on a Mu node"
 
--- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
+{- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
+
+A 'Mu' can unfold to another 'Mu'. A chain of such unfoldings that comes
+back to a node of the chain, as the unfolding of @createMuDontCleanup id@
+does, has no constructor row, so it has no alternatives.
+-}
 nodeEdges :: (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
 nodeEdges (InternedNode node) = internedNodeEdges node
-nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
+nodeEdges n@(Mu _)
+    | InternedNode unfolded <- unfoldOuterRec n = internedNodeEdges unfolded
+    | otherwise = go (IntSet.singleton $ nodeIdentity n) (unfoldOuterRec n)
+  where
+    go seen m@(Mu _)
+        | IntSet.member (nodeIdentity m) seen = []
+        | otherwise = go (IntSet.insert (nodeIdentity m) seen) (unfoldOuterRec m)
+    go _ m = nodeEdges m
 nodeEdges _ = []
+
+{- | The constructor rows of a 'Mu' as a node: its unfolding when that is an
+ordinary node, and otherwise a node of its 'nodeEdges'. So a retained cycle
+of binders, such as @createMuDontCleanup id@, gives 'EmptyNode' and not an
+unfolding that does not end.
+-}
+constructorRows :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+constructorRows n = case unfoldOuterRec n of
+    unfolded@(InternedNode _) -> unfolded
+    _ -> Node $ nodeEdges n
 
 -- | Memo tables for 'refold'.
 symbolRefoldCache :: MemoCache (Node Symbol) (Node Symbol)
@@ -706,7 +728,7 @@ unionMapMaybe f = union . mapMaybe f
 requirePath :: (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node symbol
 requirePath EmptyPath n = n
 requirePath _ EmptyNode = EmptyNode
-requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
+requirePath p n@(Mu _) = requirePath p (constructorRows n)
 requirePath (ConsPath p ps) (Node es) =
     Node $
         map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))) $
@@ -725,7 +747,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
-    getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
+    getPath p n@(Mu _) = getPath p (constructorRows n)
     getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -734,7 +756,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     getAllAtPath _ EmptyNode = []
     getAllAtPath EmptyPath n = [n]
-    getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
+    getAllAtPath p n@(Mu _) = getAllAtPath p (constructorRows n)
     getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -743,7 +765,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     modifyAtPath f EmptyPath n = f n
     modifyAtPath _ _ EmptyNode = EmptyNode
-    modifyAtPath f p n@(Mu _) = modifyAtPath f p (unfoldOuterRec n)
+    modifyAtPath f p n@(Mu _) = modifyAtPath f p (constructorRows n)
     modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
       where
         goEdge :: Edge symbol -> Edge symbol
@@ -995,7 +1017,7 @@ requireAll paths = requireList (foldr insertNeeded (Needed IntMap.empty) paths)
     requireNode :: Needed -> Node symbol -> Node symbol
     requireNode (Needed children) n | IntMap.null children = n
     requireNode _ EmptyNode = EmptyNode
-    requireNode needed n@(Mu _) = requireNode needed (unfoldOuterRec n)
+    requireNode needed n@(Mu _) = requireNode needed (constructorRows n)
     requireNode needed@(Needed children) (Node es) =
         Node
             [ setChildren e (requireList needed (edgeChildren e))
@@ -1030,7 +1052,7 @@ editAll edits = editList (foldr (uncurry insertEdit) (EditBelow IntMap.empty) ed
     editNode :: Edits symbol -> Node symbol -> Node symbol
     editNode (EditAt f) n = f n
     editNode _ EmptyNode = EmptyNode
-    editNode below n@(Mu _) = editNode below (unfoldOuterRec n)
+    editNode below n@(Mu _) = editNode below (constructorRows n)
     editNode below (Node es) = Node (map (\e -> setChildren e (editList below (edgeChildren e))) es)
     editNode _ (Rec _) = error "editAll: unexpected Rec"
 

@@ -588,6 +588,24 @@ spec = do
         it "keeping a redundant Mu is what createMuDontCleanup is for" $
             numNestedMu (createMuDontCleanup (\_r -> Node [Edge "f" []]) :: Node Symbol) `shouldBe` 1
 
+        it "traverses retained epsilon binder cycles as empty" $ do
+            let empty =
+                    [ createMuDontCleanup id
+                    , createMuDontCleanup $ \outer -> createMuDontCleanup $ const outer
+                    ] ::
+                        [Node Symbol]
+            forM_ empty $ \node -> do
+                timeout 2000000 (evaluate $ null $ nodeEdges node) `shouldReturn` Just True
+                timeout 2000000 (evaluate $ nodeMapChildren id node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ getPath (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ null $ getAllAtPath (path [0]) node) `shouldReturn` Just True
+                timeout 2000000 (evaluate $ modifyAtPath id (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ requirePath (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ termsMatching (TemplateNode "a" []) node) `shouldReturn` Just EmptyNode
+                let classes = mkEqConstraints [[path [0, 0], path [1, 0]]]
+                timeout 2000000 (evaluate $ reduceEqConstraints classes EmptyConstraints [node, node] == [EmptyNode, EmptyNode])
+                    `shouldReturn` Just True
+
     describe "nested Mu" $
         it "references to different Mu nodes are not confused" $
             property $ do

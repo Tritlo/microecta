@@ -67,6 +67,15 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Read the constructor rows of a recursive node before a path operation.
+  `requirePath`, `getPath`, `getAllAtPath`, `modifyAtPath`,
+  `nodeMapChildren`, `termsMatching`, and the class reduction of
+  `reduceEqConstraints` unfolded a `Mu` and looked again. So on a binder whose
+  unfolding is itself, which `createMuDontCleanup id` still builds, they did
+  not return, and neither did `nodeEdges`. `nodeEdges` now gives no rows for
+  such a cycle, and the other operations read the rows of a `Mu` through it,
+  so the node reads as `EmptyNode`. Every other `Mu` reads as its unfolding,
+  as before.
 * Share the unfolding of each recursive node. `unfoldOuterRec` substituted
   the binder into the body on every call, so every operation that reads the
   edges of a `Mu` rebuilt the same interned nodes. The unfolding is now
