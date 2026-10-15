@@ -89,6 +89,7 @@ import Data.ECTA (
     Edge (Edge),
     Node (Node),
     mkEdge,
+    numNestedMu,
     reducePartially,
  )
 import Data.ECTA.Gen.Internal.Decoder (
@@ -1171,9 +1172,13 @@ joinNBucketStatic componentIndex operation arguments =
         [ Term (argKeySymbol componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
-    joined =
-        reducePartially $
-            joinNode componentIndex (staticSupport operation) (chainSupports arguments)
+    unreduced = joinNode componentIndex (staticSupport operation) (chainSupports arguments)
+    -- A bounded member of a recursive family keeps its recursive support.
+    -- Propagating constraints through a recursive node is not sound, so
+    -- such a join stays unreduced, as 'recursiveJoin' does.
+    joined
+        | numNestedMu unreduced > 0 = unreduced
+        | otherwise = reducePartially unreduced
     operationOutcomes = staticOutcomes operation
     argumentsCardinality = chainCardinality arguments
     totalOutcomes = outcomeCardinality operationOutcomes * argumentsCardinality
