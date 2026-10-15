@@ -463,18 +463,21 @@ data IntersectionDom symbol = ID
     -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
     -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
+    , idHash :: !Int
+    -- ^ Hash of the two fields, computed once: every memo lookup hashes the domain.
     }
     deriving (Show, Eq)
 
 instance Hashable (IntersectionDom symbol) where
-    -- Implementation notes:
-    --
-    -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
-    -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-    hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
+    hashWithSalt s dom = hashWithSalt s (idHash dom)
 
+-- | Build a domain and its hash. Both containers list their elements in key order, a canonical form.
+mkIntersectionDom :: Map Id (Node symbol) -> Set IntersectId -> IntersectionDom symbol
+mkIntersectionDom free recInt = ID free recInt (hash (Map.toList free, Set.toList recInt))
+
+-- | An intersection environment with no free or pending variables.
 emptyIntersectionDom :: IntersectionDom symbol
-emptyIntersectionDom = ID Map.empty Set.empty
+emptyIntersectionDom = mkIntersectionDom Map.empty Set.empty
 
 symbolIntersectOpenCache :: MemoCache (IntersectionDom Symbol, Node Symbol, Node Symbol) (Node Symbol)
 symbolIntersectOpenCache = unsafePerformIO newMemoCache
@@ -536,10 +539,9 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
         -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
         extendEnv :: [(Id, Node symbol)] -> IntersectionDom symbol
         extendEnv bindings =
-            ID
-                { idFree = Map.union (Map.fromList bindings) (idFree dom)
-                , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
-                }
+            mkIntersectionDom
+                (Map.union (Map.fromList bindings) (idFree dom))
+                (Set.insert (IntersectId i j) (idRecInt dom))
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
