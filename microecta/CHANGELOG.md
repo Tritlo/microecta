@@ -79,6 +79,12 @@ reduces them, or enumerates them needs no migration.
   without free variables unchanged, and keeps the result for each binder and
   the bindings of its free variables. The `substFree` Haddock now says that
   its identity postcondition holds for binders that `createMu` made.
+* Choose the interning placeholder of a `Mu` above every placeholder of an
+  enclosing binder that its body captures. `createMu` named the body's own
+  variable `RecUnint d`, where `d` is the body's nesting depth, so a body that
+  captured an enclosing binder's placeholder at the same level got an
+  interning shape that aliased it. A body that captures no enclosing
+  placeholder keeps its old shape, so its interning key does not change.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
