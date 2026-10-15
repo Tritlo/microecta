@@ -78,8 +78,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   base member. `recur` and `recurGrouped` hand back a body that never reaches
   its own occurrence unchanged, so a finite body stays a finite generator, and
   hand back a body that failed to build with its own error rather than as a
-  recursive language. `upToSize` and `atomic` cannot be applied to the
-  occurrence itself, or to anything built from it, and say so with
+  recursive language. Every query of a recursion that failed reports that
+  error, not `UnboundedGenerator`, and a choice reports its first failed
+  alternative, finite or recursive. `upToSize` and `atomic` cannot be applied
+  to the occurrence itself, or to anything built from it, and say so with
   `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and
   equality constraints meet in one cycle. The key set is solved by a monotone
