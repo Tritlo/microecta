@@ -119,9 +119,8 @@ module Data.ECTA.Gen.QuickCheck (
 ) where
 
 import Data.Array (listArray, (!))
-import Data.List (mapAccumL, sortOn)
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
-import Data.Ord (Down (..))
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
@@ -161,14 +160,12 @@ instance ECTA.GenBackend QuickCheckBackend where
             "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
             \no alternative to pick"
     frequencyGen alternatives =
-        -- Ranked branches already carry their offsets, so sampling can put
-        -- likely branches first without changing rank order.
-        let ordered = sortOn (Down . fst) alternatives
-            (total, cumulative) = mapAccumL accumulateWeight 0 ordered
+        let (total, cumulative) = mapAccumL accumulateWeight 0 alternatives
             lastIndex = length cumulative - 1
             table = listArray (0, lastIndex) cumulative
             -- Search for the first alternative whose upper bound is above
-            -- the selected ticket. The upper bounds do not decrease, so a
+            -- the selected ticket. The alternatives keep the order the user
+            -- gave them. The upper bounds do not decrease in any order, so a
             -- binary search finds the alternative that a linear scan finds.
             pick selected low high
                 | low == high = case snd (table ! low) of QuickCheckBackend generated -> generated

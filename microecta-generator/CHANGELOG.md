@@ -136,6 +136,15 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   the generator type QuickCheck expects, bounding recursive generators from the
   size parameter. `sized` maps the size parameter to a generator, building and
   compiling each size once.
+* The QuickCheck backend draws a weighted alternative with a binary search over
+  the cumulative weights, in the order the alternatives were given. An earlier
+  version sorted them by descending weight first. The distributions are the
+  same, but at one seed the sampled stream changes for every draw among
+  unequal weights that reaches this choice: a `frequency` or `frequencies`
+  whose language is not uniform, a weighted group or join sampled through its
+  masses, and opaque alternatives. A uniform language, which draws one rank
+  through its compiled decoder, and an atomic choice compiled to a ticket
+  table keep their streams.
 * `forAll` shrinks to the smallest failing member: it first searches every
   member of strictly smaller size, in size order (`smallerMembers`, capped by
   `smallerMemberLimit`), then shrinks components through `shrinkRank`. For a
