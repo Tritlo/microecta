@@ -32,8 +32,9 @@ second row, so the ECTA-to-handwritten ratio moves with the cost of a draw in
 the QuickCheck and random versions in use -- compare the columns across engine
 changes on one machine, not against ratios recorded elsewhere.
 
-Each row prints a result-type checksum. It is a smoke check over the sampled
-stream, not a proof that the complete language or rank order is unchanged. The
+Each row prints a checksum that scores every node of every sampled expression.
+It is a check over the sampled stream, not a proof that the complete language
+or rank order is unchanged. The
 artifact's independent exhaustive verifier checks language equality.
 -}
 module Main (main) where
@@ -53,9 +54,10 @@ import qualified Test.QuickCheck.Random as QCRandom
 
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.TypedExpressionLanguage (
-    TypedExpression (expressionType),
+    TypedExpression,
     expressionGenAtDepth,
     handwrittenExpressionGen,
+    typedExpressionScore,
  )
 
 -- | Samples drawn per cell, after one untimed warm-up draw.
@@ -94,14 +96,14 @@ generatorFor "ecta" depth = ECTAGen.toGen $ expressionGenAtDepth depth
 generatorFor "handwritten" depth = handwrittenExpressionGen depth
 generatorFor engine _ = error $ "unknown engine: " <> engine
 
-{- | Force one sample down to a number.
+{- | Score one sample, from every node of it.
 
-Every field of a sampled expression is strict, so forcing the result type has
-already forced the whole tree: this measures generation rather than adding a
-second traversal.
+Every field of a sampled expression is strict, so the draw has already forced
+the whole tree. The score reads each node once more, so two runs that draw
+different expressions give different checksums.
 -}
 tally :: TypedExpression -> Int
-tally = fromEnum . expressionType
+tally = typedExpressionScore
 
 -- | What one child process measures.
 data Cell = Cell

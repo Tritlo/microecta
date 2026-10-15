@@ -75,8 +75,8 @@ chain. `frequencies` chooses among grouped generators with relative weights,
 group by group, so alternated layers (for example expressions of depth at
 most n) stay grouped. `uniformlyGrouped` combines grouped generators in
 proportion to their exact cardinalities, so every member of the union is
-equally likely, which is what a layered language wants; `uniformly` does the
-same for flat generators. `ungroup` returns an ordinary `ECTAGen` with
+equally likely when each generator is uniform, which is what a layered
+language wants; `uniformly` does the same for flat generators. `ungroup` returns an ordinary `ECTAGen` with
 the same exact distribution. Stable source order and ascending key order give
 deterministic replay ranks.
 
@@ -203,9 +203,11 @@ property and shrinks to the smallest failing member. It first tests every
 member of strictly smaller size, in size order (`smallerMembers`, capped by
 `smallerMemberLimit`), so the reported counterexample is globally size-minimal
 whenever that search reaches one. Behind that it offers size-major structural
-shrinking through `shrinkRank`, which for a recursive generator reads its
-candidates from the form bounded at the current size, since bounding is what
-gives a recursive member components to shrink. Every candidate is a member of
+shrinking through `shrinkRank`. `shrinkRank` has no candidates for a recursive
+generator. For a recursive generator, `forAll` bounds the generator at the size
+of the current member with `upToSize`, and calls `shrinkRank` on the bounded
+form, since bounding is what gives a recursive member components to shrink.
+Bounding keeps the ranks. Every candidate is a member of
 the generated language, and the failing rank is printed for deterministic
 replay with `unrank`. A generator with an opaque region has no ranks at all, so
 `forAll` tests it by sampling with no shrinking. `sized` builds and compiles
@@ -343,9 +345,7 @@ recursive language every finite inspector calls unbounded.
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
-`UnguardedRecursion` rather than left to hang. The check is per definition, so
-inside a nested `recur` an occurrence of the *outer* language must also sit
-under an application within the inner body. Structural alternatives around a
+`UnguardedRecursion` rather than left to hang. Structural alternatives around a
 recursive occurrence must carry equal weights; `oneof` is the combinator that
 already reads that way, and the size bound controls how large members get.
 `frequency` with unequal recursive-branch weights is rejected rather than

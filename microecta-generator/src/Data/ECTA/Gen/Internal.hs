@@ -17,6 +17,7 @@ module Data.ECTA.Gen.Internal (
     -- * Languages
     Outcome (..),
     OutcomeIndex (..),
+    mkOutcomeIndex,
     Static (..),
     Recursive (..),
     MassIndex,
@@ -32,6 +33,8 @@ module Data.ECTA.Gen.Internal (
     mapStatic,
     boundedStatic,
     recursiveFromStatic,
+    queryRecursive,
+    staticSampling,
     bucketFromOutcomes,
     mergeBucketGroup,
     mergeComponentsByKey,
@@ -61,11 +64,13 @@ module Data.ECTA.Gen.Internal (
 
     -- * Inspection and lowering
     enumerateOutcomeIndex,
+    enumerateWeighted,
     compileOutcomes,
     mapOutcomeIndex,
     sampleStatic,
     sampleStaticWithRank,
-    compiledDecoder,
+    drawUniform,
+    drawUniformWithRank,
     checkIndex,
     normalize,
 
@@ -77,10 +82,14 @@ module Data.ECTA.Gen.Internal (
     restrictToKey,
 ) where
 
+import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import Data.Kind (Type)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, isJust)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
@@ -89,18 +98,21 @@ import Data.ECTA (
     Edge (Edge),
     Node (Node),
     mkEdge,
+    numNestedMu,
     reducePartially,
  )
 import Data.ECTA.Gen.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     compilePlan,
+    sharedChoiceBound,
  )
 import Data.ECTA.Gen.Internal.Sampler
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts),
     choiceIndex,
     productIndex,
+    sharedPlan,
     sizeClasses,
     sizeIndex,
  )
@@ -170,6 +182,14 @@ data ECTAGenError
       definition is still computing.
       -}
       BoundedRecursiveOccurrence
+    | {- | A query read the argument of a @recur@ or @recurGrouped@ body, or a
+      language built from it, while the definition was still being built.
+      -}
+      QueriedRecursiveOccurrence
+    | {- | The final body of a @recurGrouped@ has other keys or other minimum
+      sizes than the passes that found them.
+      -}
+      InconsistentRecursiveFamily
     deriving (Eq, Show)
 
 {- | What one failure means, and what to do about it.
@@ -308,6 +328,20 @@ explain BoundedRecursiveOccurrence =
         , "upToSize n (recur ...), and keep only finite atomic choices inside the"
         , "body."
         ]
+explain QueriedRecursiveOccurrence =
+    guidance
+        [ "A query read a recursive occurrence while its language was still being built."
+        , "Its temporary support, counts, and sampling are incomplete."
+        , "Fix: compose the occurrence inside the body and query the completed"
+        , "result of recur or recurGrouped outside the body."
+        ]
+explain InconsistentRecursiveFamily =
+    guidance
+        [ "A recursive family changed its keys or minimum sizes after discovery."
+        , "The accumulated discovery table does not describe the final body."
+        , "Fix: construct each key with the same generator operations in every"
+        , "body evaluation. Query the completed family outside recurGrouped."
+        ]
 
 -- | One guidance message, one line per element.
 guidance :: [String] -> String
@@ -332,7 +366,39 @@ data OutcomeIndex a = OutcomeIndex
     fallback once when they need it.
     -}
     , outcomePlan :: Plan a
+    , outcomeSizeIndex :: SizeIndex a
+    {- ^ The size classes of 'outcomePlan', built on first use and retained so
+    a shrink loop pays for them once. Construct through 'mkOutcomeIndex'.
+    -}
+    , outcomeDecoder :: RankDecoder a
+    {- ^ The compiled decoder of 'outcomePlan', built on first use. The
+    lowering of the language and every shared plan node that stands for the
+    language call this one decoder, so it is compiled once. Construct through
+    'mkOutcomeIndex'.
+    -}
+    , outcomeSizeSampling :: Maybe (SampleIndex a, Integer -> Either ECTAGenError Rational)
+    {- ^ The sampler of each size class, and the weight of each rank inside its
+    size class, when a component atomic choice is not uniform. The weight of a
+    rank is its mass inside its size class times the number of members of the
+    class, so the weights of one size class add up to its member count. The
+    positions of the sampler are the positions of 'outcomeSizeIndex'.
+    'Nothing' means that every size class is uniform, and every rank has the
+    weight one. 'mkOutcomeIndex' sets 'Nothing'; 'applyStatic' and
+    'frequencyStatic' set a sampler and a weight from their components.
+    -}
     }
+
+-- | Build an outcome index whose size classes are derived from its plan.
+mkOutcomeIndex ::
+    Integer ->
+    Maybe Rational ->
+    (Integer -> Either ECTAGenError (Outcome a)) ->
+    (Integer -> a) ->
+    Sampler a ->
+    Plan a ->
+    OutcomeIndex a
+mkOutcomeIndex total mass select valueAt sampler plan =
+    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan) (compilePlan total plan) Nothing
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome a) -> Plan a
@@ -346,6 +412,10 @@ data JoinGroup left right = JoinGroup
     { joinGroupIndex :: !Int
     , joinGroupLeft :: !(Seq (Outcome left))
     , joinGroupRight :: !(Seq (Outcome right))
+    , joinGroupLeftWeights :: !(Seq Rational)
+    -- ^ The weight of each left outcome inside its size class, as 'staticSampling' gives it.
+    , joinGroupRightWeights :: !(Seq Rational)
+    -- ^ The weight of each right outcome inside its size class.
     }
 
 -- | One transparent ECTA with a matching indexed outcome language.
@@ -360,10 +430,36 @@ data Static a = Static
     {- ^ Whether an explicit atomic boundary closes this finite language.
 
     Ordinary finite weights do not control recursive structure. 'atomicStatic'
-    sets this marker so 'recursiveFromStatic' can preserve them as one source
+    sets this marker so 'staticSampling' can preserve them as one source
     choice. The sampler itself already lives in 'staticOutcomes'.
     -}
     }
+
+{- | The sampler of each size class of a finite language, and the weight of
+each rank inside its size class when that sampler is not uniform.
+
+Inside a size class, the ordinary finite weights of the language become
+member counts. An atomic choice keeps its own distribution, also when it is
+a component of a product or of a choice. 'outcomeSizeSampling' describes the
+weight. The weight of an atomic choice comes from its exact outcome masses.
+-}
+staticSampling :: Static a -> (SampleIndex a, Maybe (Integer -> Either ECTAGenError Rational))
+staticSampling static
+    | staticAtomic static =
+        ( atomicSampleIndex $ outcomeSampler outcomes
+        , case outcomeUniformMass outcomes of
+            Nothing -> Just atomWeight
+            Just _ -> Nothing
+        )
+    | Just (sampling, weight) <- outcomeSizeSampling outcomes = (sampling, Just weight)
+    | otherwise = (uniformSampleIndex $ outcomeSizeIndex outcomes, Nothing)
+  where
+    outcomes = staticOutcomes static
+    -- Every member of an atom has size one, so its mass inside its size class
+    -- is its mass.
+    atomWeight rank =
+        (* fromInteger (outcomeCardinality outcomes)) . outcomeMass
+            <$> outcomeSelect outcomes rank
 
 {- | One recursive ECTA and the size-stratified language it accepts.
 
@@ -386,13 +482,15 @@ data Recursive a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
-    , recursiveOccurrence :: !Bool
-    {- ^ Whether this language is, or is built from, the argument of a
-    @recur@ or @recurGrouped@ body that is still being defined. Bounding such
-    a language is ill-founded — its size classes are what the definition is
-    computing — so 'boundedStatic' must not be reached through it. The flag is
-    set on the placeholders and cleared on the finished result, and is
-    therefore not the Boolean knot @usedOccurrence@ is.
+    , recursiveConstruction :: !IntSet
+    {- ^ The tokens of the @recur@ and @recurGrouped@ definitions that are
+    still being defined and whose argument this language is, or is built
+    from. Bounding such a language is ill-founded — its size classes are what
+    the definition is computing — so 'boundedStatic' must not be reached
+    through it. A query of such a language reports
+    @QueriedRecursiveOccurrence@, through 'queryRecursive'. A placeholder
+    holds the token of its definition, and a finished definition removes only
+    its own token, so it keeps the tokens of the definitions around it.
     -}
     , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
@@ -402,34 +500,38 @@ data Recursive a = Recursive
     -}
     }
 
+{- | Reject a query of a language that reaches the argument of a recursive
+definition that is not finished.
+
+The body of a definition is built several times, against different
+placeholders. A query of a placeholder can give another answer in each build,
+and then the builds describe different languages.
+-}
+queryRecursive :: Recursive a -> Either ECTAGenError (Recursive a)
+queryRecursive recursive
+    | IntSet.null $ recursiveConstruction recursive = Right recursive
+    | otherwise = Left QueriedRecursiveOccurrence
+
 -- | View a finite language as one size-stratified recursive component.
 recursiveFromStatic :: Static a -> Recursive a
 recursiveFromStatic static =
     Recursive
         (staticSupport static)
-        index
+        (outcomeSizeIndex $ staticOutcomes static)
         sampling
-        weighted
-        False
+        (isJust weight)
+        IntSet.empty
         Nothing
   where
-    outcomes = staticOutcomes static
-    index = sizeIndex $ outcomePlan outcomes
-    (sampling, weighted)
-        | staticAtomic static =
-            ( atomicSampleIndex $ outcomeSampler outcomes
-            , case outcomeUniformMass outcomes of
-                Nothing -> True
-                Just _ -> False
-            )
-        | otherwise = (uniformSampleIndex index, False)
+    (sampling, weight) = staticSampling static
 
 {- | Bound a recursive language to its members of size at most the bound.
 
 The result is an ordinary finite language with the same size-major ranks the
 recursive language gives its members, so a rank replays through either. Size
 classes retain their count-based probability. Finite choices closed with
-'atomicStatic' retain their own distribution inside each class. The support
+'atomicStatic' retain their own distribution inside each class, also when the
+bounded language is a part of another recursion. The support
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
@@ -446,7 +548,7 @@ boundedStatic bound recursive
         Right $
             Static
                 (recursiveSupport recursive)
-                ( OutcomeIndex
+                ( mkOutcomeIndex
                     totalOutcomes
                     uniformMass
                     select
@@ -454,6 +556,8 @@ boundedStatic bound recursive
                     sampler
                     plan
                 )
+                    { outcomeSizeSampling = sizeSampling
+                    }
                 False
   where
     select index = case recursiveTerm recursive of
@@ -461,7 +565,37 @@ boundedStatic bound recursive
         Just readTerm -> do
             checkIndex totalOutcomes index
             let value = selectValue index
-            pure $ Outcome (readTerm value) (1 / fromInteger totalOutcomes) value
+            weight <- maybe (Right 1) (\(_, weightAt) -> weightAt index) sizeSampling
+            pure $ Outcome (readTerm value) (weight / fromInteger totalOutcomes) value
+
+    -- The bounded language keeps the sampler of each size class, so a
+    -- recursion over it keeps its atomic distributions.
+    sizeSampling
+        | recursiveWeighted recursive =
+            Just (recursiveSampling recursive, Right . classWeight classMasses)
+        | otherwise = Nothing
+    -- The exact distribution of each class sampler, by position in the class.
+    -- A recursive language has no finite weights to read, so this interprets
+    -- the sampler, and its cost grows with the tickets of the compiled atomic
+    -- samplers in the class. It is computed once, on first use.
+    classMasses =
+        [ ( count
+          , Map.fromListWith
+                (+)
+                [ (position, mass)
+                | (mass, (position, _)) <-
+                    runExact $ runRankSampler $ samplerAtSize (recursiveSampling recursive) size
+                ]
+          )
+        | (size, count, _, _) <- classes
+        ]
+    classWeight [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.boundedStatic: \
+            \rank outside the bounded language"
+    classWeight ((count, masses) : rest) index
+        | index < count = fromInteger count * Map.findWithDefault 0 index masses
+        | otherwise = classWeight rest (index - count)
 
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes
@@ -570,24 +704,46 @@ keyedRecursive recursive =
         (countMassIndex $ recursiveIndex recursive)
         False
 
--- | Build one retained group from its outcomes, in rank order.
-bucketFromOutcomes :: Bool -> [Outcome a] -> Either ECTAGenError (KeyedBucket a)
-bucketFromOutcomes retainAtomic outcomes = do
+{- | Build one retained group from its outcomes, in rank order.
+
+Every outcome comes with the weight of its rank inside its size class in the
+grouped language, as 'enumerateWeighted' gives it. Every member of a group
+has size one, and the members keep their weights relative to each other, so
+an atomic choice inside the grouped language keeps its distribution inside
+the group.
+-}
+bucketFromOutcomes :: Bool -> [(Rational, Outcome a)] -> Either ECTAGenError (KeyedBucket a)
+bucketFromOutcomes retainAtomic weightedOutcomes = do
     sampler <- sequenceSampler conditional
-    pure $
-        KeyedBucket bucketMass $
-            Static
-                bucketSupport
-                ( OutcomeIndex
-                    totalOutcomes
-                    uniformMass
-                    select
-                    selectValue
-                    sampler
-                    (PlanSelect totalOutcomes selectValue)
-                )
-                retainAtomic
+    sizeSampling <- case commonValue $ map (Just . fst) weightedOutcomes of
+        Just _ -> pure Nothing
+        Nothing -> do
+            weightSampler <-
+                sequenceSampler $
+                    Sequence.fromList
+                        [ outcome{outcomeMass = weight}
+                        | (weight, outcome) <- weightedOutcomes
+                        ]
+            pure $ Just (atomicSampleIndex weightSampler, Right . weightAt)
+    let bucketOutcomes =
+            ( mkOutcomeIndex
+                totalOutcomes
+                uniformMass
+                select
+                selectValue
+                sampler
+                (PlanSelect totalOutcomes selectValue)
+            )
+                { outcomeSizeSampling = sizeSampling
+                }
+    pure $ KeyedBucket bucketMass $ Static bucketSupport bucketOutcomes retainAtomic
   where
+    outcomes = map snd weightedOutcomes
+    -- The weights of the group add up to its number of members.
+    weights = Sequence.fromList $ map fst weightedOutcomes
+    totalWeight = sum weights
+    weightAt index =
+        fromInteger totalOutcomes * Sequence.index weights (fromInteger index) / totalWeight
     bucketMass = sum $ map outcomeMass outcomes
     conditional =
         Sequence.fromList
@@ -667,13 +823,13 @@ atomicStatic :: Static a -> Static a
 atomicStatic static =
     static
         { staticOutcomes =
-            outcomes
-                { outcomePlan =
-                    PlanSelect
-                        (outcomeCardinality outcomes)
-                        (outcomeValueAt outcomes)
-                , outcomeSampler = retainedSampler
-                }
+            mkOutcomeIndex
+                (outcomeCardinality outcomes)
+                (outcomeUniformMass outcomes)
+                (outcomeSelect outcomes)
+                (outcomeValueAt outcomes)
+                retainedSampler
+                (PlanSelect (outcomeCardinality outcomes) (outcomeValueAt outcomes))
         , staticAtomic = True
         }
   where
@@ -688,7 +844,7 @@ pureStatic :: a -> Static a
 pureStatic value =
     Static
         (Node [Edge pureSymbol []])
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             1
             (Just 1)
             ( \index -> do
@@ -706,7 +862,7 @@ indexedStatic :: Indexed a -> Static a
 indexedStatic indexed =
     Static
         (Node [Edge (indexedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             (Just $ 1 / fromInteger totalOutcomes)
             select
@@ -735,7 +891,7 @@ applyStatic functions values =
                 [staticSupport functions, staticSupport values]
             ]
         )
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             ((*) <$> outcomeUniformMass functionOutcomes <*> outcomeUniformMass valueOutcomes)
             select
@@ -751,12 +907,34 @@ applyStatic functions values =
                 (outcomePlan valueOutcomes)
             )
         )
+            { outcomeSizeSampling = sizeSampling
+            }
         False
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
     valueCardinality = outcomeCardinality valueOutcomes
     totalOutcomes = outcomeCardinality functionOutcomes * valueCardinality
+
+    -- Each side samples its own size class, so an atomic side keeps its
+    -- distribution inside every size of the product.
+    (functionSampling, functionWeight) = staticSampling functions
+    (valueSampling, valueWeight) = staticSampling values
+    sizeSampling = case (functionWeight, valueWeight) of
+        (Nothing, Nothing) -> Nothing
+        _ ->
+            Just
+                ( productSampleIndex
+                    (outcomeSizeIndex functionOutcomes)
+                    functionSampling
+                    (outcomeSizeIndex valueOutcomes)
+                    valueSampling
+                , \index ->
+                    let (functionIndex, valueIndex) = splitIndex index
+                     in (*)
+                            <$> maybe (Right 1) ($ functionIndex) functionWeight
+                            <*> maybe (Right 1) ($ valueIndex) valueWeight
+                )
 
     select index = do
         checkIndex totalOutcomes index
@@ -788,7 +966,7 @@ frequencyStatic alternatives =
             | (index, (_, static)) <- numbered
             ]
         )
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -796,12 +974,14 @@ frequencyStatic alternatives =
             sampler
             ( PlanChoice
                 [ ( outcomeCardinality $ staticOutcomes static
-                  , outcomePlan $ staticOutcomes static
+                  , alternativePlan $ staticOutcomes static
                   )
                 | (_, static) <- alternatives
                 ]
             )
         )
+            { outcomeSizeSampling = sizeSampling
+            }
         False
   where
     totalWeight = sum $ map fst alternatives
@@ -821,6 +1001,22 @@ frequencyStatic alternatives =
     sampler = case uniformMass of
         Just _ -> uniformSampler totalOutcomes selectValue
         Nothing -> frequencySampler alternatives
+
+    -- Member counts choose the alternative inside a size class, as in a
+    -- recursive choice. An atomic alternative keeps its own distribution.
+    samplings = map (staticSampling . snd) alternatives
+    sizeSampling
+        | any (isJust . snd) samplings =
+            Just
+                ( choiceSampleIndex
+                    [ (outcomeSizeIndex $ staticOutcomes static, sampling)
+                    | ((sampling, _), (_, static)) <- zip samplings alternatives
+                    ]
+                , \index ->
+                    let (_, _, static, childIndex) = selectBranch index rankedBranches
+                     in maybe (Right 1) ($ childIndex) $ snd $ staticSampling static
+                )
+        | otherwise = Nothing
 
     branchUniformMass (weight, static) =
         (fromInteger weight / fromInteger totalWeight *)
@@ -850,6 +1046,21 @@ frequencyStatic alternatives =
     selectBranch index ((upperBound, offset, branchIndex, weight, static) : remaining)
         | index < upperBound = (branchIndex, weight, static, index - offset)
         | otherwise = selectBranch index remaining
+
+{- | The plan of one alternative of a choice.
+
+An alternative with more than 'sharedChoiceBound' members is a shared node:
+the choice calls its compiled decoder and reads its size classes, and does not
+copy its plan. A plan that is shared already stays as it is, because a second
+shared node would add one call to each decode.
+-}
+alternativePlan :: OutcomeIndex a -> Plan a
+alternativePlan outcomes = case outcomePlan outcomes of
+    plan@PlanShared{} -> plan
+    plan
+        | outcomeCardinality outcomes > sharedChoiceBound ->
+            PlanShared (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) plan
+        | otherwise -> plan
 
 -- | Join two languages on equal projected keys with one ECTA equality constraint.
 joinStatic ::
@@ -895,7 +1106,7 @@ relateStatic leftKey rightKey relation left right = do
 joinGroupedStatic ::
     Static left ->
     Static right ->
-    [([Outcome left], [Outcome right])] ->
+    [([(Rational, Outcome left)], [(Rational, Outcome right)])] ->
     Either ECTAGenError (Static (left, right))
 joinGroupedStatic left right related =
     if null related
@@ -904,8 +1115,10 @@ joinGroupedStatic left right related =
             let groups =
                     [ JoinGroup
                         keyIndex
-                        (Sequence.fromList leftOutcomes)
-                        (Sequence.fromList rightOutcomes)
+                        (Sequence.fromList $ map snd leftOutcomes)
+                        (Sequence.fromList $ map snd rightOutcomes)
+                        (Sequence.fromList $ map fst leftOutcomes)
+                        (Sequence.fromList $ map fst rightOutcomes)
                     | (keyIndex, (leftOutcomes, rightOutcomes)) <-
                         zip [0 :: Int ..] related
                     ]
@@ -943,17 +1156,19 @@ joinGroupedStatic left right related =
                 (\outcomes -> Static joined outcomes False)
                     <$> joinOutcomeIndex left right groups
 
--- | Enumerate a language and pair every outcome with its projected key.
+{- | Enumerate a language and pair every outcome with its projected key and
+the weight of its rank inside its size class.
+-}
 keyedOutcomes ::
     (value -> key) ->
     Static value ->
-    Either ECTAGenError [(key, Outcome value)]
+    Either ECTAGenError [(key, (Rational, Outcome value))]
 keyedOutcomes key static =
-    map (\outcome -> (key $ outcomeValue outcome, outcome))
-        <$> enumerateOutcomeIndex (staticOutcomes static)
+    map (\entry@(_, outcome) -> (key $ outcomeValue outcome, entry))
+        <$> enumerateWeighted static
 
--- | Group enumerated outcomes by key.
-groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
+-- | Group enumerated outcomes by key, in their order.
+groupOutcomes :: (Ord key) => [(key, outcome)] -> Map.Map key [outcome]
 groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
 
 -- | Count, select, and sample the matched groups of a two-way join.
@@ -966,8 +1181,17 @@ joinOutcomeIndex left right groups = do
     rankSampler <- case uniformMass of
         Just _ -> pure $ uniformSampler totalOutcomes selectValue
         Nothing -> joinSampler groups
+    -- Every pair has size two. When a side has a non-uniform atomic choice,
+    -- the pairs of that size class are sampled in proportion to the product
+    -- of the weights of their two sides, as the size class of a product is.
+    sizeSampling <-
+        if isJust (snd $ staticSampling left) || isJust (snd $ staticSampling right)
+            then do
+                sampler <- joinSampler weightGroups
+                pure $ Just (SampleIndex $ const sampler, Right . weight)
+            else pure Nothing
     pure $
-        OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -983,7 +1207,25 @@ joinOutcomeIndex left right groups = do
                 | group <- groups
                 ]
             )
+        )
+            { outcomeSizeSampling = sizeSampling
+            }
   where
+    -- The groups with the weight of each outcome in place of its mass.
+    weightGroups =
+        [ group
+            { joinGroupLeft = Sequence.zipWith withMass (joinGroupLeftWeights group) (joinGroupLeft group)
+            , joinGroupRight = Sequence.zipWith withMass (joinGroupRightWeights group) (joinGroupRight group)
+            }
+        | group <- groups
+        ]
+    withMass mass outcome = outcome{outcomeMass = mass}
+    totalWeight = sum $ map joinGroupMass weightGroups
+    weight index =
+        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroupsByOffset index
+         in fromInteger totalOutcomes * outcomeMass leftOutcome * outcomeMass rightOutcome / totalWeight
+    weightGroupsByOffset = joinGroupsByOffset weightGroups
+
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
         (Just _, Just _) -> Just $ 1 / fromInteger totalOutcomes
@@ -1011,8 +1253,10 @@ joinOutcomeIndex left right groups = do
         let (_, leftOutcome, rightOutcome) = selectPair index
          in (outcomeValue leftOutcome, outcomeValue rightOutcome)
 
-    selectPair index =
-        let (group, groupIndex) = selectJoinGroup index groups
+    groupsByOffset = joinGroupsByOffset groups
+    selectPair = selectPairIn groupsByOffset
+    selectPairIn byOffset index =
+        let (group, groupIndex) = selectJoinGroup index byOffset
             rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
             (leftIndex, rightIndex) = groupIndex `quotRem` rightCardinality
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromInteger leftIndex
@@ -1031,20 +1275,21 @@ joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
 
+-- | The matched groups with pairs, by the first rank of each.
+joinGroupsByOffset :: [JoinGroup left right] -> Map.Map Integer (JoinGroup left right)
+joinGroupsByOffset groups = Map.fromList [entry | entry@(_, group) <- offsetJoinGroups groups, joinGroupCardinality group > 0]
+
 -- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Integer ->
-    [JoinGroup left right] ->
+    Map.Map Integer (JoinGroup left right) ->
     (JoinGroup left right, Integer)
-selectJoinGroup _ [] =
-    error
-        "microecta-generator bug in Data.ECTA.Gen.Internal.selectJoinGroup: \
-        \rank outside the matched groups"
-selectJoinGroup index (group : remaining)
-    | index < groupSize = (group, index)
-    | otherwise = selectJoinGroup (index - groupSize) remaining
-  where
-    groupSize = joinGroupCardinality group
+selectJoinGroup index groups = case Map.lookupLE index groups of
+    Just (offset, group) -> (group, index - offset)
+    Nothing ->
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.selectJoinGroup: \
+            \rank outside the matched groups"
 
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
@@ -1157,7 +1402,7 @@ joinNBucketStatic componentIndex operation arguments =
     -- support reduction.
     Static
         joined
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -1165,15 +1410,21 @@ joinNBucketStatic componentIndex operation arguments =
             rankSampler
             (chainPlan (outcomePlan operationOutcomes) arguments)
         )
+            { outcomeSizeSampling = outcomeSizeSampling $ staticOutcomes $ applyChain operation arguments
+            }
         False
   where
     keyTerms =
         [ Term (argKeySymbol componentIndex position) []
         | position <- [0 .. chainLength arguments - 1]
         ]
-    joined =
-        reducePartially $
-            joinNode componentIndex (staticSupport operation) (chainSupports arguments)
+    unreduced = joinNode componentIndex (staticSupport operation) (chainSupports arguments)
+    -- A bounded member of a recursive family keeps its recursive support.
+    -- Propagating constraints through a recursive node is not sound, so
+    -- such a join stays unreduced, as 'recursiveJoin' does.
+    joined
+        | numNestedMu unreduced > 0 = unreduced
+        | otherwise = reducePartially unreduced
     operationOutcomes = staticOutcomes operation
     argumentsCardinality = chainCardinality arguments
     totalOutcomes = outcomeCardinality operationOutcomes * argumentsCardinality
@@ -1201,6 +1452,16 @@ joinNBucketStatic componentIndex operation arguments =
     selectValue index =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
+
+{- | Apply an operation to every argument of a chain with 'applyStatic'.
+
+The plan of the result is 'chainPlan', so its ranks are the ranks of the
+join. The join reads only the sampler and the weight of each size class from
+it.
+-}
+applyChain :: Static operation -> ArgStatics operation result -> Static result
+applyChain static ChainNil = static
+applyChain static (ChainCons argument rest) = applyChain (applyStatic static argument) rest
 
 {- | One joined edge: the operation group, one group per argument, and one
 equality constraint per argument tying each argument to the operation's key
@@ -1269,7 +1530,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
-            joinedOccurrence
+            joinedConstruction
             Nothing
         )
         joinedMasses
@@ -1295,9 +1556,10 @@ recursiveJoin componentIndex operation arguments =
     joinedMassWeighted =
         keyedRecursiveMassWeighted operation
             || recursiveChainMassWeighted arguments
-    joinedOccurrence =
-        recursiveOccurrence operationRecursive
-            || recursiveChainOccurrence arguments
+    joinedConstruction =
+        IntSet.union
+            (recursiveConstruction operationRecursive)
+            (recursiveChainConstruction arguments)
 
 -- | The support of every matched recursive argument group, in order.
 recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
@@ -1367,11 +1629,11 @@ recursiveChainWeighted ChainNil = False
 recursiveChainWeighted (ChainCons recursive rest) =
     recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
 
--- | Whether any recursive argument is still a recursive occurrence.
-recursiveChainOccurrence :: ArgChain KeyedRecursive operation result -> Bool
-recursiveChainOccurrence ChainNil = False
-recursiveChainOccurrence (ChainCons recursive rest) =
-    recursiveOccurrence (keyedRecursiveLanguage recursive) || recursiveChainOccurrence rest
+-- | The unfinished definitions that the recursive arguments reach.
+recursiveChainConstruction :: ArgChain KeyedRecursive operation result -> IntSet
+recursiveChainConstruction ChainNil = IntSet.empty
+recursiveChainConstruction (ChainCons recursive rest) =
+    IntSet.union (recursiveConstruction $ keyedRecursiveLanguage recursive) (recursiveChainConstruction rest)
 
 -- | Whether a recursive argument's key mass differs from structural counts.
 recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
@@ -1399,7 +1661,7 @@ mergeRecursiveGroups alternatives =
                 index
                 (choiceMassSampleIndex indexedSamplers)
                 weighted
-                (any (recursiveOccurrence . keyedRecursiveLanguage) alternatives)
+                (IntSet.unions $ map (recursiveConstruction . keyedRecursiveLanguage) alternatives)
                 Nothing
             )
             masses
@@ -1459,17 +1721,28 @@ chainSampler sampler (ChainCons static rest) =
         )
         rest
 
--- | Mirror 'chainSampler' as plan structure, one product per argument.
+{- | Mirror 'chainSampler' as plan structure, one product per argument.
+
+Each argument is a shared plan: the compiled decoder of the join calls the
+compiled decoder of the argument group, and the size classes of the join read
+the size classes of the group. Many joins use the same group, for example
+every step of a trace uses the groups of the step before it. A plan that
+copied the group's plan into each join would compile one copy for each path
+to the group, and the decoder would keep each copy that a sample reached. A
+group with one member is a sized leaf, as 'sharedPlan' explains.
+-}
 chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
 chainPlan plan ChainNil = plan
 chainPlan plan (ChainCons static rest) =
     chainPlan
         ( PlanAp
-            (outcomeCardinality $ staticOutcomes static)
+            (outcomeCardinality outcomes)
             plan
-            (outcomePlan $ staticOutcomes static)
+            (sharedPlan (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) (outcomePlan outcomes))
         )
         rest
+  where
+    outcomes = staticOutcomes static
 
 -- | Build a rank decoder once, capturing every suffix cardinality.
 chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
@@ -1543,6 +1816,21 @@ singletonNode :: Term Symbol -> Node Symbol
 singletonNode (Term symbol children) =
     Node [Edge symbol $ map singletonNode children]
 
+{- | Select every outcome in rank order, with the weight of its rank inside
+its size class.
+
+'outcomeSizeSampling' describes the weight. Every outcome of a language with
+uniform size classes has the weight one.
+-}
+enumerateWeighted :: Static a -> Either ECTAGenError [(Rational, Outcome a)]
+enumerateWeighted static = do
+    outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+    weights <-
+        traverse
+            (fromMaybe (const $ Right 1) $ snd $ staticSampling static)
+            [0 .. toInteger (length outcomes) - 1]
+    pure $ zip weights outcomes
+
 -- | Enumerate a language as normalized mass and value pairs.
 compileOutcomes :: Static a -> Either ECTAGenError [(Rational, a)]
 compileOutcomes static = do
@@ -1555,10 +1843,7 @@ sampleStatic ::
     Static a ->
     gen (Either ECTAGenError a)
 sampleStatic static
-    | Just _ <- outcomeUniformMass outcomes =
-        case compiledDecoder outcomes of
-            SmallDecoder bound decode -> Right . decode <$> selectInt bound
-            LargeDecoder bound decode -> Right . decode <$> selectInteger bound
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniform (outcomeDecoder outcomes)
     | otherwise =
         Right <$> runValueSampler (outcomeSampler outcomes)
   where
@@ -1570,21 +1855,22 @@ sampleStaticWithRank ::
     Static a ->
     gen (Either ECTAGenError (Integer, a))
 sampleStaticWithRank static
-    | Just _ <- outcomeUniformMass outcomes =
-        case compiledDecoder outcomes of
-            SmallDecoder bound decode ->
-                (\index -> Right (toInteger index, decode index)) <$> selectInt bound
-            LargeDecoder bound decode ->
-                (\index -> Right (index, decode index)) <$> selectInteger bound
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniformWithRank (outcomeDecoder outcomes)
     | otherwise =
         Right <$> runRankSampler (outcomeSampler outcomes)
   where
     outcomes = staticOutcomes static
 
--- | Compile the retained plan once, at lowering time.
-compiledDecoder :: OutcomeIndex a -> RankDecoder a
-compiledDecoder outcomes =
-    compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
+-- | Draw one value of a uniform language through its compiled decoder.
+drawUniform :: (GenBackend gen) => RankDecoder a -> gen a
+drawUniform (SmallDecoder bound decode) = decode <$> selectInt bound
+drawUniform (LargeDecoder bound decode) = decode <$> selectInteger bound
+
+-- | 'drawUniform' with the replay rank of the value.
+drawUniformWithRank :: (GenBackend gen) => RankDecoder a -> gen (Integer, a)
+drawUniformWithRank (SmallDecoder bound decode) =
+    (\index -> (toInteger index, decode index)) <$> selectInt bound
+drawUniformWithRank (LargeDecoder bound decode) = (\rank -> (rank, decode rank)) <$> selectInteger bound
 
 -- | Largest non-uniform language compiled to one exact ticket selection.
 weightedCompilationBound :: Integer
@@ -1641,13 +1927,17 @@ offsetAlternatives = go 0
 -- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
 mapOutcomeIndex transform outcomes =
-    OutcomeIndex
+    ( mkOutcomeIndex
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
         (\index -> mapOutcome transform <$> outcomeSelect outcomes index)
         (transform . outcomeValueAt outcomes)
         (mapSampler transform $ outcomeSampler outcomes)
         (PlanMap transform $ outcomePlan outcomes)
+    )
+        { outcomeSizeSampling =
+            Bifunctor.first (mapSampleIndex transform) <$> outcomeSizeSampling outcomes
+        }
 
 -- | Map the value of one outcome.
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b

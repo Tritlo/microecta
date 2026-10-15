@@ -7,10 +7,13 @@ each locally bounded rank to machine 'Int' arithmetic whenever it fits.
 module Data.ECTA.Gen.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
+    SizeIndex (..),
     planCardinality,
+    sharedChoiceBound,
     compilePlan,
 ) where
 
+import Data.IntSet (IntSet)
 import GHC.Arr (listArray, unsafeAt)
 
 {- | Symbolic rank-decoding structure retained beside every outcome index.
@@ -23,6 +26,16 @@ rank order of the corresponding selectors exactly.
 data Plan a where
     -- | A leaf: a finite source decoded by index.
     PlanSelect :: !Integer -> (Integer -> a) -> Plan a
+    {- | A shared subplan with its cardinality, its compiled decoder, and its
+    size classes.
+
+    The decoder and the walks for size classes and for the smallest member
+    read these fields and do not go into the subplan again. A subplan that a
+    plan reaches through several paths is then compiled and counted once, not
+    once for each path. The size classes must be the @sizeIndex@ of the
+    subplan. The walks that follow one rank go into the subplan.
+    -}
+    PlanShared :: !Integer -> RankDecoder a -> SizeIndex a -> Plan a -> Plan a
     -- | Map decoded values.
     PlanMap :: (b -> a) -> Plan b -> Plan a
     -- | Ordered alternatives; each pair is a branch cardinality and branch.
@@ -34,12 +47,45 @@ data Plan a where
     {- | A language already stratified by member size: ascending sizes, each
     with its member count and a decoder for one position in that size class.
 
-    Ranks are size-major, so a smaller rank never decodes to a larger member.
-    This is what a recursive generator bounded by 'Data.ECTA.Gen.upToSize'
-    lowers to; the other constructors keep the mixed-radix order they always
-    had.
+    'PlanSized' does not check that the sizes ascend. Its producers keep them
+    ascending. A recursive generator bounded by 'Data.ECTA.Gen.upToSize'
+    lowers to this plan with strictly ascending sizes, and @sharedPlan@ gives
+    a language with one member as one class. So ranks are size-major, and a
+    smaller rank never decodes to a larger member. The other constructors
+    keep the mixed-radix order they always had.
     -}
     PlanSized :: [(Int, Integer, Integer -> a, Int -> a)] -> Plan a
+
+{- | The size classes of one language: how many members each holds, and how
+to select one by its position in the class.
+
+"Data.ECTA.Gen.Internal.Size" builds and reads this type. This module
+defines it, so that a 'PlanShared' node can keep the size classes of its
+subplan.
+-}
+data SizeIndex a = SizeIndex
+    { sizeClassCounts :: [Integer]
+    -- ^ Members per size, for ascending sizes from one.
+    , sizeClassSelect :: Int -> Integer -> (Integer, a)
+    -- ^ Rank and value of one member of one size class.
+    , sizeClassValueInt :: Int -> Int -> a
+    {- ^ Value of one member using machine arithmetic. Called only when the
+    requested size class fits in 'Int'.
+    -}
+    , minimumMemberSize :: Maybe Int
+    -- ^ Smallest live size, or 'Nothing' when no finite member is known.
+    , unguardedOccurrences :: IntSet
+    {- ^ The recursions whose probe can be reached without passing through a
+    product. Counting such an index would consult its own size, so a
+    recursive definition shaped this way has no smallest member. Each
+    element is the 'Int' of an occurrence token.
+    -}
+    , usedOccurrences :: IntSet
+    {- ^ The recursions whose probe is reachable at all. A recursive definition
+    whose body never reaches its own occurrence is not recursive. Each
+    element is the 'Int' of an occurrence token.
+    -}
+    }
 
 -- | A compiled rank decoder, selected by the top-level cardinality.
 data RankDecoder a
@@ -49,6 +95,7 @@ data RankDecoder a
 -- | The exact number of ranks a plan decodes.
 planCardinality :: Plan a -> Integer
 planCardinality (PlanSelect cardinality' _) = cardinality'
+planCardinality (PlanShared cardinality' _ _ _) = cardinality'
 planCardinality (PlanMap _ plan) = planCardinality plan
 planCardinality (PlanChoice branches) = sum $ map fst branches
 planCardinality (PlanAp rightCardinality planF _) =
@@ -74,6 +121,7 @@ normalizePlan (PlanChoice branches) =
 normalizePlan (PlanAp rightCardinality planF planX) =
     PlanAp rightCardinality (normalizePlan planF) (normalizePlan planX)
 normalizePlan plan@(PlanSelect _ _) = plan
+normalizePlan plan@(PlanShared{}) = plan
 normalizePlan plan@(PlanSized _) = plan
 
 -- | Push one pending map down while normalizing below it.
@@ -81,6 +129,7 @@ pushMap :: (b -> a) -> Plan b -> Plan a
 pushMap transform (PlanMap inner plan) = pushMap (transform . inner) plan
 pushMap transform (PlanSelect cardinality' decode) =
     PlanSelect cardinality' (transform . decode)
+pushMap transform plan@(PlanShared{}) = PlanMap transform plan
 pushMap transform (PlanChoice branches) =
     rebuildChoice $ concatMap flattenBranch branches
   where
@@ -107,6 +156,20 @@ rebuildChoice branches = PlanChoice branches
 -- | Leaves at most this large are tabulated into arrays at compile time.
 tabulationBound :: Integer
 tabulationBound = 4096
+
+{- | A choice alternative with more members than this is a shared node in the
+plan of its choice.
+
+'normalizePlan' splices a small alternative into the flat choice of its
+parent and pushes maps into it. That gives the fastest decoder, but it copies
+the alternative at each path to it. A generator that reuses a language in
+several alternatives, such as @rest@ in @oneof [f <$> rest, g <$> rest]@, has
+a number of paths that grows exponentially with the depth. A shared
+alternative is compiled and counted once. A small alternative has at most
+this many members, so each of its copies stays small.
+-}
+sharedChoiceBound :: Integer
+sharedChoiceBound = 4096
 
 {- | Compile a plan, choosing the machine-'Int' path when the language fits.
 
@@ -141,6 +204,8 @@ compileRank (PlanSelect cardinality' decode)
                     [decode (toInteger index) | index <- [0 .. size - 1]]
          in unsafeAt table
     | otherwise = decode . toInteger
+compileRank (PlanShared _ (SmallDecoder _ decode) _ _) = decode
+compileRank (PlanShared _ (LargeDecoder _ decode) _ _) = decode . toInteger
 compileRank (PlanMap transform plan) =
     let decode = compileRank plan
      in \index ->
@@ -225,6 +290,8 @@ compileLargeRank (PlanSelect cardinality' decode)
                     [decode (toInteger index) | index <- [0 .. size - 1]]
          in unsafeAt table . fromInteger
     | otherwise = decode
+compileLargeRank (PlanShared _ (SmallDecoder _ decode) _ _) = decode . fromInteger
+compileLargeRank (PlanShared _ (LargeDecoder _ decode) _ _) = decode
 compileLargeRank (PlanMap transform plan) =
     let decode = compileLocalRank plan
      in \index ->

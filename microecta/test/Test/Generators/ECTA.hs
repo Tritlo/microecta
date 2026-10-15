@@ -50,6 +50,7 @@ instance Arbitrary (Node Symbol) where
     shrink (Node es) = [Node es' | s <- subsequences es \\ [es], es' <- mapM shrink s] ++ concatMap (\e -> edgeChildren e) es
     shrink (Mu _) = []
     shrink (Rec _) = []
+    shrink _ = []
 
 testEdgeTypes :: [(Symbol, Int)]
 testEdgeTypes =

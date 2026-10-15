@@ -348,6 +348,7 @@ enumerateNode scs n =
      in case hereConstraints of
             Sequence.Empty -> case n of
                 Mu _ -> TermFragmentUVar <$> addUVarValue (Just n)
+                InternedUnion _ -> TermFragmentUVar <$> addUVarValue (Just n)
                 Node es -> enumerateEdge scs =<< lift es
                 Rec recId ->
                     error $
@@ -418,10 +419,12 @@ findExpandableUVars = do
         UVarUnenumerated mbContents scs ->
             let (ruledOut', uf') = Foldable.foldl' resolve (ruledOut, uf) scs
                 candidates' = case mbContents of
-                    -- An unconstrained Mu is the recursive base case: expanding
-                    -- it would unfold forever with nothing to stop it.
-                    Just (InternedMu _)
-                        | Sequence.null scs -> candidates
+                    -- An unconstrained Mu or union is the recursive base case:
+                    -- expanding it would unfold forever with nothing to stop it.
+                    Just node
+                        | recursiveBoundary node
+                        , Sequence.null scs ->
+                            candidates
                     Just _ -> IntSet.insert i candidates
                     Nothing -> candidates
              in (candidates', ruledOut', uf')
@@ -488,6 +491,7 @@ enumerateOutUVar uv =
 
         t <- case n of
             Mu _ -> enumerateNode scs (unfoldOuterRec n)
+            InternedUnion _ -> enumerateNode scs (Node $ nodeEdges n)
             _ -> enumerateNode scs n
 
         setUVarValue (uvarToInt uv') (UVarEnumerated t)
@@ -505,7 +509,7 @@ enumerateOutFirstExpandableUVar = do
 -- | Expand the root UVar until it represents a complete term.
 enumerateFully :: (Hashable symbol, Typeable symbol) => EnumerateM symbol ()
 enumerateFully =
-    void $ enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
+    enumerateFully' () noExpansionPreference (\state _ _ -> return (False, state))
 
 {- | Enumerate until the root term is complete, with optional oracle pruning.
 
@@ -532,12 +536,12 @@ enumerateFully' ::
     a ->
     ExpansionOrder a ->
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
-    EnumerateM symbol Bool
+    EnumerateM symbol ()
 enumerateFully' ost order oracle = do
     muv <- nextExpandableUVar (order ost)
     case muv of
         ExpansionStuck -> mzero
-        ExpansionDone -> return True
+        ExpansionDone -> return ()
         ExpansionNext uv ->
             let continue ost' = do
                     tf <- enumerateOutUVar uv
@@ -546,12 +550,9 @@ enumerateFully' ost order oracle = do
                         then mzero
                         else enumerateFully' ost'' order oracle
              in do
-                    UVarUnenumerated (Just n) scs <- getUVarValue uv
-                    case n of
-                        Mu _ | scs == Sequence.empty -> return True
-                        _ -> do
-                            (should_prune, ost') <- oracle ost uv (Right n)
-                            if should_prune then mzero else continue ost'
+                    UVarUnenumerated (Just n) _ <- getUVarValue uv
+                    (should_prune, ost') <- oracle ost uv (Right n)
+                    if should_prune then mzero else continue ost'
 
 ---------------------
 -------- Expanding an enumerated term fragment into a term
@@ -575,7 +576,7 @@ expandPartialTermFrag (TermFragmentUVar uv) = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandPartialTermFrag fragment
-        UVarUnenumerated (Just (InternedMu _)) Sequence.Empty -> return $ Term TruncatedRecursion []
+        UVarUnenumerated (Just node) Sequence.Empty | recursiveBoundary node -> return $ Term TruncatedRecursion []
         _ -> return $ Term (UVarHole uv) []
 
 -- | Expand a complete term fragment into a concrete term.
@@ -591,7 +592,7 @@ expandTermFragWith recursionSymbol = go
         val <- getUVarValue uv
         case val of
             UVarEnumerated t -> go t
-            UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+            UVarUnenumerated (Just node) _ | recursiveBoundary node -> return $ Term recursionSymbol []
             _ ->
                 error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
@@ -610,7 +611,7 @@ expandUVarWith recursionSymbol uv = do
     value <- getUVarValue uv
     case value of
         UVarEnumerated fragment -> expandTermFragWith recursionSymbol fragment
-        UVarUnenumerated (Just (InternedMu _)) _ -> return $ Term recursionSymbol []
+        UVarUnenumerated (Just node) _ | recursiveBoundary node -> return $ Term recursionSymbol []
         _ -> mzero
 
 ---------------------
@@ -650,10 +651,13 @@ supplies the callbacks and the means to read a partial term
 
 A check that cannot be settled because the fragment still holds an unexpanded
 'TermFragmentUVar' does not need help from this module either. Park it in the
-oracle's own state under that hole's representative
-('getUVarRepresentative'), and settle it when the oracle is called with
-@Left fragment@ for that UVar, which is guaranteed to happen before the branch
-completes. 'getAllTermsPruneWith' can bring that moment forward.
+oracle's own state under that hole's UVar. The oracle is called with
+@Left fragment@ for every UVar that enumeration expands, and that UVar is always
+a current representative. Enumeration can merge a parked UVar into another one,
+and then no call names the parked UVar. So at each call, look up the current
+representative of each parked UVar with 'getUVarRepresentative', and settle the
+checks whose representative is the UVar of the call. A UVar that holds an
+unconstrained 'Mu' gets no call. 'getAllTermsPruneWith' can bring a call forward.
 
 Truncated recursion is reported as the @Mu@ marker in the caller's alphabet;
 'getAllTermsPruneWith' takes that symbol explicitly, so an alphabet without an
@@ -716,8 +720,8 @@ enumPruneWith ::
     (a -> UVar -> Either (TermFragment symbol) (Node symbol) -> EnumerateM symbol (Bool, a)) ->
     EnumerateM symbol (Term symbol)
 enumPruneWith recursionSymbol a order oracle = do
-    finished <- enumerateFully' a order oracle
-    if finished then expandUVarWith recursionSymbol (intToUVar 0) else mzero
+    enumerateFully' a order oracle
+    expandUVarWith recursionSymbol (intToUVar 0)
 
 {- | Enumerate the terms an ECTA accepts, truncating at recursion.
 

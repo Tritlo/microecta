@@ -3,8 +3,10 @@
 
 module Data.ECTA.GenSpec (spec) where
 
+import Control.Exception (evaluate)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
+import System.Timeout (timeout)
 import Test.Hspec (Expectation, Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldSatisfy)
 import Test.Hspec.QuickCheck (modifyMaxSuccess)
 import qualified Test.QuickCheck as QC
@@ -810,6 +812,40 @@ spec = do
             let pairs :: Core.ECTAGen Exact (Int, Char)
                 pairs = (,) <$> Core.elements [0 .. 3] <*> Core.elements "abcd"
              in Core.shrinkRank pairs 15 `shouldBe` [3, 11, 12, 14]
+
+        it "never offers a member larger than the current one across choice branches" $ do
+            let small = (: []) <$> Core.elements [0, 1] :: Core.ECTAGen Exact [Int]
+                big = (\a b c -> a <> b <> c) <$> small <*> small <*> small
+                bigFirst = Core.oneof [big, small]
+                smallFirst = Core.oneof [small, big]
+            -- Rank 8 is the size-one member [0] in the second branch.
+            Core.unrank bigFirst 8 `shouldBe` Right [0]
+            Core.shrinkRank bigFirst 8 `shouldBe` []
+            Core.smallerMembers bigFirst 8 `shouldBe` []
+            -- Rank 9 shrinks within its branch, never into the size-three branch.
+            Core.shrinkRank bigFirst 9 `shouldBe` [8]
+            -- A size-three member shrinks to the size-one branch when that branch comes first.
+            Core.unrank smallFirst 2 `shouldBe` Right [0, 0, 0]
+            take 1 (Core.shrinkRank smallFirst 2) `shouldBe` [0]
+
+        it "shrinks a member whose shared parts have one member each" $ do
+            -- The large member is a balanced tree of 2^41 - 1 source choices:
+            -- at each level, both arguments of the join are one language.
+            let doubling :: Int -> ECTAGen.Grouped Int Int
+                doubling 0 = ECTAGen.keyed 0 (ECTAGen.elements [1])
+                doubling level =
+                    ECTAGen.apply
+                        (ECTAGen.keyed ((level - 1) :* (level - 1) :-> level) (ECTAGen.elements [(+)]))
+                        (previous :& previous :& ANil)
+                  where
+                    previous = doubling (level - 1)
+                largeOrSmall = ECTAGen.oneof [ECTAGen.elements [0], ECTAGen.atKey 40 (doubling 40)]
+                answers =
+                    ECTAGen.sizeOfRank largeOrSmall 1 == Just (2 ^ (41 :: Int) - 1)
+                        && ECTAGen.shrinkRank largeOrSmall 1 == [0]
+                        && take 1 (ECTAGen.smallerMembers largeOrSmall 1) == [(0, 0)]
+            completed <- timeout 20000000 $ evaluate answers
+            completed `shouldBe` Just True
 
         modifyMaxSuccess (const 200) $
             it "replays sampled ranks below the Int cardinality boundary" $

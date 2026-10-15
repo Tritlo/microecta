@@ -28,12 +28,15 @@ reduces them, or enumerates them needs no migration.
 * Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
   matched, so a negative count decremented without end. Zero or less now
   unfolds nothing, which is what the bound already meant.
-* Fix `reduceEqConstraints` returning children that a second call could
-  narrow further. In one pass over the equivalence classes, the intersection
-  for one class could narrow a node that an earlier class had already read, so
-  the result was not a fixpoint. The reduction now repeats the pass until the
-  children stop changing. The fixture for this bug, open since 2021-06-29,
-  now passes.
+* `reduceEqConstraints` makes one pass over the equivalence classes of an
+  edge, as in the ECTA paper. One pass is not always a fixpoint: the
+  intersection for one class can narrow a node that an earlier class has
+  already read, as the fixture open since 2021-06-29 shows. Iterate the
+  reduction to get a fixpoint, as `fixUnbounded (withoutRedundantEdges .
+  reducePartially)` does; at that fixpoint one pass at each edge changes
+  nothing. An earlier change on this unreleased version repeated the pass at
+  each edge, and that made the term search of the ECTA paper about 100 times
+  slower, because each new pass reads new nodes and misses the memo tables.
 * Fix `nodeRepresents` accepting a term in which every path of an equality
   class is missing. The class compared the missing subterms, and `Nothing`
   equals `Nothing`. Enumeration and reduction require every path of a class,
@@ -64,6 +67,75 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Read the constructor rows of a recursive node before a path operation.
+  `requirePath`, `getPath`, `getAllAtPath`, `modifyAtPath`,
+  `nodeMapChildren`, `termsMatching`, and the class reduction of
+  `reduceEqConstraints` unfolded a `Mu` and looked again. So on a binder whose
+  unfolding is itself, which `createMuDontCleanup id` still builds, they did
+  not return, and neither did `nodeEdges`. `nodeEdges` now gives no rows for
+  such a cycle, and the other operations read the rows of a `Mu` through it,
+  so the node reads as `EmptyNode`. Every other `Mu` reads as its unfolding,
+  as before.
+* Breaking: keep the operands of an open union. `union` concatenated the
+  alternatives of its operands, and a reference has none, so a union inside a
+  nested binder lost a reference to an enclosing binder:
+  `Mu (\o -> Node [Edge "a" [], Edge "wrap" [Mu (\_ -> union [o, b])]])`
+  rejected `wrap(a)`. A union with such an operand is now a node of its own,
+  the new `Node` constructor `InternedUnion`, which keeps its operands until
+  substitution binds the reference. `createUnion` builds it and is exported
+  from `Data.ECTA`; a union of ordinary nodes is still an ordinary node.
+  `nodeEdges` takes the closure through union operands and `Mu` unfoldings
+  with a visited set, so an epsilon cycle such as `Mu (\r -> union [r, a])`
+  gives the least fixed point, and an unresolved reference in that closure is
+  an error. A binder drops its own reference from a union at the root of its
+  body, so `Mu (\r -> union [a, f r, r])` and `Mu (\r -> union [a, f r])` are
+  one node. Enumeration stops at an unconstrained union as at an
+  unconstrained `Mu`. A match on `Node` needs a case for `InternedUnion`, and
+  the `COMPLETE` set now lists it.
+* Share the unfolding of each recursive node. `unfoldOuterRec` substituted
+  the binder into the body on every call, so every operation that reads the
+  edges of a `Mu` rebuilt the same interned nodes. The unfolding is now
+  memoized per recursive node.
+* Substitute into a recursive node in time that does not grow exponentially
+  with its nested binders. `createMu` applies its body more than once, and
+  substitution into a binder calls `createMu`, so substitution under nested
+  binders applied each inner binder again for each application of the outer
+  one, and it rebuilt closed subgraphs too. Substitution now returns a node
+  without free variables unchanged, and keeps the result for each binder and
+  the bindings of its free variables. The `substFree` Haddock now says that
+  its identity postcondition holds for binders that `createMu` made.
+* Choose the interning placeholder of a `Mu` above every placeholder of an
+  enclosing binder that its body captures. `createMu` named the body's own
+  variable `RecUnint d`, where `d` is the body's nesting depth, so a body that
+  captured an enclosing binder's placeholder at the same level got an
+  interning shape that aliased it. A body that captures no enclosing
+  placeholder keeps its old shape, so its interning key does not change.
+* Hash the intersection environment once, and narrow the paths of an
+  equality class in one traversal. Every memo lookup of the intersection
+  hashed its whole recursive environment; the environment now carries its
+  hash. The equality reduction restricted and edited the children of an edge
+  once per path, each time from the root; it now builds one trie of the
+  required paths and applies the edits of a class in one traversal. The
+  results are the same.
+* Build equality constraints faster. `mkEqConstraints` merged classes with
+  the `equivalence` package and added congruences by comparing every path of
+  every class with every path of every class in each round. It now merges
+  classes with a small union-find over an `array`, keeps classes as sets, and
+  finds the strict extensions of each path as the run that follows it in
+  sorted order, so it adds one class for each class and distinct suffix. The
+  constraints it builds are the same. `equivalence` is now only a test
+  dependency, and the library depends on `array`, which GHC ships.
+* Decide `nodeRepresents` once for each node at each position of the term.
+  It tried every edge of a node with the term's root symbol and then every
+  child, so a rejected term below nodes with two edges of one symbol took time
+  exponential in its depth. Below such a subterm, a table now keeps the
+  result of each node at each position. The edges and children are tried in
+  the same order, and the answer is the same.
+* Keep a literal `Symbol` a constant. `fromString` on `Symbol` could inline
+  into an unboxed `Text` and a lookup in the symbol table, and then GHC may
+  not float the result out to a constant, so a literal in a pattern or an
+  expression interned its text again on each call. `fromString` is now
+  `NOINLINE`, so a literal stays one opaque call, which GHC floats out.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
@@ -77,6 +149,23 @@ reduces them, or enumerates them needs no migration.
   closed `Mu` compares the alternatives of its unfolding, where every child is
   closed, and keeps the body alternatives whose unfolding remains. A node that
   refers to an enclosing binder keeps all of its alternatives.
+* Fix `reducePartially` not returning when an equality class reaches into a
+  recursive node whose body has constraints too, such as `g(y, y)` with
+  `0.0 = 1.0` over `y = b | h(x, y)` inside `x`. Reading or editing a path
+  through such a `Mu` unfolds it, the unfolding carries the constrained edges
+  of the body, and the descent into the edited child reduces those edges,
+  which unfold the `Mu` again. `termsMatching` and the README's
+  `fixUnbounded (withoutRedundantEdges . reducePartially)` inherited this.
+  Reduction now leaves a class unreduced when one of its paths meets a `Mu`
+  with constraints. Reduction only narrows, and enumeration and
+  `nodeRepresents` still check every class, so the language does not change.
+  A `Mu` without constraints still unfolds as before.
+* Fix `crush` folding a shared `Mu` once for each path to it. The visited set
+  held only ordinary nodes, so a recursive node reachable from two places was
+  folded twice, with its body. `nodeCount`, `edgeCount`, `maxIndegree`, and
+  `refold` were not affected, but a fold that counts or collects `Mu` nodes
+  was. Recursive and ordinary nodes draw identities from one counter, so one
+  visited set now covers both.
 * Fix enumeration of an automaton whose root is a `Mu` -- what `createMu`
   returns, and the idiomatic way to write a recursive automaton.
   `getAllTerms` returned `[]`, claiming the language was empty, and

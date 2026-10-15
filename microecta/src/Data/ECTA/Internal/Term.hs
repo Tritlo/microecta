@@ -49,8 +49,14 @@ instance Show Symbol where
 instance Hashable Symbol where
     hashWithSalt s (Symbol' t) = s `hashWithSalt` (internedTextId t)
 
+{- | A literal symbol interns its text once. 'fromString' does not inline, so
+GHC keeps @fromString "add"@ as one constant, also in a pattern of a
+function that runs once per term. Inlined, the call can turn into a
+lookup in the symbol table on each call.
+-}
 instance IsString Symbol where
     fromString = Symbol . fromString
+    {-# NOINLINE fromString #-}
 
 instance Read Symbol where
     readPrec = Symbol <$> readPrec

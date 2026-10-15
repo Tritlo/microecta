@@ -37,16 +37,18 @@ module Data.ECTA.Internal.Paths (
     unsafeSubsumptionOrderedEclasses,
 ) where
 
-import Prelude hiding (round)
-
+import Control.Monad (forM, forM_, when)
+import Control.Monad.ST (ST, runST)
+import Data.Array.ST (STUArray, newListArray, readArray, writeArray)
 import Data.Function (on)
 import Data.Hashable (Hashable (..))
-import Data.List (groupBy, isSubsequenceOf, nub, sort, sortBy)
+import Data.List (groupBy, isSubsequenceOf, sort, sortBy, tails)
 import qualified Data.List as List
+import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Text as Text
-
-import Data.Equivalence.Monad (classes, desc, equate, runEquivM)
 
 import Data.Memoization (MemoCacheTag (..), memo2)
 import Data.Text.Extended.Pretty
@@ -402,7 +404,9 @@ instance Ord PathEClass where
 pattern PathEClass :: [Path] -> PathEClass
 pattern PathEClass ps <- PathEClass' _ ps
     where
-        PathEClass ps = PathEClass' (toPathTrie $ nub ps) (sort $ nub ps)
+        PathEClass ps =
+            let paths = Set.toAscList $ Set.fromList ps
+             in PathEClass' (toPathTrie paths) paths
 
 -- | Extract the paths in an equality class.
 unPathEClass :: PathEClass -> [Path]
@@ -547,47 +551,88 @@ isContradicting cs = any (\pec -> hasSubsumingMemberListBased pec pec) cs
 
 {- | Build normalized equality constraints.
 
-This performs equality-class completion, adds path congruences, and detects
-contradictions caused by a path being forced equal to one of its strict
-subpaths. The implementation is intentionally direct rather than clever because
-constraint construction is not the main @microecta@ API boundary, and the
-@equivalence@ package keeps this path fast enough for current workloads.
+Merge the overlapping classes, add the path congruences, and find the
+contradictions. A class that holds a path and one of its strict subpaths is a
+contradiction. A small union-find merges the classes. The congruence step
+costs the most, and it repeats until the classes do not change.
+
+One congruence step is polynomial in the number of paths of the current
+classes. The closure itself can be exponentially larger than the input: the
+classes @[0^j, 0^(j-1) ++ [1]]@ for @j@ from 1 to @n@ have @2n@ paths, and
+their closure has @2^(n+1) - 2@ paths. So the cost is polynomial in the size of
+the closure, not in the size of the input. A set in which no path is a strict
+prefix of another is already closed, and the congruence step then adds
+nothing.
 -}
 mkEqConstraints :: [[Path]] -> EqConstraints
 mkEqConstraints initialConstraints = case completedConstraints of
     Nothing -> EqContradiction
-    Just cs -> EqConstraints $ sort $ map PathEClass cs
+    Just cs -> EqConstraints $ sort $ map (PathEClass . Set.toAscList) cs
   where
-    removeTrivial :: (Eq a) => [[a]] -> [[a]]
-    removeTrivial = filter (\x -> length x > 1) . map nub
+    removeTrivial :: [Set Path] -> [Set Path]
+    removeTrivial = filter ((> 1) . Set.size)
 
     -- Reason for the extra "complete" in this line:
     -- The first simplification done to the constraints is eclass-completion,
-    -- to remove redundancy and shrink things before the very inefficient
+    -- to remove redundancy and shrink the constraints before the very inefficient
     -- addCongruences step (important in tests; less so in realistic input).
     -- The last simplification must also be completion, to give a valid value.
-    completedConstraints = fixMaybe round $ complete $ removeTrivial initialConstraints
+    completedConstraints = fixMaybe congruenceStep $ complete $ removeTrivial $ map Set.fromList initialConstraints
 
-    round :: [[Path]] -> Maybe [[Path]]
-    round cs =
-        let cs' = addCongruences cs
-            cs'' = complete cs'
-         in if isContradicting cs''
-                then
-                    Nothing
-                else
-                    Just cs''
+    -- One step of congruence closure. It fails when a class forces a path to be
+    -- equal to one of its strict subpaths.
+    congruenceStep :: [Set Path] -> Maybe [Set Path]
+    congruenceStep classes = do
+        let closed = complete $ addCongruences classes
+        when (any contradicting closed) Nothing
+        pure closed
 
-    addCongruences :: [[Path]] -> [[Path]]
-    addCongruences cs = cs ++ [map (\z -> substSubpath z x y) left | left <- cs, right <- cs, x <- left, y <- right, isStrictSubpath x y]
+    contradicting :: Set Path -> Bool
+    contradicting paths = any (\p -> any (isStrictSubpath p) paths) paths
 
-    assertEquivs [] = return []
-    assertEquivs (x : xs) = mapM (equate x) xs
+    -- Merge overlapping classes with a union-find over the distinct paths.
+    -- Classes come out sorted, so a stable input gives a stable output.
+    complete :: [Set Path] -> [Set Path]
+    complete initialClasses = runST $ do
+        let members = Map.fromDistinctAscList (zip (Set.toAscList (Set.unions initialClasses)) [0 :: Int ..])
+        parent <- newListArray (0, Map.size members - 1) [0 .. Map.size members - 1] :: ST s (STUArray s Int Int)
+        let find index = do
+                above <- readArray parent index
+                if above == index
+                    then pure index
+                    else do
+                        root <- find above
+                        writeArray parent index root
+                        pure root
+            union left right = do
+                leftRoot <- find left
+                rightRoot <- find right
+                when (leftRoot /= rightRoot) $ writeArray parent leftRoot rightRoot
+        forM_ initialClasses $ \cls -> case map (members Map.!) (Set.toList cls) of
+            [] -> pure ()
+            (first : rest) -> mapM_ (union first) rest
+        -- Members are visited in ascending order, so each group collects them in descending order.
+        grouped <- forM (Map.toList members) $ \(member, index) -> (,[member]) <$> find index
+        pure $ sort $ map Set.fromDistinctDescList $ Map.elems $ Map.fromListWith (++) grouped
 
-    complete :: (Ord a) => [[a]] -> [[a]]
-    complete initialClasses = runEquivM (: []) (++) $ do
-        mapM_ assertEquivs initialClasses
-        mapM desc =<< classes
+    -- If x is in a class and x ++ s is a recorded path, then z ++ s equals
+    -- x ++ s for every z in that class. Every x with the same suffix s forces
+    -- the same class, so one class for each distinct suffix is enough. In
+    -- ascending order, the strict extensions of a path follow it directly.
+    addCongruences :: [Set Path] -> [Set Path]
+    addCongruences cs
+        | Map.null suffixes = cs
+        | otherwise = cs ++ [Set.map (`extend` suffix) left | left <- cs, suffix <- Set.toList (foldMap suffixesOf left)]
+      where
+        suffixes =
+            Map.fromList
+                [ (Path x, Set.fromList [Path (drop (length x) y) | Path y <- extensions])
+                | Path x : rest <- tails (Set.toAscList (Set.unions cs))
+                , let extensions = takeWhile (isStrictSubpath (Path x)) rest
+                , not (null extensions)
+                ]
+        suffixesOf x = Map.findWithDefault Set.empty x suffixes
+        extend (Path prefix) (Path suffix) = Path (prefix ++ suffix)
 
 ---------- Operations
 

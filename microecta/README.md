@@ -215,13 +215,13 @@ the pieces that downstream projects still use:
 
 The library dependency set is intentionally small:
 
-- `containers`, `unordered-containers`
+- `array`, `containers`, `unordered-containers`
 - `hashable`, `hashtables`, `intern`
 - `mtl`, `transformers`
 - `text`
-- `equivalence`
 
-`equivalence` is retained for equality-constraint closure in the path logic.
+Equality-constraint closure in the path logic uses a small union-find over an
+`array`. The `equivalence` package is only a test dependency now.
 
 ## Performance Notes
 
@@ -350,9 +350,12 @@ this is the shape of the problem rather than a defect: reach for
 with a large language without materializing it.
 
 **Equality constraints whose paths nest.** Congruence saturation in
-`mkEqConstraints` is quadratic per round and iterates to a fixpoint, so classes
-that pair paths which are prefixes of one another cost about 4.7x per level
-added: 0.14s at depth 8, 0.77s at 9, 3.4s at 10, 16.4s at 11.
+`mkEqConstraints` iterates to a fixpoint, and the closure of classes that pair
+paths which are prefixes of one another can be exponentially larger than the
+input: the classes `[0^j, 0^(j-1) ++ [1]]` for `j` from 1 to `n` have `2n`
+paths, and their closure has `2^(n+1) - 2`. Class completion itself is a small
+union-find, and one congruence step is polynomial in the paths of the current
+classes.
 
 The cost is in the nesting, not the count. A thousand independent classes over
 depth-two paths -- the shape term search and `apply` actually produce -- take

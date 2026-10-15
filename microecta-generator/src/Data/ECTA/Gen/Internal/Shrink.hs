@@ -6,8 +6,9 @@ those decisions instead of the number. Two mechanisms build on the same
 factoring:
 
 * 'shrinkPlanRank' produces structural shrink candidates: jump to an
-  earlier alternative at its minimal rank, or shrink the operation and each
-  argument component independently.
+  earlier alternative at its smallest member, or shrink the operation and
+  each argument component independently. No candidate decodes to a member
+  larger than the current one.
 
 * 'smallerPlanMembers' streams every member structurally smaller than a
   rank's member, in size order, where size ('planMemberSize') is the number
@@ -31,9 +32,8 @@ module Data.ECTA.Gen.Internal.Shrink (
 
 import Data.ECTA.Gen.Internal.Decoder (Plan (..))
 import Data.ECTA.Gen.Internal.Size (
-    SizeIndex (sizeClassSelect),
+    SizeIndex (minimumMemberSize, sizeClassSelect),
     countAtSize,
-    sizeIndex,
  )
 
 {- | The rank of a structurally smallest member, preferring the earlier stable
@@ -44,12 +44,22 @@ may contain only larger members than a later branch, so rank zero is not a
 general finite minimum.
 -}
 smallestPlanRank :: Plan a -> Maybe Integer
-smallestPlanRank = fmap snd . minimumMember
+smallestPlanRank = fmap snd . smallestPlanMember
+
+-- | The size and rank of a structurally smallest member; see 'smallestPlanRank'.
+smallestPlanMember :: Plan a -> Maybe (Int, Integer)
+smallestPlanMember = minimumMember
   where
     minimumMember :: Plan b -> Maybe (Int, Integer)
     minimumMember (PlanSelect cardinality _) =
         if cardinality > 0 then Just (1, 0) else Nothing
     minimumMember (PlanMap _ plan) = minimumMember plan
+    -- A shared subplan gives its smallest member from its size classes, and
+    -- does not walk the subplan again. The smallest size class of a finite
+    -- plan lists its members in rank order, so position zero has the least
+    -- rank.
+    minimumMember (PlanShared _ _ index _) =
+        (\size -> (size, fst $ sizeClassSelect index size 0)) <$> minimumMemberSize index
     minimumMember (PlanChoice branches) =
         minimumChoice 0 branches
       where
@@ -82,24 +92,33 @@ smallestPlanRank = fmap snd . minimumMember
 {- | Shrink candidates for one rank, guided by the plan structure.
 
 The rank factors into a choice branch and mixed-radix product components,
-so shrinking is structural: jump to the minimal rank of an earlier
+so shrinking is structural: jump to the smallest member of an earlier
 alternative first (in layered generators with base alternatives first, this
 replaces a whole subtree with an atom), then shrink each product component
 independently, recursing into operation and argument sub-ranks. Every
 candidate is a valid rank of the same plan, so shrinking never leaves the
-language.
+language, and every candidate is a strictly smaller rank whose member is no
+larger than the current member, so a shrink loop terminates without growing
+its counterexample. An earlier alternative whose smallest member is larger
+than the current member is skipped.
 -}
 shrinkPlanRank :: Plan a -> Integer -> [Integer]
 shrinkPlanRank = go
   where
     go :: Plan b -> Integer -> [Integer]
     go (PlanSelect _ _) index = towardZero index
+    go (PlanShared _ _ _ plan) index = go plan index
     go (PlanMap _ plan) index = go plan index
     go (PlanChoice branches) index =
         case break (holdsRank index) (withOffsets branches) of
             (earlier, (offset, _, branch) : _) ->
-                [offset' | (offset', _, _) <- earlier]
-                    <> [offset + inner | inner <- go branch (index - offset)]
+                let currentSize = planMemberSize branch (index - offset)
+                 in [ offset' + smallest
+                    | (offset', _, earlierBranch) <- earlier
+                    , Just (size, smallest) <- [smallestPlanMember earlierBranch]
+                    , size <= currentSize
+                    ]
+                        <> [offset + inner | inner <- go branch (index - offset)]
             (_, []) -> []
     -- Size-major ranks: a smaller rank is never a larger member, so the
     -- ordinary integral shrink sequence is already a structural one.
@@ -139,6 +158,7 @@ argument choices.
 -}
 planMemberSize :: Plan a -> Integer -> Int
 planMemberSize (PlanSelect _ _) _ = 1
+planMemberSize (PlanShared _ _ _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =
     case dropWhile (not . holdsRank rank) (withOffsets branches) of
@@ -164,16 +184,17 @@ planMemberSize (PlanSized classes) rank = go 0 classes
 {- | Every member structurally smaller than the given rank's member, in size
 order, as replayable rank and value.
 
-Members come from 'sizeIndex', so reaching position @i@ of a size class
-costs one walk down the plan rather than enumerating everything before it.
-The stream is lazy in both directions: consumers may cap it, and a size
-class larger than the consumer's demand is never forced completely.
+The index must be the 'Data.ECTA.Gen.Internal.Size.sizeIndex' of the plan.
+Callers keep it beside the plan so a shrink loop does not rebuild the size
+classes on every step. Reaching position @i@ of a size class costs one walk
+down the plan rather than enumerating everything before it. The stream is
+lazy in both directions: consumers may cap it, and a size class larger than
+the consumer's demand is never forced completely.
 -}
-smallerPlanMembers :: Plan a -> Integer -> [(Integer, a)]
-smallerPlanMembers plan rank =
+smallerPlanMembers :: SizeIndex a -> Plan a -> Integer -> [(Integer, a)]
+smallerPlanMembers index plan rank =
     concatMap classMembers [1 .. planMemberSize plan rank - 1]
   where
-    index = sizeIndex plan
     classMembers size =
         [ sizeClassSelect index size position
         | position <- [0 .. countAtSize index size - 1]

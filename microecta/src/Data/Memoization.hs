@@ -2,12 +2,13 @@
 
 {- | Quick-and-dirty hash-based memoization.
 
-The ECTA core relies on stable global memo tables for interning and recursive
-graph operations. 'memo' is convenient when the memoized function is a
-monomorphic top-level value. Polymorphic functions should allocate an explicit
-'MemoCache' or 'TypeableMemoCache' once and use the corresponding @With@
-operation, so typeclass dictionaries cannot accidentally turn the table into a
-per-call allocation.
+The graph operations memoize their results in global tables. A polymorphic
+operation allocates one 'MemoCache' or 'TypeableMemoCache' at the top level and
+calls the corresponding @With@ operation, so a class dictionary cannot make a
+new table for each call. 'memo' allocates its table when the application is
+evaluated: once for a top-level value, and once for each call when a function
+applies it inside its body. 'Data.ECTA.Internal.ECTA.Operations.mapNodes' uses
+that for a table that serves one traversal.
 
 Safe from any thread. The table is an immutable map in an @IORef@, read
 without blocking and updated with 'atomicModifyIORef''. Two racers may install
@@ -18,11 +19,10 @@ The lazy map is important: an atomic update installs the result thunk without
 forcing the memoized computation. That computation may itself intern or call
 other memoized functions, so it must run outside the update.
 
-The tables never evict, so a memoized function retains an entry for every
-distinct argument it has ever been applied to, for the lifetime of the process.
-That is what makes repeated work free, and it means memory grows with the
-number of distinct inputs rather than with the work done. See the memory
-section of the package README.
+A global table never evicts. It keeps an entry for each distinct argument for
+the lifetime of the process. That avoids repeated work. It also means that
+memory grows with the number of distinct inputs rather than with the work done.
+See the memory section of the package README.
 -}
 module Data.Memoization (
     MemoCacheTag (..),

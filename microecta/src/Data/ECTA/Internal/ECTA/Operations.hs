@@ -57,17 +57,23 @@ module Data.ECTA.Internal.ECTA.Operations (
     getSubnodeById,
 ) where
 
-import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
+import Control.Monad.State.Strict (MonadState (..), State, evalState, evalStateT, gets, modify')
+import Control.Monad.Trans.Class (lift)
+import Data.Functor.Identity (Identity (..))
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (Hashable (..))
-import Data.List (inits, tails)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List (compareLength, partition)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
-import Data.Monoid (First (..), Sum (..))
+import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Monoid (All (..), First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
@@ -113,8 +119,9 @@ symbols or equality constraints, say - without touching the node's children.
 -}
 nodeMapChildren :: (Hashable symbol, Typeable symbol) => (Edge symbol -> Edge symbol) -> Node symbol -> Node symbol
 nodeMapChildren _ EmptyNode = EmptyNode
-nodeMapChildren f n@(Mu _) = nodeMapChildren f (unfoldOuterRec n)
+nodeMapChildren f n@(Mu _) = nodeMapChildren f (constructorRows n)
 nodeMapChildren f (Node es) = Node (map f es)
+nodeMapChildren f node@(InternedUnion _) = Node (map f $ nodeEdges node)
 nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 
 {- | Warning: Linear in number of paths, exponential in size of graph.
@@ -123,6 +130,7 @@ nodeMapChildren _ (Rec _) = error "nodeMapChildren: unexpected Rec"
 pathsMatching :: (Node symbol -> Bool) -> Node symbol -> [Path]
 pathsMatching _ EmptyNode = []
 pathsMatching _ (InternedMu _) = [] -- Unsound!
+pathsMatching _ (InternedUnion _) = []
 pathsMatching f n@(InternedNode node) =
     (concat $ map pathsMatchingEdge es)
         ++ if f n then [EmptyPath] else []
@@ -137,7 +145,7 @@ pathsMatching _ (Rec _) = error $ "pathsMatching: unexpected Rec"
 mapNodes :: forall symbol. (Hashable symbol, Typeable symbol) => (Node symbol -> Node symbol) -> Node symbol -> Node symbol
 mapNodes f = go
   where
-    -- \| Memoized separately for each mapNodes invocation
+    -- Memoized separately for each mapNodes invocation
     go :: Node symbol -> Node symbol
     go = memo (NameTag "mapNodes") (mapNodesStep go f)
     {-# NOINLINE go #-}
@@ -153,30 +161,35 @@ mapNodesStep _ _ EmptyNode = EmptyNode
 mapNodesStep recurse f (Node es) =
     f $ Node $ map (\edge -> setChildren edge (map recurse (edgeChildren edge))) es
 mapNodesStep recurse f (Mu body) = f $ Mu (recurse . body)
+mapNodesStep recurse f (InternedUnion alternatives) = f $ createUnion $ map recurse $ internedUnionMembers alternatives
 mapNodesStep _ f (Rec recId) = f $ Rec recId
 
-{- | Fold over all reachable nodes with sharing awareness.
+{- | Fold over all reachable nodes, visiting each shared node once.
 
 This name originates from the @crush@ operator in the Stratego language.
 Although @m@ is only constrained to be a monoid, this function makes no
-guarantees about traversal order.
+guarantees about traversal order. Recursive nodes and ordinary nodes draw
+identities from one counter, so one visited set covers both.
 -}
 crush :: forall symbol m. (Monoid m) => (Node symbol -> m) -> Node symbol -> m
-crush f = \n -> evalState (go n) Set.empty
+crush f = \n -> evalState (go n) IntSet.empty
   where
-    go :: Node symbol -> State (Set Id) m
+    go :: Node symbol -> State IntSet m
     go EmptyNode = return mempty
     go (Rec _) = return mempty
-    go n@(InternedMu mu) = mappend (f n) <$> go (internedMuBody mu)
-    go n@(InternedNode node) = do
+    go n = do
         seen <- get
         let nId = nodeIdentity n
-        if Set.member nId seen
-            then
-                return mempty
+        if IntSet.member nId seen
+            then return mempty
             else do
-                modify' (Set.insert nId)
-                mappend (f n) <$> (mconcat <$> mapM (\e -> mconcat <$> mapM go (edgeChildren e)) (internedNodeEdges node))
+                modify' (IntSet.insert nId)
+                mappend (f n) . mconcat <$> mapM go (children n)
+
+    children (InternedMu mu) = [internedMuBody mu]
+    children (InternedNode node) = [child | edge <- internedNodeEdges node, child <- edgeChildren edge]
+    children (InternedUnion alternatives) = internedUnionMembers alternatives
+    children _ = []
 
 -- | Run a fold function only on normal non-recursive nodes.
 onNormalNodes :: (Monoid m) => (Node symbol -> m) -> Node symbol -> m
@@ -187,18 +200,67 @@ onNormalNodes _ _ = mempty
 ------ Folding
 -----------------------
 
--- | Unfold one outer 'Mu' layer.
-unfoldOuterRec :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-unfoldOuterRec n@(Mu x) = x n
-unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
+-- | Memo tables for 'unfoldOuterRec'.
+symbolUnfoldOuterRecCache :: MemoCache (Node Symbol) (Node Symbol)
+symbolUnfoldOuterRecCache = unsafePerformIO newMemoCache
+{-# NOINLINE symbolUnfoldOuterRecCache #-}
 
--- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
+genericUnfoldOuterRecCache :: TypeableMemoCache
+genericUnfoldOuterRecCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericUnfoldOuterRecCache #-}
+
+-- | Unfold one outer 'Mu' layer. The unfolding of each recursive node is shared.
+unfoldOuterRec :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+unfoldOuterRec node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> memoWith symbolUnfoldOuterRecCache go node
+    Nothing -> memoTypeableWith genericUnfoldOuterRecCache go node
+  where
+    go :: Node symbol -> Node symbol
+    go n@(Mu x) = x n
+    go _ = error "unfoldOuterRec: Must be called on a Mu node"
+
+{- | Outgoing alternatives after finite closure of recursive and union references.
+
+An ordinary node and a 'Mu' that unfolds to one give their edges directly.
+Other nodes take the closure through unfoldings and union operands, with a
+visited set, so an epsilon cycle such as the unfolding of
+@createMuDontCleanup id@ gives the least fixed point: no edges. An open union
+must be bound before this view can expose its alternatives. An unresolved
+union reference is an error, not an empty language.
+-}
 nodeEdges :: (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
 nodeEdges (InternedNode node) = internedNodeEdges node
-nodeEdges n@(Mu _) = nodeEdges (unfoldOuterRec n)
-nodeEdges _ = []
+nodeEdges EmptyNode = []
+nodeEdges (Rec _) = []
+nodeEdges node@(InternedMu _)
+    | InternedNode unfolded <- unfoldOuterRec node = internedNodeEdges unfolded
+nodeEdges root = Set.toList $ Set.fromList $ collect IntSet.empty [root]
+  where
+    collect _ [] = []
+    collect seen (EmptyNode : rest) = collect seen rest
+    collect _ (Rec reference : _) = error $ "nodeEdges: unresolved union reference " <> show reference
+    collect seen (InternedNode node : rest) = internedNodeEdges node ++ collect seen rest
+    collect seen (node : rest)
+        | IntSet.member identity seen = collect seen rest
+        | otherwise = collect (IntSet.insert identity seen) (members node ++ rest)
+      where
+        identity = nodeIdentity node
 
--- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
+    members node@(InternedMu _) = [unfoldOuterRec node]
+    members (InternedUnion alternatives) = internedUnionMembers alternatives
+    members _ = []
+
+{- | The constructor rows of a 'Mu' or a union as a node: the unfolding of a
+'Mu' when that is an ordinary node, and otherwise a node of its 'nodeEdges'.
+So a retained cycle of binders, such as @createMuDontCleanup id@, gives
+'EmptyNode' and not an unfolding that does not end.
+-}
+constructorRows :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+constructorRows n@(InternedMu _)
+    | unfolded@(InternedNode _) <- unfoldOuterRec n = unfolded
+constructorRows n = Node $ nodeEdges n
+
+-- | Memo tables for 'refold'.
 symbolRefoldCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolRefoldCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolRefoldCache #-}
@@ -207,6 +269,7 @@ genericRefoldCache :: TypeableMemoCache
 genericRefoldCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericRefoldCache #-}
 
+-- | Replace repeated unfoldings with recursive 'Mu' nodes where possible.
 refold :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 refold node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memoWith symbolRefoldCache go node
@@ -282,12 +345,17 @@ maxIndegree = max 0 . getMax . crush (onNormalNodes go)
 ------ Membership
 ------------
 
--- | Test whether a node accepts a concrete term.
+{- | Test whether a node accepts a concrete term.
+
+The edges of a node are tried in order, and the children of an edge from left
+to right. When the search comes to a subterm again with the same node, it uses
+the first result. So each node is decided at most once at each position in the
+term.
+-}
 nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Term symbol -> Bool
-nodeRepresents EmptyNode _ = False
-nodeRepresents (Node es) t = any (\e -> edgeRepresents e t) es
-nodeRepresents n@(Mu _) t = nodeRepresents (unfoldOuterRec n) t
-nodeRepresents _ _ = False
+nodeRepresents node = runIdentity . acceptsBy nodeEdges edgeSymbol edgeChildren check node
+  where
+    check _ edge term = Identity (edgeEcsSatisfied edge term)
 
 -- | Test whether an edge accepts a concrete term.
 edgeRepresents :: (Hashable symbol, Typeable symbol) => Edge symbol -> Term symbol -> Bool
@@ -299,6 +367,91 @@ edgeRepresents e = \t@(Term s ts) ->
     childrenRepresent [] [] = True
     childrenRepresent (n : ns) (t : ts) = nodeRepresents n t && childrenRepresent ns ts
     childrenRepresent _ _ = False
+
+-- | Whether every action succeeds, stopping at the first failure.
+andM :: (Monad m) => [m Bool] -> m Bool
+andM [] = pure True
+andM (action : actions) = action >>= \ok -> if ok then andM actions else pure False
+
+-- | Whether some action succeeds, stopping at the first success.
+orM :: (Monad m) => [m Bool] -> m Bool
+orM [] = pure False
+orM (action : actions) = action >>= \ok -> if ok then pure True else orM actions
+
+{- | Decide whether a key accepts a term, from the outgoing alternatives of each key.
+
+An alternative matches a subterm when its symbol and its number of children
+are those of the root of the subterm. The matching alternatives of a key are
+tried in order, and the search stops at the first one that accepts. The
+children of an alternative are tried from left to right. The check runs only
+when all of them accept. This is the order of the direct recursion.
+
+The direct recursion decides a subterm again for each alternative above it
+that fails, so its time can be exponential in the depth of the term. This
+search keeps a table below each subterm that two or more alternatives match.
+In the table, each key at each position of the term is decided once, and a
+later visit uses that result and runs no check. Above such a subterm, each
+subterm has one visit, and the search keeps no table. Thus each check runs at
+most once for each key, alternative, and position, in the order in which the
+direct recursion first runs it.
+-}
+acceptsBy ::
+    (Monad m, Ord key, Eq symbol) =>
+    (key -> [alternative]) ->
+    (alternative -> symbol) ->
+    (alternative -> [key]) ->
+    (key -> alternative -> Term symbol -> m Bool) ->
+    key ->
+    Term symbol ->
+    m Bool
+acceptsBy outgoing symbolOf childrenOf check = unshared
+  where
+    matches (Term symbol children) alternative =
+        symbolOf alternative == symbol && length (childrenOf alternative) == length children
+
+    -- The alternatives of a row from the first one that matches a subterm.
+    fromMatch _ [] = []
+    fromMatch term alternatives@(alternative : rest)
+        | matches term alternative = alternatives
+        | otherwise = fromMatch term rest
+
+    -- No other visit reaches this subterm, so its result needs no table.
+    unshared key term@(Term _ children) = case fromMatch term (outgoing key) of
+        [] -> pure False
+        alternative : rest -> case fromMatch term rest of
+            [] ->
+                childrenAccept (childrenOf alternative) children >>= \accepted ->
+                    if accepted then check key alternative term else pure False
+            _ -> evalStateT (shared key (positioned term)) Map.empty
+    childrenAccept (key : keys) (child : rest) =
+        unshared key child >>= \accepted -> if accepted then childrenAccept keys rest else pure False
+    childrenAccept _ _ = pure True
+
+    -- This subterm is at or below a subterm that two or more alternatives
+    -- match. The table holds the result of each position and key.
+    shared key (Tree.Node (_, term) children) =
+        orM
+            [ andM (zipWith visit (childrenOf alternative) children) >>= \accepted ->
+                if accepted then lift (check key alternative term) else pure False
+            | alternative <- outgoing key
+            , matches term alternative
+            ]
+    visit key node@(Tree.Node (position, _) _) = do
+        known <- gets (Map.lookup (position, key))
+        case known of
+            Just accepted -> pure accepted
+            Nothing -> do
+                accepted <- shared key node
+                modify' (Map.insert (position, key) accepted)
+                pure accepted
+
+    -- Each subterm with its position in preorder.
+    positioned whole = evalState (number whole) (0 :: Int)
+      where
+        number term@(Term _ children) = do
+            position <- get
+            modify' (+ 1)
+            Tree.Node (position, term) <$> traverse number children
 
 {- | Whether a term agrees with itself everywhere an edge's constraints say it
 must.
@@ -335,7 +488,7 @@ terms. Use it only when equality constraints are deliberately irrelevant.
 dropEdgeConstraints :: (Hashable symbol, Typeable symbol) => Edge symbol -> Edge symbol
 dropEdgeConstraints e = Edge (edgeSymbol e) (edgeChildren e)
 
--- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
+-- | Memo tables for 'dropConstraints'.
 symbolDropConstraintsCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolDropConstraintsCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolDropConstraintsCache #-}
@@ -344,6 +497,7 @@ genericDropConstraintsCache :: TypeableMemoCache
 genericDropConstraintsCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericDropConstraintsCache #-}
 
+-- | Drop the equality constraints of every edge in a node; see 'dropEdgeConstraints'.
 dropConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 dropConstraints node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memoWith symbolDropConstraintsCache go node
@@ -442,18 +596,21 @@ data IntersectionDom symbol = ID
     -- ^ Value of all free variables inside the term (so that we can unfold when necessary)
     , idRecInt :: Set IntersectId
     -- ^ Intersection problems we encountered previously (to avoid infinite unrolling)
+    , idHash :: !Int
+    -- ^ Hash of the two fields, computed once: every memo lookup hashes the domain.
     }
     deriving (Show, Eq)
 
 instance Hashable (IntersectionDom symbol) where
-    -- Implementation notes:
-    --
-    -- - Both `Map.toList` and `Set.toList` return elements in key-order, which is a suitable canonical form for hashing.
-    -- - The cost of the hashing is linear in the size of the domain. If this becomes a concern, we could cache the hash.
-    hashWithSalt s (ID free recInt) = hashWithSalt s (Map.toList free, Set.toList recInt)
+    hashWithSalt s dom = hashWithSalt s (idHash dom)
 
+-- | Build a domain and its hash. Both containers list their elements in key order, a canonical form.
+mkIntersectionDom :: Map Id (Node symbol) -> Set IntersectId -> IntersectionDom symbol
+mkIntersectionDom free recInt = ID free recInt (hash (Map.toList free, Set.toList recInt))
+
+-- | An intersection environment with no free or pending variables.
 emptyIntersectionDom :: IntersectionDom symbol
-emptyIntersectionDom = ID Map.empty Set.empty
+emptyIntersectionDom = mkIntersectionDom Map.empty Set.empty
 
 symbolIntersectOpenCache :: MemoCache (IntersectionDom Symbol, Node Symbol, Node Symbol) (Node Symbol)
 symbolIntersectOpenCache = unsafePerformIO newMemoCache
@@ -493,6 +650,8 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
             (InternedMu l', InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(i, l), (j, r)], internedMuBody l', internedMuBody r')
             (InternedMu l', _) -> maybeMu $ intersectOpen (extendEnv [(i, l)], internedMuBody l', r)
             (_, InternedMu r') -> maybeMu $ intersectOpen (extendEnv [(j, r)], l, internedMuBody r')
+            (InternedUnion alternatives, _) -> createUnion [intersectOpen (dom, member, r) | member <- internedUnionMembers alternatives]
+            (_, InternedUnion alternatives) -> createUnion [intersectOpen (dom, l, member) | member <- internedUnionMembers alternatives]
             -- When encountering a free variable, look up the corresponding value in the environment.
             -- (Recall that the case for already-seen intersection problems is are handled above.)
             (Rec l', _) -> intersectOpen (dom, findFreeVar l', r)
@@ -515,10 +674,9 @@ intersectOpen input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
         -- We might see one or two 'Mu's (if we happen to see a 'Mu' on both sides at once)
         extendEnv :: [(Id, Node symbol)] -> IntersectionDom symbol
         extendEnv bindings =
-            ID
-                { idFree = Map.union (Map.fromList bindings) (idFree dom)
-                , idRecInt = Set.insert (IntersectId i j) (idRecInt dom)
-                }
+            mkIntersectionDom
+                (Map.union (Map.fromList bindings) (idFree dom))
+                (Set.insert (IntersectId i j) (idRecInt dom))
 
         -- Find value of free variables in the terms
         -- Since we assume the input terms are fully interned, we only deal with 'RecInt'.
@@ -563,14 +721,24 @@ intersectOpenEdge input = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
 ------ Union
 ------------
 
-{- | Union a list of ECTAs by concatenating their alternatives.
+{- | Union automata without discarding open recursive references.
 
-'EmptyNode' and 'Rec' contribute no alternatives, and the @Node@ constructor
-maps an empty alternative list back to 'EmptyNode', so the empty cases need no
-special handling.
+A closed operand and an ordinary node give their outgoing alternatives, and
+the union concatenates them. A reference, and an open operand that is not an
+ordinary node, has no alternatives until its binder closes. The union keeps
+such operands in a union node until substitution supplies the referenced
+automata. A binder drops a reference to itself at the root of its body, as
+the least fixed point does. A union does not add a constructor to any
+accepted term.
 -}
 union :: (Hashable symbol, Typeable symbol) => [Node symbol] -> Node symbol
-union = Node . concatMap nodeEdges
+union nodes
+    | all hasEdges nodes = Node (concatMap nodeEdges nodes)
+    | otherwise = createUnion (Node (concatMap nodeEdges ready) : deferred)
+  where
+    (ready, deferred) = partition hasEdges nodes
+    hasEdges (InternedNode _) = True
+    hasEdges node = Set.null (freeVars node)
 
 -- | Union the nodes a partial function produces; see 'union'.
 unionMapMaybe :: (Hashable symbol, Typeable symbol) => (a -> Maybe (Node symbol)) -> [a] -> Node symbol
@@ -584,7 +752,8 @@ unionMapMaybe f = union . mapMaybe f
 requirePath :: (Hashable symbol, Typeable symbol) => Path -> Node symbol -> Node symbol
 requirePath EmptyPath n = n
 requirePath _ EmptyNode = EmptyNode
-requirePath p n@(Mu _) = requirePath p (unfoldOuterRec n)
+requirePath p n@(Mu _) = requirePath p (constructorRows n)
+requirePath p n@(InternedUnion _) = requirePath p (constructorRows n)
 requirePath (ConsPath p ps) (Node es) =
     Node $
         map (\e -> setChildren e (requirePathList (ConsPath p ps) (edgeChildren e))) $
@@ -603,7 +772,8 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     getPath _ EmptyNode = EmptyNode
     getPath EmptyPath n = n
-    getPath p n@(Mu _) = getPath p (unfoldOuterRec n)
+    getPath p n@(Mu _) = getPath p (constructorRows n)
+    getPath p n@(InternedUnion _) = getPath p (constructorRows n)
     getPath (ConsPath p ps) (Node es) = unionMapMaybe goEdge es
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -612,7 +782,8 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     getAllAtPath _ EmptyNode = []
     getAllAtPath EmptyPath n = [n]
-    getAllAtPath p n@(Mu _) = getAllAtPath p (unfoldOuterRec n)
+    getAllAtPath p n@(Mu _) = getAllAtPath p (constructorRows n)
+    getAllAtPath p n@(InternedUnion _) = getAllAtPath p (constructorRows n)
     getAllAtPath (ConsPath p ps) (Node es) = concatMap (getAllAtPath ps) (mapMaybe goEdge es)
       where
         goEdge :: Edge symbol -> Maybe (Node symbol)
@@ -621,7 +792,8 @@ instance (Hashable symbol, Typeable symbol) => Pathable (Node symbol) (Node symb
 
     modifyAtPath f EmptyPath n = f n
     modifyAtPath _ _ EmptyNode = EmptyNode
-    modifyAtPath f p n@(Mu _) = modifyAtPath f p (unfoldOuterRec n)
+    modifyAtPath f p n@(Mu _) = modifyAtPath f p (constructorRows n)
+    modifyAtPath f p n@(InternedUnion _) = modifyAtPath f p (constructorRows n)
     modifyAtPath f (ConsPath p ps) (Node es) = Node (map goEdge es)
       where
         goEdge :: Edge symbol -> Edge symbol
@@ -648,7 +820,7 @@ instance (Hashable symbol, Typeable symbol) => Pathable [Node symbol] (Node symb
 ------ Reduction
 ------------------------------------
 
--- | Remove alternatives represented by another alternative in the same node.
+-- | Memo tables for 'withoutRedundantEdges'.
 symbolWithoutRedundantEdgesCache :: MemoCache (Node Symbol) (Node Symbol)
 symbolWithoutRedundantEdgesCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolWithoutRedundantEdgesCache #-}
@@ -688,7 +860,18 @@ withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
 --- Reducing Equality Constraints
 ---------------
 
--- | Propagate equality constraints through one reduction pass.
+{- | Propagate equality constraints through one reduction pass.
+
+One pass narrows every child by the constraints that reach it, but a nested
+constrained edge can narrow a child after an outer edge has already read it.
+Iterate to a fixpoint, as 'fixUnbounded' does, when every constrained position
+must agree with every other.
+
+The pass does not unfold a recursive node that has constraints. A class that
+reaches into such a node stays unreduced (see 'reduceEqConstraints'). The
+language does not change, because enumeration and 'nodeRepresents' still check
+that class.
+-}
 reducePartially :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
 reducePartially = reducePartially' EmptyConstraints
 
@@ -708,6 +891,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     go :: EqConstraints -> Node symbol -> Node symbol
     go _ EmptyNode = EmptyNode
     go _ (Mu n) = Mu n
+    go _ n@(InternedUnion _) = n
     go inheritedEcs n@(Node _) = modifyNode n $ \es ->
         map (reduceChildren inheritedEcs) $
             map (reduceEdgeIntersection inheritedEcs) es
@@ -716,7 +900,7 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     reduceChildren :: EqConstraints -> Edge symbol -> Edge symbol
     reduceChildren inheritedEcs e = setChildren e $ reduceWithInheritedEcs (inheritedEcs `combineEqConstraints` edgeEcs e) (edgeChildren e)
 
-    -- \| Reduce children with inherited constraints
+    -- Reduce children with inherited constraints.
     --
     -- This function is used to avoid infinite unfolding of recursive nodes,
     -- and we do this by passing constraints from the current edge and ancestors to descendants.
@@ -726,8 +910,8 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- > let n2 = Node [ Edge "Pair" [tau, tau] ]
     -- > let n  = Node [ mkEdge "Pair" [n1, n2]   (mkEqConstraints [[path [0, 0], path [0, 1], path [1]]])]
     --
-    -- We notice that, if we call `reducePartially n` without propagating constraints down to its children `n1` or `n2`,
-    -- the `tau` can be infinitely expanded between rounds of reduction.
+    -- If `reducePartially n` does not propagate constraints down to its children `n1` or `n2`,
+    -- the reduction can expand `tau` without end between rounds.
     --
     -- To break such cycles, we actively pass constraints down to children.
     -- In this example, we first call `reducePartially' EmptyConstraints n` at the top level, where the inherited constraint is empty,
@@ -737,13 +921,18 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     -- At this node, we will have to combine the inherited constraints `0=1` and the local constraints `0.0=0.1=1`.
     -- Now, we can see that these two constraints contain a contradiction that requires `0=0.0=0.1`, so we can drop the edge.
     --
-    -- TODO: this approach does not solve every recursive cycle.
+    -- This does not stop every recursive cycle. A cycle through a recursive
+    -- node with constraints stops because 'reduceEqConstraints' does not
+    -- unfold that node. 'go' returns a recursive node unchanged, and
+    -- 'reduceEqConstraints' makes one pass over the classes of an edge, so one
+    -- pass visits a finite part of the input. No proof shows that a
+    -- repetition of passes ends on every input.
     reduceWithInheritedEcs :: EqConstraints -> [Node symbol] -> [Node symbol]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
 {-# NOINLINE reducePartially' #-}
 
--- | Reduce an edge's children using inherited constraints from ancestors.
+-- | Memo tables for 'reduceEdgeIntersection'.
 symbolReduceEdgeIntersectionCache :: MemoCache (EqConstraints, Edge Symbol) (Edge Symbol)
 symbolReduceEdgeIntersectionCache = unsafePerformIO newMemoCache
 {-# NOINLINE symbolReduceEdgeIntersectionCache #-}
@@ -752,6 +941,9 @@ genericReduceEdgeIntersectionCache :: TypeableMemoCache
 genericReduceEdgeIntersectionCache = unsafePerformIO newTypeableMemoCache
 {-# NOINLINE genericReduceEdgeIntersectionCache #-}
 
+{- | Narrow an edge's children by its own equality constraints. The edge becomes
+empty when its constraints contradict the inherited constraints.
+-}
 reduceEdgeIntersection :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> Edge symbol -> Edge symbol
 reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
     Just HRefl -> memo2With symbolReduceEdgeIntersectionCache go constraints edge
@@ -765,15 +957,24 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
             (edgeEcs e)
 {-# NOINLINE reduceEdgeIntersection #-}
 
-{- | Apply local and inherited equality constraints to a child list.
+{- | Apply the local equality classes to a child list. Make every child empty
+when the local and inherited classes contradict each other.
 
 One pass over the classes is not always enough: the intersection for one class
-can narrow a node that a class earlier in the pass already read. The reduction
-repeats the pass until the children stop changing, so the result is a
-fixpoint.
+can narrow a node that a class earlier in the pass already read. Iterate the
+reduction, as 'fixUnbounded' does, to get a fixpoint. The reduction does not
+iterate by itself. The next pass reads the new nodes of this pass, so its
+intersections miss the memo. A fixpoint at each edge made the term search of
+the ECTA paper about 100 times slower than a fixpoint of 'reducePartially'.
+
+A class stays unreduced when one of its paths meets a recursive node with
+constraints, at the end of the path or before it. Unfolding such a node shows
+its constrained edges again, and their reduction unfolds the node again. A
+recursive node without constraints can unfold, because its unfolding has no
+constraints to reduce.
 -}
 reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
-reduceEqConstraints local inherited = fixUnbounded (go local inherited)
+reduceEqConstraints = go
   where
     propagateEmptyNodes :: [Node symbol] -> [Node symbol]
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns
@@ -784,31 +985,129 @@ reduceEqConstraints local inherited = fixUnbounded (go local inherited)
         | constraintsAreContradictory (ecs `combineEqConstraints` inheritedEcs) = map (const EmptyNode) origNs
         | otherwise = propagateEmptyNodes $ foldr reduceEClass withNeededChildren eclasses
       where
-        eclasses = unsafeSubsumptionOrderedEclasses ecs
+        eclasses = filter (not . any (meetsConstrainedMu origNs) . unPathEClass) (unsafeSubsumptionOrderedEclasses ecs)
 
-        -- \| TODO: Replace with a "requirePathTrie"
-        withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
+        withNeededChildren = requireAll (Set.fromList $ concatMap unPathEClass eclasses) origNs
 
         intersectList :: [Node symbol] -> Node symbol
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
+        -- Narrow the node at each path of the class to the nodes at the other paths.
         reduceEClass :: PathEClass -> [Node symbol] -> [Node symbol]
         reduceEClass pec ns =
-            foldr
-                (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
+            editAll
+                [ (p, intersect $ intersectList [getPath other ns | other <- paths, other /= p])
+                | p <- paths
+                ]
                 ns
-                (zip ps (toIntersect ns ps))
           where
-            ps = unPathEClass pec
+            paths = unPathEClass pec
 
-        toIntersect :: [Node symbol] -> [Path] -> [Node symbol]
-        toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
-        toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
+    -- Whether a path meets a recursive node with constraints, at the end of
+    -- the path or before it. A free recursive reference counts as such a
+    -- node, because its edges are not known there. So does a node with free
+    -- references at the end of the path, and an unconstrained recursive node
+    -- with free references is followed through its unfolding.
+    meetsConstrainedMu :: [Node symbol] -> Path -> Bool
+    meetsConstrainedMu ns (ConsPath index rest) = maybe False (nodeMeetsConstrainedMu rest) (atMay index ns)
+    meetsConstrainedMu _ EmptyPath = False
 
-        -- \| dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
-        dropOnes :: [a] -> [[a]]
-        dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
+    nodeMeetsConstrainedMu :: Path -> Node symbol -> Bool
+    nodeMeetsConstrainedMu _ (Rec _) = True
+    nodeMeetsConstrainedMu _ (InternedUnion _) = True
+    nodeMeetsConstrainedMu _ n | numNestedMu n == 0 && null (freeVars n) = False
+    nodeMeetsConstrainedMu p n@(InternedMu _)
+        | not (unconstrained n) = True
+        | null (freeVars n) = False
+        | otherwise = nodeMeetsConstrainedMu p (unfoldOuterRec n)
+    nodeMeetsConstrainedMu EmptyPath n = not (null (freeVars n))
+    nodeMeetsConstrainedMu p (Node es) = any (\e -> meetsConstrainedMu (edgeChildren e) p) es
+    nodeMeetsConstrainedMu _ _ = False
+
+-- | A trie of child positions that must exist. An empty map ends a required path.
+newtype Needed = Needed (IntMap.IntMap Needed)
+
+{- | Restrict a child list to the terms that contain every path, in one
+traversal. This gives the same nodes as requiring the paths one at a time.
+-}
+requireAll ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    Set Path -> [Node symbol] -> [Node symbol]
+requireAll paths = requireList (foldr insertNeeded (Needed IntMap.empty) paths)
+  where
+    insertNeeded EmptyPath needed = needed
+    insertNeeded (ConsPath index rest) (Needed children) =
+        Needed $ IntMap.alter (Just . insertNeeded rest . fromMaybe (Needed IntMap.empty)) index children
+
+    requireList :: Needed -> [Node symbol] -> [Node symbol]
+    requireList (Needed children) ns = IntMap.foldrWithKey (\index needed -> adjustAt index (requireNode needed)) ns children
+
+    requireNode :: Needed -> Node symbol -> Node symbol
+    requireNode (Needed children) n | IntMap.null children = n
+    requireNode _ EmptyNode = EmptyNode
+    requireNode needed n@(Mu _) = requireNode needed (constructorRows n)
+    requireNode needed n@(InternedUnion _) = requireNode needed (constructorRows n)
+    requireNode needed@(Needed children) (Node es) =
+        Node
+            [ setChildren e (requireList needed (edgeChildren e))
+            | e <- es
+            , compareLength (edgeChildren e) (fst (IntMap.findMax children)) == GT
+            ]
+    requireNode _ (Rec _) = error "requireAll: unexpected Rec"
+
+-- | Edits at child positions: one at the end of a path, or the edits below an index.
+data Edits symbol
+    = EditAt (Node symbol -> Node symbol)
+    | EditBelow (IntMap.IntMap (Edits symbol))
+
+{- | Apply edits at several paths, none a prefix of another, in one traversal.
+This gives the same nodes as 'modifyAtPath' at each path in turn.
+-}
+editAll ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    [(Path, Node symbol -> Node symbol)] -> [Node symbol] -> [Node symbol]
+editAll edits = editList (foldr (uncurry insertEdit) (EditBelow IntMap.empty) edits)
+  where
+    insertEdit EmptyPath f _ = EditAt f
+    insertEdit (ConsPath index rest) f (EditBelow children) =
+        EditBelow $ IntMap.alter (Just . insertEdit rest f . fromMaybe (EditBelow IntMap.empty)) index children
+    insertEdit (ConsPath _ _) _ leaf@(EditAt _) = leaf
+
+    editList :: Edits symbol -> [Node symbol] -> [Node symbol]
+    editList (EditAt _) ns = ns
+    editList (EditBelow children) ns = IntMap.foldrWithKey (\index below -> adjustAt index (editNode below)) ns children
+
+    editNode :: Edits symbol -> Node symbol -> Node symbol
+    editNode (EditAt f) n = f n
+    editNode _ EmptyNode = EmptyNode
+    editNode below n@(Mu _) = editNode below (constructorRows n)
+    editNode below n@(InternedUnion _) = editNode below (constructorRows n)
+    editNode below (Node es) = Node (map (\e -> setChildren e (editList below (edgeChildren e))) es)
+    editNode _ (Rec _) = error "editAll: unexpected Rec"
+
+-- | Memo tables for 'unconstrained'.
+symbolUnconstrainedCache :: MemoCache (Node Symbol) Bool
+symbolUnconstrainedCache = unsafePerformIO newMemoCache
+{-# NOINLINE symbolUnconstrainedCache #-}
+
+genericUnconstrainedCache :: TypeableMemoCache
+genericUnconstrainedCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericUnconstrainedCache #-}
+
+{- | Whether no edge reachable from the node carries an equality constraint.
+Such an automaton is an ordinary tree automaton, recursive or not.
+-}
+unconstrained :: forall symbol. (Typeable symbol) => Node symbol -> Bool
+unconstrained node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> memoWith symbolUnconstrainedCache go node
+    Nothing -> memoTypeableWith genericUnconstrainedCache go node
+  where
+    go = getAll . crush free
+    free (Node es) = All (all ((== EmptyConstraints) . edgeEcs) es)
+    free _ = All True
 
 ---------------
 --- Debugging

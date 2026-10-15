@@ -32,8 +32,10 @@ expanded twice: as @Right node@ before expansion, and as @Left fragment@
 after. A bare unconstrained 'Mu' terminates enumeration without being expanded
 and therefore produces neither callback. The oracle carries its own state down
 each branch, so a check that cannot be settled while a hole is still
-unexpanded can be parked in that state under the hole's
-'getUVarRepresentative' and settled when the oracle is called for that UVar.
+unexpanded can be parked in that state under the hole's UVar, and settled when
+the oracle is called for the UVar that is then its representative
+('getUVarRepresentative'). A hole that holds an unconstrained 'Mu' is never
+expanded and gets no call, so a check parked on it is never settled.
 'getAllTermsPruneWith' takes the truncated-recursion symbol explicitly instead
 of requiring 'Data.String.IsString', and additionally lets the oracle say which
 hole it would like expanded next, so a parked check resolves before the branch
@@ -117,6 +119,7 @@ module Data.ECTA (
     edgeCount,
     maxIndegree,
     union,
+    createUnion,
     intersect,
     withoutRedundantEdges,
     reducePartially,

@@ -22,8 +22,12 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   accepts. Nodes become choices, edges become products under a size-one symbol,
   and interning ties `Mu` nodes into the same recursive size index `recur`
   uses. The generated values are the accepted terms, so a bounded one still
-  supports `pmf`, `countBy`, and `groupBy`. Automata whose edges carry equality
-  constraints are rejected with `CannotCountConstrainedEdges`: a constrained
+  supports `pmf`, `countBy`, and `groupBy`. Within a size class, ranks order
+  the edges of a node by arity, then by the symbol text, then by the structure
+  of their children, so they do not depend on the order in which the process
+  interned the automaton. Automata whose
+  edges carry equality constraints are rejected with
+  `CannotCountConstrainedEdges`: a constrained
   edge's count is the size of an intersection rather than a product of its
   children's counts. Ambiguous automata are rejected with
   `AmbiguousAutomaton`: a node's count sums over its edges, which counts
@@ -34,7 +38,8 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   walk forever on an out-of-range rank.
 * `frequency`, `oneof`, and `uniformly` choose among generators, the last in
   proportion to their cardinalities so every member of the union is equally
-  likely; `Functor` and `Applicative`
+  likely. All of them, and their grouped forms, drop an alternative that has
+  no members; `Functor` and `Applicative`
   composition tracks exact cardinalities without materializing the product.
 
 ### Conditioned joins
@@ -78,26 +83,77 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   base member. `recur` and `recurGrouped` hand back a body that never reaches
   its own occurrence unchanged, so a finite body stays a finite generator, and
   hand back a body that failed to build with its own error rather than as a
-  recursive language. `upToSize` and `atomic` cannot be applied to the
-  occurrence itself, or to anything built from it, and say so with
+  recursive language. Every query of a recursion that failed reports that
+  error, not `UnboundedGenerator`, and a choice reports its first failed
+  alternative, finite or recursive. A finished recursion can sit anywhere in
+  the body of another one, before its occurrence too: a tied language takes
+  its occurrence flags from a build around a closed occurrence, not from its
+  own knot. A nested recursion whose finite members all go through the
+  enclosing occurrence is kept: the probe assumes a smallest member for the
+  occurrence until the body agrees. `upToSize` and `atomic` cannot be applied
+  to the occurrence itself, or to anything built from it, including a
+  finished recursion that reaches it, and say so with
   `BoundedRecursiveOccurrence`.
 * `recurGrouped` does the same for the grouped layer, where recursion and
   equality constraints meet in one cycle. The key set is solved by a monotone
   fixpoint before the languages are tied over it, and all keys share one `Mu`
   node whose edges carry their key as a first child, with an equality constraint
-  tying an occurrence to its key.
+  tying an occurrence to its key. Each pass of that fixpoint builds the body
+  around the keys found so far, each with the least size of its members found
+  so far, so a key that the body reaches only through a nested `recur` over
+  another key is found too.
 * `atomic` treats every member of a finite generator as one source choice while
   preserving its support, ranks, decoder, cardinality, and distribution. That
-  distribution is retained inside each recursive size class. An acyclic
+  distribution is retained inside each recursive size class, also when the
+  atomic generator is a part of a finite product, choice, `groupBy` bucket,
+  join, or bounded language inside the recursion. The weights of a finite
+  choice that is not atomic become member counts there. An acyclic
   automaton read with `fromECTA` can therefore close its whole finite language
   without enumerating it or taking an inner size prefix.
+* Breaking: `ECTAGenError` has two new constructors,
+  `QueriedRecursiveOccurrence` and `InconsistentRecursiveFamily`. A `recur`
+  or `recurGrouped` body is built several times, against different
+  placeholders, so a body that queried its argument could choose another body
+  in each build. For example,
+  `recur $ \self -> case support self of Right EmptyNode -> oneof [elements [0], (+) <$> elements [1] <*> self]; _ -> elements [99]`
+  gave the values 0, 1, and 2 under `upToSize 3`, but its support came from
+  `elements [99]`. Now `support`, `countAtSize`, `minimumSize`, `unrank`,
+  `smallest`, `pmfAtSize`, `countsAtSize`, and `massesAtSize` of the argument,
+  or of a language built from it, report `QueriedRecursiveOccurrence`, and
+  `sizeOfRank` and `smallerMembers` give no answer. The example gives the one
+  value 99. A `recurGrouped` body whose final build has other keys or other
+  minimum sizes than the passes that found them reports
+  `InconsistentRecursiveFamily`. Before, such a family kept a minimum size
+  that it had no member of. A recursive body that `recur` or `recurGrouped`
+  hands back keeps the mark of an enclosing occurrence only, so
+  `upToSize 4 (recur (\outer -> atKey False (recurGrouped ...)))`, where only
+  the key `True` reaches `outer`, gives its members and not
+  `BoundedRecursiveOccurrence`.
+* Each `recur` and `recurGrouped` has its own occurrence token, and checks
+  only its own occurrence for a guard and for use. Before, a size index had
+  one flag for any occurrence, so a nested definition could not tell its own
+  probe from the probe of an enclosing one, and an occurrence of the outer
+  language had to sit under an application inside the inner body. For
+  example, take an outer `recur` whose body applies `(+ 100)` to key 1 of a
+  `recurGrouped` family, where key 1 applies `(+ 10)` to key 2, and key 2 is
+  `oneof [outer, elements [3]]`. It reported `UnguardedRecursion`; now its
+  smallest member is 113. The closed build of a family repeats until the
+  tokens of each key stop changing, so a key that reaches an enclosing
+  occurrence only through another key keeps it. The marks of unfinished
+  definitions are token sets too, and a finished definition removes only its
+  own token. So no build needs an unmarked occurrence, and a body that
+  chooses its shape from a count or a rank of its argument gets
+  `QueriedRecursiveOccurrence` in every build. A body that tested
+  `unrank self 0` failed with an internal error before.
 
 ### Inspection
 
 * `support`, `cardinality`, `sizes`, `countAtSize`, `minimumSize`, `countBy`,
   `pmf`, `unrank`, `sizeOfRank`, `smallest`, `smallerMembers`, and `shrinkRank`
   report exact structure. `unrank` is deterministic replay; ranks are stable
-  while the generator definition and its finite sources are.
+  while the generator definition and its finite sources are. A `shrinkRank`
+  candidate is never larger than the current member: an earlier alternative
+  gives its smallest member, and only when that member is no larger.
 * `countsAtSize` reports how a grouped language's members divide among retained
   keys, and `massesAtSize` reports the sampling distribution over those keys,
   which differs from the counts under weighted atomic choices. `pmfAtSize`
@@ -115,6 +171,15 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   the generator type QuickCheck expects, bounding recursive generators from the
   size parameter. `sized` maps the size parameter to a generator, building and
   compiling each size once.
+* The QuickCheck backend draws a weighted alternative with a binary search over
+  the cumulative weights, in the order the alternatives were given. An earlier
+  version sorted them by descending weight first. The distributions are the
+  same, but at one seed the sampled stream changes for every draw among
+  unequal weights that reaches this choice: a `frequency` or `frequencies`
+  whose language is not uniform, a weighted group or join sampled through its
+  masses, and opaque alternatives. A uniform language, which draws one rank
+  through its compiled decoder, and an atomic choice compiled to a ticket
+  table keep their streams.
 * `forAll` shrinks to the smallest failing member: it first searches every
   member of strictly smaller size, in size order (`smallerMembers`, capped by
   `smallerMemberLimit`), then shrinks components through `shrinkRank`. For a
@@ -136,7 +201,11 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   products, maps - that lowering normalizes (maps pushed into leaves, nested
   choices spliced flat, small leaves tabulated) and compiles into one flat
   decoder, narrowing each branch, product component, and counted size class to
-  machine `Int` arithmetic when its local cardinality fits.
+  machine `Int` arithmetic when its local cardinality fits. An alternative of a
+  choice with more than 4096 members is a shared node of the plan, with its own
+  compiled decoder and size classes, so a language that several alternatives
+  reuse, as `rest` in `oneof [f <$> rest, g <$> rest]`, is compiled and counted
+  once and not once for each path to it.
 * Non-uniform finite generators closed by `atomic` are compiled to one exact
   ticket selection when they have at most 32,768 ranks and their smallest
   equivalent integer ticket space fits an `Int`. Other generators retain the
@@ -144,3 +213,21 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 * ECTA support is demand-driven: counting, masses, replay, and sampling use
   their own retained indexes, and finite joins keep support reduction as a
   thunk. `support` forces it.
+* A rank of a `match` or `relate` finds its matched group in a map of the first
+  rank of each group, so enumerating a join of n pairs in g groups no longer
+  costs `O(n * g)`.
+* Each argument of a grouped `apply` is a shared node of the plan of the join,
+  with the compiled decoder and the size classes of its group, and a language
+  keeps its compiled decoder beside its plan. A group that is an argument of
+  several joins, as every step of a trace is for the step after it, is
+  compiled once and not once for each path to it. 20,000 samples of a trace of
+  length 20 over four states now take 104 million instructions in place of
+  566 million, allocate 27 MB in place of 161 MB, and keep 0.27 MB in place of
+  9.3 MB.
+* An argument group with one member is a sized leaf in the plan of the join:
+  one size class with one member, which gives its size and its member
+  directly. The walks of `sizeOfRank`, `shrinkRank`, and `smallerMembers`
+  follow every path through a shared part. A member that holds one part at
+  many paths, such as a balanced tree of 2^41 - 1 source choices from a chain
+  of joins whose two arguments are the same one-member group, made them run
+  for longer than 20 s. Now they answer at once.

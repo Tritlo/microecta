@@ -118,9 +118,9 @@ module Data.ECTA.Gen.QuickCheck (
     module Data.ECTA.Gen.Do,
 ) where
 
-import Data.List (mapAccumL, sortOn)
+import Data.Array (listArray, (!))
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
-import Data.Ord (Down (..))
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
@@ -155,29 +155,35 @@ instance ECTA.GenBackend QuickCheckBackend where
     selectInt bound =
         QuickCheckBackend $ QC.chooseInt (0, bound - 1)
 
+    frequencyGen [] =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
+            \no alternative to pick"
     frequencyGen alternatives =
-        -- Ranked branches already carry their offsets, so sampling can put
-        -- likely branches first without changing rank order.
-        let ordered = sortOn (Down . fst) alternatives
-            (total, cumulative) = mapAccumL accumulateWeight 0 ordered
+        let (total, cumulative) = mapAccumL accumulateWeight 0 alternatives
+            lastIndex = length cumulative - 1
+            table = listArray (0, lastIndex) cumulative
+            -- Search for the first alternative whose upper bound is above
+            -- the selected ticket. The alternatives keep the order the user
+            -- gave them. The upper bounds do not decrease in any order, so a
+            -- binary search finds the alternative that a linear scan finds.
+            pick selected low high
+                | low == high = case snd (table ! low) of QuickCheckBackend generated -> generated
+                | selected < fst (table ! middle) = pick selected low middle
+                | otherwise = pick selected (middle + 1) high
+              where
+                -- The sum of the two indexes can overflow; their difference cannot.
+                middle = low + (high - low) `quot` 2
          in QuickCheckBackend $ do
                 selected <-
                     if total <= toInteger (maxBound :: Int)
                         then toInteger <$> QC.chooseInt (0, fromInteger total - 1)
                         else QC.chooseInteger (0, total - 1)
-                pick selected cumulative
+                pick selected 0 lastIndex
       where
         accumulateWeight total (weight, generated) =
             let upperBound = total + weight
              in (upperBound, (upperBound, generated))
-
-        pick _ [] =
-            error
-                "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
-                \no alternative to pick"
-        pick selected ((upperBound, QuickCheckBackend generated) : remaining)
-            | selected < upperBound = generated
-            | otherwise = pick selected remaining
 
     filterGen predicate (QuickCheckBackend generated) =
         QuickCheckBackend $ generated `QC.suchThat` predicate
@@ -234,7 +240,8 @@ fromECTA = ECTA.fromECTA
 
 An already finite generator keeps its support, cardinality, ranks, values,
 and distribution. That distribution is retained when the atom is used inside
-'recur' or 'recurGrouped'. Put 'atomic' around the complete finite choice that
+'recur' or 'recurGrouped', also as a part of a finite product, choice, group,
+or join. Put 'atomic' around the complete finite choice that
 enters recursion; a finite composition outside the boundary is a new choice
 and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating it or taking an inner
@@ -259,10 +266,9 @@ otherwise it is an empty generator.
 The self-reference has to go through this combinator: a generator that
 names itself directly is an infinite Haskell value and hangs while it is
 being built. 'upToSize' and 'atomic' cannot be applied to the argument, or to
-anything built from it; bound the finished language from outside instead.
-
-The guard check is per definition, so inside a nested 'recur' an occurrence of
-the /outer/ language must also sit under an application within the inner body.
+anything built from it; bound the finished language from outside instead. A
+query of the argument, such as 'support' or 'unrank', reports
+'QueriedRecursiveOccurrence'; query the finished language instead.
 
 'pure' is one source choice, so @pure f '<*>' x@ has one more choice than
 @f '<$>' x@, and therefore different sizes and ranks; @pure f '<*>' self@
@@ -281,7 +287,9 @@ alternatives around a recursive occurrence must carry equal weights.
 The generated language may be infinite, but it must use only finitely many
 distinct keys. 'recurGrouped' discovers those keys before tying the recursive
 languages, so a definition that creates a fresh key on every pass cannot
-finish construction.
+finish construction. A query of the family inside the body reports
+'QueriedRecursiveOccurrence', and a body whose keys or minimum sizes change
+after discovery reports 'InconsistentRecursiveFamily'.
 -}
 recurGrouped :: (Ord key) => (Grouped key a -> Grouped key a) -> Grouped key a
 recurGrouped = ECTA.recurGrouped
@@ -365,9 +373,9 @@ oneofGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 oneofGrouped = ECTA.oneofGrouped
 
 {- | Choose among grouped generators so that every member of the combined
-language is equally likely: finite alternatives are combined in proportion to
-their exact cardinalities, and alternatives around a recursive family with
-equal weights.
+language is equally likely when each alternative is uniform: finite
+alternatives are combined in proportion to their exact cardinalities, and
+alternatives around a recursive family with equal weights.
 -}
 uniformlyGrouped :: (Ord key) => [Grouped key a] -> Grouped key a
 uniformlyGrouped = ECTA.uniformlyGrouped
@@ -390,8 +398,9 @@ oneof :: [ECTAGen a] -> ECTAGen a
 oneof = ECTA.oneof
 
 {- | Choose among generators so that every member of the combined language is
-equally likely: finite alternatives are combined in proportion to their
-cardinalities, and alternatives around a recursive one with equal weights.
+equally likely when each alternative is uniform: finite alternatives are
+combined in proportion to their cardinalities, and alternatives around a
+recursive one with equal weights.
 -}
 uniformly :: [ECTAGen a] -> ECTAGen a
 uniformly = ECTA.uniformly
@@ -545,8 +554,8 @@ smallest failing member.
 Shrink candidates first search every member of strictly smaller size, in size
 order, capped at 'smallerMemberLimit', so the result is the globally smallest
 failing member whenever the search reaches one. Component shrinking through
-'shrinkRank' follows as a fallback, restricted to candidates of at most the
-current size. For a recursive generator that fallback reads the candidates
+'shrinkRank' follows as a fallback; its candidates are never larger than
+the current member. For a recursive generator that fallback reads the candidates
 from the form bounded at the current size, since a recursive generator has no
 component shrinks of its own; bounding preserves ranks, so the candidates
 replay against the unbounded generator unchanged. Every candidate is a member
@@ -585,23 +594,15 @@ forAllWithLimit limit generator prop
     shrinkCandidates (rank, _) = smaller <> structural
       where
         smaller = take limit (smallerMembers generator rank)
-        currentSize = sizeOfRank generator rank
         -- 'shrinkRank' has no candidates for a recursive generator, so the
         -- structural candidates come from the form bounded at the current
         -- size, whose shrinking is size-major halving. Bounding preserves
-        -- ranks, and leaves a finite generator alone.
-        bounded = maybe generator (`ECTA.upToSize` generator) currentSize
-        -- Every 'shrinkRank' candidate already has a strictly smaller rank, so
-        -- this guard only stops a candidate from growing in size; it is not
-        -- what makes shrinking terminate. A candidate whose size cannot be
-        -- read is out of range and is dropped by the 'unrank' guard below.
-        notLarger candidate = case (sizeOfRank generator candidate, currentSize) of
-            (Just candidateSize, Just size) -> candidateSize <= size
-            _ -> True
+        -- ranks, and leaves a finite generator alone. Every candidate has a
+        -- strictly smaller rank and a member no larger than the current one.
+        bounded = maybe generator (`ECTA.upToSize` generator) (sizeOfRank generator rank)
         structural =
             [ (candidate, value)
             | candidate <- shrinkRank bounded rank
-            , notLarger candidate
             , Right value <- [unrank generator candidate]
             ]
 

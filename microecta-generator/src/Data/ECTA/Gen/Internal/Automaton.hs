@@ -19,26 +19,34 @@ miscounted.
 Ambiguity is not counted either. The union over a node's edges counts
 accepting runs, so a node with two edges that accept a common term counts that
 term twice; such an automaton is rejected rather than miscounted.
+
+Ranks order the edges of a node by arity, then by the text of the symbol,
+then by the canonical classes of their children ('canonicalClasses'), so they
+do not depend on the order in which the process interned the automaton. Edges
+whose keys are equal keep the node's order, which is interning order; in an
+automaton without ambiguity no two edges of a node have equal keys.
 -}
 module Data.ECTA.Gen.Internal.Automaton (automatonIndex) where
 
-import Data.List (tails)
+import qualified Data.IntMap.Strict as IntMap
+import Data.List (sort, sortOn, tails)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import Data.ECTA (Edge, Node, edgeChildren, edgeEcs, edgeSymbol, intersect, nodeEdges)
 import Data.ECTA.Internal.ECTA.Type (freeVars, nodeIdentity)
 import Data.ECTA.Paths (EqConstraints (EmptyConstraints))
-import Data.ECTA.Term (Symbol, Term (Term))
+import Data.ECTA.Term (Symbol (Symbol), Term (Term))
 
 import Data.ECTA.Gen.Internal (ECTAGenError (..))
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex,
     choiceIndex,
+    closedProbe,
     constantIndex,
     mapIndex,
     productIndex,
-    withMinimumMemberSize,
+    withKnotMetadata,
  )
 
 {- | Count and index the terms an automaton accepts, by size.
@@ -59,10 +67,27 @@ automatonIndex root
     -- One lazy entry per reachable identity, referring to each other: a
     -- recursive automaton becomes a recursive index with no extra work.
     table = Map.fromList [(nodeIdentity node, nodeIndex node) | node <- reachable]
+    -- The rows are closed, so they reach no probe of an enclosing definition.
     nodeIndex node =
-        withMinimumMemberSize
+        withKnotMetadata
             (Map.lookup (nodeIdentity node) minima)
-            (choiceIndex $ map edgeIndex $ nodeEdges node)
+            (closedProbe Nothing :: SizeIndex ())
+            (choiceIndex $ map edgeIndex $ sortOn edgeKey $ nodeEdges node)
+
+    -- A node keeps its edges in interning order, which depends on what the
+    -- process built before. Arity first puts the leaves of a size class
+    -- before its constructors; the symbol text is stable across processes,
+    -- where 'Ord' on 'Symbol' compares intern identities. The classes of the
+    -- children order the edges with one arity and symbol.
+    edgeKey edge = (symbolKey edge, map classOf $ edgeChildren edge)
+    symbolKey edge = (length (edgeChildren edge), case edgeSymbol edge of Symbol text -> text)
+    classes =
+        canonicalClasses $
+            IntMap.fromList
+                [ (nodeIdentity node, [(symbolKey edge, map nodeIdentity $ edgeChildren edge) | edge <- nodeEdges node])
+                | node <- reachable
+                ]
+    classOf child = IntMap.findWithDefault (-1) (nodeIdentity child) classes
 
     -- A node with no minimum size accepts nothing, and its table entry counts
     -- an unbounded run of zeroes that 'sizeClassOf' would walk forever. The
@@ -87,6 +112,36 @@ automatonIndex root
                 (map indexOf $ edgeChildren edge)
     consumeChild built child = productIndex (mapIndex prepend built) child
     prepend build term arguments = build (term : arguments)
+
+{- | Canonical classes for the nodes of a graph, which can have cycles.
+
+A node is a list of edges, and an edge is a key and the identities of its
+children. Every node starts in one class. Each round keys a node by its class
+and the sorted keys of its edges with the classes of their children, and
+numbers the classes in the order of those keys. The rounds stop when no class
+splits (ordered partition refinement). The classes depend on the content of
+the graph only, not on the identities of its nodes. A node keeps its class
+first in its key, so two nodes keep their order once a round separates them,
+and the order of two nodes does not depend on the rest of the graph. Two
+nodes share a class when their edges are the same up to the classes of their
+children.
+-}
+canonicalClasses :: (Ord key) => IntMap.IntMap [(key, [Int])] -> IntMap.IntMap Int
+canonicalClasses graph = refine (IntMap.map (const 0) graph) (min 1 $ IntMap.size graph)
+  where
+    refine classes count
+        | count' == count = classes'
+        | otherwise = refine classes' count'
+      where
+        keys =
+            IntMap.mapWithKey
+                ( \nodeId edges ->
+                    (classes IntMap.! nodeId, sort [(key, [IntMap.findWithDefault (-1) child classes | child <- children]) | (key, children) <- edges])
+                )
+                graph
+        numbers = Map.fromList $ zip (Set.toAscList $ Set.fromList $ IntMap.elems keys) [0 :: Int ..]
+        classes' = IntMap.map (numbers Map.!) keys
+        count' = Map.size numbers
 
 -- | Every node reachable from a root, one per interned identity.
 reachableNodes :: Node Symbol -> [Node Symbol]

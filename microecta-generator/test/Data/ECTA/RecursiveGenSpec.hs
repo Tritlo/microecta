@@ -6,6 +6,7 @@ module Data.ECTA.RecursiveGenSpec (spec) where
 import Control.Exception (evaluate)
 import Data.List (sort)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Ratio ((%))
 import qualified Data.Set as Set
 import System.Timeout (timeout)
@@ -17,7 +18,7 @@ import qualified Test.QuickCheck.Random as QCRandom
 
 import Data.ECTA (
     Edge (Edge),
-    Node (Node),
+    Node (EmptyNode, Node),
     createMu,
     getAllTerms,
     mkEdge,
@@ -25,16 +26,20 @@ import Data.ECTA (
     nodeRepresents,
     numNestedMu,
  )
-import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
+import qualified Data.ECTA.Gen as Core
+import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), On (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
-import Data.ECTA.Term (Symbol, Term)
+import Data.ECTA.Term (Symbol, Term (Term))
 
 -- | A binary tree over three leaf values, defined by its own language.
 data Tree = Leaf Int | Branch Tree Tree
     deriving (Eq, Ord, Show)
 
 data Coin = Heads | Tails
+    deriving (Eq, Ord, Show)
+
+data Call = NoCall | Call [Call]
     deriving (Eq, Ord, Show)
 
 trees :: ECTAGen Tree
@@ -191,6 +196,80 @@ spec = do
                 QC.forAll (QC.resize 4 $ ECTAGen.toGen trees) $ \member ->
                     QC.counterexample (show member) $ QC.property $ leaves member <= 4
 
+        it "counts a recursion that reads a tied recursion before its own occurrence" $ do
+            let forest = ECTAGen.recur $ \rest -> ECTAGen.oneof [pure [], (:) <$> trees <*> rest]
+                calls :: ECTAGen Call
+                calls =
+                    ECTAGen.recur $ \self ->
+                        ECTAGen.oneof [pure NoCall, Call <$> ECTAGen.recur (\rest -> ECTAGen.oneof [pure [], (:) <$> self <*> rest])]
+                counts = (ECTAGen.countAtSize forest 1, map (ECTAGen.countAtSize calls) [1 .. 4])
+            counted <- timeout 10000000 $ counts <$ evaluate (length $ show counts)
+            counted `shouldBe` Just (Right 1, [Right 2, Right 2, Right 6, Right 22])
+
+        it "keeps a nested recursion whose finite members all use the outer occurrence" $ do
+            -- A @pure f <*> x@ is a product, so it guards the occurrence. A
+            -- @f <$> x@ does not.
+            let calls :: ECTAGen Call
+                calls =
+                    ECTAGen.recur $ \self ->
+                        ECTAGen.oneof
+                            [ pure NoCall
+                            , pure Call <*> ECTAGen.recur (\rest -> ECTAGen.oneof [pure (: []) <*> self, (:) <$> self <*> rest])
+                            ]
+            Core.isRecursive calls `shouldBe` True
+            map (ECTAGen.countAtSize calls) [1 .. 4] `shouldBe` [Right 1, Right 0, Right 1, Right 1]
+
+        it "keeps the outer occurrence through a recursion whose finite members all use the middle occurrence" $ do
+            -- The outer recursion reaches its own occurrence only through the
+            -- inner recursion. The inner recursion has finite members only
+            -- through a product of the middle occurrence and the outer one.
+            let pair a b = (+) <$> a <*> b
+                inner m o = ECTAGen.recur $ \n -> ECTAGen.oneof [pair m o, pair n n]
+                middle o = ECTAGen.recur $ \m -> ECTAGen.oneof [pure 1, inner m o]
+                outer :: ECTAGen Int
+                outer = ECTAGen.recur $ \o -> ECTAGen.oneof [pure 0, middle o]
+                bounded :: ECTAGen Int
+                bounded = ECTAGen.recur $ \o -> ECTAGen.oneof [pure 0, ECTAGen.upToSize 3 $ middle o]
+                grouped :: ECTAGen Int
+                grouped =
+                    ECTAGen.recur $ \o ->
+                        ECTAGen.oneof
+                            [ pure 0
+                            , ECTAGen.atKey () $ ECTAGen.recurGrouped $ \m ->
+                                ECTAGen.keyed () $ ECTAGen.oneof [pure 1, inner (ECTAGen.atKey () m) o]
+                            ]
+            -- In each language, O = 0 | M, M = 1 | N, and N = M * O | N * N.
+            map (ECTAGen.countAtSize outer) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            traverse (ECTAGen.unrank outer) [0 .. 3] `shouldBe` Right [0, 1, 1, 2]
+            map (ECTAGen.countAtSize grouped) [1 .. 4] `shouldBe` [Right 2, Right 2, Right 6, Right 26]
+            -- A bound around the middle recursion reaches the outer occurrence.
+            ECTAGen.cardinality bounded `shouldBe` Left BoundedRecursiveOccurrence
+
+        it "finds a key that the body reaches only through a nested recursion over another key" $ do
+            -- Every member of key 1 reads key 0, so a pass around empty groups finds no member.
+            let family :: ECTAGen.Grouped Int Int
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed 0 (pure 0)
+                        , ECTAGen.keyed 1 $ ECTAGen.recur $ \n -> ECTAGen.oneof [(+) <$> ECTAGen.atKey 0 self <*> pure 1, (+) <$> n <*> n]
+                        ]
+            ECTAGen.smallest (ECTAGen.atKey 1 family) `shouldBe` Right (Just 1)
+
+        it "keeps an enclosing recursion that a family reaches only through another key" $ do
+            -- Key 1 reads key 2, which reads the enclosing recursion.
+            let family :: ECTAGen Int -> ECTAGen.Grouped Int Int
+                family enclosing = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed 2 $ ECTAGen.oneof [enclosing, ECTAGen.elements [3]]
+                        , ECTAGen.apply (ECTAGen.keyed (2 :-> 1) $ ECTAGen.elements [(+ 10)]) (self :& ANil)
+                        ]
+                outer = ECTAGen.recur $ \enclosing ->
+                    ECTAGen.ungroup $
+                        ECTAGen.apply (ECTAGen.keyed (1 :-> (2 :: Int)) $ ECTAGen.elements [(+ 100)]) (family enclosing :& ANil)
+                answer = (Core.isRecursive outer, ECTAGen.smallest outer)
+            result <- timeout 60000000 $ answer <$ evaluate (length $ show answer)
+            result `shouldBe` Just (True, Right (Just 113))
+
         it "reports the exact atomic distribution inside one recursive size" $ do
             let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
                 words_ = ECTAGen.recur $ \rest ->
@@ -208,6 +287,79 @@ spec = do
                     ]
             ECTAGen.pmfAtSize (length <$> words_) 2
                 `shouldBe` Right [(2, 1)]
+
+        it "keeps an atomic distribution beside a finite sibling" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                words_ :: ECTAGen [Coin]
+                words_ = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ (\first second -> [first, second]) <$> coin <*> ECTAGen.elements [Heads]
+                        , (:) <$> coin <*> rest
+                        ]
+            ECTAGen.pmfAtSize words_ 2
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
+
+        it "keeps an atomic distribution through a bound and a recursion" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                words_ :: ECTAGen [Coin]
+                words_ = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [(: []) <$> coin, (:) <$> coin <*> rest]
+                -- A bounded recursive language inside another recursion.
+                sentences :: ECTAGen [Coin]
+                sentences = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ ECTAGen.upToSize 1 words_
+                        , (<>) <$> ECTAGen.upToSize 1 words_ <*> rest
+                        ]
+            ECTAGen.pmfAtSize sentences 1
+                `shouldBe` Right [([Heads], 1 % 10), ([Tails], 9 % 10)]
+
+        it "keeps an atomic distribution inside a grouped bucket" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                pairs =
+                    ECTAGen.groupBy (const ()) $
+                        (\first second -> [first, second]) <$> coin <*> ECTAGen.elements [Heads]
+                family :: ECTAGen.Grouped () [Coin]
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ pairs
+                        , ECTAGen.apply (ECTAGen.keyed (() :-> ()) $ ECTAGen.elements [(Heads :)]) (self :& ANil)
+                        ]
+            ECTAGen.pmfAtSize (ECTAGen.ungroup family) 1
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
+
+        it "keeps an atomic distribution through a join in a recursion" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                matched = ECTAGen.match (id :==: id) coin (ECTAGen.elements [Heads, Tails])
+                operations =
+                    snd
+                        <$> ECTAGen.groupBy
+                            fst
+                            ( ECTAGen.atomic $
+                                ECTAGen.frequency
+                                    [ (1, pure (() :-> (), (Heads :)))
+                                    , (9, pure (() :-> (), (Tails :)))
+                                    ]
+                            )
+                applied :: ECTAGen [Coin]
+                applied =
+                    ECTAGen.ungroup $
+                        ECTAGen.apply operations (ECTAGen.groupBy (const ()) (ECTAGen.elements [[]]) :& ANil)
+                -- Each join has size two, and the other alternative is larger.
+                viaMatch :: ECTAGen [Coin]
+                viaMatch = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [(\(first, second) -> [first, second]) <$> matched, (:) <$> coin <*> rest]
+                viaApply :: ECTAGen [Coin]
+                viaApply = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [applied, (:) <$> coin <*> rest]
+            ECTAGen.pmfAtSize viaMatch 2
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Tails], 9 % 10)]
+            ECTAGen.pmfAtSize viaApply 2
+                `shouldBe` Right [([Heads], 1 % 10), ([Tails], 9 % 10)]
 
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
@@ -262,6 +414,75 @@ spec = do
             fmap numNestedMu (ECTAGen.support notRecursive) `shouldBe` Right 0
             fmap length (ECTAGen.pmf notRecursive) `shouldBe` Right 3
 
+        it "rejects queries of an unfinished recursive occurrence" $ do
+            let blocked :: Either ECTAGenError b -> Bool
+                blocked = either (== QueriedRecursiveOccurrence) (const False)
+                step :: ECTAGen Int -> ECTAGen Int
+                step self = (+) <$> ECTAGen.elements [1] <*> self
+                -- A member decodes to 0 only when the check held in the
+                -- build that decodes it.
+                observeSelf checks =
+                    ECTAGen.recur $ \self -> ECTAGen.oneof [pure (if checks self then 0 else 100), step self]
+                observations =
+                    [ blocked . ECTAGen.support
+                    , \self -> blocked $ ECTAGen.countAtSize self 1
+                    , blocked . ECTAGen.minimumSize
+                    , \self -> blocked $ ECTAGen.unrank self 0
+                    , blocked . ECTAGen.smallest
+                    , \self -> blocked $ ECTAGen.pmfAtSize self 1
+                    , \self -> blocked $ ECTAGen.countsAtSize (ECTAGen.keyed () self) 1
+                    , \self -> blocked $ ECTAGen.massesAtSize (ECTAGen.keyed () self) 1
+                    , \self -> isNothing (ECTAGen.sizeOfRank self 0) && null (ECTAGen.smallerMembers self 0)
+                    , \self ->
+                        blocked $ ECTAGen.support $ ECTAGen.recur $ \inner ->
+                            ECTAGen.oneof [pure 0, step inner, (+) <$> ECTAGen.elements [2] <*> self]
+                    , \self -> ECTAGen.cardinality (ECTAGen.upToSize 1 self) == Left BoundedRecursiveOccurrence
+                    , \self -> ECTAGen.cardinality (ECTAGen.atomic self) == Left BoundedRecursiveOccurrence
+                    ]
+                changing :: ECTAGen Int
+                changing = ECTAGen.recur $ \self -> case ECTAGen.support self of
+                    Right EmptyNode -> ECTAGen.oneof [pure 0, step self]
+                    _ -> ECTAGen.elements [99]
+                -- Only the key True reaches the outer occurrence.
+                selected :: ECTAGen Int
+                selected = ECTAGen.recur $ \outer -> ECTAGen.atKey False $ ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False (pure 0)
+                        , ECTAGen.keyed True (step outer)
+                        , ECTAGen.keyed True (step $ ECTAGen.atKey True self)
+                        ]
+            map (\checks -> traverse (ECTAGen.unrank $ ECTAGen.upToSize 3 $ observeSelf checks) [0 .. 2]) observations
+                `shouldBe` replicate (length observations) (Right [0, 1, 2])
+            (ECTAGen.cardinality changing, ECTAGen.unrank changing 0) `shouldBe` (Right 1, Right 99)
+            ECTAGen.countAtSize selected 1 `shouldBe` Right 1
+            ECTAGen.minimumSize selected `shouldBe` Right (Just 1)
+            traverse (ECTAGen.unrank $ ECTAGen.upToSize 4 selected) [0] `shouldBe` Right [0]
+
+        it "rejects a family whose final body changes its discovered minimum sizes" $ do
+            -- The key search builds the body once for each pass. A body that
+            -- reads its family can change its base between the passes.
+            let counted :: ECTAGen.Grouped Bool Int
+                counted = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False $ case ECTAGen.countsAtSize self 1 of
+                            Right counts | null counts -> pure 0
+                            _ -> (+) <$> ECTAGen.elements [1] <*> ECTAGen.elements [0]
+                        , ECTAGen.keyed False $ (+) <$> ECTAGen.elements [1] <*> ECTAGen.atKey False self
+                        ]
+                measured :: ECTAGen.Grouped Bool Int
+                measured = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed False $
+                            if ECTAGen.minimumSize (ECTAGen.atKey False self) == Right Nothing
+                                then pure 0
+                                else (+) <$> ECTAGen.elements [1] <*> ECTAGen.elements [0]
+                        , ECTAGen.keyed False $ (+) <$> ECTAGen.elements [1] <*> ECTAGen.atKey False self
+                        ]
+            ECTAGen.minimumSize (ECTAGen.atKey False counted) `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.countsAtSize counted 1 `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.minimumSize (ECTAGen.atKey False measured) `shouldBe` Left InconsistentRecursiveFamily
+            ECTAGen.countAtSize (ECTAGen.atKey False measured) 1 `shouldBe` Left InconsistentRecursiveFamily
+
         it "shrinks a failing member to the smallest of its size" $ do
             let containsOne (Leaf value) = value == 1
                 containsOne (Branch left right) = containsOne left || containsOne right
@@ -280,6 +501,42 @@ spec = do
                 _ -> expectationFailure "expected the property to fail"
 
     describe "generators read from an automaton" $ do
+        it "ranks imported alternatives in symbol order, not in interning order" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let expected = [Term "order-a" [], Term "order-b" []] :: [Term Symbol]
+                flat = Node [Edge "order-a" [], Edge "order-b" []] :: Node Symbol
+                recursive = createMu (\self -> Node [Edge "order-b" [], Edge "order-a" [], Edge "order-s" [self]]) :: Node Symbol
+            -- Intern the later symbol first.
+            _ <- evaluate $ nodeCount (Node [Edge "order-b" []] :: Node Symbol)
+            traverse (ECTAGen.unrank (ECTAGen.fromECTA flat)) [0, 1] `shouldBe` Right expected
+            traverse (ECTAGen.unrank (ECTAGen.upToSize 1 $ ECTAGen.fromECTA recursive)) [0, 1] `shouldBe` Right expected
+
+        it "ranks alternatives with one symbol by their children, not in interning order" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let leaf symbol = Node [Edge symbol []] :: Node Symbol
+                pair symbol = Edge "canonical-pair" [leaf symbol]
+                flat = Node [pair "canonical-a", pair "canonical-b"]
+            -- Intern the later alternative first.
+            _ <- evaluate $ nodeCount (Node [pair "canonical-b"])
+            traverse (ECTAGen.unrank (ECTAGen.fromECTA flat)) [0, 1]
+                `shouldBe` Right [Term "canonical-pair" [Term symbol []] | symbol <- ["canonical-a", "canonical-b"]]
+
+        it "ranks alternatives with one symbol in a cyclic automaton by their children" $ do
+            -- Interning is global: these symbols appear in no other test.
+            let leaf symbol = Node [Edge symbol []] :: Node Symbol
+                pair symbol = Edge "cyclic-pair" [leaf symbol]
+                cyclic = createMu $ \self -> Node [Edge "cyclic-end" [], Edge "cyclic-wrap" [self], pair "cyclic-a", pair "cyclic-b"]
+                paired symbol = Term "cyclic-pair" [Term symbol []]
+            -- Intern the later alternative first.
+            _ <- evaluate $ nodeCount (Node [pair "cyclic-b"])
+            traverse (ECTAGen.unrank (ECTAGen.upToSize 2 $ ECTAGen.fromECTA cyclic)) [0 .. 3]
+                `shouldBe` Right
+                    [ Term "cyclic-end" []
+                    , paired "cyclic-a"
+                    , paired "cyclic-b"
+                    , Term "cyclic-wrap" [Term "cyclic-end" []]
+                    ]
+
         it "accepts exactly the language of a finite automaton" $
             let generator = ECTAGen.fromECTA finiteAutomaton
              in case ECTAGen.cardinality (ECTAGen.upToSize 2 generator) of

@@ -1,6 +1,7 @@
 -- | Backend-independent value and rank sampling.
 module Data.ECTA.Gen.Internal.Sampler (
     GenBackend (..),
+    Exact (..),
     Sampler (..),
     SampleIndex (..),
     atomicSampleIndex,
@@ -516,4 +517,5 @@ lookupWeightGroup table lastIndex ticket = go 0 lastIndex
                     | ticket < upperBound -> go low midpoint
                     | otherwise -> go (midpoint + 1) high
       where
-        midpoint = (low + high) `div` 2
+        -- The sum of the two indexes can overflow; their difference cannot.
+        midpoint = low + (high - low) `div` 2

@@ -4,16 +4,19 @@ module ECTASpec (spec) where
 
 import Control.Exception (evaluate)
 import Control.Monad (forM_)
+import Control.Monad.State.Strict (State, evalState, get, modify')
 import qualified Data.HashSet as HashSet
 import Data.Hashable (Hashable)
 import Data.IORef (modifyIORef, newIORef, readIORef)
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 
 import Test.Hspec
 import Test.QuickCheck
@@ -24,6 +27,7 @@ import Data.ECTA.Internal.ECTA.Type
 import Data.ECTA.Internal.Paths
 import Data.ECTA.Term
 import Data.Persistent.UnionFind (intToUVar)
+import Utility.Fixpoint (fixUnbounded)
 
 import Test.Generators.ECTA ()
 
@@ -36,6 +40,53 @@ instance Hashable ArithmeticSymbol
 
 constTerms :: [Symbol] -> Node Symbol
 constTerms ss = Node (map (\s -> Edge s []) ss)
+
+{- | Whether a node accepts a term, from the definition and with no table, as
+cfta's reference @Data.CFTA.Simple.accepts@ decides it. An edge of the node
+has the symbol and the arity of the term, each child of the edge accepts the
+subterm at its position, and every path of each equality class of the edge
+exists in the term, with one subterm at all of them. It decides a subterm
+again for each edge above it, so on a node with two edges of one symbol its
+time is exponential in the depth of a rejected term.
+-}
+simpleRepresents :: Node Symbol -> Term Symbol -> Bool
+simpleRepresents node term@(Term symbol children) =
+    or
+        [ and (zipWith simpleRepresents (edgeChildren edge) children) && classesHold (edgeEcs edge)
+        | edge <- nodeEdges node
+        , edgeSymbol edge == symbol
+        , length (edgeChildren edge) == length children
+        ]
+  where
+    classesHold EqContradiction = False
+    classesHold constraints = all (sameSubterm . unPathEClass) (unsafeGetEclasses constraints)
+    sameSubterm paths = case map (`getPath` term) paths of
+        first@(Just _) : rest -> all (== first) rest
+        _ -> False
+
+{- | Keep the terms whose leaves are at most the given depth from the root, as
+cfta's @boundDepth@ does. A leaf has depth zero. A recursive node or a union
+gives the rows of its closure through 'nodeEdges', so the result is finite for
+a cyclic input, and an epsilon cycle gives no rows.
+-}
+boundDepth :: Int -> Node Symbol -> Node Symbol
+boundDepth maximumDepth root = evalState (go maximumDepth root) Map.empty
+  where
+    go :: Int -> Node Symbol -> State (Map.Map (Int, Int) (Node Symbol)) (Node Symbol)
+    go _ EmptyNode = pure EmptyNode
+    go _ (Rec _) = error "boundDepth: unexpected Rec"
+    go remaining node
+        | remaining < 0 = pure EmptyNode
+        | otherwise = do
+            known <- get
+            case Map.lookup (remaining, nodeIdentity node) known of
+                Just bounded -> pure bounded
+                Nothing -> do
+                    bounded <- Node <$> traverse edge (filter (\e -> remaining > 0 || null (edgeChildren e)) (nodeEdges node))
+                    modify' (Map.insert (remaining, nodeIdentity node) bounded)
+                    pure bounded
+      where
+        edge e = setChildren e <$> traverse (go (remaining - 1)) (edgeChildren e)
 
 ex1 :: Node Symbol
 ex1 = Node [mkEdge "f" [constTerms ["1", "2"], Node [Edge "g" [constTerms ["1", "2"]]]] (mkEqConstraints [[path [0], path [1, 0]]])]
@@ -122,6 +173,18 @@ spec = do
             length candidates `shouldBe` 4
             filter (nodeRepresents pairs) candidates `shouldBe` getAllTerms pairs
 
+        it "decides a deep term in linear time when a node has two edges with one symbol" $ do
+            -- A search with no table tries both "f" edges again at each level
+            -- of a rejected term, so its time is exponential in the depth.
+            let ambiguous =
+                    createMu $ \q ->
+                        Node [Edge "a" [], Edge "f" [q], Edge "f" [Node [Edge "a" [], Edge "f" [q]]]]
+                chain depth leaf = iterate (\term -> Term "f" [term]) (Term leaf []) !! depth
+            forM_ [chain depth leaf | depth <- [0 .. 10 :: Int], leaf <- ["a", "b"]] $ \term ->
+                (term, nodeRepresents ambiguous term) `shouldBe` (term, simpleRepresents ambiguous term)
+            finished <- timeout 10000000 $ map (nodeRepresents ambiguous . chain 60) ["a", "b"] `shouldBe` [True, False]
+            finished `shouldBe` Just ()
+
     describe "templates" $ do
         it "restricts a constrained language and lets equality narrow a hole" $ do
             let values = Node [Edge "a" [], Edge "b" []] :: Node Symbol
@@ -165,6 +228,47 @@ spec = do
                 mapSize (min 3) $ \(template :: Template Symbol) (node :: Node Symbol) ->
                     HashSet.fromList (getAllTerms $ termsMatching template node)
                         `shouldBe` HashSet.fromList (filter (matchesTemplate template) $ getAllTerms node)
+
+    describe "recursive union" $ do
+        it "retains an enclosing reference through a nested binder" $ do
+            let grammar :: Node Symbol
+                grammar = Mu $ \outer ->
+                    Node [Edge "a" [], Edge "wrap" [Mu $ \_ -> union [outer, Node [Edge "b" []]]]]
+                wrap term = Term "wrap" [term]
+                a = Term "a" []
+                b = Term "b" []
+                expected = a : concat [map (!! depth) [iterate wrap a, iterate wrap b] | depth <- [1 .. 4]]
+            Set.fromList (getAllTerms $ boundDepth 4 grammar) `shouldBe` Set.fromList expected
+            nodeRepresents grammar (wrap a) `shouldBe` True
+            nodeRepresents grammar b `shouldBe` False
+            freeVars grammar `shouldBe` Set.empty
+
+        it "drops a binder's own reference at the root of its body" $ do
+            let leaf = Node [Edge "a" []] :: Node Symbol
+                step child = Node [Edge "f" [child]]
+            Mu (\r -> union [leaf, step r, r]) `shouldBe` Mu (\r -> union [leaf, step r])
+
+        it "takes the least fixed point through epsilon cycles" $ do
+            let a = Node [Edge "a" []] :: Node Symbol
+                self = Mu $ \r -> union [r, a]
+                nested = Mu $ \outer -> Mu $ \inner -> union [outer, inner, a]
+                empty = Mu (\outer -> Mu $ \inner -> union [outer, inner]) :: Node Symbol
+            completed <-
+                timeout 5000000
+                    $ evaluate
+                    $ getAllTerms (boundDepth 3 self) == [Term "a" []]
+                        && getAllTerms (boundDepth 3 nested) == [Term "a" []]
+                        && null (getAllTerms (boundDepth 3 empty))
+            completed `shouldBe` Just True
+
+        it "intersects and restricts terms without adding a union constructor" $ do
+            let grammar :: Node Symbol
+                grammar = Mu $ \outer -> Node [Edge "a" [], Edge "wrap" [union [outer, Node [Edge "b" []]]]]
+                onlyA = Mu $ \self -> Node [Edge "a" [], Edge "wrap" [self]]
+                expected = take 5 $ iterate (\term -> Term "wrap" [term]) (Term "a" [])
+            Set.fromList (getAllTerms $ boundDepth 4 $ intersect grammar onlyA) `shouldBe` Set.fromList expected
+            Set.fromList (getAllTerms $ boundDepth 4 $ termsMatching (TemplateNode "wrap" [Hole]) grammar)
+                `shouldBe` Set.fromList (filter (matchesTemplate $ TemplateNode "wrap" [Hole]) $ getAllTerms $ boundDepth 4 grammar)
 
     describe "intersection" $ do
         it "intersection commutes with getAllTerms" $
@@ -236,35 +340,35 @@ spec = do
                 mapSize (min 3) $
                     \(n :: Node Symbol) -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
-        it "reducing a single constraint is idempotent 1" $
+        it "iterated reduction of a single constraint reaches a fixpoint 1" $
             property $ \(e :: Edge Symbol) ->
                 let ns = edgeChildren e
                     ecs = edgeEcs e
-                    ns' = reduceEqConstraints ecs EmptyConstraints ns
+                    ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
                  in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
-        it "reducing a single constraint is idempotent 2" $
+        it "iterated reduction of a single constraint reaches a fixpoint 2" $
             let intersectingEdge :: Gen (Edge Symbol)
                 intersectingEdge =
                     arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
              in forAll intersectingEdge $ \e' ->
                     let ns = edgeChildren e'
                         ecs = edgeEcs e'
-                        ns' = reduceEqConstraints ecs EmptyConstraints ns
+                        ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
                      in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
-        it "reducing a constraint is idempotent: buggy input 6/27/21" $ do
+        it "iterated reduction of a constraint reaches a fixpoint: buggy input 6/27/21" $ do
+            -- One pass is not idempotent on this input.
             let (ecs, ns) = bug062721NonIdempotentEqConstraintReduction
-                ns' = reduceEqConstraints ecs EmptyConstraints ns
+                ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
             ns' `shouldBe` reduceEqConstraints ecs EmptyConstraints ns'
 
-        -- One pass does not establish this. The reduction repeats its pass
-        -- until the children stop changing, and that fixpoint does.
+        -- One pass does not establish this. The fixpoint of the passes does.
         it "leaf reduction means, for everything at a path, there is something matching at the other paths" $
             let liveConstrainedEdge :: Gen (Edge Symbol)
                 liveConstrainedEdge =
                     arbitrary `suchThatMap` \edge ->
-                        let reduced = reduceEdgeIntersection EmptyConstraints edge
+                        let reduced = fixUnbounded (reduceEdgeIntersection EmptyConstraints) edge
                          in if reduced /= emptyEdge (edgeSymbol reduced) && edgeEcs reduced /= EmptyConstraints
                                 then Just reduced
                                 else Nothing
@@ -278,6 +382,25 @@ spec = do
                             , n1 <- getAllAtPath p1 ns
                             , let n2 = getPath p2 ns
                             ]
+
+        it "reduction ends and keeps the terms when constraints reach into a recursive node" $ do
+            let equalChildren = mkEqConstraints [[path [0, 0], path [1, 0]]]
+                -- x = g(y, y) with 0.0 = 1.0, where y = b | h(x, y)
+                outer :: Node Symbol
+                outer = Mu $ \x ->
+                    let inner = Mu $ \y -> Node [Edge "b" [], Edge "h" [x, y]]
+                     in Node [mkEdge "g" [inner, inner] equalChildren]
+                -- The same, with a constrained alternative inside y too.
+                nested :: Node Symbol
+                nested = Mu $ \x ->
+                    let inner = Mu $ \y -> Node [Edge "b" [], mkEdge "h" [x, y] equalChildren, Edge "h" [x, y]]
+                     in Node [mkEdge "g" [inner, inner] equalChildren]
+                reduceFully = fixUnbounded (withoutRedundantEdges . reducePartially)
+                termsTo depth n = Set.fromList (getAllTerms (boundDepth depth n))
+            forM_ [outer, nested, unfoldOuterRec outer, unfoldOuterRec nested] $ \n ->
+                forM_ [0 .. 4] $ \depth -> do
+                    termsTo depth (fixUnbounded reducePartially n) `shouldBe` termsTo depth n
+                    termsTo depth (reduceFully n) `shouldBe` termsTo depth n
 
         it "removes a subsumed alternative of a recursive node and keeps its language" $ do
             let leaf = Node [Edge "a" []] :: Node Symbol
@@ -305,6 +428,27 @@ spec = do
                 ns'' = reduceEqConstraints ecs EmptyConstraints ns'
                 f = \n -> Node [Edge "f" [n]]
              in (ns' == ns'') && ns' == [f $ f $ f $ f infiniteFNode, f $ f $ f $ infiniteFNode] `shouldBe` True
+
+        it "reduction stops on a domain with an epsilon reference to its binder" $ do
+            let leaf = Node [Edge "a" []] :: Node Symbol
+                step child = Node [Edge "f" [child]]
+                withEpsilon = Mu $ \r -> union [leaf, step r, r]
+                withoutEpsilon = Mu $ \r -> union [leaf, step r]
+                children = [withEpsilon, withoutEpsilon, withEpsilon]
+                direct = [path [0], path [1], path [2]]
+                below = [path [0, 0], path [1, 0], path [2, 0]]
+                shallowTerms depth n = HashSet.fromList (getAllTerms (boundDepth depth n))
+            forM_ [(children, direct), (map step children, direct), (children, below), (map step children, below)] $ \(domains, paths) -> do
+                let original = Node [mkEdge "triple" domains (mkEqConstraints [paths])]
+                result <- timeout 2000000 $ do
+                    let reduced = fixUnbounded reducePartially original
+                    _ <- evaluate (nodeCount reduced)
+                    pure reduced
+                case result of
+                    Nothing -> expectationFailure "recursive equality narrowing did not finish"
+                    Just reduced ->
+                        forM_ [0 .. 4] $ \depth ->
+                            shallowTerms depth reduced `shouldBe` shallowTerms depth original
 
         it "refold folds the simplest unrolled input" $
             refold (Node [Edge "f" [infiniteFNode]]) `shouldBe` infiniteFNode
@@ -505,6 +649,34 @@ spec = do
         it "keeping a redundant Mu is what createMuDontCleanup is for" $
             numNestedMu (createMuDontCleanup (\_r -> Node [Edge "f" []]) :: Node Symbol) `shouldBe` 1
 
+        it "traverses retained epsilon binder cycles as empty" $ do
+            let empty =
+                    [ createMuDontCleanup id
+                    , createMuDontCleanup $ \outer -> createMuDontCleanup $ const outer
+                    ] ::
+                        [Node Symbol]
+                leaf = Node [Edge "a" []] :: Node Symbol
+                productive = Mu $ \outer -> Mu $ \inner -> union [outer, inner, leaf, Node [Edge "f" [outer], Edge "g" [inner]]]
+                expected depth
+                    | depth < 0 = []
+                    | otherwise = Term "a" [] : [Term symbol [child] | symbol <- ["f", "g"], child <- expected (depth - 1)]
+            forM_ [-1 .. 2] $ \depth -> do
+                forM_ empty $ \node -> do
+                    freeVars node `shouldBe` Set.empty
+                    timeout 2000000 (evaluate $ boundDepth depth node) `shouldReturn` Just EmptyNode
+                getAllTerms (boundDepth depth productive) `shouldMatchList` expected depth
+            forM_ empty $ \node -> do
+                timeout 2000000 (evaluate $ null $ nodeEdges node) `shouldReturn` Just True
+                timeout 2000000 (evaluate $ nodeMapChildren id node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ getPath (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ null $ getAllAtPath (path [0]) node) `shouldReturn` Just True
+                timeout 2000000 (evaluate $ modifyAtPath id (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ requirePath (path [0]) node) `shouldReturn` Just EmptyNode
+                timeout 2000000 (evaluate $ termsMatching (TemplateNode "a" []) node) `shouldReturn` Just EmptyNode
+                let classes = mkEqConstraints [[path [0, 0], path [1, 0]]]
+                timeout 2000000 (evaluate $ reduceEqConstraints classes EmptyConstraints [node, node] == [EmptyNode, EmptyNode])
+                    `shouldReturn` Just True
+
     describe "nested Mu" $
         it "references to different Mu nodes are not confused" $
             property $ do
@@ -529,6 +701,8 @@ spec = do
                             , Set.union (collectAllIds (internedMuBody mu)) (collectAllIds (internedMuShape mu))
                             ]
                     collectAllIds (Rec _) = Set.empty
+                    collectAllIds (InternedUnion group) =
+                        Set.insert (internedUnionId group) $ Set.unions $ map collectAllIds $ internedUnionMembers group
 
                 Set.intersection (collectAllIds n) (collectAllIds m) `shouldBe` Set.empty
 
