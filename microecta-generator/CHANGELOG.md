@@ -101,7 +101,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   tying an occurrence to its key.
 * `atomic` treats every member of a finite generator as one source choice while
   preserving its support, ranks, decoder, cardinality, and distribution. That
-  distribution is retained inside each recursive size class. An acyclic
+  distribution is retained inside each recursive size class, also when the
+  atomic generator is a part of a finite product, choice, `groupBy` bucket,
+  join, or bounded language inside the recursion. The weights of a finite
+  choice that is not atomic become member counts there. An acyclic
   automaton read with `fromECTA` can therefore close its whole finite language
   without enumerating it or taking an inner size prefix.
 

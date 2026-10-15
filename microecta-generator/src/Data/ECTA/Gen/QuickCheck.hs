@@ -243,7 +243,8 @@ fromECTA = ECTA.fromECTA
 
 An already finite generator keeps its support, cardinality, ranks, values,
 and distribution. That distribution is retained when the atom is used inside
-'recur' or 'recurGrouped'. Put 'atomic' around the complete finite choice that
+'recur' or 'recurGrouped', also as a part of a finite product, choice, group,
+or join. Put 'atomic' around the complete finite choice that
 enters recursion; a finite composition outside the boundary is a new choice
 and needs its own boundary. An acyclic automaton read with 'fromECTA' closes
 its whole finite language without enumerating it or taking an inner
