@@ -98,7 +98,6 @@ import Data.ECTA.Gen.Internal.Size (
     isUnguarded,
     mapIndex,
     minimumMemberSize,
-    probeIndex,
     probeIndexWithMinimum,
     productIndex,
     sizeClassOf,
@@ -663,12 +662,15 @@ recurGrouped build
             | key <- keys
             ]
 
+    -- Each occurrence has the least minimum of its key, as in the probe of
+    -- 'recur', so a nested definition whose finite members all go through
+    -- the family is not empty in this probe.
     probeBody =
         build $
             CyclicGrouped $
                 Right $
                     Map.fromList
-                        [ (key, placeholder EmptyNode probeIndex emptySampleIndex noMass)
+                        [ (key, placeholder EmptyNode (probeIndexWithMinimum $ Map.lookup key minimumSizes) emptySampleIndex noMass)
                         | key <- keys
                         ]
     probed = recursiveGroups probeBody
