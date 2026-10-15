@@ -378,6 +378,10 @@ data JoinGroup left right = JoinGroup
     { joinGroupIndex :: !Int
     , joinGroupLeft :: !(Seq (Outcome left))
     , joinGroupRight :: !(Seq (Outcome right))
+    , joinGroupLeftWeights :: !(Seq Rational)
+    -- ^ The weight of each left outcome inside its size class, as 'staticSampling' gives it.
+    , joinGroupRightWeights :: !(Seq Rational)
+    -- ^ The weight of each right outcome inside its size class.
     }
 
 -- | One transparent ECTA with a matching indexed outcome language.
@@ -1039,7 +1043,7 @@ relateStatic leftKey rightKey relation left right = do
 joinGroupedStatic ::
     Static left ->
     Static right ->
-    [([Outcome left], [Outcome right])] ->
+    [([(Rational, Outcome left)], [(Rational, Outcome right)])] ->
     Either ECTAGenError (Static (left, right))
 joinGroupedStatic left right related =
     if null related
@@ -1048,8 +1052,10 @@ joinGroupedStatic left right related =
             let groups =
                     [ JoinGroup
                         keyIndex
-                        (Sequence.fromList leftOutcomes)
-                        (Sequence.fromList rightOutcomes)
+                        (Sequence.fromList $ map snd leftOutcomes)
+                        (Sequence.fromList $ map snd rightOutcomes)
+                        (Sequence.fromList $ map fst leftOutcomes)
+                        (Sequence.fromList $ map fst rightOutcomes)
                     | (keyIndex, (leftOutcomes, rightOutcomes)) <-
                         zip [0 :: Int ..] related
                     ]
@@ -1087,14 +1093,16 @@ joinGroupedStatic left right related =
                 (\outcomes -> Static joined outcomes False)
                     <$> joinOutcomeIndex left right groups
 
--- | Enumerate a language and pair every outcome with its projected key.
+{- | Enumerate a language and pair every outcome with its projected key and
+the weight of its rank inside its size class.
+-}
 keyedOutcomes ::
     (value -> key) ->
     Static value ->
-    Either ECTAGenError [(key, Outcome value)]
+    Either ECTAGenError [(key, (Rational, Outcome value))]
 keyedOutcomes key static =
-    map (\outcome -> (key $ outcomeValue outcome, outcome))
-        <$> enumerateOutcomeIndex (staticOutcomes static)
+    map (\entry@(_, outcome) -> (key $ outcomeValue outcome, entry))
+        <$> enumerateWeighted static
 
 -- | Group enumerated outcomes by key, in their order.
 groupOutcomes :: (Ord key) => [(key, outcome)] -> Map.Map key [outcome]
@@ -1110,8 +1118,17 @@ joinOutcomeIndex left right groups = do
     rankSampler <- case uniformMass of
         Just _ -> pure $ uniformSampler totalOutcomes selectValue
         Nothing -> joinSampler groups
+    -- Every pair has size two. When a side has a non-uniform atomic choice,
+    -- the pairs of that size class are sampled in proportion to the product
+    -- of the weights of their two sides, as the size class of a product is.
+    sizeSampling <-
+        if isJust (snd $ staticSampling left) || isJust (snd $ staticSampling right)
+            then do
+                sampler <- joinSampler weightGroups
+                pure $ Just (SampleIndex $ const sampler, Right . weight)
+            else pure Nothing
     pure $
-        mkOutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -1127,7 +1144,24 @@ joinOutcomeIndex left right groups = do
                 | group <- groups
                 ]
             )
+        )
+            { outcomeSizeSampling = sizeSampling
+            }
   where
+    -- The groups with the weight of each outcome in place of its mass.
+    weightGroups =
+        [ group
+            { joinGroupLeft = Sequence.zipWith withMass (joinGroupLeftWeights group) (joinGroupLeft group)
+            , joinGroupRight = Sequence.zipWith withMass (joinGroupRightWeights group) (joinGroupRight group)
+            }
+        | group <- groups
+        ]
+    withMass mass outcome = outcome{outcomeMass = mass}
+    totalWeight = sum $ map joinGroupMass weightGroups
+    weight index =
+        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroups index
+         in fromInteger totalOutcomes * outcomeMass leftOutcome * outcomeMass rightOutcome / totalWeight
+
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
         (Just _, Just _) -> Just $ 1 / fromInteger totalOutcomes
@@ -1155,8 +1189,9 @@ joinOutcomeIndex left right groups = do
         let (_, leftOutcome, rightOutcome) = selectPair index
          in (outcomeValue leftOutcome, outcomeValue rightOutcome)
 
-    selectPair index =
-        let (group, groupIndex) = selectJoinGroup index groups
+    selectPair = selectPairIn groups
+    selectPairIn groups' index =
+        let (group, groupIndex) = selectJoinGroup index groups'
             rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
             (leftIndex, rightIndex) = groupIndex `quotRem` rightCardinality
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromInteger leftIndex
@@ -1309,6 +1344,8 @@ joinNBucketStatic componentIndex operation arguments =
             rankSampler
             (chainPlan (outcomePlan operationOutcomes) arguments)
         )
+            { outcomeSizeSampling = outcomeSizeSampling $ staticOutcomes $ applyChain operation arguments
+            }
         False
   where
     keyTerms =
@@ -1349,6 +1386,16 @@ joinNBucketStatic componentIndex operation arguments =
     selectValue index =
         let (operationIndex, argumentIndex) = index `quotRem` argumentsCardinality
          in decodeArguments (outcomeValueAt operationOutcomes operationIndex) argumentIndex
+
+{- | Apply an operation to every argument of a chain with 'applyStatic'.
+
+The plan of the result is 'chainPlan', so its ranks are the ranks of the
+join. The join reads only the sampler and the weight of each size class from
+it.
+-}
+applyChain :: Static operation -> ArgStatics operation result -> Static result
+applyChain static ChainNil = static
+applyChain static (ChainCons argument rest) = applyChain (applyStatic static argument) rest
 
 {- | One joined edge: the operation group, one group per argument, and one
 equality constraint per argument tying each argument to the operation's key

@@ -26,7 +26,7 @@ import Data.ECTA (
     numNestedMu,
  )
 import qualified Data.ECTA.Gen as Core
-import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), Sig (..))
+import Data.ECTA.Gen.QuickCheck (Args (..), ECTAGen, ECTAGenError (..), On (..), Sig (..))
 import qualified Data.ECTA.Gen.QuickCheck as ECTAGen
 import Data.ECTA.Paths (mkEqConstraints, path)
 import Data.ECTA.Term (Symbol, Term (Term))
@@ -304,6 +304,36 @@ spec = do
                         ]
             ECTAGen.pmfAtSize (ECTAGen.ungroup family) 1
                 `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
+
+        it "keeps an atomic distribution through a join in a recursion" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                matched = ECTAGen.match (id :==: id) coin (ECTAGen.elements [Heads, Tails])
+                operations =
+                    snd
+                        <$> ECTAGen.groupBy
+                            fst
+                            ( ECTAGen.atomic $
+                                ECTAGen.frequency
+                                    [ (1, pure (() :-> (), (Heads :)))
+                                    , (9, pure (() :-> (), (Tails :)))
+                                    ]
+                            )
+                applied :: ECTAGen [Coin]
+                applied =
+                    ECTAGen.ungroup $
+                        ECTAGen.apply operations (ECTAGen.groupBy (const ()) (ECTAGen.elements [[]]) :& ANil)
+                -- Each join has size two, and the other alternative is larger.
+                viaMatch :: ECTAGen [Coin]
+                viaMatch = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [(\(first, second) -> [first, second]) <$> matched, (:) <$> coin <*> rest]
+                viaApply :: ECTAGen [Coin]
+                viaApply = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [applied, (:) <$> coin <*> rest]
+            ECTAGen.pmfAtSize viaMatch 2
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Tails], 9 % 10)]
+            ECTAGen.pmfAtSize viaApply 2
+                `shouldBe` Right [([Heads], 1 % 10), ([Tails], 9 % 10)]
 
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
