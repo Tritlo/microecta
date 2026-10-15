@@ -71,7 +71,6 @@ module Data.ECTA.Gen.Internal (
     sampleStaticWithRank,
     drawUniform,
     drawUniformWithRank,
-    compiledDecoder,
     checkIndex,
     normalize,
 
@@ -370,6 +369,12 @@ data OutcomeIndex a = OutcomeIndex
     {- ^ The size classes of 'outcomePlan', built on first use and retained so
     a shrink loop pays for them once. Construct through 'mkOutcomeIndex'.
     -}
+    , outcomeDecoder :: RankDecoder a
+    {- ^ The compiled decoder of 'outcomePlan', built on first use. The
+    lowering of the language and every shared plan node that stands for the
+    language call this one decoder, so it is compiled once. Construct through
+    'mkOutcomeIndex'.
+    -}
     , outcomeSizeSampling :: Maybe (SampleIndex a, Integer -> Either ECTAGenError Rational)
     {- ^ The sampler of each size class, and the weight of each rank inside its
     size class, when a component atomic choice is not uniform. The weight of a
@@ -392,7 +397,7 @@ mkOutcomeIndex ::
     Plan a ->
     OutcomeIndex a
 mkOutcomeIndex total mass select valueAt sampler plan =
-    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan) Nothing
+    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan) (compilePlan total plan) Nothing
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome a) -> Plan a
@@ -1053,7 +1058,7 @@ alternativePlan outcomes = case outcomePlan outcomes of
     plan@PlanShared{} -> plan
     plan
         | outcomeCardinality outcomes > sharedChoiceBound ->
-            PlanShared (outcomeCardinality outcomes) (compiledDecoder outcomes) (outcomeSizeIndex outcomes) plan
+            PlanShared (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) plan
         | otherwise -> plan
 
 -- | Join two languages on equal projected keys with one ECTA equality constraint.
@@ -1715,17 +1720,27 @@ chainSampler sampler (ChainCons static rest) =
         )
         rest
 
--- | Mirror 'chainSampler' as plan structure, one product per argument.
+{- | Mirror 'chainSampler' as plan structure, one product per argument.
+
+Each argument is a shared plan: the compiled decoder of the join calls the
+compiled decoder of the argument group, and the size classes of the join read
+the size classes of the group. Many joins use the same group, for example
+every step of a trace uses the groups of the step before it. A plan that
+copied the group's plan into each join would compile one copy for each path
+to the group, and the decoder would keep each copy that a sample reached.
+-}
 chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
 chainPlan plan ChainNil = plan
 chainPlan plan (ChainCons static rest) =
     chainPlan
         ( PlanAp
-            (outcomeCardinality $ staticOutcomes static)
+            (outcomeCardinality outcomes)
             plan
-            (outcomePlan $ staticOutcomes static)
+            (PlanShared (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) (outcomePlan outcomes))
         )
         rest
+  where
+    outcomes = staticOutcomes static
 
 -- | Build a rank decoder once, capturing every suffix cardinality.
 chainDecoder :: ArgStatics operation result -> operation -> Integer -> result
@@ -1826,7 +1841,7 @@ sampleStatic ::
     Static a ->
     gen (Either ECTAGenError a)
 sampleStatic static
-    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniform (compiledDecoder outcomes)
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniform (outcomeDecoder outcomes)
     | otherwise =
         Right <$> runValueSampler (outcomeSampler outcomes)
   where
@@ -1838,7 +1853,7 @@ sampleStaticWithRank ::
     Static a ->
     gen (Either ECTAGenError (Integer, a))
 sampleStaticWithRank static
-    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniformWithRank (compiledDecoder outcomes)
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniformWithRank (outcomeDecoder outcomes)
     | otherwise =
         Right <$> runRankSampler (outcomeSampler outcomes)
   where
@@ -1854,11 +1869,6 @@ drawUniformWithRank :: (GenBackend gen) => RankDecoder a -> gen (Integer, a)
 drawUniformWithRank (SmallDecoder bound decode) =
     (\index -> (toInteger index, decode index)) <$> selectInt bound
 drawUniformWithRank (LargeDecoder bound decode) = (\rank -> (rank, decode rank)) <$> selectInteger bound
-
--- | Compile the retained plan once, at lowering time.
-compiledDecoder :: OutcomeIndex a -> RankDecoder a
-compiledDecoder outcomes =
-    compilePlan (outcomeCardinality outcomes) (outcomePlan outcomes)
 
 -- | Largest non-uniform language compiled to one exact ticket selection.
 weightedCompilationBound :: Integer

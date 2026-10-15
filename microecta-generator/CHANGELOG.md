@@ -216,3 +216,11 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 * A rank of a `match` or `relate` finds its matched group in a map of the first
   rank of each group, so enumerating a join of n pairs in g groups no longer
   costs `O(n * g)`.
+* Each argument of a grouped `apply` is a shared node of the plan of the join,
+  with the compiled decoder and the size classes of its group, and a language
+  keeps its compiled decoder beside its plan. A group that is an argument of
+  several joins, as every step of a trace is for the step after it, is
+  compiled once and not once for each path to it. 20,000 samples of a trace of
+  length 20 over four states now take 104 million instructions in place of
+  566 million, allocate 27 MB in place of 161 MB, and keep 0.27 MB in place of
+  9.3 MB.

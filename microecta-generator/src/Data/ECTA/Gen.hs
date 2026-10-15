@@ -1657,7 +1657,7 @@ non-uniform and opaque cases return 'Nothing' and must go through 'lower'.
 lowerUniform :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen a)
 lowerUniform (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
-        Just $ drawUniform $ compiledDecoder outcomes
+        Just $ drawUniform $ outcomeDecoder outcomes
   where
     outcomes = staticOutcomes static
 lowerUniform _ = Nothing
@@ -1666,7 +1666,7 @@ lowerUniform _ = Nothing
 lowerUniformWithRank :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen (Integer, a))
 lowerUniformWithRank (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
-        Just $ drawUniformWithRank $ compiledDecoder outcomes
+        Just $ drawUniformWithRank $ outcomeDecoder outcomes
   where
     outcomes = staticOutcomes static
 lowerUniformWithRank _ = Nothing
