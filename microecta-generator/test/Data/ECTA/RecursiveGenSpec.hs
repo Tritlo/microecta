@@ -290,6 +290,21 @@ spec = do
             ECTAGen.pmfAtSize sentences 1
                 `shouldBe` Right [([Heads], 1 % 10), ([Tails], 9 % 10)]
 
+        it "keeps an atomic distribution inside a grouped bucket" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                pairs =
+                    ECTAGen.groupBy (const ()) $
+                        (\first second -> [first, second]) <$> coin <*> ECTAGen.elements [Heads]
+                family :: ECTAGen.Grouped () [Coin]
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ pairs
+                        , ECTAGen.apply (ECTAGen.keyed (() :-> ()) $ ECTAGen.elements [(Heads :)]) (self :& ANil)
+                        ]
+            ECTAGen.pmfAtSize (ECTAGen.ungroup family) 1
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
+
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
                     ECTAGen.recur $ \self ->

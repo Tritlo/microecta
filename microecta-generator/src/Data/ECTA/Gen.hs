@@ -767,16 +767,22 @@ generator can be grouped, including 'frequency'-weighted sources and 'match'
 results. Building the groups enumerates the generator's outcomes once. Keys
 are ordered by their 'Ord' instance; outcomes within each key retain their
 rank order. Opaque generators cannot be grouped.
+
+Every member of a group has size one. Inside a recursion, the keys of a
+language that is not atomic are selected by their member counts, as the
+alternatives of a finite choice are. Inside one group, the members keep the
+weights that atomic choices give them. The groups of an atomic language keep
+its distribution, also between keys.
 -}
 groupBy :: (Ord key) => (a -> key) -> ECTAGen gen a -> Grouped gen key a
 groupBy _ (Transparent (Left err)) = Grouped $ Left err
 groupBy key (Transparent (Right static)) =
     Grouped $ do
-        outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+        outcomes <- enumerateWeighted static
         traverse (bucketFromOutcomes $ staticAtomic static) $
             groupOutcomes
-                [ (key $ outcomeValue outcome, outcome)
-                | outcome <- outcomes
+                [ (key $ outcomeValue outcome, (weight, outcome))
+                | (weight, outcome) <- outcomes
                 ]
 groupBy _ (Cyclic (Left err)) = Grouped $ Left err
 groupBy _ (Cyclic _) = Grouped $ Left UnboundedGenerator

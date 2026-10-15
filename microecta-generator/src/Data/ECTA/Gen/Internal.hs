@@ -63,6 +63,7 @@ module Data.ECTA.Gen.Internal (
 
     -- * Inspection and lowering
     enumerateOutcomeIndex,
+    enumerateWeighted,
     compileOutcomes,
     mapOutcomeIndex,
     sampleStatic,
@@ -84,7 +85,7 @@ import Data.Foldable (toList)
 import Data.Kind (Type)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
@@ -651,24 +652,46 @@ keyedRecursive recursive =
         (countMassIndex $ recursiveIndex recursive)
         False
 
--- | Build one retained group from its outcomes, in rank order.
-bucketFromOutcomes :: Bool -> [Outcome a] -> Either ECTAGenError (KeyedBucket a)
-bucketFromOutcomes retainAtomic outcomes = do
+{- | Build one retained group from its outcomes, in rank order.
+
+Every outcome comes with the weight of its rank inside its size class in the
+grouped language, as 'enumerateWeighted' gives it. Every member of a group
+has size one, and the members keep their weights relative to each other, so
+an atomic choice inside the grouped language keeps its distribution inside
+the group.
+-}
+bucketFromOutcomes :: Bool -> [(Rational, Outcome a)] -> Either ECTAGenError (KeyedBucket a)
+bucketFromOutcomes retainAtomic weightedOutcomes = do
     sampler <- sequenceSampler conditional
-    pure $
-        KeyedBucket bucketMass $
-            Static
-                bucketSupport
-                ( mkOutcomeIndex
-                    totalOutcomes
-                    uniformMass
-                    select
-                    selectValue
-                    sampler
-                    (PlanSelect totalOutcomes selectValue)
-                )
-                retainAtomic
+    sizeSampling <- case commonValue $ map (Just . fst) weightedOutcomes of
+        Just _ -> pure Nothing
+        Nothing -> do
+            weightSampler <-
+                sequenceSampler $
+                    Sequence.fromList
+                        [ outcome{outcomeMass = weight}
+                        | (weight, outcome) <- weightedOutcomes
+                        ]
+            pure $ Just (atomicSampleIndex weightSampler, Right . weightAt)
+    let bucketOutcomes =
+            ( mkOutcomeIndex
+                totalOutcomes
+                uniformMass
+                select
+                selectValue
+                sampler
+                (PlanSelect totalOutcomes selectValue)
+            )
+                { outcomeSizeSampling = sizeSampling
+                }
+    pure $ KeyedBucket bucketMass $ Static bucketSupport bucketOutcomes retainAtomic
   where
+    outcomes = map snd weightedOutcomes
+    -- The weights of the group add up to its number of members.
+    weights = Sequence.fromList $ map fst weightedOutcomes
+    totalWeight = sum weights
+    weightAt index =
+        fromInteger totalOutcomes * Sequence.index weights (fromInteger index) / totalWeight
     bucketMass = sum $ map outcomeMass outcomes
     conditional =
         Sequence.fromList
@@ -1073,8 +1096,8 @@ keyedOutcomes key static =
     map (\outcome -> (key $ outcomeValue outcome, outcome))
         <$> enumerateOutcomeIndex (staticOutcomes static)
 
--- | Group enumerated outcomes by key.
-groupOutcomes :: (Ord key) => [(key, Outcome value)] -> Map.Map key [Outcome value]
+-- | Group enumerated outcomes by key, in their order.
+groupOutcomes :: (Ord key) => [(key, outcome)] -> Map.Map key [outcome]
 groupOutcomes = Map.fromListWith (flip (<>)) . map (fmap pure)
 
 -- | Count, select, and sample the matched groups of a two-way join.
@@ -1667,6 +1690,21 @@ keyNode index = Node [Edge (keySymbol index) []]
 singletonNode :: Term Symbol -> Node Symbol
 singletonNode (Term symbol children) =
     Node [Edge symbol $ map singletonNode children]
+
+{- | Select every outcome in rank order, with the weight of its rank inside
+its size class.
+
+'outcomeSizeSampling' describes the weight. Every outcome of a language with
+uniform size classes has the weight one.
+-}
+enumerateWeighted :: Static a -> Either ECTAGenError [(Rational, Outcome a)]
+enumerateWeighted static = do
+    outcomes <- enumerateOutcomeIndex $ staticOutcomes static
+    weights <-
+        traverse
+            (fromMaybe (const $ Right 1) $ snd $ staticSampling static)
+            [0 .. toInteger (length outcomes) - 1]
+    pure $ zip weights outcomes
 
 -- | Enumerate a language as normalized mass and value pairs.
 compileOutcomes :: Static a -> Either ECTAGenError [(Rational, a)]
