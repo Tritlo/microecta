@@ -64,6 +64,14 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Build equality constraints faster. `mkEqConstraints` merged classes with
+  the `equivalence` package and added congruences by comparing every path of
+  every class with every path of every class in each round. It now merges
+  classes with a small union-find over an `array`, keeps classes as sets, and
+  finds the strict extensions of each path as the run that follows it in
+  sorted order, so it adds one class for each class and distinct suffix. The
+  constraints it builds are the same. `equivalence` is now only a test
+  dependency, and the library depends on `array`, which GHC ships.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
