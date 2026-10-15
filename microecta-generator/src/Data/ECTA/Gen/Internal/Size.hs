@@ -41,32 +41,7 @@ module Data.ECTA.Gen.Internal.Size (
     sizeClasses,
 ) where
 
-import Data.ECTA.Gen.Internal.Decoder (Plan (..))
-
-{- | The size classes of one language: how many members each holds, and how
-to select one by its position in the class.
--}
-data SizeIndex a = SizeIndex
-    { sizeClassCounts :: [Integer]
-    -- ^ Members per size, for ascending sizes from one.
-    , sizeClassSelect :: Int -> Integer -> (Integer, a)
-    -- ^ Rank and value of one member of one size class.
-    , sizeClassValueInt :: Int -> Int -> a
-    {- ^ Value of one member using machine arithmetic. Called only when the
-    requested size class fits in 'Int'.
-    -}
-    , minimumMemberSize :: Maybe Int
-    -- ^ Smallest live size, or 'Nothing' when no finite member is known.
-    , unguardedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' can be reached without passing through a
-    product. Counting such an index would consult its own size, so a
-    recursive definition shaped this way has no smallest member.
-    -}
-    , usedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
-    whose body never reaches its own occurrence is not recursive.
-    -}
-    }
+import Data.ECTA.Gen.Internal.Decoder (Plan (..), SizeIndex (..))
 
 {- | A stand-in for a recursive occurrence, used to check that a recursive
 definition is guarded before it is tied.
@@ -158,6 +133,7 @@ sizeClasses bound index =
 
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
+sizeIndex (PlanShared _ _ index _) = index
 sizeIndex (PlanSelect cardinality' decode) =
     SizeIndex [cardinality'] select selectInt minimumSize' False False
   where

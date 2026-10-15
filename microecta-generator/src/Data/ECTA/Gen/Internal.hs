@@ -103,6 +103,7 @@ import Data.ECTA.Gen.Internal.Decoder (
     Plan (..),
     RankDecoder (..),
     compilePlan,
+    sharedChoiceBound,
  )
 import Data.ECTA.Gen.Internal.Sampler
 import Data.ECTA.Gen.Internal.Size (
@@ -928,7 +929,7 @@ frequencyStatic alternatives =
             sampler
             ( PlanChoice
                 [ ( outcomeCardinality $ staticOutcomes static
-                  , outcomePlan $ staticOutcomes static
+                  , alternativePlan $ staticOutcomes static
                   )
                 | (_, static) <- alternatives
                 ]
@@ -1000,6 +1001,21 @@ frequencyStatic alternatives =
     selectBranch index ((upperBound, offset, branchIndex, weight, static) : remaining)
         | index < upperBound = (branchIndex, weight, static, index - offset)
         | otherwise = selectBranch index remaining
+
+{- | The plan of one alternative of a choice.
+
+An alternative with more than 'sharedChoiceBound' members is a shared node:
+the choice calls its compiled decoder and reads its size classes, and does not
+copy its plan. A plan that is shared already stays as it is, because a second
+shared node would add one call to each decode.
+-}
+alternativePlan :: OutcomeIndex a -> Plan a
+alternativePlan outcomes = case outcomePlan outcomes of
+    plan@PlanShared{} -> plan
+    plan
+        | outcomeCardinality outcomes > sharedChoiceBound ->
+            PlanShared (outcomeCardinality outcomes) (compiledDecoder outcomes) (outcomeSizeIndex outcomes) plan
+        | otherwise -> plan
 
 -- | Join two languages on equal projected keys with one ECTA equality constraint.
 joinStatic ::

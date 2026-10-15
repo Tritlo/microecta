@@ -32,7 +32,7 @@ module Data.ECTA.Gen.Internal.Shrink (
 
 import Data.ECTA.Gen.Internal.Decoder (Plan (..))
 import Data.ECTA.Gen.Internal.Size (
-    SizeIndex (sizeClassSelect),
+    SizeIndex (minimumMemberSize, sizeClassSelect),
     countAtSize,
  )
 
@@ -54,6 +54,12 @@ smallestPlanMember = minimumMember
     minimumMember (PlanSelect cardinality _) =
         if cardinality > 0 then Just (1, 0) else Nothing
     minimumMember (PlanMap _ plan) = minimumMember plan
+    -- A shared subplan gives its smallest member from its size classes, and
+    -- does not walk the subplan again. The smallest size class of a finite
+    -- plan lists its members in rank order, so position zero has the least
+    -- rank.
+    minimumMember (PlanShared _ _ index _) =
+        (\size -> (size, fst $ sizeClassSelect index size 0)) <$> minimumMemberSize index
     minimumMember (PlanChoice branches) =
         minimumChoice 0 branches
       where
@@ -101,6 +107,7 @@ shrinkPlanRank = go
   where
     go :: Plan b -> Integer -> [Integer]
     go (PlanSelect _ _) index = towardZero index
+    go (PlanShared _ _ _ plan) index = go plan index
     go (PlanMap _ plan) index = go plan index
     go (PlanChoice branches) index =
         case break (holdsRank index) (withOffsets branches) of
@@ -151,6 +158,7 @@ argument choices.
 -}
 planMemberSize :: Plan a -> Integer -> Int
 planMemberSize (PlanSelect _ _) _ = 1
+planMemberSize (PlanShared _ _ _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanMap _ plan) rank = planMemberSize plan rank
 planMemberSize (PlanChoice branches) rank =
     case dropWhile (not . holdsRank rank) (withOffsets branches) of

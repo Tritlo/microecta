@@ -166,7 +166,11 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   products, maps - that lowering normalizes (maps pushed into leaves, nested
   choices spliced flat, small leaves tabulated) and compiles into one flat
   decoder, narrowing each branch, product component, and counted size class to
-  machine `Int` arithmetic when its local cardinality fits.
+  machine `Int` arithmetic when its local cardinality fits. An alternative of a
+  choice with more than 4096 members is a shared node of the plan, with its own
+  compiled decoder and size classes, so a language that several alternatives
+  reuse, as `rest` in `oneof [f <$> rest, g <$> rest]`, is compiled and counted
+  once and not once for each path to it.
 * Non-uniform finite generators closed by `atomic` are compiled to one exact
   ticket selection when they have at most 32,768 ranks and their smallest
   equivalent integer ticket space fits an `Int`. Other generators retain the
