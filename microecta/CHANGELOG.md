@@ -67,6 +67,10 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Share the unfolding of each recursive node. `unfoldOuterRec` substituted
+  the binder into the body on every call, so every operation that reads the
+  edges of a `Mu` rebuilt the same interned nodes. The unfolding is now
+  memoized per recursive node.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.

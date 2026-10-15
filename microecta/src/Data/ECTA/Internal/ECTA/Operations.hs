@@ -192,10 +192,24 @@ onNormalNodes _ _ = mempty
 ------ Folding
 -----------------------
 
--- | Unfold one outer 'Mu' layer.
-unfoldOuterRec :: (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
-unfoldOuterRec n@(Mu x) = x n
-unfoldOuterRec _ = error "unfoldOuterRec: Must be called on a Mu node"
+-- | Memo tables for 'unfoldOuterRec'.
+symbolUnfoldOuterRecCache :: MemoCache (Node Symbol) (Node Symbol)
+symbolUnfoldOuterRecCache = unsafePerformIO newMemoCache
+{-# NOINLINE symbolUnfoldOuterRecCache #-}
+
+genericUnfoldOuterRecCache :: TypeableMemoCache
+genericUnfoldOuterRecCache = unsafePerformIO newTypeableMemoCache
+{-# NOINLINE genericUnfoldOuterRecCache #-}
+
+-- | Unfold one outer 'Mu' layer. The unfolding of each recursive node is shared.
+unfoldOuterRec :: forall symbol. (Hashable symbol, Typeable symbol) => Node symbol -> Node symbol
+unfoldOuterRec node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) of
+    Just HRefl -> memoWith symbolUnfoldOuterRecCache go node
+    Nothing -> memoTypeableWith genericUnfoldOuterRecCache go node
+  where
+    go :: Node symbol -> Node symbol
+    go n@(Mu x) = x n
+    go _ = error "unfoldOuterRec: Must be called on a Mu node"
 
 -- | Outgoing alternatives of a node, unfolding one outer 'Mu' if needed.
 nodeEdges :: (Hashable symbol, Typeable symbol) => Node symbol -> [Edge symbol]
