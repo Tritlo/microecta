@@ -68,6 +68,8 @@ module Data.ECTA.Gen.Internal (
     mapOutcomeIndex,
     sampleStatic,
     sampleStaticWithRank,
+    drawUniform,
+    drawUniformWithRank,
     compiledDecoder,
     checkIndex,
     normalize,
@@ -1765,10 +1767,7 @@ sampleStatic ::
     Static a ->
     gen (Either ECTAGenError a)
 sampleStatic static
-    | Just _ <- outcomeUniformMass outcomes =
-        case compiledDecoder outcomes of
-            SmallDecoder bound decode -> Right . decode <$> selectInt bound
-            LargeDecoder bound decode -> Right . decode <$> selectInteger bound
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniform (compiledDecoder outcomes)
     | otherwise =
         Right <$> runValueSampler (outcomeSampler outcomes)
   where
@@ -1780,16 +1779,22 @@ sampleStaticWithRank ::
     Static a ->
     gen (Either ECTAGenError (Integer, a))
 sampleStaticWithRank static
-    | Just _ <- outcomeUniformMass outcomes =
-        case compiledDecoder outcomes of
-            SmallDecoder bound decode ->
-                (\index -> Right (toInteger index, decode index)) <$> selectInt bound
-            LargeDecoder bound decode ->
-                (\index -> Right (index, decode index)) <$> selectInteger bound
+    | Just _ <- outcomeUniformMass outcomes = Right <$> drawUniformWithRank (compiledDecoder outcomes)
     | otherwise =
         Right <$> runRankSampler (outcomeSampler outcomes)
   where
     outcomes = staticOutcomes static
+
+-- | Draw one value of a uniform language through its compiled decoder.
+drawUniform :: (GenBackend gen) => RankDecoder a -> gen a
+drawUniform (SmallDecoder bound decode) = decode <$> selectInt bound
+drawUniform (LargeDecoder bound decode) = decode <$> selectInteger bound
+
+-- | 'drawUniform' with the replay rank of the value.
+drawUniformWithRank :: (GenBackend gen) => RankDecoder a -> gen (Integer, a)
+drawUniformWithRank (SmallDecoder bound decode) =
+    (\index -> (toInteger index, decode index)) <$> selectInt bound
+drawUniformWithRank (LargeDecoder bound decode) = (\rank -> (rank, decode rank)) <$> selectInteger bound
 
 -- | Compile the retained plan once, at lowering time.
 compiledDecoder :: OutcomeIndex a -> RankDecoder a

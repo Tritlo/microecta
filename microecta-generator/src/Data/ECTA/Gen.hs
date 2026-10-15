@@ -82,7 +82,6 @@ import qualified Data.Map.Strict as Map
 import Data.ECTA (Edge (Edge), Node (EmptyNode, Node), createMu, numNestedMu)
 import Data.ECTA.Gen.Internal
 import Data.ECTA.Gen.Internal.Automaton (automatonIndex)
-import Data.ECTA.Gen.Internal.Decoder (RankDecoder (..))
 import Data.ECTA.Gen.Internal.Sampler
 import Data.ECTA.Gen.Internal.Shrink (
     planMemberSize,
@@ -1583,9 +1582,7 @@ non-uniform and opaque cases return 'Nothing' and must go through 'lower'.
 lowerUniform :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen a)
 lowerUniform (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
-        Just $ case compiledDecoder outcomes of
-            SmallDecoder bound decode -> decode <$> selectInt bound
-            LargeDecoder bound decode -> decode <$> selectInteger bound
+        Just $ drawUniform $ compiledDecoder outcomes
   where
     outcomes = staticOutcomes static
 lowerUniform _ = Nothing
@@ -1594,11 +1591,7 @@ lowerUniform _ = Nothing
 lowerUniformWithRank :: (GenBackend gen) => ECTAGen gen a -> Maybe (gen (Integer, a))
 lowerUniformWithRank (Transparent (Right static))
     | Just _ <- outcomeUniformMass outcomes =
-        Just $ case compiledDecoder outcomes of
-            SmallDecoder bound decode ->
-                (\index -> (toInteger index, decode index)) <$> selectInt bound
-            LargeDecoder bound decode ->
-                (\index -> (index, decode index)) <$> selectInteger bound
+        Just $ drawUniformWithRank $ compiledDecoder outcomes
   where
     outcomes = staticOutcomes static
 lowerUniformWithRank _ = Nothing
