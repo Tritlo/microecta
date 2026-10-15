@@ -244,6 +244,16 @@ spec = do
             -- A bound around the middle recursion reaches the outer occurrence.
             ECTAGen.cardinality bounded `shouldBe` Left BoundedRecursiveOccurrence
 
+        it "finds a key that the body reaches only through a nested recursion over another key" $ do
+            -- Every member of key 1 reads key 0, so a pass around empty groups finds no member.
+            let family :: ECTAGen.Grouped Int Int
+                family = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed 0 (pure 0)
+                        , ECTAGen.keyed 1 $ ECTAGen.recur $ \n -> ECTAGen.oneof [(+) <$> ECTAGen.atKey 0 self <*> pure 1, (+) <$> n <*> n]
+                        ]
+            ECTAGen.smallest (ECTAGen.atKey 1 family) `shouldBe` Right (Just 1)
+
         it "reports the exact atomic distribution inside one recursive size" $ do
             let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
                 words_ = ECTAGen.recur $ \rest ->

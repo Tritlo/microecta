@@ -98,7 +98,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   equality constraints meet in one cycle. The key set is solved by a monotone
   fixpoint before the languages are tied over it, and all keys share one `Mu`
   node whose edges carry their key as a first child, with an equality constraint
-  tying an occurrence to its key.
+  tying an occurrence to its key. Each pass of that fixpoint builds the body
+  around the keys found so far, each with the least size of its members found
+  so far, so a key that the body reaches only through a nested `recur` over
+  another key is found too.
 * `atomic` treats every member of a finite generator as one source choice while
   preserving its support, ranks, decoder, cardinality, and distribution. That
   distribution is retained inside each recursive size class, also when the

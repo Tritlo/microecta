@@ -488,10 +488,11 @@ expressions = ECTAGen.recurGrouped $ \self ->
 @
 
 Which keys the family has is itself part of the fixpoint, so it is solved
-first, from the empty family upward: each pass adds the result keys of the
-operations whose argument keys are already present, and the set can only
-grow, so it converges in at most one pass per key. The languages are then
-tied lazily over that fixed set.
+first, from the empty family upward: each pass builds the body around the keys
+found so far, each with the least size of its members found so far, and adds
+the keys that the body reaches. So a nested 'recur' whose members all read the
+family reaches its keys too. The set can only grow, so it converges. The
+languages are then tied lazily over that fixed set.
 
 The reachable key set must be finite. For example,
 @oneofGrouped [keyed 0 atom, regroupBy succ self]@ adds another key on every
@@ -526,17 +527,7 @@ recurGrouped build
   where
     bodyGroups placeholders = recursiveGroups $ build $ CyclicGrouped $ Right placeholders
 
-    -- The key set, from the empty family upward: monotone, so the first
-    -- pass that adds nothing is the fixpoint.
-    keySet = converge Map.empty
-    converge current =
-        let reached =
-                either (const Map.empty) (fmap $ const ()) $
-                    bodyGroups $
-                        fmap (const emptyGroup) current
-            grown = Map.union current reached
-         in if Map.keys grown == Map.keys current then current else converge grown
-    keys = Map.keys keySet
+    keys = Map.keys keyMinimums
     positions = Map.fromList $ zip keys [0 ..]
     positionOf key = Map.findWithDefault 0 key positions
     -- The placeholders stand for the occurrence, so bounding one is bounding
@@ -547,7 +538,6 @@ recurGrouped build
             masses
             False
     noMass = emptyMassIndex
-    emptyGroup = placeholder EmptyNode (choiceIndex []) emptySampleIndex noMass
 
     -- The languages, tied over the settled key set. Supports are irrelevant
     -- here and are filled in against the family node below.
@@ -586,26 +576,29 @@ recurGrouped build
                 ]
     reachesEnclosing = either (const False) (any (recursiveOccurrence . keyedRecursiveLanguage)) closedBodies
 
-    -- A key is live when its body can close using finite branches or keys
-    -- already known to be live. Repeating this over the settled finite key set
-    -- gives the least minimum for every mutually recursive language.
-    minimumSizes = convergeMinimums Map.empty
-    convergeMinimums current =
-        let reached =
-                either (const Map.empty) (Map.mapMaybe minimumOfGroup) $
-                    bodyGroups $
-                        Map.fromList
-                            [ ( key
-                              , placeholder
-                                    EmptyNode
-                                    (probeIndexWithMinimum $ Map.lookup key current)
-                                    emptySampleIndex
-                                    noMass
-                              )
-                            | key <- keys
-                            ]
-            grown = Map.unionWith min current reached
-         in if grown == current then current else convergeMinimums grown
+    -- The keys and the least minimum of each, from the empty family upward.
+    -- Each pass builds the body around a probe of each key found so far, with
+    -- the least minimum found so far, and keeps the keys that the body reaches
+    -- and their minimums. A key is live when its body can close using finite
+    -- branches or keys already known to be live, and a nested definition whose
+    -- finite members all go through a live key is live too. The key set only
+    -- grows and the minimums only fall, so the loop ends when the body reaches
+    -- finitely many keys, with the least minimum of every mutually recursive
+    -- language. 'Nothing' is a key with no finite member yet.
+    keyMinimums = converge Map.empty
+      where
+        converge current =
+            let reached =
+                    either (const Map.empty) (fmap minimumOfGroup) $
+                        bodyGroups $
+                            fmap (\minimum' -> placeholder EmptyNode (probeIndexWithMinimum minimum') emptySampleIndex noMass) current
+                grown = Map.unionWith smaller current reached
+             in if grown == current then current else converge grown
+        smaller (Just left) (Just right) = Just $ min left right
+        smaller Nothing right = right
+        smaller left Nothing = left
+    -- The keys with a finite member, with their least minimums.
+    minimumSizes = Map.mapMaybe id keyMinimums
     minimumOfGroup = minimumMemberSize . recursiveIndex . keyedRecursiveLanguage
 
     -- Key masses form a guarded knot beside counts. Across all keys they sum
