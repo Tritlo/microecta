@@ -17,6 +17,7 @@ module Data.ECTA.Gen.Internal (
     -- * Languages
     Outcome (..),
     OutcomeIndex (..),
+    mkOutcomeIndex,
     Static (..),
     Recursive (..),
     MassIndex,
@@ -333,7 +334,23 @@ data OutcomeIndex a = OutcomeIndex
     fallback once when they need it.
     -}
     , outcomePlan :: Plan a
+    , outcomeSizeIndex :: SizeIndex a
+    {- ^ The size classes of 'outcomePlan', built on first use and retained so
+    a shrink loop pays for them once. Construct through 'mkOutcomeIndex'.
+    -}
     }
+
+-- | Build an outcome index whose size classes are derived from its plan.
+mkOutcomeIndex ::
+    Integer ->
+    Maybe Rational ->
+    (Integer -> Either ECTAGenError (Outcome a)) ->
+    (Integer -> a) ->
+    Sampler a ->
+    Plan a ->
+    OutcomeIndex a
+mkOutcomeIndex total mass select valueAt sampler plan =
+    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan)
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome a) -> Plan a
@@ -415,7 +432,7 @@ recursiveFromStatic static =
         Nothing
   where
     outcomes = staticOutcomes static
-    index = sizeIndex $ outcomePlan outcomes
+    index = outcomeSizeIndex outcomes
     (sampling, weighted)
         | staticAtomic static =
             ( atomicSampleIndex $ outcomeSampler outcomes
@@ -447,7 +464,7 @@ boundedStatic bound recursive
         Right $
             Static
                 (recursiveSupport recursive)
-                ( OutcomeIndex
+                ( mkOutcomeIndex
                     totalOutcomes
                     uniformMass
                     select
@@ -579,7 +596,7 @@ bucketFromOutcomes retainAtomic outcomes = do
         KeyedBucket bucketMass $
             Static
                 bucketSupport
-                ( OutcomeIndex
+                ( mkOutcomeIndex
                     totalOutcomes
                     uniformMass
                     select
@@ -668,13 +685,13 @@ atomicStatic :: Static a -> Static a
 atomicStatic static =
     static
         { staticOutcomes =
-            outcomes
-                { outcomePlan =
-                    PlanSelect
-                        (outcomeCardinality outcomes)
-                        (outcomeValueAt outcomes)
-                , outcomeSampler = retainedSampler
-                }
+            mkOutcomeIndex
+                (outcomeCardinality outcomes)
+                (outcomeUniformMass outcomes)
+                (outcomeSelect outcomes)
+                (outcomeValueAt outcomes)
+                retainedSampler
+                (PlanSelect (outcomeCardinality outcomes) (outcomeValueAt outcomes))
         , staticAtomic = True
         }
   where
@@ -689,7 +706,7 @@ pureStatic :: a -> Static a
 pureStatic value =
     Static
         (Node [Edge pureSymbol []])
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             1
             (Just 1)
             ( \index -> do
@@ -707,7 +724,7 @@ indexedStatic :: Indexed a -> Static a
 indexedStatic indexed =
     Static
         (Node [Edge (indexedSymbol index) [] | index <- [0 .. totalOutcomes - 1]])
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             (Just $ 1 / fromInteger totalOutcomes)
             select
@@ -736,7 +753,7 @@ applyStatic functions values =
                 [staticSupport functions, staticSupport values]
             ]
         )
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             ((*) <$> outcomeUniformMass functionOutcomes <*> outcomeUniformMass valueOutcomes)
             select
@@ -789,7 +806,7 @@ frequencyStatic alternatives =
             | (index, (_, static)) <- numbered
             ]
         )
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -968,7 +985,7 @@ joinOutcomeIndex left right groups = do
         Just _ -> pure $ uniformSampler totalOutcomes selectValue
         Nothing -> joinSampler groups
     pure $
-        OutcomeIndex
+        mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -1158,7 +1175,7 @@ joinNBucketStatic componentIndex operation arguments =
     -- support reduction.
     Static
         joined
-        ( OutcomeIndex
+        ( mkOutcomeIndex
             totalOutcomes
             uniformMass
             select
@@ -1646,7 +1663,7 @@ offsetAlternatives = go 0
 -- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
 mapOutcomeIndex transform outcomes =
-    OutcomeIndex
+    mkOutcomeIndex
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
         (\index -> mapOutcome transform <$> outcomeSelect outcomes index)

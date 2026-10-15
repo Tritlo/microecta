@@ -34,7 +34,6 @@ import Data.ECTA.Gen.Internal.Decoder (Plan (..))
 import Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassSelect),
     countAtSize,
-    sizeIndex,
  )
 
 {- | The rank of a structurally smallest member, preferring the earlier stable
@@ -177,16 +176,17 @@ planMemberSize (PlanSized classes) rank = go 0 classes
 {- | Every member structurally smaller than the given rank's member, in size
 order, as replayable rank and value.
 
-Members come from 'sizeIndex', so reaching position @i@ of a size class
-costs one walk down the plan rather than enumerating everything before it.
-The stream is lazy in both directions: consumers may cap it, and a size
-class larger than the consumer's demand is never forced completely.
+The index must be the 'Data.ECTA.Gen.Internal.Size.sizeIndex' of the plan.
+Callers keep it beside the plan so a shrink loop does not rebuild the size
+classes on every step. Reaching position @i@ of a size class costs one walk
+down the plan rather than enumerating everything before it. The stream is
+lazy in both directions: consumers may cap it, and a size class larger than
+the consumer's demand is never forced completely.
 -}
-smallerPlanMembers :: Plan a -> Integer -> [(Integer, a)]
-smallerPlanMembers plan rank =
+smallerPlanMembers :: SizeIndex a -> Plan a -> Integer -> [(Integer, a)]
+smallerPlanMembers index plan rank =
     concatMap classMembers [1 .. planMemberSize plan rank - 1]
   where
-    index = sizeIndex plan
     classMembers size =
         [ sizeClassSelect index size position
         | position <- [0 .. countAtSize index size - 1]

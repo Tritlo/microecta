@@ -880,7 +880,7 @@ countsAtSize (Grouped result) size = do
                     fmap
                         ( \bucket ->
                             Size.countAtSize
-                                (Size.sizeIndex $ outcomePlan $ staticOutcomes $ keyedBucketStatic bucket)
+                                (outcomeSizeIndex $ staticOutcomes $ keyedBucketStatic bucket)
                                 size
                         )
                         buckets
@@ -1458,7 +1458,7 @@ smallerMembers :: ECTAGen gen a -> Integer -> [(Integer, a)]
 smallerMembers (Transparent (Right static)) rank
     | rank >= 0
     , rank < outcomeCardinality outcomes =
-        smallerPlanMembers (outcomePlan outcomes) rank
+        smallerPlanMembers (outcomeSizeIndex outcomes) (outcomePlan outcomes) rank
   where
     outcomes = staticOutcomes static
 -- Recursive ranks are size-major, so the members of strictly smaller size are
