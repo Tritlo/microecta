@@ -60,12 +60,13 @@ module Data.ECTA.Internal.ECTA.Operations (
 import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (Hashable (..))
+import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.List (inits, tails)
+import Data.List (compareLength)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid (All (..), First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
@@ -842,29 +843,22 @@ reduceEqConstraints = go
       where
         eclasses = filter (not . any (meetsConstrainedMu origNs) . unPathEClass) (unsafeSubsumptionOrderedEclasses ecs)
 
-        -- TODO: Replace with a "requirePathTrie"
-        withNeededChildren = foldr requirePathList origNs (concatMap unPathEClass eclasses)
+        withNeededChildren = requireAll (Set.fromList $ concatMap unPathEClass eclasses) origNs
 
         intersectList :: [Node symbol] -> Node symbol
         intersectList [] = EmptyNode
         intersectList (n : ns) = foldr intersect n ns
 
+        -- Narrow the node at each path of the class to the nodes at the other paths.
         reduceEClass :: PathEClass -> [Node symbol] -> [Node symbol]
         reduceEClass pec ns =
-            foldr
-                (\(p, nsRestIntersected) ns' -> modifyAtPath (intersect nsRestIntersected) p ns')
+            editAll
+                [ (p, intersect $ intersectList [getPath other ns | other <- paths, other /= p])
+                | p <- paths
+                ]
                 ns
-                (zip ps (toIntersect ns ps))
           where
-            ps = unPathEClass pec
-
-        toIntersect :: [Node symbol] -> [Path] -> [Node symbol]
-        toIntersect ns [p1, p2] = [getPath p2 ns, getPath p1 ns]
-        toIntersect ns ps = map intersectList $ dropOnes $ map (`getPath` ns) ps
-
-        -- dropOnes [1,2,3,4] = [[2,3,4], [1,3,4], [1,2,4], [1,2,3]]
-        dropOnes :: [a] -> [[a]]
-        dropOnes xs = zipWith (++) (inits xs) (drop 1 $ tails xs)
+            paths = unPathEClass pec
 
     -- Whether a path meets a recursive node with constraints, at the end of
     -- the path or before it. A free recursive reference counts as such a
@@ -885,6 +879,67 @@ reduceEqConstraints = go
     nodeMeetsConstrainedMu EmptyPath n = not (null (freeVars n))
     nodeMeetsConstrainedMu p (Node es) = any (\e -> meetsConstrainedMu (edgeChildren e) p) es
     nodeMeetsConstrainedMu _ _ = False
+
+-- | A trie of child positions that must exist. An empty map ends a required path.
+newtype Needed = Needed (IntMap.IntMap Needed)
+
+{- | Restrict a child list to the terms that contain every path, in one
+traversal. This gives the same nodes as requiring the paths one at a time.
+-}
+requireAll ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    Set Path -> [Node symbol] -> [Node symbol]
+requireAll paths = requireList (foldr insertNeeded (Needed IntMap.empty) paths)
+  where
+    insertNeeded EmptyPath needed = needed
+    insertNeeded (ConsPath index rest) (Needed children) =
+        Needed $ IntMap.alter (Just . insertNeeded rest . fromMaybe (Needed IntMap.empty)) index children
+
+    requireList :: Needed -> [Node symbol] -> [Node symbol]
+    requireList (Needed children) ns = IntMap.foldrWithKey (\index needed -> adjustAt index (requireNode needed)) ns children
+
+    requireNode :: Needed -> Node symbol -> Node symbol
+    requireNode (Needed children) n | IntMap.null children = n
+    requireNode _ EmptyNode = EmptyNode
+    requireNode needed n@(Mu _) = requireNode needed (unfoldOuterRec n)
+    requireNode needed@(Needed children) (Node es) =
+        Node
+            [ setChildren e (requireList needed (edgeChildren e))
+            | e <- es
+            , compareLength (edgeChildren e) (fst (IntMap.findMax children)) == GT
+            ]
+    requireNode _ (Rec _) = error "requireAll: unexpected Rec"
+
+-- | Edits at child positions: one at the end of a path, or the edits below an index.
+data Edits symbol
+    = EditAt (Node symbol -> Node symbol)
+    | EditBelow (IntMap.IntMap (Edits symbol))
+
+{- | Apply edits at several paths, none a prefix of another, in one traversal.
+This gives the same nodes as 'modifyAtPath' at each path in turn.
+-}
+editAll ::
+    forall symbol.
+    (Hashable symbol, Typeable symbol) =>
+    [(Path, Node symbol -> Node symbol)] -> [Node symbol] -> [Node symbol]
+editAll edits = editList (foldr (uncurry insertEdit) (EditBelow IntMap.empty) edits)
+  where
+    insertEdit EmptyPath f _ = EditAt f
+    insertEdit (ConsPath index rest) f (EditBelow children) =
+        EditBelow $ IntMap.alter (Just . insertEdit rest f . fromMaybe (EditBelow IntMap.empty)) index children
+    insertEdit (ConsPath _ _) _ leaf@(EditAt _) = leaf
+
+    editList :: Edits symbol -> [Node symbol] -> [Node symbol]
+    editList (EditAt _) ns = ns
+    editList (EditBelow children) ns = IntMap.foldrWithKey (\index below -> adjustAt index (editNode below)) ns children
+
+    editNode :: Edits symbol -> Node symbol -> Node symbol
+    editNode (EditAt f) n = f n
+    editNode _ EmptyNode = EmptyNode
+    editNode below n@(Mu _) = editNode below (unfoldOuterRec n)
+    editNode below (Node es) = Node (map (\e -> setChildren e (editList below (edgeChildren e))) es)
+    editNode _ (Rec _) = error "editAll: unexpected Rec"
 
 -- | Memo tables for 'unconstrained'.
 symbolUnconstrainedCache :: MemoCache (Node Symbol) Bool

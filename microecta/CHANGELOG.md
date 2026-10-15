@@ -85,6 +85,13 @@ reduces them, or enumerates them needs no migration.
   captured an enclosing binder's placeholder at the same level got an
   interning shape that aliased it. A body that captures no enclosing
   placeholder keeps its old shape, so its interning key does not change.
+* Hash the intersection environment once, and narrow the paths of an
+  equality class in one traversal. Every memo lookup of the intersection
+  hashed its whole recursive environment; the environment now carries its
+  hash. The equality reduction restricted and edited the children of an edge
+  once per path, each time from the root; it now builds one trie of the
+  required paths and applies the edits of a class in one traversal. The
+  results are the same.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
