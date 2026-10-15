@@ -262,6 +262,18 @@ spec = do
             ECTAGen.pmfAtSize (length <$> words_) 2
                 `shouldBe` Right [(2, 1)]
 
+        it "keeps an atomic distribution beside a finite sibling" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                words_ :: ECTAGen [Coin]
+                words_ = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ (\first second -> [first, second]) <$> coin <*> ECTAGen.elements [Heads]
+                        , (:) <$> coin <*> rest
+                        ]
+            ECTAGen.pmfAtSize words_ 2
+                `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
+
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
                     ECTAGen.recur $ \self ->

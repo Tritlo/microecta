@@ -33,6 +33,7 @@ module Data.ECTA.Gen.Internal (
     mapStatic,
     boundedStatic,
     recursiveFromStatic,
+    staticSampling,
     bucketFromOutcomes,
     mergeBucketGroup,
     mergeComponentsByKey,
@@ -78,10 +79,12 @@ module Data.ECTA.Gen.Internal (
     restrictToKey,
 ) where
 
+import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
 import Data.Kind (Type)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Sequence
 import qualified Data.Text as Text
@@ -338,6 +341,16 @@ data OutcomeIndex a = OutcomeIndex
     {- ^ The size classes of 'outcomePlan', built on first use and retained so
     a shrink loop pays for them once. Construct through 'mkOutcomeIndex'.
     -}
+    , outcomeSizeSampling :: Maybe (SampleIndex a, Integer -> Either ECTAGenError Rational)
+    {- ^ The sampler of each size class, and the weight of each rank inside its
+    size class, when a component atomic choice is not uniform. The weight of a
+    rank is its mass inside its size class times the number of members of the
+    class, so the weights of one size class add up to its member count. The
+    positions of the sampler are the positions of 'outcomeSizeIndex'.
+    'Nothing' means that every size class is uniform, and every rank has the
+    weight one. 'mkOutcomeIndex' sets 'Nothing'; 'applyStatic' and
+    'frequencyStatic' set a sampler and a weight from their components.
+    -}
     }
 
 -- | Build an outcome index whose size classes are derived from its plan.
@@ -350,7 +363,7 @@ mkOutcomeIndex ::
     Plan a ->
     OutcomeIndex a
 mkOutcomeIndex total mass select valueAt sampler plan =
-    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan)
+    OutcomeIndex total mass select valueAt sampler plan (sizeIndex plan) Nothing
 
 -- | Decode positions of one enumerated outcome sequence.
 seqPlan :: Seq (Outcome a) -> Plan a
@@ -378,10 +391,36 @@ data Static a = Static
     {- ^ Whether an explicit atomic boundary closes this finite language.
 
     Ordinary finite weights do not control recursive structure. 'atomicStatic'
-    sets this marker so 'recursiveFromStatic' can preserve them as one source
+    sets this marker so 'staticSampling' can preserve them as one source
     choice. The sampler itself already lives in 'staticOutcomes'.
     -}
     }
+
+{- | The sampler of each size class of a finite language, and the weight of
+each rank inside its size class when that sampler is not uniform.
+
+Inside a size class, the ordinary finite weights of the language become
+member counts. An atomic choice keeps its own distribution, also when it is
+a component of a product or of a choice. 'outcomeSizeSampling' describes the
+weight. The weight of an atomic choice comes from its exact outcome masses.
+-}
+staticSampling :: Static a -> (SampleIndex a, Maybe (Integer -> Either ECTAGenError Rational))
+staticSampling static
+    | staticAtomic static =
+        ( atomicSampleIndex $ outcomeSampler outcomes
+        , case outcomeUniformMass outcomes of
+            Nothing -> Just atomWeight
+            Just _ -> Nothing
+        )
+    | Just (sampling, weight) <- outcomeSizeSampling outcomes = (sampling, Just weight)
+    | otherwise = (uniformSampleIndex $ outcomeSizeIndex outcomes, Nothing)
+  where
+    outcomes = staticOutcomes static
+    -- Every member of an atom has size one, so its mass inside its size class
+    -- is its mass.
+    atomWeight rank =
+        (* fromInteger (outcomeCardinality outcomes)) . outcomeMass
+            <$> outcomeSelect outcomes rank
 
 {- | One recursive ECTA and the size-stratified language it accepts.
 
@@ -425,22 +464,13 @@ recursiveFromStatic :: Static a -> Recursive a
 recursiveFromStatic static =
     Recursive
         (staticSupport static)
-        index
+        (outcomeSizeIndex $ staticOutcomes static)
         sampling
-        weighted
+        (isJust weight)
         False
         Nothing
   where
-    outcomes = staticOutcomes static
-    index = outcomeSizeIndex outcomes
-    (sampling, weighted)
-        | staticAtomic static =
-            ( atomicSampleIndex $ outcomeSampler outcomes
-            , case outcomeUniformMass outcomes of
-                Nothing -> True
-                Just _ -> False
-            )
-        | otherwise = (uniformSampleIndex index, False)
+    (sampling, weight) = staticSampling static
 
 {- | Bound a recursive language to its members of size at most the bound.
 
@@ -769,12 +799,34 @@ applyStatic functions values =
                 (outcomePlan valueOutcomes)
             )
         )
+            { outcomeSizeSampling = sizeSampling
+            }
         False
   where
     functionOutcomes = staticOutcomes functions
     valueOutcomes = staticOutcomes values
     valueCardinality = outcomeCardinality valueOutcomes
     totalOutcomes = outcomeCardinality functionOutcomes * valueCardinality
+
+    -- Each side samples its own size class, so an atomic side keeps its
+    -- distribution inside every size of the product.
+    (functionSampling, functionWeight) = staticSampling functions
+    (valueSampling, valueWeight) = staticSampling values
+    sizeSampling = case (functionWeight, valueWeight) of
+        (Nothing, Nothing) -> Nothing
+        _ ->
+            Just
+                ( productSampleIndex
+                    (outcomeSizeIndex functionOutcomes)
+                    functionSampling
+                    (outcomeSizeIndex valueOutcomes)
+                    valueSampling
+                , \index ->
+                    let (functionIndex, valueIndex) = splitIndex index
+                     in (*)
+                            <$> maybe (Right 1) ($ functionIndex) functionWeight
+                            <*> maybe (Right 1) ($ valueIndex) valueWeight
+                )
 
     select index = do
         checkIndex totalOutcomes index
@@ -820,6 +872,8 @@ frequencyStatic alternatives =
                 ]
             )
         )
+            { outcomeSizeSampling = sizeSampling
+            }
         False
   where
     totalWeight = sum $ map fst alternatives
@@ -839,6 +893,22 @@ frequencyStatic alternatives =
     sampler = case uniformMass of
         Just _ -> uniformSampler totalOutcomes selectValue
         Nothing -> frequencySampler alternatives
+
+    -- Member counts choose the alternative inside a size class, as in a
+    -- recursive choice. An atomic alternative keeps its own distribution.
+    samplings = map (staticSampling . snd) alternatives
+    sizeSampling
+        | any (isJust . snd) samplings =
+            Just
+                ( choiceSampleIndex
+                    [ (outcomeSizeIndex $ staticOutcomes static, sampling)
+                    | ((sampling, _), (_, static)) <- zip samplings alternatives
+                    ]
+                , \index ->
+                    let (_, _, static, childIndex) = selectBranch index rankedBranches
+                     in maybe (Right 1) ($ childIndex) $ snd $ staticSampling static
+                )
+        | otherwise = Nothing
 
     branchUniformMass (weight, static) =
         (fromInteger weight / fromInteger totalWeight *)
@@ -1663,13 +1733,17 @@ offsetAlternatives = go 0
 -- | Map the values of an outcome index.
 mapOutcomeIndex :: (a -> b) -> OutcomeIndex a -> OutcomeIndex b
 mapOutcomeIndex transform outcomes =
-    mkOutcomeIndex
+    ( mkOutcomeIndex
         (outcomeCardinality outcomes)
         (outcomeUniformMass outcomes)
         (\index -> mapOutcome transform <$> outcomeSelect outcomes index)
         (transform . outcomeValueAt outcomes)
         (mapSampler transform $ outcomeSampler outcomes)
         (PlanMap transform $ outcomePlan outcomes)
+    )
+        { outcomeSizeSampling =
+            Bifunctor.first (mapSampleIndex transform) <$> outcomeSizeSampling outcomes
+        }
 
 -- | Map the value of one outcome.
 mapOutcome :: (a -> b) -> Outcome a -> Outcome b
