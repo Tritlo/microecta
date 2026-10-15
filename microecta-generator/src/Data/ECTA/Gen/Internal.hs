@@ -112,6 +112,7 @@ import Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts),
     choiceIndex,
     productIndex,
+    sharedPlan,
     sizeClasses,
     sizeIndex,
  )
@@ -1727,7 +1728,8 @@ compiled decoder of the argument group, and the size classes of the join read
 the size classes of the group. Many joins use the same group, for example
 every step of a trace uses the groups of the step before it. A plan that
 copied the group's plan into each join would compile one copy for each path
-to the group, and the decoder would keep each copy that a sample reached.
+to the group, and the decoder would keep each copy that a sample reached. A
+group with one member is a sized leaf, as 'sharedPlan' explains.
 -}
 chainPlan :: Plan operation -> ArgStatics operation result -> Plan result
 chainPlan plan ChainNil = plan
@@ -1736,7 +1738,7 @@ chainPlan plan (ChainCons static rest) =
         ( PlanAp
             (outcomeCardinality outcomes)
             plan
-            (PlanShared (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) (outcomePlan outcomes))
+            (sharedPlan (outcomeCardinality outcomes) (outcomeDecoder outcomes) (outcomeSizeIndex outcomes) (outcomePlan outcomes))
         )
         rest
   where

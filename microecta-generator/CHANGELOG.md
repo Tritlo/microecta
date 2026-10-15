@@ -224,3 +224,10 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   length 20 over four states now take 104 million instructions in place of
   566 million, allocate 27 MB in place of 161 MB, and keep 0.27 MB in place of
   9.3 MB.
+* An argument group with one member is a sized leaf in the plan of the join:
+  one size class with one member, which gives its size and its member
+  directly. The walks of `sizeOfRank`, `shrinkRank`, and `smallerMembers`
+  follow every path through a shared part. A member that holds one part at
+  many paths, such as a balanced tree of 2^41 - 1 source choices from a chain
+  of joins whose two arguments are the same one-member group, made them run
+  for longer than 20 s. Now they answer at once.

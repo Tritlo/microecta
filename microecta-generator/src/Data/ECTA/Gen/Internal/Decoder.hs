@@ -47,10 +47,12 @@ data Plan a where
     {- | A language already stratified by member size: ascending sizes, each
     with its member count and a decoder for one position in that size class.
 
-    Ranks are size-major, so a smaller rank never decodes to a larger member.
-    This is what a recursive generator bounded by 'Data.ECTA.Gen.upToSize'
-    lowers to; the other constructors keep the mixed-radix order they always
-    had.
+    'PlanSized' does not check that the sizes ascend. Its producers keep them
+    ascending. A recursive generator bounded by 'Data.ECTA.Gen.upToSize'
+    lowers to this plan with strictly ascending sizes, and @sharedPlan@ gives
+    a language with one member as one class. So ranks are size-major, and a
+    smaller rank never decodes to a larger member. The other constructors
+    keep the mixed-radix order they always had.
     -}
     PlanSized :: [(Int, Integer, Integer -> a, Int -> a)] -> Plan a
 

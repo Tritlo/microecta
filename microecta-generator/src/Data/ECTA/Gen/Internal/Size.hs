@@ -42,11 +42,12 @@ module Data.ECTA.Gen.Internal.Size (
     fixIndex,
     withMinimumMemberSize,
     sizeClasses,
+    sharedPlan,
 ) where
 
 import qualified Data.IntSet as IntSet
 
-import Data.ECTA.Gen.Internal.Decoder (Plan (..), SizeIndex (..))
+import Data.ECTA.Gen.Internal.Decoder (Plan (..), RankDecoder (..), SizeIndex (..))
 
 {- | A token that identifies the occurrence of one recursion in the probe
 flags of a size index. The flags hold the 'Int' of each token in an 'IntSet'.
@@ -144,6 +145,32 @@ sizeClasses bound index =
     | (size, count) <- zip [1 ..] (take bound (sizeClassCounts index))
     , count > 0
     ]
+
+{- | The plan of a language whose decoder is compiled once: the plans that use
+the language call that decoder and read its size classes, and the walks that
+follow one rank read the original plan.
+
+A language with one member is a sized leaf instead: one size class with one
+member. Its plan can be a shared tree with far more nodes than the plan has,
+for example a balanced tree whose two children are one language. A walk of
+the plan follows every path, so it would visit every node of that tree. The
+leaf gives the size and the member directly. A part with two or more members
+cannot occur that often in one member: each occurrence multiplies the
+cardinality by at least two.
+-}
+sharedPlan :: Integer -> RankDecoder a -> SizeIndex a -> Plan a -> Plan a
+sharedPlan 1 decoder index _ = PlanSized [(size, 1, const member, const member)]
+  where
+    member = case decoder of
+        SmallDecoder _ decode -> decode 0
+        LargeDecoder _ decode -> decode 0
+    size = case minimumMemberSize index of
+        Just size' -> size'
+        Nothing ->
+            error
+                "microecta-generator bug in Data.ECTA.Gen.Internal.Size.sharedPlan: \
+                \a language with one member has no size"
+sharedPlan cardinality' decoder index plan = PlanShared cardinality' decoder index plan
 
 -- | Count and index the size classes of a finite plan, keeping its ranks.
 sizeIndex :: Plan a -> SizeIndex a
