@@ -274,6 +274,22 @@ spec = do
             ECTAGen.pmfAtSize words_ 2
                 `shouldBe` Right [([Heads, Heads], 1 % 10), ([Tails, Heads], 9 % 10)]
 
+        it "keeps an atomic distribution through a bound and a recursion" $ do
+            let coin :: ECTAGen Coin
+                coin = ECTAGen.atomic $ ECTAGen.frequency [(1, pure Heads), (9, pure Tails)]
+                words_ :: ECTAGen [Coin]
+                words_ = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof [(: []) <$> coin, (:) <$> coin <*> rest]
+                -- A bounded recursive language inside another recursion.
+                sentences :: ECTAGen [Coin]
+                sentences = ECTAGen.recur $ \rest ->
+                    ECTAGen.oneof
+                        [ ECTAGen.upToSize 1 words_
+                        , (<>) <$> ECTAGen.upToSize 1 words_ <*> rest
+                        ]
+            ECTAGen.pmfAtSize sentences 1
+                `shouldBe` Right [([Heads], 1 % 10), ([Tails], 9 % 10)]
+
         it "rejects weighted alternatives around a recursive occurrence" $
             let weighted =
                     ECTAGen.recur $ \self ->

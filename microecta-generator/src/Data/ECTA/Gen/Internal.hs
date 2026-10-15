@@ -477,7 +477,8 @@ recursiveFromStatic static =
 The result is an ordinary finite language with the same size-major ranks the
 recursive language gives its members, so a rank replays through either. Size
 classes retain their count-based probability. Finite choices closed with
-'atomicStatic' retain their own distribution inside each class. The support
+'atomicStatic' retain their own distribution inside each class, also when the
+bounded language is a part of another recursion. The support
 stays the recursive automaton — a size bound restricts the rank space, not the
 set of terms the automaton accepts.
 
@@ -502,6 +503,8 @@ boundedStatic bound recursive
                     sampler
                     plan
                 )
+                    { outcomeSizeSampling = sizeSampling
+                    }
                 False
   where
     select index = case recursiveTerm recursive of
@@ -509,7 +512,37 @@ boundedStatic bound recursive
         Just readTerm -> do
             checkIndex totalOutcomes index
             let value = selectValue index
-            pure $ Outcome (readTerm value) (1 / fromInteger totalOutcomes) value
+            weight <- maybe (Right 1) (\(_, weightAt) -> weightAt index) sizeSampling
+            pure $ Outcome (readTerm value) (weight / fromInteger totalOutcomes) value
+
+    -- The bounded language keeps the sampler of each size class, so a
+    -- recursion over it keeps its atomic distributions.
+    sizeSampling
+        | recursiveWeighted recursive =
+            Just (recursiveSampling recursive, Right . classWeight classMasses)
+        | otherwise = Nothing
+    -- The exact distribution of each class sampler, by position in the class.
+    -- A recursive language has no finite weights to read, so this interprets
+    -- the sampler, and its cost grows with the tickets of the compiled atomic
+    -- samplers in the class. It is computed once, on first use.
+    classMasses =
+        [ ( count
+          , Map.fromListWith
+                (+)
+                [ (position, mass)
+                | (mass, (position, _)) <-
+                    runExact $ runRankSampler $ samplerAtSize (recursiveSampling recursive) size
+                ]
+          )
+        | (size, count, _, _) <- classes
+        ]
+    classWeight [] _ =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.boundedStatic: \
+            \rank outside the bounded language"
+    classWeight ((count, masses) : rest) index
+        | index < count = fromInteger count * Map.findWithDefault 0 index masses
+        | otherwise = classWeight rest (index - count)
 
     classes = sizeClasses bound $ recursiveIndex recursive
     plan = PlanSized classes

@@ -1,6 +1,7 @@
 -- | Backend-independent value and rank sampling.
 module Data.ECTA.Gen.Internal.Sampler (
     GenBackend (..),
+    Exact (..),
     Sampler (..),
     SampleIndex (..),
     atomicSampleIndex,
