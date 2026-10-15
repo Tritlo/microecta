@@ -57,7 +57,9 @@ module Data.ECTA.Internal.ECTA.Operations (
     getSubnodeById,
 ) where
 
-import Control.Monad.State.Strict (MonadState (..), State, evalState, modify')
+import Control.Monad.State.Strict (MonadState (..), State, evalState, evalStateT, gets, modify')
+import Control.Monad.Trans.Class (lift)
+import Data.Functor.Identity (Identity (..))
 import qualified Data.HashMap.Strict as HashMap
 import Data.Hashable (Hashable (..))
 import qualified Data.IntMap.Strict as IntMap
@@ -71,6 +73,7 @@ import Data.Monoid (All (..), First (..), Sum (..))
 import Data.Semigroup (Max (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 import Data.Type.Equality ((:~~:) (HRefl))
 import System.IO.Unsafe (unsafePerformIO)
 import Type.Reflection (Typeable, eqTypeRep, typeRep)
@@ -303,12 +306,17 @@ maxIndegree = max 0 . getMax . crush (onNormalNodes go)
 ------ Membership
 ------------
 
--- | Test whether a node accepts a concrete term.
+{- | Test whether a node accepts a concrete term.
+
+The edges of a node are tried in order, and the children of an edge from left
+to right. When the search comes to a subterm again with the same node, it uses
+the first result. So each node is decided at most once at each position in the
+term.
+-}
 nodeRepresents :: (Hashable symbol, Typeable symbol) => Node symbol -> Term symbol -> Bool
-nodeRepresents EmptyNode _ = False
-nodeRepresents (Node es) t = any (\e -> edgeRepresents e t) es
-nodeRepresents n@(Mu _) t = nodeRepresents (unfoldOuterRec n) t
-nodeRepresents _ _ = False
+nodeRepresents node = runIdentity . acceptsBy nodeEdges edgeSymbol edgeChildren check node
+  where
+    check _ edge term = Identity (edgeEcsSatisfied edge term)
 
 -- | Test whether an edge accepts a concrete term.
 edgeRepresents :: (Hashable symbol, Typeable symbol) => Edge symbol -> Term symbol -> Bool
@@ -320,6 +328,91 @@ edgeRepresents e = \t@(Term s ts) ->
     childrenRepresent [] [] = True
     childrenRepresent (n : ns) (t : ts) = nodeRepresents n t && childrenRepresent ns ts
     childrenRepresent _ _ = False
+
+-- | Whether every action succeeds, stopping at the first failure.
+andM :: (Monad m) => [m Bool] -> m Bool
+andM [] = pure True
+andM (action : actions) = action >>= \ok -> if ok then andM actions else pure False
+
+-- | Whether some action succeeds, stopping at the first success.
+orM :: (Monad m) => [m Bool] -> m Bool
+orM [] = pure False
+orM (action : actions) = action >>= \ok -> if ok then pure True else orM actions
+
+{- | Decide whether a key accepts a term, from the outgoing alternatives of each key.
+
+An alternative matches a subterm when its symbol and its number of children
+are those of the root of the subterm. The matching alternatives of a key are
+tried in order, and the search stops at the first one that accepts. The
+children of an alternative are tried from left to right. The check runs only
+when all of them accept. This is the order of the direct recursion.
+
+The direct recursion decides a subterm again for each alternative above it
+that fails, so its time can be exponential in the depth of the term. This
+search keeps a table below each subterm that two or more alternatives match.
+In the table, each key at each position of the term is decided once, and a
+later visit uses that result and runs no check. Above such a subterm, each
+subterm has one visit, and the search keeps no table. Thus each check runs at
+most once for each key, alternative, and position, in the order in which the
+direct recursion first runs it.
+-}
+acceptsBy ::
+    (Monad m, Ord key, Eq symbol) =>
+    (key -> [alternative]) ->
+    (alternative -> symbol) ->
+    (alternative -> [key]) ->
+    (key -> alternative -> Term symbol -> m Bool) ->
+    key ->
+    Term symbol ->
+    m Bool
+acceptsBy outgoing symbolOf childrenOf check = unshared
+  where
+    matches (Term symbol children) alternative =
+        symbolOf alternative == symbol && length (childrenOf alternative) == length children
+
+    -- The alternatives of a row from the first one that matches a subterm.
+    fromMatch _ [] = []
+    fromMatch term alternatives@(alternative : rest)
+        | matches term alternative = alternatives
+        | otherwise = fromMatch term rest
+
+    -- No other visit reaches this subterm, so its result needs no table.
+    unshared key term@(Term _ children) = case fromMatch term (outgoing key) of
+        [] -> pure False
+        alternative : rest -> case fromMatch term rest of
+            [] ->
+                childrenAccept (childrenOf alternative) children >>= \accepted ->
+                    if accepted then check key alternative term else pure False
+            _ -> evalStateT (shared key (positioned term)) Map.empty
+    childrenAccept (key : keys) (child : rest) =
+        unshared key child >>= \accepted -> if accepted then childrenAccept keys rest else pure False
+    childrenAccept _ _ = pure True
+
+    -- This subterm is at or below a subterm that two or more alternatives
+    -- match. The table holds the result of each position and key.
+    shared key (Tree.Node (_, term) children) =
+        orM
+            [ andM (zipWith visit (childrenOf alternative) children) >>= \accepted ->
+                if accepted then lift (check key alternative term) else pure False
+            | alternative <- outgoing key
+            , matches term alternative
+            ]
+    visit key node@(Tree.Node (position, _) _) = do
+        known <- gets (Map.lookup (position, key))
+        case known of
+            Just accepted -> pure accepted
+            Nothing -> do
+                accepted <- shared key node
+                modify' (Map.insert (position, key) accepted)
+                pure accepted
+
+    -- Each subterm with its position in preorder.
+    positioned whole = evalState (number whole) (0 :: Int)
+      where
+        number term@(Term _ children) = do
+            position <- get
+            modify' (+ 1)
+            Tree.Node (position, term) <$> traverse number children
 
 {- | Whether a term agrees with itself everywhere an edge's constraints say it
 must.
