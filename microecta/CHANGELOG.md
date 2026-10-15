@@ -106,6 +106,11 @@ reduces them, or enumerates them needs no migration.
   exponential in its depth. Below such a subterm, a table now keeps the
   result of each node at each position. The edges and children are tried in
   the same order, and the answer is the same.
+* Keep a literal `Symbol` a constant. `fromString` on `Symbol` could inline
+  into an unboxed `Text` and a lookup in the symbol table, and then GHC may
+  not float the result out to a constant, so a literal in a pattern or an
+  expression interned its text again on each call. `fromString` is now
+  `NOINLINE`, so a literal stays one opaque call, which GHC floats out.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
