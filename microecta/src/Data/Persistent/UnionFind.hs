@@ -19,6 +19,7 @@ module Data.Persistent.UnionFind (
     find,
 ) where
 
+import Control.Monad (when)
 import Control.Monad.State.Strict (State, execState, get, modify', put, runState)
 import Data.Coerce (coerce)
 import Data.IntMap.Strict (IntMap)
@@ -109,8 +110,9 @@ findWithNegSize uv = do
                 (rep, size) <- findWithNegSize (UVar x)
                 -- Compress against the state the recursive call left behind,
                 -- not against @m@: the rest of the chain was compressed there,
-                -- and rebuilding from @m@ would discard it.
-                modify' (coerce (IntMap.insert @Int) uv rep)
+                -- and rebuilding from @m@ would discard it. A variable whose
+                -- parent is the root already has its entry.
+                when (UVar x /= rep) $ modify' (coerce (IntMap.insert @Int) uv rep)
                 return (rep, size)
 
 -- | Find a variable's representative and return the path-compressed forest.
