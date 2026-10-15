@@ -1129,7 +1129,7 @@ frequency [] = Transparent $ Left EmptyGenerator
 frequency alternatives
     | Just badWeight <- firstNonPositiveWeight alternatives =
         Transparent $ Left $ NonPositiveWeight badWeight
-    | Just err <- firstError alternatives = Transparent $ Left err
+    | failed : _ <- [alternative | (_, alternative) <- alternatives, failure alternative] = failed
     | Just staticAlternatives <- traverse getStatic alternatives =
         Transparent $ Right $ frequencyStatic staticAlternatives
     | any (isRecursive . snd) alternatives =
@@ -1159,11 +1159,11 @@ frequency alternatives
             frequencyGen
                 [(weight, lower generator) | (weight, generator) <- alternatives]
   where
-    firstError = go
-      where
-        go [] = Nothing
-        go ((_, Transparent (Left err)) : _) = Just err
-        go (_ : rest) = go rest
+    -- The first failed alternative, finite or recursive, gives the error and
+    -- whether the failure is recursive.
+    failure (Transparent (Left _)) = True
+    failure (Cyclic (Left _)) = True
+    failure _ = False
 
     getStatic (weight, Transparent (Right static)) = Just (weight, static)
     getStatic _ = Nothing
