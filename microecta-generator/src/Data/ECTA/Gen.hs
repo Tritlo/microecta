@@ -1040,17 +1040,21 @@ group by group.
 Every key present in any alternative is retained. Within one key, the group
 is the weighted mixture of that key's groups across the alternatives; a key
 missing from an alternative simply contributes nothing to it. Ranks within a
-merged group are ordered by alternative order, then by the inner rank.
+merged group are ordered by alternative order, then by the inner rank. An
+alternative whose construction failed with 'EmptyGenerator' has no member to
+choose, so it is dropped, and the weights of the others are kept; any other
+failure is reported.
 -}
 frequencies ::
     (Ord key) =>
     [(Integer, Grouped gen key a)] ->
     Grouped gen key a
 frequencies [] = Grouped $ Left EmptyGenerator
-frequencies alternatives
-    | Just badWeight <- firstNonPositiveWeight alternatives =
+frequencies weighted
+    | Just badWeight <- firstNonPositiveWeight weighted =
         Grouped $ Left $ NonPositiveWeight badWeight
-    | Just err <- firstError alternatives = Grouped $ Left err
+    | Just err <- firstError weighted = Grouped $ Left err
+    | null alternatives = Grouped $ Left EmptyGenerator
     | any (isRecursiveGrouped . snd) alternatives =
         CyclicGrouped $
             if allWeightsEqual alternatives
@@ -1063,9 +1067,18 @@ frequencies alternatives
   where
     totalWeight = sum $ map fst alternatives
 
+    -- An empty alternative has no member to choose; it is not a failure.
+    alternatives = filter (not . emptyAlternative . snd) weighted
+      where
+        emptyAlternative (Grouped (Left EmptyGenerator)) = True
+        emptyAlternative (CyclicGrouped (Left EmptyGenerator)) = True
+        emptyAlternative _ = False
+
     firstError = go
       where
         go [] = Nothing
+        go ((_, Grouped (Left EmptyGenerator)) : rest) = go rest
+        go ((_, CyclicGrouped (Left EmptyGenerator)) : rest) = go rest
         go ((_, Grouped (Left err)) : _) = Just err
         go ((_, CyclicGrouped (Left err)) : _) = Just err
         go (_ : rest) = go rest
@@ -1151,16 +1164,22 @@ allWeightsEqual [] = True
 allWeightsEqual ((firstWeight, _) : rest) =
     all ((== firstWeight) . fst) rest
 
--- | Choose one generator with the supplied positive relative weight.
+{- | Choose one generator with the supplied positive relative weight.
+
+An alternative whose construction failed with 'EmptyGenerator' has no member
+to choose, so it is dropped, and the weights of the others are kept. The first
+other failed alternative, finite or recursive, is the result.
+-}
 frequency ::
     (GenBackend gen) =>
     [(Integer, ECTAGen gen a)] ->
     ECTAGen gen a
 frequency [] = Transparent $ Left EmptyGenerator
-frequency alternatives
-    | Just badWeight <- firstNonPositiveWeight alternatives =
+frequency weighted
+    | Just badWeight <- firstNonPositiveWeight weighted =
         Transparent $ Left $ NonPositiveWeight badWeight
-    | failed : _ <- [alternative | (_, alternative) <- alternatives, failure alternative] = failed
+    | failed : _ <- [alternative | (_, alternative) <- weighted, failure alternative] = failed
+    | null alternatives = Transparent $ Left EmptyGenerator
     | Just staticAlternatives <- traverse getStatic alternatives =
         Transparent $ Right $ frequencyStatic staticAlternatives
     | any (isRecursive . snd) alternatives =
@@ -1190,10 +1209,15 @@ frequency alternatives
             frequencyGen
                 [(weight, lower generator) | (weight, generator) <- alternatives]
   where
+    alternatives = filter (not . emptyAlternative . snd) weighted
+      where
+        emptyAlternative (Transparent (Left EmptyGenerator)) = True
+        emptyAlternative (Cyclic (Left EmptyGenerator)) = True
+        emptyAlternative _ = False
     -- The first failed alternative, finite or recursive, gives the error and
-    -- whether the failure is recursive.
-    failure (Transparent (Left _)) = True
-    failure (Cyclic (Left _)) = True
+    -- whether the failure is recursive. An empty alternative is no failure.
+    failure (Transparent (Left err)) = err /= EmptyGenerator
+    failure (Cyclic (Left err)) = err /= EmptyGenerator
     failure _ = False
 
     getStatic (weight, Transparent (Right static)) = Just (weight, static)
@@ -1206,7 +1230,8 @@ in QuickCheck's own @oneof@. In a recursive definition this is the shape to
 reach for: weights around a recursive occurrence are rejected, because such
 a language uses structural counts for global size selection and rank offsets.
 A finite choice closed with 'atomic' can still retain its own sampler mass
-within the selected size.
+within the selected size. As in 'frequency', an alternative that failed with
+'EmptyGenerator' is dropped.
 -}
 oneof :: (GenBackend gen) => [ECTAGen gen a] -> ECTAGen gen a
 oneof alternatives = frequency [(1, alternative) | alternative <- alternatives]

@@ -38,7 +38,8 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   walk forever on an out-of-range rank.
 * `frequency`, `oneof`, and `uniformly` choose among generators, the last in
   proportion to their cardinalities so every member of the union is equally
-  likely; `Functor` and `Applicative`
+  likely. All of them, and their grouped forms, drop an alternative that has
+  no members; `Functor` and `Applicative`
   composition tracks exact cardinalities without materializing the product.
 
 ### Conditioned joins
