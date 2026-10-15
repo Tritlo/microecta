@@ -64,6 +64,11 @@ reduces them, or enumerates them needs no migration.
   only after an unused inner binder is dropped, as in
   `createMu (\r -> createMu (\_ -> r))`. `createMuDontCleanup` still builds
   the node.
+* Keep a literal `Symbol` a constant. `fromString` on `Symbol` could inline
+  into an unboxed `Text` and a lookup in the symbol table, and then GHC may
+  not float the result out to a constant, so a literal in a pattern or an
+  expression interned its text again on each call. `fromString` is now
+  `NOINLINE`, so a literal stays one opaque call, which GHC floats out.
 * Fix `maxIndegree` returning `minBound :: Int` for a node with no normal
   nodes to count, such as `EmptyNode` -- the identity of the `Max` monoid
   leaking out as if it were an answer. It returns 0.
