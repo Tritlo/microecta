@@ -28,12 +28,15 @@ reduces them, or enumerates them needs no migration.
 * Fix `unfoldBounded` looping forever on a negative bound. Only `0` was
   matched, so a negative count decremented without end. Zero or less now
   unfolds nothing, which is what the bound already meant.
-* Fix `reduceEqConstraints` returning children that a second call could
-  narrow further. In one pass over the equivalence classes, the intersection
-  for one class could narrow a node that an earlier class had already read, so
-  the result was not a fixpoint. The reduction now repeats the pass until the
-  children stop changing. The fixture for this bug, open since 2021-06-29,
-  now passes.
+* `reduceEqConstraints` makes one pass over the equivalence classes of an
+  edge, as in the ECTA paper. One pass is not always a fixpoint: the
+  intersection for one class can narrow a node that an earlier class has
+  already read, as the fixture open since 2021-06-29 shows. Iterate the
+  reduction to get a fixpoint, as `fixUnbounded (withoutRedundantEdges .
+  reducePartially)` does; at that fixpoint one pass at each edge changes
+  nothing. An earlier change on this unreleased version repeated the pass at
+  each edge, and that made the term search of the ECTA paper about 100 times
+  slower, because each new pass reads new nodes and misses the memo tables.
 * Fix `nodeRepresents` accepting a term in which every path of an equality
   class is missing. The class compared the missing subterms, and `Nothing`
   equals `Nothing`. Enumeration and reduction require every path of a class,

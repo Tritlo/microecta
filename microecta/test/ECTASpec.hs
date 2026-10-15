@@ -264,35 +264,35 @@ spec = do
                 mapSize (min 3) $
                     \(n :: Node Symbol) -> HashSet.fromList (getAllTerms n) `shouldBe` HashSet.fromList (getAllTerms $ reducePartially n)
 
-        it "reducing a single constraint is idempotent 1" $
+        it "iterated reduction of a single constraint reaches a fixpoint 1" $
             property $ \(e :: Edge Symbol) ->
                 let ns = edgeChildren e
                     ecs = edgeEcs e
-                    ns' = reduceEqConstraints ecs EmptyConstraints ns
+                    ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
                  in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
-        it "reducing a single constraint is idempotent 2" $
+        it "iterated reduction of a single constraint reaches a fixpoint 2" $
             let intersectingEdge :: Gen (Edge Symbol)
                 intersectingEdge =
                     arbitrary `suchThatMap` \(e1, e2) -> intersectEdge e1 e2
              in forAll intersectingEdge $ \e' ->
                     let ns = edgeChildren e'
                         ecs = edgeEcs e'
-                        ns' = reduceEqConstraints ecs EmptyConstraints ns
+                        ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
                      in ns' == reduceEqConstraints ecs EmptyConstraints ns'
 
-        it "reducing a constraint is idempotent: buggy input 6/27/21" $ do
+        it "iterated reduction of a constraint reaches a fixpoint: buggy input 6/27/21" $ do
+            -- One pass is not idempotent on this input.
             let (ecs, ns) = bug062721NonIdempotentEqConstraintReduction
-                ns' = reduceEqConstraints ecs EmptyConstraints ns
+                ns' = fixUnbounded (reduceEqConstraints ecs EmptyConstraints) ns
             ns' `shouldBe` reduceEqConstraints ecs EmptyConstraints ns'
 
-        -- One pass does not establish this. The reduction repeats its pass
-        -- until the children stop changing, and that fixpoint does.
+        -- One pass does not establish this. The fixpoint of the passes does.
         it "leaf reduction means, for everything at a path, there is something matching at the other paths" $
             let liveConstrainedEdge :: Gen (Edge Symbol)
                 liveConstrainedEdge =
                     arbitrary `suchThatMap` \edge ->
-                        let reduced = reduceEdgeIntersection EmptyConstraints edge
+                        let reduced = fixUnbounded (reduceEdgeIntersection EmptyConstraints) edge
                          in if reduced /= emptyEdge (edgeSymbol reduced) && edgeEcs reduced /= EmptyConstraints
                                 then Just reduced
                                 else Nothing

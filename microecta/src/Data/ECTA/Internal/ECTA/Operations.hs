@@ -702,6 +702,11 @@ withoutRedundantEdges node = case eqTypeRep (typeRep @symbol) (typeRep @Symbol) 
 
 {- | Propagate equality constraints through one reduction pass.
 
+One pass narrows every child by the constraints that reach it, but a nested
+constrained edge can narrow a child after an outer edge has already read it.
+Iterate to a fixpoint, as 'fixUnbounded' does, when every constrained position
+must agree with every other.
+
 The pass does not unfold a recursive node that has constraints. A class that
 reaches into such a node stays unreduced (see 'reduceEqConstraints'). The
 language does not change, because enumeration and 'nodeRepresents' still check
@@ -757,10 +762,10 @@ reducePartially' constraints node = case eqTypeRep (typeRep @symbol) (typeRep @S
     --
     -- This does not stop every recursive cycle. A cycle through a recursive
     -- node with constraints stops because 'reduceEqConstraints' does not
-    -- unfold that node. 'go' returns a recursive node unchanged, so one pass
-    -- visits a finite part of the input, and only the fixpoint in
-    -- 'reduceEqConstraints' can repeat. No proof shows that this fixpoint, or
-    -- a repetition of passes, ends on every input.
+    -- unfold that node. 'go' returns a recursive node unchanged, and
+    -- 'reduceEqConstraints' makes one pass over the classes of an edge, so one
+    -- pass visits a finite part of the input. No proof shows that a
+    -- repetition of passes ends on every input.
     reduceWithInheritedEcs :: EqConstraints -> [Node symbol] -> [Node symbol]
     reduceWithInheritedEcs EqContradiction children = map (const EmptyNode) children
     reduceWithInheritedEcs inheritedEcs children = zipWith (\i -> reducePartially' (eqConstraintsDescend inheritedEcs i)) [0 ..] children
@@ -795,9 +800,11 @@ reduceEdgeIntersection constraints edge = case eqTypeRep (typeRep @symbol) (type
 when the local and inherited classes contradict each other.
 
 One pass over the classes is not always enough: the intersection for one class
-can narrow a node that a class earlier in the pass already read. The reduction
-repeats the pass until the children stop changing, so the result is a
-fixpoint.
+can narrow a node that a class earlier in the pass already read. Iterate the
+reduction, as 'fixUnbounded' does, to get a fixpoint. The reduction does not
+iterate by itself. The next pass reads the new nodes of this pass, so its
+intersections miss the memo. A fixpoint at each edge made the term search of
+the ECTA paper about 100 times slower than a fixpoint of 'reducePartially'.
 
 A class stays unreduced when one of its paths meets a recursive node with
 constraints, at the end of the path or before it. Unfolding such a node shows
@@ -806,7 +813,7 @@ recursive node without constraints can unfold, because its unfolding has no
 constraints to reduce.
 -}
 reduceEqConstraints :: forall symbol. (Hashable symbol, Typeable symbol) => EqConstraints -> EqConstraints -> [Node symbol] -> [Node symbol]
-reduceEqConstraints local inherited = fixUnbounded (go local inherited)
+reduceEqConstraints = go
   where
     propagateEmptyNodes :: [Node symbol] -> [Node symbol]
     propagateEmptyNodes ns = if EmptyNode `elem` ns then map (const EmptyNode) ns else ns
