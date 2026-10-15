@@ -270,9 +270,6 @@ anything built from it; bound the finished language from outside instead. A
 query of the argument, such as 'support' or 'unrank', reports
 'QueriedRecursiveOccurrence'; query the finished language instead.
 
-The guard check is per definition, so inside a nested 'recur' an occurrence of
-the /outer/ language must also sit under an application within the inner body.
-
 'pure' is one source choice, so @pure f '<*>' x@ has one more choice than
 @f '<$>' x@, and therefore different sizes and ranks; @pure f '<*>' self@
 counts as guarded where @f '<$>' self@ does not.

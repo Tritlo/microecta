@@ -85,6 +85,8 @@ module Data.ECTA.Gen.Internal (
 
 import qualified Data.Bifunctor as Bifunctor
 import Data.Foldable (toList)
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import Data.Kind (Type)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
@@ -474,15 +476,15 @@ data Recursive a = Recursive
     non-knot body, so bounded lowering can choose the sampler without forcing
     a Boolean fixpoint. 'False' permits uniform rank selection instead.
     -}
-    , recursiveOccurrence :: !Bool
-    {- ^ Whether this language is, or is built from, the argument of a
-    @recur@ or @recurGrouped@ body that is still being defined. Bounding such
-    a language is ill-founded — its size classes are what the definition is
-    computing — so 'boundedStatic' must not be reached through it. A query of
-    such a language reports @QueriedRecursiveOccurrence@, through
-    'queryRecursive'. The flag is set on the placeholders and cleared on the
-    finished result, and is therefore not the Boolean knot @usedOccurrence@
-    is.
+    , recursiveConstruction :: !IntSet
+    {- ^ The tokens of the @recur@ and @recurGrouped@ definitions that are
+    still being defined and whose argument this language is, or is built
+    from. Bounding such a language is ill-founded — its size classes are what
+    the definition is computing — so 'boundedStatic' must not be reached
+    through it. A query of such a language reports
+    @QueriedRecursiveOccurrence@, through 'queryRecursive'. A placeholder
+    holds the token of its definition, and a finished definition removes only
+    its own token, so it keeps the tokens of the definitions around it.
     -}
     , recursiveTerm :: Maybe (a -> Term Symbol)
     {- ^ How to read a member's ECTA term off its value, when the values are
@@ -501,8 +503,8 @@ and then the builds describe different languages.
 -}
 queryRecursive :: Recursive a -> Either ECTAGenError (Recursive a)
 queryRecursive recursive
-    | recursiveOccurrence recursive = Left QueriedRecursiveOccurrence
-    | otherwise = Right recursive
+    | IntSet.null $ recursiveConstruction recursive = Right recursive
+    | otherwise = Left QueriedRecursiveOccurrence
 
 -- | View a finite language as one size-stratified recursive component.
 recursiveFromStatic :: Static a -> Recursive a
@@ -512,7 +514,7 @@ recursiveFromStatic static =
         (outcomeSizeIndex $ staticOutcomes static)
         sampling
         (isJust weight)
-        False
+        IntSet.empty
         Nothing
   where
     (sampling, weight) = staticSampling static
@@ -1522,7 +1524,7 @@ recursiveJoin componentIndex operation arguments =
             joinedIndex
             joinedSampling
             joinedWeighted
-            joinedOccurrence
+            joinedConstruction
             Nothing
         )
         joinedMasses
@@ -1548,9 +1550,10 @@ recursiveJoin componentIndex operation arguments =
     joinedMassWeighted =
         keyedRecursiveMassWeighted operation
             || recursiveChainMassWeighted arguments
-    joinedOccurrence =
-        recursiveOccurrence operationRecursive
-            || recursiveChainOccurrence arguments
+    joinedConstruction =
+        IntSet.union
+            (recursiveConstruction operationRecursive)
+            (recursiveChainConstruction arguments)
 
 -- | The support of every matched recursive argument group, in order.
 recursiveSupports :: ArgChain KeyedRecursive operation result -> [Node Symbol]
@@ -1620,11 +1623,11 @@ recursiveChainWeighted ChainNil = False
 recursiveChainWeighted (ChainCons recursive rest) =
     recursiveWeighted (keyedRecursiveLanguage recursive) || recursiveChainWeighted rest
 
--- | Whether any recursive argument is still a recursive occurrence.
-recursiveChainOccurrence :: ArgChain KeyedRecursive operation result -> Bool
-recursiveChainOccurrence ChainNil = False
-recursiveChainOccurrence (ChainCons recursive rest) =
-    recursiveOccurrence (keyedRecursiveLanguage recursive) || recursiveChainOccurrence rest
+-- | The unfinished definitions that the recursive arguments reach.
+recursiveChainConstruction :: ArgChain KeyedRecursive operation result -> IntSet
+recursiveChainConstruction ChainNil = IntSet.empty
+recursiveChainConstruction (ChainCons recursive rest) =
+    IntSet.union (recursiveConstruction $ keyedRecursiveLanguage recursive) (recursiveChainConstruction rest)
 
 -- | Whether a recursive argument's key mass differs from structural counts.
 recursiveChainMassWeighted :: ArgChain KeyedRecursive operation result -> Bool
@@ -1652,7 +1655,7 @@ mergeRecursiveGroups alternatives =
                 index
                 (choiceMassSampleIndex indexedSamplers)
                 weighted
-                (any (recursiveOccurrence . keyedRecursiveLanguage) alternatives)
+                (IntSet.unions $ map (recursiveConstruction . keyedRecursiveLanguage) alternatives)
                 Nothing
             )
             masses

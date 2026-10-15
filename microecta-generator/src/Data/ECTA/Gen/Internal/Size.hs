@@ -23,9 +23,12 @@ counting size @s@ only ever consults sizes below it.
 -}
 module Data.ECTA.Gen.Internal.Size (
     SizeIndex (sizeClassCounts, sizeClassSelect, minimumMemberSize),
-    probeIndex,
+    Occurrence (..),
+    closedOccurrence,
     probeIndexWithMinimum,
     closedProbe,
+    closedProbeWithOccurrencesOf,
+    sameOccurrences,
     withKnotMetadata,
     isUnguarded,
     usesOccurrence,
@@ -41,54 +44,65 @@ module Data.ECTA.Gen.Internal.Size (
     sizeClasses,
 ) where
 
+import qualified Data.IntSet as IntSet
+
 import Data.ECTA.Gen.Internal.Decoder (Plan (..), SizeIndex (..))
 
-{- | A stand-in for a recursive occurrence, used to check that a recursive
-definition is guarded before it is tied.
+{- | A token that identifies the occurrence of one recursion in the probe
+flags of a size index. The flags hold the 'Int' of each token in an 'IntSet'.
+-}
+newtype Occurrence = Occurrence Int
+
+{- | The token of 'closedProbe', which stands for a recursion that is already
+tied. A closed probe clears its flags, so no flag holds this token. The
+supply of tokens for the recursions starts at the token after it.
+-}
+closedOccurrence :: Occurrence
+closedOccurrence = Occurrence 0
+
+{- | A stand-in for the occurrence of one recursion, with an assumed minimum,
+used to check that the recursive definition is guarded before it is tied.
+
+The token identifies the recursion. A nested definition can reach the probe
+of an enclosing one, so each recursion reads only its own token. Grouped
+recursion uses the assumed minimum to solve the least live size of mutually
+recursive keys without forcing their count knots.
 
 Only its metadata is ever read: building a language around a probe answers
 whether the recursion passes through a product and whether it can close to a
 finite member, without counting anything.
 -}
-probeIndex :: SizeIndex a
-probeIndex = probeIndexWithMinimum Nothing
-
-{- | A recursive-occurrence probe with an assumed minimum.
-
-Grouped recursion uses this to solve the least live size of mutually
-recursive keys without forcing their count knots.
--}
-probeIndexWithMinimum :: Maybe Int -> SizeIndex a
-probeIndexWithMinimum minimumSize' =
+probeIndexWithMinimum :: Occurrence -> Maybe Int -> SizeIndex a
+probeIndexWithMinimum (Occurrence token) minimumSize' =
     SizeIndex
         ( error
-            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndexWithMinimum: \
             \a probe counts no size classes; only its metadata is read"
         )
         ( error
-            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndexWithMinimum: \
             \a probe decodes no members; only its metadata is read"
         )
         ( error
-            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndex: \
+            "microecta-generator bug in Data.ECTA.Gen.Internal.Size.probeIndexWithMinimum: \
             \a probe decodes no members; only its metadata is read"
         )
         minimumSize'
-        True
-        True
+        (IntSet.singleton token)
+        (IntSet.singleton token)
 
-{- | Whether a language built around 'probeIndex' left the occurrence
-unguarded, so that counting it would not terminate.
+{- | Whether a language built around the probe of a token left that
+occurrence unguarded, so that counting it would not terminate.
 -}
-isUnguarded :: SizeIndex a -> Bool
-isUnguarded = unguardedOccurrence
+isUnguarded :: Occurrence -> SizeIndex a -> Bool
+isUnguarded (Occurrence token) = IntSet.member token . unguardedOccurrences
 
-{- | Whether a language built around 'probeIndex' reaches the occurrence at
-all. A body that does not is a language in its own right, not a recursive
-one.
+{- | Whether a language built around the probe of a token reaches that
+occurrence at all. A body that does not is a language in its own right, not
+a recursive one.
 -}
-usesOccurrence :: SizeIndex a -> Bool
-usesOccurrence = usedOccurrence
+usesOccurrence :: Occurrence -> SizeIndex a -> Bool
+usesOccurrence (Occurrence token) = IntSet.member token . usedOccurrences
 
 -- | The number of members of one size, zero outside the counted sizes.
 countAtSize :: SizeIndex a -> Int -> Integer
@@ -135,7 +149,7 @@ sizeClasses bound index =
 sizeIndex :: Plan a -> SizeIndex a
 sizeIndex (PlanShared _ _ index _) = index
 sizeIndex (PlanSelect cardinality' decode) =
-    SizeIndex [cardinality'] select selectInt minimumSize' False False
+    SizeIndex [cardinality'] select selectInt minimumSize' IntSet.empty IntSet.empty
   where
     minimumSize'
         | cardinality' > 0 = Just 1
@@ -154,7 +168,7 @@ sizeIndex (PlanSelect cardinality' decode) =
                 <> show size
 sizeIndex (PlanMap transform plan) = mapIndex transform $ sizeIndex plan
 sizeIndex (PlanChoice branches) =
-    SizeIndex counts select selectInt minimumSize' False False
+    SizeIndex counts select selectInt minimumSize' IntSet.empty IntSet.empty
   where
     entries = offsetBranches 0 branches
     offsetBranches _ [] = []
@@ -171,7 +185,7 @@ sizeIndex (PlanChoice branches) =
         let (inner, rebased) = partAtInt size (map snd entries) position
          in sizeClassValueInt inner size rebased
 sizeIndex (PlanAp radix planF planX) =
-    SizeIndex counts select selectInt minimumSize' False False
+    SizeIndex counts select selectInt minimumSize' IntSet.empty IntSet.empty
   where
     indexF = sizeIndex planF
     indexX = sizeIndex planX
@@ -191,7 +205,7 @@ sizeIndex (PlanAp radix planF planX) =
             argument = sizeClassValueInt indexX argumentSize argumentPosition
          in function argument
 sizeIndex (PlanSized classes) =
-    SizeIndex counts select selectInt minimumSize' False False
+    SizeIndex counts select selectInt minimumSize' IntSet.empty IntSet.empty
   where
     counts = classCounts classes
     minimumSize' = case [size | (size, count, _, _) <- classes, count > 0] of
@@ -220,7 +234,7 @@ sizeIndex (PlanSized classes) =
 -- | The one-member index of a single value, of size one.
 constantIndex :: a -> SizeIndex a
 constantIndex value =
-    SizeIndex [1] select selectInt (Just 1) False False
+    SizeIndex [1] select selectInt (Just 1) IntSet.empty IntSet.empty
   where
     select 1 0 = (0, value)
     select size position =
@@ -247,8 +261,8 @@ mapIndex transform index =
         select
         selectInt
         (minimumMemberSize index)
-        (unguardedOccurrence index)
-        (usedOccurrence index)
+        (unguardedOccurrences index)
+        (usedOccurrences index)
   where
     select size position =
         let (rank, value) = sizeClassSelect index size position
@@ -269,8 +283,8 @@ productIndex indexF indexX =
         select
         selectInt
         ((+) <$> minimumMemberSize indexF <*> minimumMemberSize indexX)
-        False
-        (usedOccurrence indexF || usedOccurrence indexX)
+        IntSet.empty
+        (IntSet.union (usedOccurrences indexF) (usedOccurrences indexX))
   where
     counts = productCounts indexF indexX
     ranks = sizeMajorRanks counts
@@ -300,8 +314,8 @@ choiceIndex branches =
         select
         selectInt
         (minimumOf $ map minimumMemberSize branches)
-        (any unguardedOccurrence branches)
-        (any usedOccurrence branches)
+        (IntSet.unions $ map unguardedOccurrences branches)
+        (IntSet.unions $ map usedOccurrences branches)
   where
     counts = foldr (addPoly . sizeClassCounts) [] branches
     ranks = sizeMajorRanks counts
@@ -319,8 +333,8 @@ choiceIndex branches =
 
 The recursion must be guarded — every recursive occurrence under at least
 one 'productIndex' — so that counting a size only consults smaller sizes.
-Callers check that with 'probeIndex' first, because an unguarded knot
-diverges rather than failing.
+Callers check that with a probe first, because an unguarded knot diverges
+rather than failing.
 
 The minimum and the occurrence flags of the tied index come from one build
 around 'closedProbe', not from the knot. A flag of the knot would be defined
@@ -344,7 +358,28 @@ size of its members. No probe is reached through it: the definition answered
 its own probe when it was tied.
 -}
 closedProbe :: Maybe Int -> SizeIndex a
-closedProbe minimumSize' = (probeIndexWithMinimum minimumSize'){unguardedOccurrence = False, usedOccurrence = False}
+closedProbe minimumSize' =
+    (probeIndexWithMinimum closedOccurrence minimumSize')
+        { unguardedOccurrences = IntSet.empty
+        , usedOccurrences = IntSet.empty
+        }
+
+{- | 'closedProbe' with the occurrence flags of another index. A member of a
+recursive family stands for the body of its key, which can reach the probe of
+an enclosing recursion, and the flags carry that to the members that read it.
+-}
+closedProbeWithOccurrencesOf :: SizeIndex b -> Maybe Int -> SizeIndex a
+closedProbeWithOccurrencesOf flags minimumSize' =
+    (closedProbe minimumSize')
+        { unguardedOccurrences = unguardedOccurrences flags
+        , usedOccurrences = usedOccurrences flags
+        }
+
+-- | Whether two indexes reach the same probes, and leave the same ones unguarded.
+sameOccurrences :: SizeIndex a -> SizeIndex b -> Bool
+sameOccurrences left right =
+    unguardedOccurrences left == unguardedOccurrences right
+        && usedOccurrences left == usedOccurrences right
 
 {- | Give a tied index a minimum and the occurrence flags of a build that does
 not read the knot.
@@ -359,8 +394,8 @@ withKnotMetadata minimumSize' closed index =
         , sizeClassSelect = sizeClassSelect index
         , sizeClassValueInt = sizeClassValueInt index
         , minimumMemberSize = minimumSize'
-        , unguardedOccurrence = unguardedOccurrence closed
-        , usedOccurrence = usedOccurrence closed
+        , unguardedOccurrences = unguardedOccurrences closed
+        , usedOccurrences = usedOccurrences closed
         }
 
 -- | Replace only the cached minimum, leaving counts and decoding unchanged.

@@ -128,9 +128,23 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
   hands back keeps the mark of an enclosing occurrence only, so
   `upToSize 4 (recur (\outer -> atKey False (recurGrouped ...)))`, where only
   the key `True` reaches `outer`, gives its members and not
-  `BoundedRecursiveOccurrence`. A body that chooses its shape from a count or
-  a rank of its argument can still fail with an internal error: the build
-  that finds the enclosing occurrences answers that query.
+  `BoundedRecursiveOccurrence`.
+* Each `recur` and `recurGrouped` has its own occurrence token, and checks
+  only its own occurrence for a guard and for use. Before, a size index had
+  one flag for any occurrence, so a nested definition could not tell its own
+  probe from the probe of an enclosing one, and an occurrence of the outer
+  language had to sit under an application inside the inner body. For
+  example, take an outer `recur` whose body applies `(+ 100)` to key 1 of a
+  `recurGrouped` family, where key 1 applies `(+ 10)` to key 2, and key 2 is
+  `oneof [outer, elements [3]]`. It reported `UnguardedRecursion`; now its
+  smallest member is 113. The closed build of a family repeats until the
+  tokens of each key stop changing, so a key that reaches an enclosing
+  occurrence only through another key keeps it. The marks of unfinished
+  definitions are token sets too, and a finished definition removes only its
+  own token. So no build needs an unmarked occurrence, and a body that
+  chooses its shape from a count or a rank of its argument gets
+  `QueriedRecursiveOccurrence` in every build. A body that tested
+  `unrank self 0` failed with an internal error before.
 
 ### Inspection
 

@@ -13,6 +13,7 @@ module Data.ECTA.Gen.Internal.Decoder (
     compilePlan,
 ) where
 
+import Data.IntSet (IntSet)
 import GHC.Arr (listArray, unsafeAt)
 
 {- | Symbolic rank-decoding structure retained beside every outcome index.
@@ -71,14 +72,16 @@ data SizeIndex a = SizeIndex
     -}
     , minimumMemberSize :: Maybe Int
     -- ^ Smallest live size, or 'Nothing' when no finite member is known.
-    , unguardedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' can be reached without passing through a
+    , unguardedOccurrences :: IntSet
+    {- ^ The recursions whose probe can be reached without passing through a
     product. Counting such an index would consult its own size, so a
-    recursive definition shaped this way has no smallest member.
+    recursive definition shaped this way has no smallest member. Each
+    element is the 'Int' of an occurrence token.
     -}
-    , usedOccurrence :: Bool
-    {- ^ Whether a 'probeIndex' is reachable at all. A recursive definition
-    whose body never reaches its own occurrence is not recursive.
+    , usedOccurrences :: IntSet
+    {- ^ The recursions whose probe is reachable at all. A recursive definition
+    whose body never reaches its own occurrence is not recursive. Each
+    element is the 'Int' of an occurrence token.
     -}
     }
 

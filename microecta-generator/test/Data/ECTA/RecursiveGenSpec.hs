@@ -255,6 +255,21 @@ spec = do
                         ]
             ECTAGen.smallest (ECTAGen.atKey 1 family) `shouldBe` Right (Just 1)
 
+        it "keeps an enclosing recursion that a family reaches only through another key" $ do
+            -- Key 1 reads key 2, which reads the enclosing recursion.
+            let family :: ECTAGen Int -> ECTAGen.Grouped Int Int
+                family enclosing = ECTAGen.recurGrouped $ \self ->
+                    ECTAGen.oneofGrouped
+                        [ ECTAGen.keyed 2 $ ECTAGen.oneof [enclosing, ECTAGen.elements [3]]
+                        , ECTAGen.apply (ECTAGen.keyed (2 :-> 1) $ ECTAGen.elements [(+ 10)]) (self :& ANil)
+                        ]
+                outer = ECTAGen.recur $ \enclosing ->
+                    ECTAGen.ungroup $
+                        ECTAGen.apply (ECTAGen.keyed (1 :-> (2 :: Int)) $ ECTAGen.elements [(+ 100)]) (family enclosing :& ANil)
+                answer = (Core.isRecursive outer, ECTAGen.smallest outer)
+            result <- timeout 60000000 $ answer <$ evaluate (length $ show answer)
+            result `shouldBe` Just (True, Right (Just 113))
+
         it "reports the exact atomic distribution inside one recursive size" $ do
             let coin = ECTAGen.atomic $ ECTAGen.frequency [(9, pure Heads), (1, pure Tails)]
                 words_ = ECTAGen.recur $ \rest ->

@@ -345,9 +345,7 @@ recursive language every finite inspector calls unbounded.
 Two rules apply inside the knot. The recursion must be guarded: every
 occurrence of the argument sits under at least one `<*>`, or the language
 has no smallest member — an unguarded definition is rejected with
-`UnguardedRecursion` rather than left to hang. The check is per definition, so
-inside a nested `recur` an occurrence of the *outer* language must also sit
-under an application within the inner body. Structural alternatives around a
+`UnguardedRecursion` rather than left to hang. Structural alternatives around a
 recursive occurrence must carry equal weights; `oneof` is the combinator that
 already reads that way, and the size bound controls how large members get.
 `frequency` with unequal recursive-branch weights is rejected rather than
