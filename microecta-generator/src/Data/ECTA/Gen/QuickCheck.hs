@@ -118,6 +118,7 @@ module Data.ECTA.Gen.QuickCheck (
     module Data.ECTA.Gen.Do,
 ) where
 
+import Data.Array (listArray, (!))
 import Data.List (mapAccumL, sortOn)
 import Data.Map.Strict (Map)
 import Data.Ord (Down (..))
@@ -155,29 +156,37 @@ instance ECTA.GenBackend QuickCheckBackend where
     selectInt bound =
         QuickCheckBackend $ QC.chooseInt (0, bound - 1)
 
+    frequencyGen [] =
+        error
+            "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
+            \no alternative to pick"
     frequencyGen alternatives =
         -- Ranked branches already carry their offsets, so sampling can put
         -- likely branches first without changing rank order.
         let ordered = sortOn (Down . fst) alternatives
             (total, cumulative) = mapAccumL accumulateWeight 0 ordered
+            lastIndex = length cumulative - 1
+            table = listArray (0, lastIndex) cumulative
+            -- Search for the first alternative whose upper bound is above
+            -- the selected ticket. The upper bounds do not decrease, so a
+            -- binary search finds the alternative that a linear scan finds.
+            pick selected low high
+                | low == high = case snd (table ! low) of QuickCheckBackend generated -> generated
+                | selected < fst (table ! middle) = pick selected low middle
+                | otherwise = pick selected (middle + 1) high
+              where
+                -- The sum of the two indexes can overflow; their difference cannot.
+                middle = low + (high - low) `quot` 2
          in QuickCheckBackend $ do
                 selected <-
                     if total <= toInteger (maxBound :: Int)
                         then toInteger <$> QC.chooseInt (0, fromInteger total - 1)
                         else QC.chooseInteger (0, total - 1)
-                pick selected cumulative
+                pick selected 0 lastIndex
       where
         accumulateWeight total (weight, generated) =
             let upperBound = total + weight
              in (upperBound, (upperBound, generated))
-
-        pick _ [] =
-            error
-                "microecta-generator bug in Data.ECTA.Gen.QuickCheck.frequencyGen: \
-                \no alternative to pick"
-        pick selected ((upperBound, QuickCheckBackend generated) : remaining)
-            | selected < upperBound = generated
-            | otherwise = pick selected remaining
 
     filterGen predicate (QuickCheckBackend generated) =
         QuickCheckBackend $ generated `QC.suchThat` predicate
