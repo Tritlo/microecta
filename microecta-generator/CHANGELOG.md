@@ -165,3 +165,6 @@ Requires `microecta` 0.2.0.0 or newer, and builds against `containers` 0.7 or
 * ECTA support is demand-driven: counting, masses, replay, and sampling use
   their own retained indexes, and finite joins keep support reduction as a
   thunk. `support` forces it.
+* A rank of a `match` or `relate` finds its matched group in a map of the first
+  rank of each group, so enumerating a join of n pairs in g groups no longer
+  costs `O(n * g)`.

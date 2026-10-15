@@ -1161,8 +1161,9 @@ joinOutcomeIndex left right groups = do
     withMass mass outcome = outcome{outcomeMass = mass}
     totalWeight = sum $ map joinGroupMass weightGroups
     weight index =
-        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroups index
+        let (_, leftOutcome, rightOutcome) = selectPairIn weightGroupsByOffset index
          in fromInteger totalOutcomes * outcomeMass leftOutcome * outcomeMass rightOutcome / totalWeight
+    weightGroupsByOffset = joinGroupsByOffset weightGroups
 
     totalOutcomes = sum $ map joinGroupCardinality groups
     uniformMass = case (outcomeUniformMass $ staticOutcomes left, outcomeUniformMass $ staticOutcomes right) of
@@ -1191,9 +1192,10 @@ joinOutcomeIndex left right groups = do
         let (_, leftOutcome, rightOutcome) = selectPair index
          in (outcomeValue leftOutcome, outcomeValue rightOutcome)
 
-    selectPair = selectPairIn groups
-    selectPairIn groups' index =
-        let (group, groupIndex) = selectJoinGroup index groups'
+    groupsByOffset = joinGroupsByOffset groups
+    selectPair = selectPairIn groupsByOffset
+    selectPairIn byOffset index =
+        let (group, groupIndex) = selectJoinGroup index byOffset
             rightCardinality = toInteger $ Sequence.length $ joinGroupRight group
             (leftIndex, rightIndex) = groupIndex `quotRem` rightCardinality
             leftOutcome = Sequence.index (joinGroupLeft group) $ fromInteger leftIndex
@@ -1212,20 +1214,21 @@ joinGroupMass group =
     sum (outcomeMass <$> joinGroupLeft group)
         * sum (outcomeMass <$> joinGroupRight group)
 
+-- | The matched groups with pairs, by the first rank of each.
+joinGroupsByOffset :: [JoinGroup left right] -> Map.Map Integer (JoinGroup left right)
+joinGroupsByOffset groups = Map.fromList [entry | entry@(_, group) <- offsetJoinGroups groups, joinGroupCardinality group > 0]
+
 -- | Find the group holding a rank, with the rank rebased into it.
 selectJoinGroup ::
     Integer ->
-    [JoinGroup left right] ->
+    Map.Map Integer (JoinGroup left right) ->
     (JoinGroup left right, Integer)
-selectJoinGroup _ [] =
-    error
-        "microecta-generator bug in Data.ECTA.Gen.Internal.selectJoinGroup: \
-        \rank outside the matched groups"
-selectJoinGroup index (group : remaining)
-    | index < groupSize = (group, index)
-    | otherwise = selectJoinGroup (index - groupSize) remaining
-  where
-    groupSize = joinGroupCardinality group
+selectJoinGroup index groups = case Map.lookupLE index groups of
+    Just (offset, group) -> (group, index - offset)
+    Nothing ->
+        error
+            "microecta-generator bug in Data.ECTA.Gen.Internal.selectJoinGroup: \
+            \rank outside the matched groups"
 
 -- | Sample a weighted two-way join, group by group.
 joinSampler ::
